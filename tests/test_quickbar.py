@@ -355,12 +355,14 @@ support_first = {
     'icon': support.icon().cacheKey(),
     'icon_size': [support.iconSize().width(), support.iconSize().height()],
     'timer': bar._support_pulse_timer.isActive(),
+    'spark': bar._support_motion_marker.isVisible(),
 }
 bar._advance_support_pulse()
 support_second = {
     'icon': support.icon().cacheKey(),
     'icon_size': [support.iconSize().width(), support.iconSize().height()],
     'timer': bar._support_pulse_timer.isActive(),
+    'spark': bar._support_motion_marker.isVisible(),
 }
 
 app._log_status = 'ONLINE'
@@ -383,6 +385,7 @@ online_stable = {
     'live_pulse': bool(bar._buttons['log_status'].property('LivePulse')),
     'bright_icon': bar._buttons['log_status'].icon().cacheKey() ==
         game_icon('ph-pulse-online-bright').cacheKey(),
+    'spark': bar._log_motion_marker.isVisible(),
 }
 stable_icon = bar._buttons['log_status'].icon().cacheKey()
 bar._advance_log_pulse()
@@ -486,6 +489,13 @@ def test_quickbar_uses_one_distinct_icon_per_action():
     assert len(icons) == len(set(icons))
     assert all(icon.startswith("ph-") for icon in icons)
     assert QUICKBAR_ITEMS[-1][0] == "support"
+
+
+def test_quickbar_keeps_timers_beside_spells_and_recovery_beside_quit():
+    keys = [key for key, _label, _icon, _group in QUICKBAR_ITEMS]
+    assert keys.index("timers") == keys.index("spells") + 1
+    assert keys[keys.index("quit") - 3:keys.index("quit")] == [
+        "log_status", "reload_ui", "updates"]
 
 
 def test_quickbar_repairs_hidden_support_once_and_preserves_later_choice(
@@ -671,6 +681,8 @@ def test_quickbar_animation_variants_debounce_visibility_and_reduced_motion(
     assert result['geometry_after'] == result['geometry_before']
     assert result['support_first']['timer'] is True
     assert result['support_second']['timer'] is True
+    assert result['support_first']['spark'] is True
+    assert result['support_second']['spark'] is False
     assert result['support_first']['icon_size'] == [16, 16]
     assert result['support_second']['icon_size'] == [16, 16]
     assert [result['support_first']['icon'], result['support_second']['icon']] == \
@@ -689,6 +701,7 @@ def test_quickbar_animation_variants_debounce_visibility_and_reduced_motion(
         'animating': True,
         'live_pulse': True,
         'bright_icon': True,
+        'spark': True,
     }
     assert result['online_variant_changed'] is True
     assert result['quiet'] == {

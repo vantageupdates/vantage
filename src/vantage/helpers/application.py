@@ -42,7 +42,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=21,
+    patch=22,
     build=""
 )
 
@@ -456,6 +456,12 @@ class VantageApp(QApplication):
         theme = theme.replace(
             '__VANTAGE_CHECK_PARTIAL_ICON__',
             resource_path('data/ui/icons/check-partial.svg').replace('\\', '/'))
+        theme = theme.replace(
+            '__VANTAGE_CHEVRON_TOP_ICON__',
+            resource_path('data/ui/icons/chevron-top.svg').replace('\\', '/'))
+        theme = theme.replace(
+            '__VANTAGE_CHEVRON_BOTTOM_ICON__',
+            resource_path('data/ui/icons/chevron-bottom.svg').replace('\\', '/'))
         self.setStyleSheet(theme)
 
     def reload_ui(self):

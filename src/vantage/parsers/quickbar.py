@@ -130,25 +130,42 @@ class QuickBar(ParserWindow):
             "Like this project? Support it — Buy Me a Coffee")
         support.setAccessibleDescription(
             "Opens the Vantage support page in your default browser")
+        self._support_motion_marker = QFrame(support)
+        self._support_motion_marker.setObjectName("QuickBarSupportSpark")
+        self._support_motion_marker.setFixedSize(5, 5)
+        self._support_motion_marker.move(2, 2)
+        self._support_motion_marker.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._support_motion_marker.hide()
+        logs_button = self._buttons["log_status"]
+        self._log_motion_marker = QFrame(logs_button)
+        self._log_motion_marker.setObjectName("QuickBarOnlineSpark")
+        self._log_motion_marker.setFixedSize(5, 5)
+        self._log_motion_marker.move(2, 2)
+        self._log_motion_marker.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._log_motion_marker.hide()
         # Alternate fixed-size vector artwork instead of resizing or applying
         # a graphics effect. Effects and animated icon geometry can disappear
         # inside QGraphicsProxyWidget on some Windows graphics drivers.
         self._support_pulse_on = False
         self._support_pulse_timer = QTimer(self)
         self._support_pulse_timer.setInterval(520)
-        self._support_pulse_timer.setTimerType(Qt.TimerType.CoarseTimer)
+        # Precise timers remain dependable while EverQuest/WinEQ owns focus;
+        # two sub-second UI pulses are still negligible compared with parsing.
+        self._support_pulse_timer.setTimerType(Qt.TimerType.PreciseTimer)
         self._support_pulse_timer.timeout.connect(
             self._advance_support_pulse)
 
         self._log_pulse_timer = QTimer(self)
         self._log_pulse_timer.setInterval(620)
-        self._log_pulse_timer.setTimerType(Qt.TimerType.CoarseTimer)
+        self._log_pulse_timer.setTimerType(Qt.TimerType.PreciseTimer)
         self._log_pulse_timer.timeout.connect(self._advance_log_pulse)
         self._log_online_debounce = QTimer(self)
         self._log_online_debounce.setSingleShot(True)
         self._log_online_debounce.setInterval(
             self._LOG_ONLINE_DEBOUNCE_MS)
-        self._log_online_debounce.setTimerType(Qt.TimerType.CoarseTimer)
+        self._log_online_debounce.setTimerType(Qt.TimerType.PreciseTimer)
         self._log_online_debounce.timeout.connect(
             self._start_log_animation_if_stable)
 
@@ -549,6 +566,8 @@ class QuickBar(ParserWindow):
             "ph-coffee-bright" if self._support_pulse_on else
             "ph-coffee-rest"))
         support.setIconSize(QSize(16, 16))
+        self._support_motion_marker.setVisible(
+            self._support_pulse_on and support.isVisible())
         self._repolish_animation_button(support)
 
     def _sync_log_animation(self):
@@ -606,6 +625,9 @@ class QuickBar(ParserWindow):
             icon_name = "ph-pulse"
         logs_button.setIcon(game_icon(icon_name))
         logs_button.setIconSize(QSize(16, 16))
+        self._log_motion_marker.setVisible(
+            self._log_online and self._log_pulse_on and
+            logs_button.isVisible())
         self._repolish_animation_button(logs_button)
 
     def _apply_log_status_copy(self, status, stable=False):
@@ -639,6 +661,8 @@ class QuickBar(ParserWindow):
         style.polish(button)
         button.update()
         self.action_frame.update()
+        self._scale_proxy.update()
+        self._scale_scene.update(self._scale_proxy.sceneBoundingRect())
         self._scale_view.viewport().update()
 
     def _trigger(self, key):

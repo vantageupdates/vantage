@@ -151,6 +151,16 @@ QToolButton#QuickBarButton:checked {
     border: 1px solid #173E2A;
     border-radius: 3px;
 }
+#QuickBarSupportSpark {
+    background-color: #FFF0B0;
+    border: 1px solid #4A3516;
+    border-radius: 2px;
+}
+#QuickBarOnlineSpark {
+    background-color: #A8F7CA;
+    border: 1px solid #123E29;
+    border-radius: 2px;
+}
 #QuickBarAlertBadge {
     color: #111418;
     background-color: #F0C766;
@@ -1502,4 +1512,58 @@ QMenu::separator { background: #34434E; }
 }
 #ParserWindowMenu QComboBox::drop-down {
     width: 13px;
+}
+
+/* Spells profile level: one field with a built-in two-way rocker. The value
+   owns the left side; both step targets live inside the same outer border. */
+QSpinBox#SpellLevelRocker {
+    color: #F2EEE5;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #182128, stop:1 #0D1318);
+    border: 1px solid #40505C;
+    border-radius: 6px;
+    min-height: 24px;
+    max-height: 24px;
+    padding: 0 18px 0 5px;
+    font-weight: 600;
+}
+QSpinBox#SpellLevelRocker:hover { border-color: #667783; }
+QSpinBox#SpellLevelRocker:focus {
+    color: #FFFFFF;
+    background-color: #20272D;
+    border: 2px solid #F0C778;
+}
+QSpinBox#SpellLevelRocker::up-button,
+QSpinBox#SpellLevelRocker::down-button {
+    subcontrol-origin: border;
+    width: 15px;
+    border: none;
+    border-left: 1px solid #40505C;
+    background-color: transparent;
+}
+QSpinBox#SpellLevelRocker::up-button {
+    subcontrol-position: top right;
+    border-top-right-radius: 5px;
+}
+QSpinBox#SpellLevelRocker::down-button {
+    subcontrol-position: bottom right;
+    border-bottom-right-radius: 5px;
+}
+QSpinBox#SpellLevelRocker::up-button:hover,
+QSpinBox#SpellLevelRocker::down-button:hover {
+    background-color: #2A353E;
+}
+QSpinBox#SpellLevelRocker::up-button:pressed,
+QSpinBox#SpellLevelRocker::down-button:pressed {
+    background-color: #403721;
+}
+QSpinBox#SpellLevelRocker::up-arrow {
+    image: url("__VANTAGE_CHEVRON_TOP_ICON__");
+    width: 7px;
+    height: 5px;
+}
+QSpinBox#SpellLevelRocker::down-arrow {
+    image: url("__VANTAGE_CHEVRON_BOTTOM_ICON__");
+    width: 7px;
+    height: 5px;
 }

@@ -11,8 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = r"""
 import json
 
-from PySide6.QtCore import QRect
-from PySide6.QtWidgets import QAbstractButton
+from PySide6.QtCore import QRect, Qt
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import (
+    QAbstractButton, QStyle, QStyleOptionSpinBox)
 
 from vantage.helpers import config
 from vantage.helpers.application import VantageApp
@@ -56,6 +58,42 @@ result = {
     'overlaps': overlaps,
 }
 
+level = panel._level_widget
+level.setValue(60)
+level.setFocus()
+app.processEvents()
+option = QStyleOptionSpinBox()
+level.initStyleOption(option)
+edit_rect = level.style().subControlRect(
+    QStyle.ComplexControl.CC_SpinBox, option,
+    QStyle.SubControl.SC_SpinBoxEditField, level)
+up_rect = level.style().subControlRect(
+    QStyle.ComplexControl.CC_SpinBox, option,
+    QStyle.SubControl.SC_SpinBoxUp, level)
+down_rect = level.style().subControlRect(
+    QStyle.ComplexControl.CC_SpinBox, option,
+    QStyle.SubControl.SC_SpinBoxDown, level)
+before_key = level.value()
+QTest.keyClick(level, Qt.Key.Key_Up)
+after_up = level.value()
+QTest.keyClick(level, Qt.Key.Key_Down)
+result['level'] = {
+    'object_name': level.objectName(),
+    'display': level.lineEdit().displayText(),
+    'width': level.width(),
+    'edit_width': edit_rect.width(),
+    'text_width': level.fontMetrics().horizontalAdvance('Lv 65'),
+    'up_inside': level.rect().contains(up_rect),
+    'down_inside': level.rect().contains(down_rect),
+    'rockers_distinct': up_rect != down_rect and not up_rect.intersects(down_rect),
+    'accessible_name': level.accessibleName(),
+    'accessible_description': level.accessibleDescription(),
+    'tooltip': level.toolTip(),
+    'before_key': before_key,
+    'after_up': after_up,
+    'after_down': level.value(),
+}
+
 panel.resize(260, 400)
 app.processEvents()
 result['wide_boat_visible'] = panel._boat_toggle.isVisible()
@@ -89,6 +127,20 @@ def test_narrow_spell_header_collapses_low_priority_tools_without_overlap(
     assert len(result['overflow_actions']) == 4
     assert all(action['text'] and action['tooltip']
                for action in result['overflow_actions'])
+    level = result['level']
+    assert level['object_name'] == 'SpellLevelRocker'
+    assert level['display'] == 'Lv 60'
+    assert level['width'] >= level['text_width'] + 31
+    assert level['edit_width'] >= level['text_width']
+    assert level['up_inside'] is True
+    assert level['down_inside'] is True
+    assert level['rockers_distinct'] is True
+    assert level['accessible_name'] in (
+        'Character level', 'Default spell level')
+    assert 'keyboard arrow keys' in level['accessible_description']
+    assert level['tooltip']
+    assert (level['before_key'], level['after_up'], level['after_down']) == (
+        60, 61, 60)
     assert result['wide_boat_visible'] is True
     assert result['wide_library_visible'] is True
     assert result['wide_overflow_visible'] is False

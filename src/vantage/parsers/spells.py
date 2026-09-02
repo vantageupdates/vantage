@@ -13,10 +13,11 @@ from PySide6.QtCore import QEvent, QObject, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QPainter
 from PySide6.QtNetwork import (
     QNetworkAccessManager, QNetworkReply, QNetworkRequest)
-from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog, QFrame,
-                             QHBoxLayout, QInputDialog, QLabel, QMenu,
-                             QProgressBar, QScrollArea, QSpinBox, QSizePolicy,
-                             QToolButton, QVBoxLayout, QPushButton, QWidget)
+from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QComboBox,
+                             QFileDialog, QFrame, QHBoxLayout, QInputDialog,
+                             QLabel, QMenu, QProgressBar, QScrollArea,
+                             QSpinBox, QSizePolicy, QToolButton, QVBoxLayout,
+                             QPushButton, QWidget)
 
 from vantage.helpers.parser import ParserWindow
 from vantage.helpers import config, format_time, resource_path, text_time_to_seconds
@@ -377,12 +378,19 @@ class Spells(ParserWindow):
             'Add a character profile and remember a separate spell level')
         self._add_character_button.clicked.connect(self._add_character_profile)
         self._level_widget = QSpinBox()
+        self._level_widget.setObjectName('SpellLevelRocker')
         self._level_widget.setRange(1, 65)
         self._level_widget.setValue(config.data['spells']['level'])
-        self._level_widget.setPrefix('lvl. ')
+        self._level_widget.setPrefix('Lv ')
+        self._level_widget.setButtonSymbols(
+            QAbstractSpinBox.ButtonSymbols.UpDownArrows)
+        self._level_widget.setAccelerated(True)
         self._level_widget.setAccessibleName('Character level')
+        self._level_widget.setAccessibleDescription(
+            'Use the integrated up and down rocker or the keyboard arrow keys '
+            'to change the level used for spell durations')
         self._level_widget.setToolTip(
-            'Level used to calculate the correct buff duration')
+            'Character level · use the integrated rocker or Up/Down keys')
         self._level_widget.valueChanged.connect(self._level_change)
         # Profiles live in a slim content strip, not the title header. This
         # preserves the fixed 22 px window chrome and prevents controls from
@@ -415,9 +423,17 @@ class Spells(ParserWindow):
         very_compact = self.width() < 150
         self._profile_label.setVisible(not compact)
         self._add_character_button.setVisible(not very_compact)
-        self._level_widget.setPrefix('Lv ' if compact else 'lvl. ')
+        self._level_widget.setPrefix('Lv ')
         self._character_widget.setMinimumWidth(44 if compact else 72)
-        self._level_widget.setMinimumWidth(48 if compact else 64)
+        # Reserve the complete prefix/value plus the in-field rocker. This is
+        # calculated from the active font so DPI or font scaling cannot place
+        # the step controls over the number.
+        level_text_width = self._level_widget.fontMetrics().horizontalAdvance(
+            f'Lv {self._level_widget.maximum()}')
+        # Qt's spin-box style reserves additional internal edit margins beyond
+        # the rocker width, so keep 42 px beyond the longest visible value.
+        level_width = max(70, level_text_width + 44)
+        self._level_widget.setFixedWidth(level_width)
         compact_header = self.width() < 215
         self._boat_toggle.setVisible(not compact_header)
         self._library_button.setVisible(not compact_header)
@@ -1644,7 +1660,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.21')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.22')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
