@@ -17,7 +17,6 @@ from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QFont, QPainter
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QScrollArea
-import vantage.helpers.application as application_module
 from vantage.helpers import config
 from vantage.helpers.application import VantageApp
 from vantage.helpers.quickbar_items import QUICKBAR_ITEM_KEYS
@@ -65,12 +64,9 @@ scene = bar._scale_proxy.mapToScene(QPointF(logical))
 viewport = bar._scale_view.mapFromScene(scene)
 QTest.mouseClick(
     bar._scale_view.viewport(), Qt.MouseButton.LeftButton, pos=viewport)
-replayed = []
-application_module.play_alert = lambda path, volume, source='': (
-    replayed.append([path, volume, source]) or True)
-app._last_audio_event = ('Timer warning', 'builtin:soft-tick', 42)
-app._last_audio = 'Timer warning · Subtle · 42%'
-bar._trigger('last_sound')
+reload_calls = []
+app.reload_ui = lambda: reload_calls.append('reloaded') or True
+bar._trigger('reload_ui')
 
 tick = app._parsers_dict['tick']
 tick.sync_now()
@@ -146,7 +142,7 @@ print(json.dumps({
     'vertical': vertical,
     'settings': settings_page,
     'support_calls': support_calls,
-    'replayed': replayed,
+    'reload_calls': reload_calls,
 }))
 app.quit()
 """
@@ -196,6 +192,8 @@ vertical_header = {
         Qt.WidgetAttribute.WA_AlwaysShowToolTips),
     'surface_always_tooltips': bar._surface.testAttribute(
         Qt.WidgetAttribute.WA_AlwaysShowToolTips),
+    'tick_width': bar.tick_readout.width(),
+    'tick_countdown_width': bar.tick_countdown.width(),
 }
 
 bar.toggle_header(False)
@@ -351,8 +349,7 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
     assert initial['sharp_surface'] is True
     assert initial['full_font_hinting'] is True
     assert result['support_calls'] == ['opened']
-    assert result['replayed'] == [[
-        'builtin:soft-tick', 42, 'Replay · Timer warning']]
+    assert result['reload_calls'] == ['reloaded']
 
     assert result['tick_readout']['text'] == 'TICK'
     assert result['tick_readout']['progress'] == 1000
@@ -397,10 +394,10 @@ def test_vertical_quickbar_shrinkwrap_logo_tooltips_and_pulse_lifecycle(
     result = json.loads(completed.stdout.strip().splitlines()[-1])
 
     vertical = result['vertical_header']
-    assert vertical['design'][0] == 54
-    assert vertical['window_width'] == 54
-    assert vertical['minimum_width'] == 54
-    assert vertical['action_hint_width'] == 54
+    assert vertical['design'][0] == 30
+    assert vertical['window_width'] == 30
+    assert vertical['minimum_width'] == 30
+    assert vertical['action_hint_width'] == 30
     assert vertical['header_required_width'] <= 30
     assert vertical['position'] == result['position_before']
     assert vertical['header_visible'] is True
@@ -409,13 +406,15 @@ def test_vertical_quickbar_shrinkwrap_logo_tooltips_and_pulse_lifecycle(
     assert vertical['targets_24'] is True
     assert vertical['always_tooltips'] is True
     assert vertical['surface_always_tooltips'] is True
+    assert vertical['tick_width'] == 24
+    assert vertical['tick_countdown_width'] == 20
     assert vertical['frame_visible'] is False
     assert vertical['title_visible'] is False
     assert vertical['roll_visible'] is False
     assert vertical['minimize_visible'] is False
 
     assert result['vertical_header_hidden'] == {
-        'design_width': 54,
+        'design_width': 30,
         'header_visible': False,
         'tick_visible': True,
     }
@@ -428,7 +427,7 @@ def test_vertical_quickbar_shrinkwrap_logo_tooltips_and_pulse_lifecycle(
         'running': True,
         'button_icon_visible': True,
         'pulse_property': True,
-        'interval': 720,
+        'interval': 520,
     }
     assert result['pulse_support_hidden'] == {
         'running': False,

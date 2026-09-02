@@ -43,6 +43,10 @@ class P99SpellEntry:
     name: str
     class_levels: tuple
     icon_id: int = 0
+    cast_message: str = ""
+    fade_message: str = ""
+    mana: int = 0
+    cast_time_ms: int = 0
 
     def level_for(self, class_name):
         target = str(class_name or "").casefold()
@@ -58,6 +62,22 @@ class P99SpellEntry:
     def levels_text(self):
         return ", ".join(
             f"{name} {level}" for name, level in self.class_levels)
+
+    @property
+    def effect_hint(self):
+        """Compact factual fallback while the Wiki description loads."""
+        messages = [
+            " ".join(str(value or "").split())
+            for value in (self.cast_message, self.fade_message)
+            if str(value or "").strip()]
+        mechanics = []
+        if self.mana > 0:
+            mechanics.append(f"Mana {self.mana}")
+        if self.cast_time_ms > 0:
+            mechanics.append(f"Cast {self.cast_time_ms / 1000:g}s")
+        if mechanics:
+            messages.append(" · ".join(mechanics))
+        return " ".join(messages)
 
 
 @lru_cache(maxsize=2)
@@ -98,6 +118,16 @@ def p99_spell_entries(path=""):
                 icon_id = int(values[144])
             except (TypeError, ValueError):
                 icon_id = 0
+            cast_message = values[6].strip()
+            fade_message = values[8].strip()
+            try:
+                mana = int(values[19])
+            except (TypeError, ValueError):
+                mana = 0
+            try:
+                cast_time_ms = int(values[13])
+            except (TypeError, ValueError):
+                cast_time_ms = 0
             key = name.casefold()
             current = by_name.get(key)
             if current:
@@ -111,8 +141,13 @@ def p99_spell_entries(path=""):
                     key=lambda item: P99_SPELL_CLASSES.index(item[0]))
                 spell_id = current.spell_id or spell_id
                 icon_id = current.icon_id or icon_id
+                cast_message = current.cast_message or cast_message
+                fade_message = current.fade_message or fade_message
+                mana = current.mana or mana
+                cast_time_ms = current.cast_time_ms or cast_time_ms
             by_name[key] = P99SpellEntry(
-                spell_id, name, tuple(profiles), icon_id)
+                spell_id, name, tuple(profiles), icon_id,
+                cast_message, fade_message, mana, cast_time_ms)
     return tuple(sorted(by_name.values(), key=lambda entry: entry.name.casefold()))
 
 

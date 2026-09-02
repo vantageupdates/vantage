@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hmac
+import hashlib
+import html as html_module
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
@@ -13,6 +15,7 @@ import secrets
 import socket
 import subprocess
 import threading
+from urllib.request import Request, urlopen
 from urllib.parse import parse_qs, quote, urlsplit
 
 import segno
@@ -40,13 +43,89 @@ CLOUDFLARE_QUICK_TUNNEL_DOCS = (
     "https://developers.cloudflare.com/cloudflare-one/networks/connectors/"
     "cloudflare-tunnel/do-more-with-tunnels/trycloudflare/")
 TUNNEL_URL_RX = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com", re.I)
+P99_SPELL_DETAIL_API = (
+    "https://wiki.project1999.com/api.php?action=parse&page={slug}"
+    "&prop=wikitext&format=json")
+
+
+def parse_mobile_spell_detail(wikitext):
+    """Extract the factual description and slot effects from a P99 spell page."""
+    source = str(wikitext or "")
+    match = re.search(
+        r"(?ims)^\|\s*description\s*=\s*(.*?)"
+        r"(?=^\|\s*[a-z_][\w ]*\s*=|^\}\}\s*$)", source)
+    description = match.group(1) if match else ""
+
+    def plain(value):
+        value = re.sub(r"<br\s*/?>", "\n", str(value), flags=re.IGNORECASE)
+        value = re.sub(
+            r"\[\[(?:[^\]|]+\|)?([^\]]+)\]\]", r"\1", value)
+        value = re.sub(r"\[https?://[^\]\s]+(?:\s+([^\]]+))?\]", r"\1", value)
+        value = re.sub(r"\{\{[^{}]*\}\}", "", value)
+        value = re.sub(r"<[^>]+>", "", value)
+        value = html_module.unescape(value).replace("'''", "").replace("''", "")
+        return " ".join(value.split())
+
+    effects = []
+    for raw_effect in re.findall(
+            r"(?is)\{\{SpellSlotRow\s*\|\s*\d+\s*\|\s*(.*?)\}\}",
+            source):
+        effect = plain(raw_effect)
+        if effect and effect not in effects:
+            effects.append(effect)
+    return {
+        "description": plain(description)[:1800],
+        "effects": effects[:12],
+        "source": "Project 1999 Wiki",
+    }
+
+
+def _mobile_spell_detail_path(name):
+    digest = hashlib.sha256(
+        str(name).strip().casefold().encode("utf-8")).hexdigest()[:20]
+    return data_dir("cache", "mobile-spell-details") / f"{digest}.json"
+
+
+def load_mobile_spell_detail(name):
+    """Load one cached Wiki description, fetching only on an explicit tap."""
+    cache_path = _mobile_spell_detail_path(name)
+    try:
+        cached = json.loads(cache_path.read_text(encoding="utf-8"))
+        if cached.get("description") or cached.get("effects"):
+            return cached
+    except (OSError, ValueError, json.JSONDecodeError):
+        pass
+    request = Request(
+        P99_SPELL_DETAIL_API.format(
+            slug=quote(str(name).strip().replace(" ", "_"), safe="")),
+        headers={"User-Agent": "Vantage/1.44.10"})
+    with urlopen(request, timeout=8) as response:
+        payload_bytes = response.read(2_000_001)
+    if len(payload_bytes) > 2_000_000:
+        raise ValueError("Wiki response is larger than the safe limit")
+    payload = json.loads(payload_bytes.decode("utf-8"))
+    parsed = payload.get("parse")
+    if not isinstance(parsed, dict):
+        raise ValueError("Project 1999 Wiki does not have this spell page")
+    wikitext = parsed.get("wikitext", {})
+    if isinstance(wikitext, dict):
+        wikitext = wikitext.get("*", "")
+    detail = parse_mobile_spell_detail(wikitext)
+    if not detail["description"] and not detail["effects"]:
+        raise ValueError("No spell description was found")
+    try:
+        cache_path.write_text(
+            json.dumps(detail, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+    return detail
 
 
 _MOBILE_PAGE = r"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta id="viewport" name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="referrer" content="no-referrer">
 <title>Vantage · P99 Companion</title>
 <style>
@@ -82,7 +161,6 @@ dialog{width:min(92vw,620px);max-height:84vh;overflow:auto;border:1px solid #6e6
 <section id="timers" class="page" role="tabpanel" aria-labelledby="tabTimers" tabindex="0"><h2 class="panel-title">Spawn timers</h2><div class="section-tools"><div class="field"><label for="timerZone">Zone shown on PC and phone</label><select id="timerZone"><option value="">All zones</option></select></div></div><p id="timerEmpty" class="empty" hidden>No saved timers in this zone.</p><ul id="timerRows" class="timer-list" aria-label="Configured timers" aria-busy="false"></ul></section>
 <section id="marketPage" class="page" role="tabpanel" aria-labelledby="tabMarket" tabindex="0" hidden><h2 id="marketHeading" class="panel-title">PIGPARSE GREEN · ITEM STATS</h2><search aria-label="Search market and item stats"><form id="marketFilters" class="filters">
 <div class="field field-wide"><label for="mq">Item or effect</label><input id="mq" name="q" type="search" placeholder="Search item, click, proc or worn effect…" autocomplete="off"></div>
-<div class="field"><label for="mt">Listing</label><select id="mt"><option value="">WTS + WTB</option><option value="0">WTS only</option><option value="1">WTB only</option></select></div>
 <div class="field"><label for="mc">Class</label><select id="mc"><option value="0">Any class</option><option value="1">Warrior</option><option value="2">Cleric</option><option value="4">Paladin</option><option value="8">Ranger</option><option value="16">Shadow Knight</option><option value="32">Druid</option><option value="64">Monk</option><option value="128">Bard</option><option value="256">Rogue</option><option value="512">Shaman</option><option value="1024">Necromancer</option><option value="2048">Wizard</option><option value="4096">Magician</option><option value="8192">Enchanter</option></select></div>
 <div class="field"><label for="mr">Race</label><select id="mr"><option value="0">Any race</option><option value="1">Human</option><option value="2">Barbarian</option><option value="4">Erudite</option><option value="8">Wood Elf</option><option value="16">High Elf</option><option value="32">Dark Elf</option><option value="64">Half Elf</option><option value="128">Dwarf</option><option value="256">Troll</option><option value="512">Ogre</option><option value="1024">Halfling</option><option value="2048">Gnome</option><option value="4096">Iksar</option></select></div>
 <div class="field"><label for="ms">Slot</label><select id="ms"><option value="0">Any slot</option><option value="1">Charm</option><option value="18">Ear</option><option value="4">Head</option><option value="8">Face</option><option value="32">Neck</option><option value="64">Shoulders</option><option value="128">Arms</option><option value="256">Back</option><option value="1536">Wrist</option><option value="2048">Range</option><option value="4096">Hands</option><option value="8192">Primary</option><option value="16384">Secondary</option><option value="98304">Finger</option><option value="131072">Chest</option><option value="262144">Legs</option><option value="524288">Feet</option><option value="1048576">Waist</option><option value="2097152">Ammo</option></select></div>
@@ -97,7 +175,7 @@ dialog{width:min(92vw,620px);max-height:84vh;overflow:auto;border:1px solid #6e6
 <dialog id="detailDialog" aria-labelledby="detailTitle"><div class="dialog-head"><h2 id="detailTitle">Details</h2><button id="detailClose" class="dialog-close" type="button" aria-label="Close details">Close</button></div><div id="detailBody" class="dialog-body"></div></dialog>
 <script>
 const token=location.hash.slice(1),byId=id=>document.getElementById(id);
-const mainContent=byId('main-content'),skipLink=byId('skipLink'),timersPanel=byId('timers'),timersRoot=byId('timerRows'),timerEmpty=byId('timerEmpty'),timerStatus=byId('timerStatus'),timerZone=byId('timerZone');
+const viewport=byId('viewport'),mainContent=byId('main-content'),skipLink=byId('skipLink'),timersPanel=byId('timers'),timersRoot=byId('timerRows'),timerEmpty=byId('timerEmpty'),timerStatus=byId('timerStatus'),timerZone=byId('timerZone');
 const marketPanel=byId('marketPage'),marketRoot=byId('marketRows'),marketNote=byId('marketNote'),marketStatus=byId('marketStatus'),spellsPanel=byId('spellsPage'),spellRoot=byId('spellRows'),spellNote=byId('spellNote'),spellStatus=byId('spellStatus');
 const gamePanel=byId('gamePage'),gameState=byId('gameState'),gameHelp=byId('gameHelp'),gameFrame=byId('gameFrame'),gameShell=byId('gameShell'),gameSize=byId('gameSize'),zoomLock=byId('zoomLock');
 const state=byId('state'),connectionStatus=byId('connectionStatus'),connectionAlert=byId('connectionAlert'),detailDialog=byId('detailDialog'),detailTitle=byId('detailTitle'),detailBody=byId('detailBody');
@@ -108,8 +186,8 @@ function node(tag,cls,text){const n=document.createElement(tag);if(cls)n.classNa
 async function get(path){const r=await fetch(path,{cache:'no-store',headers:{Authorization:'Bearer '+token}});if(!r.ok)throw Error(String(r.status));return r.json()}
 async function post(path,data){const r=await fetch(path,{method:'POST',cache:'no-store',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(data)});if(!r.ok)throw Error(String(r.status));return r.json()}
 function saved(key,fallback){try{const value=localStorage.getItem(key);return value===null?fallback:value==='true'}catch(_){return fallback}}function save(key,value){try{localStorage.setItem(key,String(value))}catch(_){}}
-let zoomLocked=saved('vantageZoomLock',true),nativeSize=saved('vantageNativeSize',false);function applyGameView(){gameShell.classList.toggle('zoom-locked',zoomLocked);gameShell.classList.toggle('native',nativeSize);zoomLock.textContent=zoomLocked?'ZOOM LOCKED':'ZOOM FREE';zoomLock.setAttribute('aria-pressed',String(zoomLocked));gameSize.textContent=nativeSize?'1:1 PIXELS':'FIT TO SCREEN'}applyGameView();
-zoomLock.addEventListener('click',()=>{zoomLocked=!zoomLocked;save('vantageZoomLock',zoomLocked);applyGameView()});gameSize.addEventListener('click',()=>{nativeSize=!nativeSize;save('vantageNativeSize',nativeSize);applyGameView()});gameShell.addEventListener('touchmove',event=>{if(zoomLocked&&event.touches.length>1)event.preventDefault()},{passive:false});for(const eventName of ['gesturestart','gesturechange'])gameShell.addEventListener(eventName,event=>{if(zoomLocked)event.preventDefault()},{passive:false});
+let zoomLocked=saved('vantageZoomLock',true),nativeSize=saved('vantageNativeSize',false);function applyGameView(){gameShell.classList.toggle('zoom-locked',zoomLocked);gameShell.classList.toggle('native',nativeSize);zoomLock.textContent=zoomLocked?'ZOOM LOCKED':'ZOOM FREE';zoomLock.setAttribute('aria-pressed',String(zoomLocked));gameSize.textContent=nativeSize?'1:1 PIXELS':'FIT TO SCREEN';viewport.setAttribute('content',zoomLocked?'width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no':'width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes');const touchAction=zoomLocked?'pan-x pan-y':'auto';document.documentElement.style.touchAction=touchAction;document.body.style.touchAction=touchAction}applyGameView();
+zoomLock.addEventListener('click',()=>{zoomLocked=!zoomLocked;save('vantageZoomLock',zoomLocked);applyGameView()});gameSize.addEventListener('click',()=>{nativeSize=!nativeSize;save('vantageNativeSize',nativeSize);applyGameView()});document.addEventListener('touchmove',event=>{if(zoomLocked&&event.touches.length>1)event.preventDefault()},{passive:false});for(const eventName of ['gesturestart','gesturechange','gestureend'])document.addEventListener(eventName,event=>{if(zoomLocked)event.preventDefault()},{passive:false});
 async function loadGame(){clearTimeout(gameDelay);if(gamePanel.hidden||document.hidden)return;if(gameLoading){gameDelay=setTimeout(loadGame,180);return}gameLoading=true;let delay=500;try{const status=await get('/api/game/status');delay=Math.max(100,Math.round(1000/(Number(status.fps)||5)));announce(gameState,(status.title?status.title+' · ':'')+String(status.message||'')+(status.image_quality_label?' · '+status.image_quality_label:''));if(!status.enabled||!status.available){gameFrame.hidden=true;gameHelp.hidden=false;gameHelp.textContent=String(status.message||'View unavailable.');return}const response=await fetch('/api/game/frame',{cache:'no-store',headers:{Authorization:'Bearer '+token}});if(!response.ok){let failure={};try{failure=await response.json()}catch(_){}const message=String(failure.message||(response.status===403?'EverQuest Live is available only through the local Wi-Fi link.':'The EverQuest window could not be captured.'));gameFrame.hidden=true;gameHelp.hidden=false;gameHelp.textContent=message;announce(gameState,(failure.title?String(failure.title)+' · ':'')+message);delay=1000;return}const blob=await response.blob(),next=URL.createObjectURL(blob),old=gameObjectUrl;gameObjectUrl=next;gameFrame.onload=()=>{if(old)URL.revokeObjectURL(old)};gameFrame.src=next;gameFrame.hidden=false;gameHelp.hidden=true}catch(_){gameFrame.hidden=true;gameHelp.hidden=false;gameHelp.textContent='Local connection to Vantage was lost. Retrying…';announce(gameState,gameHelp.textContent);delay=1000}finally{gameLoading=false;if(!gamePanel.hidden&&!document.hidden)gameDelay=setTimeout(loadGame,delay)}}
 function setConnection(text,offline=false,urgent=''){if(text===lastConnection)return;lastConnection=text;state.textContent=text;state.classList.toggle('offline',offline);if(urgent){connectionStatus.textContent='';announce(connectionAlert,urgent)}else{connectionAlert.textContent='';announce(connectionStatus,text)}}
 function actionButton(label,action,title){const button=node('button','',label);button.type='button';button.dataset.action=action;button.title=title;button.setAttribute('aria-label',title);return button}
@@ -120,21 +198,21 @@ function syncTimerZone(data){const zones=Array.isArray(data.timer_zones)?data.ti
 function drawTimers(data){syncTimerZone(data);const rows=Array.isArray(data.timers)?data.timers:[],existing=new Map(Array.from(timersRoot.children).map(row=>[row.dataset.key,row])),used=new Set(),nextStates=new Map(),milestones=[];let anchor=timersRoot.firstElementChild;for(const t of rows){const key=String(t.timer_id||[t.name,t.zone,t.kill].join('\u241f'));let row=existing.get(key);if(!row)row=createTimerRow(key);used.add(key);updateTimerRow(row,t);const name=String(t.name||'Spawn'),phase=['idle','respawn','combat','available'].includes(t.phase)?t.phase:'idle',running=t.running!==false,previous=timerStates.get(key);if(previous){if(previous.running!==running)milestones.push(name+(running?' resumed.':' paused.'));if(previous.phase!==phase)milestones.push(name+': '+phases[phase].toLowerCase()+'.')}nextStates.set(key,{phase,running});if(row!==anchor)timersRoot.insertBefore(row,anchor);anchor=row.nextElementSibling}for(const row of Array.from(timersRoot.children))if(!used.has(row.dataset.key))row.remove();const empty=rows.length===0;if(timerListWasEmpty!==null&&timerListWasEmpty!==empty)milestones.push(empty?'No timers in this zone.':rows.length+' timer'+(rows.length===1?' is':'s are')+' visible.');if(milestones.length)announce(timerStatus,milestones.slice(0,3).join(' '));timerStates=nextStates;timerListWasEmpty=empty;timerEmpty.hidden=!empty;timersRoot.hidden=empty}
 timerZone.addEventListener('change',async()=>{if(syncingZone)return;timerZone.disabled=true;try{await post('/api/timers/action',{action:'zone',target:timerZone.value});setTimeout(poll,120)}catch(error){announce(timerStatus,String(error.message)==='403'?'Zone sync requires the local Wi-Fi QR link.':'Zone could not be changed.')}finally{setTimeout(()=>timerZone.disabled=false,350)}});
 function statSummary(item){const stats=item.stats||{},values=Object.entries(stats).slice(0,7).map(([key,value])=>(statLabels[key]||key.toUpperCase())+' '+(Number(value)>0?'+':'')+String(value));return values.join(' · ')}
-function openMarketDetail(item){detailTitle.textContent=String(item.name||'Item');detailBody.replaceChildren();const top=node('div','top');top.append(node('span','source','PIGPARSE PRICE'),node('span','chip',item.nodrop?'NO DROP':'DROPPABLE'),node('span','chip',item.era?String(item.era).toUpperCase():'ERA UNKNOWN'));detailBody.append(top,node('p','price',item.price?Number(item.price).toLocaleString()+' pp':'No current price'),node('p','meta',String(Number(item.posts)||0)+' posts in 30 days · '+(Number(item.type)===0?'WTS':Number(item.type)===1?'WTB':'WTS + WTB')));const stats=item.stats||{},keys=Object.keys(stats);if(keys.length){detailBody.append(node('h3','detail-section','ITEM STATS'));const grid=node('div','detail-grid');for(const key of keys){const cell=node('div','detail-cell');cell.append(node('b','',statLabels[key]||key.toUpperCase()),node('span','',((Number(stats[key])>0)?'+':'')+String(stats[key])));grid.append(cell)}detailBody.append(grid)}const effects=Array.isArray(item.effects)?item.effects:[];if(effects.length){detailBody.append(node('h3','detail-section','CLICK / PROC / WORN EFFECTS'));for(const effect of effects)detailBody.append(node('div','effect',String(effect.type||'Effect')+' · '+String(effect.name||'')))}const link=node('a','source-link','Open Project 1999 Wiki source');link.href=String(item.wiki_url||'#');link.target='_blank';link.rel='noreferrer noopener';detailBody.append(link);detailDialog.showModal()}
+function openMarketDetail(item){detailTitle.textContent=String(item.name||'Item');detailBody.replaceChildren();const top=node('div','top');top.append(node('span','source','PIGPARSE PRICE REFERENCE'),node('span','chip',item.nodrop?'NO DROP':'DROPPABLE'),node('span','chip',item.era?String(item.era).toUpperCase():'ERA UNKNOWN'));detailBody.append(top,node('p','price',item.price?Number(item.price).toLocaleString()+' pp':'No current price'),node('p','meta',String(Number(item.posts)||0)+' price observations in 30 days'));const stats=item.stats||{},keys=Object.keys(stats);if(keys.length){detailBody.append(node('h3','detail-section','ITEM STATS'));const grid=node('div','detail-grid');for(const key of keys){const cell=node('div','detail-cell');cell.append(node('b','',statLabels[key]||key.toUpperCase()),node('span','',((Number(stats[key])>0)?'+':'')+String(stats[key])));grid.append(cell)}detailBody.append(grid)}const effects=Array.isArray(item.effects)?item.effects:[];if(effects.length){detailBody.append(node('h3','detail-section','CLICK / PROC / WORN EFFECTS'));for(const effect of effects)detailBody.append(node('div','effect',String(effect.type||'Effect')+' · '+String(effect.name||'')))}const link=node('a','source-link','Open Project 1999 Wiki source');link.href=String(item.wiki_url||'#');link.target='_blank';link.rel='noreferrer noopener';detailBody.append(link);detailDialog.showModal()}
 function createMarketRow(key){const row=node('li','card');row.dataset.key=key;const button=node('button','card-button');button.type='button';const top=node('div','top'),name=node('h3','name'),source=node('span','source','PIGPARSE');top.append(name,source);const priceLine=node('div','top'),price=node('span','price'),quality=node('span','quality');priceLine.append(price,quality);const meta=node('p','meta'),summary=node('p','stat-line');button.append(top,priceLine,meta,summary);button.addEventListener('click',()=>openMarketDetail(button._item));row.append(button);row._parts={button,name,price,quality,meta,summary};return row}
-function updateMarketRow(row,item){const p=row._parts,type=Number(item.type),quality=String(item.quality||'Low'),summary=statSummary(item);p.button._item=item;p.name.textContent=String(item.name||'Item');p.price.textContent=item.price?Number(item.price).toLocaleString()+' pp':'—';p.quality.className='quality '+quality;p.quality.textContent=quality;p.meta.textContent=String(Number(item.posts)||0)+' posts · '+(type===0?'WTS':type===1?'WTB':'BOTH')+' · '+(item.nodrop?'NO DROP':'Droppable')+(item.era?' · '+String(item.era).toUpperCase():'');p.summary.textContent=summary;p.summary.hidden=!summary}
+function updateMarketRow(row,item){const p=row._parts,quality=String(item.quality||'Low'),summary=statSummary(item);p.button._item=item;p.name.textContent=String(item.name||'Item');p.price.textContent=item.price?Number(item.price).toLocaleString()+' pp':'—';p.quality.className='quality '+quality;p.quality.textContent=quality;p.meta.textContent=String(Number(item.posts)||0)+' price observations · '+(item.nodrop?'NO DROP':'Droppable')+(item.era?' · '+String(item.era).toUpperCase():'');p.summary.textContent=summary;p.summary.hidden=!summary}
 function showListMessage(root,text){root.replaceChildren(node('li','empty',text))}
-function reconcileMarketRows(items){const existing=new Map(Array.from(marketRoot.children).map(row=>[row.dataset.key,row])),used=new Set();let anchor=marketRoot.firstElementChild;for(const item of items){const key='item:'+String(item.id??item.name)+'\u241f'+String(Number(item.type));let row=existing.get(key);if(!row||!row._parts)row=createMarketRow(key);updateMarketRow(row,item);used.add(key);if(row!==anchor)marketRoot.insertBefore(row,anchor);anchor=row.nextElementSibling}for(const row of Array.from(marketRoot.children))if(!used.has(row.dataset.key))row.remove()}
+function reconcileMarketRows(items){const existing=new Map(Array.from(marketRoot.children).map(row=>[row.dataset.key,row])),used=new Set();let anchor=marketRoot.firstElementChild;for(const item of items){const key='item:'+String(item.id??item.name);let row=existing.get(key);if(!row||!row._parts)row=createMarketRow(key);updateMarketRow(row,item);used.add(key);if(row!==anchor)marketRoot.insertBefore(row,anchor);anchor=row.nextElementSibling}for(const row of Array.from(marketRoot.children))if(!used.has(row.dataset.key))row.remove()}
 function drawMarket(data){const rows=Array.isArray(data.items)?data.items:[],total=Number(data.total)||0;marketNote.textContent=(data.source||'PigParse API · Green')+' · '+String(total)+' matches · tap an item for full stats';if(!rows.length){showListMessage(marketRoot,'No items match these filters.');return}reconcileMarketRows(rows)}
 async function poll(){if(polling)return;if(!token){setConnection('INVALID QR',true,'Invalid QR code. Open a new link from Vantage.');return}polling=true;timersRoot.setAttribute('aria-busy','true');try{drawTimers(await get('/api/state'));setConnection('LIVE',false,'')}catch(_){setConnection('OFFLINE',true,'Connection lost. Timers may be out of date.')}finally{timersRoot.setAttribute('aria-busy','false');polling=false}}
 function params(ids){const p=new URLSearchParams();for(const [key,id] of Object.entries(ids))p.set(key,byId(id).value);return p}
-async function loadMarket(announceLoading=true){const request=++marketRequest,p=params({q:'mq',type:'mt',class:'mc',race:'mr',slot:'ms',effect:'me',drop:'md',era:'mera',sort:'mso'});marketRoot.setAttribute('aria-busy','true');if(announceLoading)announce(marketStatus,'Loading market and item stats.');try{const data=await get('/api/market?'+p);if(request!==marketRequest)return;drawMarket(data);announce(marketStatus,(Number(data.total)||0)+' matches')}catch(_){if(request!==marketRequest)return;showListMessage(marketRoot,'Market data could not be loaded.');announce(marketStatus,'Market data could not be loaded.')}finally{if(request===marketRequest)marketRoot.setAttribute('aria-busy','false')}}
-function marketChanged(){clearTimeout(marketDelay);marketDelay=setTimeout(()=>loadMarket(true),220)}for(const id of ['mq','mt','mc','mr','ms','me','md','mera','mso'])byId(id).addEventListener(id==='mq'?'input':'change',marketChanged);byId('marketFilters').addEventListener('submit',event=>{event.preventDefault();clearTimeout(marketDelay);loadMarket(true)});
-for(let level=1;level<=60;level++){const option=node('option','',`Level ${level}`);option.value=String(level);byId('sl').append(option)}
-function openSpellDetail(spell){detailTitle.textContent=String(spell.name||'Spell');detailBody.replaceChildren();const top=node('div','top');top.append(node('span','source','P99 CLASSIC DATA'),node('span','chip','SPELL ID '+String(spell.spell_id||'—')));detailBody.append(top,node('h3','detail-section','CLASSES AND LEVELS'));for(const profile of spell.class_levels||[])detailBody.append(node('div','effect',String(profile[0])+' · Level '+String(profile[1])));if(spell.price)detailBody.append(node('h3','detail-section','PIGPARSE GREEN PRICE'),node('p','price',Number(spell.price).toLocaleString()+' pp'),node('p','meta',String(Number(spell.posts)||0)+' posts in 30 days · '+String(spell.quality||'Low')+' confidence'));const link=node('a','source-link','Open complete Project 1999 Wiki spell page');link.href=String(spell.wiki_url||'#');link.target='_blank';link.rel='noreferrer noopener';detailBody.append(link);detailDialog.showModal()}
-function drawSpells(data){const items=Array.isArray(data.items)?data.items:[];spellNote.textContent=String(Number(data.total)||0)+' matches · local class/level index · tap for details';if(!items.length){showListMessage(spellRoot,'No spells match these filters.');return}spellRoot.replaceChildren(...items.map(spell=>{const row=node('li','card'),button=node('button','card-button');button.type='button';const top=node('div','top'),name=node('h3','name',String(spell.name)),level=node('span','chip',String(spell.selected_class||'ALL')+' '+String(spell.selected_level||''));top.append(name,level);button.append(top,node('p','summary',(spell.class_levels||[]).map(profile=>profile[0]+' '+profile[1]).join(' · ')));if(spell.price)button.append(node('p','stat-line','PigParse · '+Number(spell.price).toLocaleString()+' pp'));button.addEventListener('click',()=>openSpellDetail(spell));row.append(button);return row}))}
-async function loadSpells(announceLoading=true){const request=++spellRequest,p=params({q:'sq',class:'sc',level:'sl'});spellRoot.setAttribute('aria-busy','true');if(announceLoading)announce(spellStatus,'Loading spells.');try{const data=await get('/api/spells?'+p);if(request!==spellRequest)return;drawSpells(data);announce(spellStatus,(Number(data.total)||0)+' spell matches')}catch(_){if(request!==spellRequest)return;showListMessage(spellRoot,'Spell library could not be loaded.');announce(spellStatus,'Spell library could not be loaded.')}finally{if(request===spellRequest)spellRoot.setAttribute('aria-busy','false')}}
-function spellChanged(){clearTimeout(spellDelay);spellDelay=setTimeout(()=>loadSpells(true),180)}for(const id of ['sq','sc','sl'])byId(id).addEventListener(id==='sq'?'input':'change',spellChanged);byId('spellFilters').addEventListener('submit',event=>{event.preventDefault();clearTimeout(spellDelay);loadSpells(true)});
+async function loadMarket(announceLoading=true){const request=++marketRequest,p=params({q:'mq',class:'mc',race:'mr',slot:'ms',effect:'me',drop:'md',era:'mera',sort:'mso'});marketRoot.setAttribute('aria-busy','true');if(announceLoading)announce(marketStatus,'Loading market and item stats.');try{const data=await get('/api/market?'+p);if(request!==marketRequest)return;drawMarket(data);announce(marketStatus,(Number(data.total)||0)+' matches')}catch(_){if(request!==marketRequest)return;showListMessage(marketRoot,'Market data could not be loaded.');announce(marketStatus,'Market data could not be loaded.')}finally{if(request===marketRequest)marketRoot.setAttribute('aria-busy','false')}}
+function marketChanged(){clearTimeout(marketDelay);marketDelay=setTimeout(()=>loadMarket(true),220)}for(const id of ['mq','mc','mr','ms','me','md','mera','mso'])byId(id).addEventListener(id==='mq'?'input':'change',marketChanged);byId('marketFilters').addEventListener('submit',event=>{event.preventDefault();clearTimeout(marketDelay);loadMarket(true)});
+async function openSpellDetail(spell){detailTitle.textContent=String(spell.name||'Spell');detailBody.replaceChildren();const top=node('div','top');top.append(node('span','source','P99 CLASSIC DATA'),node('span','chip','SPELL ID '+String(spell.spell_id||'—')));const effectBox=node('div','');effectBox.append(node('h3','detail-section','WHAT IT DOES'),node('p','summary',String(spell.effect_hint||'Loading the exact Project 1999 Wiki description…')));detailBody.append(top,effectBox,node('h3','detail-section','CLASSES AND LEVELS'));for(const profile of spell.class_levels||[])detailBody.append(node('div','effect',String(profile[0])+' · Level '+String(profile[1])));if(spell.price)detailBody.append(node('h3','detail-section','PIGPARSE GREEN PRICE'),node('p','price',Number(spell.price).toLocaleString()+' pp'),node('p','meta',String(Number(spell.posts)||0)+' price observations in 30 days · '+String(spell.quality||'Low')+' confidence'));const link=node('a','source-link','Open complete Project 1999 Wiki spell page');link.href=String(spell.wiki_url||'#');link.target='_blank';link.rel='noreferrer noopener';detailBody.append(link);detailDialog.showModal();try{const detail=await get('/api/spell-detail?name='+encodeURIComponent(String(spell.name||'')));effectBox.replaceChildren(node('h3','detail-section','WHAT IT DOES'));effectBox.append(node('p','summary',String(detail.description||spell.effect_hint||'No description available.')));for(const effect of detail.effects||[])effectBox.append(node('div','effect',String(effect)));effectBox.append(node('p','meta','Source · '+String(detail.source||'Project 1999 Wiki')))}catch(_){effectBox.append(node('p','meta','Exact Wiki description is unavailable; showing bundled spell text.'))}}
+function drawSpells(data){const items=Array.isArray(data.items)?data.items:[];spellNote.textContent=String(Number(data.total)||0)+' matches · local class/level index · tap for exact effects';if(!items.length){showListMessage(spellRoot,'No spells match these filters.');return}spellRoot.replaceChildren(...items.map(spell=>{const row=node('li','card'),button=node('button','card-button');button.type='button';const top=node('div','top'),name=node('h3','name',String(spell.name)),level=node('span','chip',String(spell.selected_class||'ALL')+' '+String(spell.selected_level||''));top.append(name,level);button.append(top,node('p','summary',String(spell.effect_hint||(spell.class_levels||[]).map(profile=>profile[0]+' '+profile[1]).join(' · '))));if(spell.price)button.append(node('p','stat-line','PigParse · '+Number(spell.price).toLocaleString()+' pp'));button.addEventListener('click',()=>openSpellDetail(spell));row.append(button);return row}))}
+function syncSpellLevels(levels){const select=byId('sl'),current=select.value,available=(Array.isArray(levels)?levels:[]).map(Number).filter(level=>level>=1&&level<=60);select.replaceChildren();const any=node('option','','Any level');any.value='0';select.append(any,...available.map(level=>{const option=node('option','',`Level ${level}`);option.value=String(level);return option}));select.value=available.includes(Number(current))?current:'0'}
+async function loadSpells(announceLoading=true){const request=++spellRequest,p=params({q:'sq',class:'sc',level:'sl'});spellRoot.setAttribute('aria-busy','true');if(announceLoading)announce(spellStatus,'Loading spells.');try{const data=await get('/api/spells?'+p);if(request!==spellRequest)return;syncSpellLevels(data.available_levels);drawSpells(data);announce(spellStatus,(Number(data.total)||0)+' spell matches')}catch(_){if(request!==spellRequest)return;showListMessage(spellRoot,'Spell library could not be loaded.');announce(spellStatus,'Spell library could not be loaded.')}finally{if(request===spellRequest)spellRoot.setAttribute('aria-busy','false')}}
+function spellChanged(){clearTimeout(spellDelay);spellDelay=setTimeout(()=>loadSpells(true),180)}for(const id of ['sq','sc','sl'])byId(id).addEventListener(id==='sq'?'input':'change',()=>{if(id==='sc')byId('sl').value='0';spellChanged()});byId('spellFilters').addEventListener('submit',event=>{event.preventDefault();clearTimeout(spellDelay);loadSpells(true)});
 function selectTab(selected,focus=false){const market=selected===tabMarket,spells=selected===tabSpells,game=selected===tabGame;for(const tab of tabs){const active=tab===selected;tab.classList.toggle('on',active);tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1}marketPanel.hidden=!market;spellsPanel.hidden=!spells;gamePanel.hidden=!game;timersPanel.hidden=market||spells||game;if(focus)selected.focus();if(market)loadMarket(true);if(spells)loadSpells(true);if(game)loadGame();else clearTimeout(gameDelay)}
 for(const tab of tabs){tab.addEventListener('click',()=>selectTab(tab));tab.addEventListener('keydown',event=>{let next;if(event.key==='ArrowRight')next=tabs[(tabs.indexOf(tab)+1)%tabs.length];else if(event.key==='ArrowLeft')next=tabs[(tabs.indexOf(tab)-1+tabs.length)%tabs.length];else if(event.key==='Home')next=tabs[0];else if(event.key==='End')next=tabs[tabs.length-1];else return;event.preventDefault();selectTab(next,true)})}
 byId('detailClose').addEventListener('click',()=>detailDialog.close());detailDialog.addEventListener('click',event=>{if(event.target===detailDialog)detailDialog.close()});skipLink.addEventListener('click',event=>{event.preventDefault();mainContent.focus({preventScroll:true});mainContent.scrollIntoView({block:'start',behavior:'auto'})});document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!gamePanel.hidden)loadGame();else clearTimeout(gameDelay)});
@@ -161,7 +239,7 @@ class _ShareHTTPServer(ThreadingHTTPServer):
 
 
 class _ShareHandler(BaseHTTPRequestHandler):
-    server_version = "VantageMobile/1.44.9"
+    server_version = "VantageMobile/1.44.10"
 
     def log_message(self, *_):
         # Do not write access paths or the user's network details to disk.
@@ -298,8 +376,6 @@ class _ShareHandler(BaseHTTPRequestHandler):
                 except (TypeError, ValueError):
                     return 0
 
-            trade_text = query.get("type", [""])[0]
-            trade = number("type") if trade_text != "" else None
             class_bit, race_bit, slot_bit = (
                 number("class"), number("race"), number("slot"))
             effect = query.get("effect", [""])[0].strip().casefold()
@@ -315,8 +391,6 @@ class _ShareHandler(BaseHTTPRequestHandler):
                       for value in (pair.get("type", ""), pair.get("name", "")))
                 ]).casefold()
                 if text and text not in search_text:
-                    continue
-                if trade is not None and int(item.get("type", -1)) != trade:
                     continue
                 if class_bit and not int(item.get("classes", 0)) & class_bit:
                     continue
@@ -357,6 +431,33 @@ class _ShareHandler(BaseHTTPRequestHandler):
                 separators=(",", ":")).encode("utf-8")
             self._send(200, payload, "application/json; charset=utf-8")
             return
+        if path == "/api/spell-detail":
+            query = parse_qs(request_url.query, keep_blank_values=True)
+            requested_name = query.get("name", [""])[0].strip()
+            spell = next((
+                item for item in self.server.spells
+                if str(item.get("name", "")).casefold() ==
+                requested_name.casefold()), None)
+            if spell is None:
+                self._send(
+                    404, b'{"error":"unknown_spell"}',
+                    "application/json; charset=utf-8")
+                return
+            try:
+                detail = load_mobile_spell_detail(spell["name"])
+            except (OSError, UnicodeError, ValueError,
+                    json.JSONDecodeError) as error:
+                detail = {
+                    "description": str(spell.get("effect_hint") or
+                                       "No effect description is available offline."),
+                    "effects": [],
+                    "source": f"Bundled spell data · Wiki unavailable ({error})",
+                }
+            payload = json.dumps(
+                detail, ensure_ascii=False,
+                separators=(",", ":")).encode("utf-8")
+            self._send(200, payload, "application/json; charset=utf-8")
+            return
         if path == "/api/spells":
             query = parse_qs(request_url.query, keep_blank_values=True)
             text = query.get("q", [""])[0].strip().casefold()
@@ -371,9 +472,12 @@ class _ShareHandler(BaseHTTPRequestHandler):
                 name = re.sub(
                     r"^spell\s*:\s*", "", str(item.get("name", "")),
                     flags=re.IGNORECASE).casefold()
-                current = price_index.get(name)
-                if current is None or int(item.get("type", 0)) == 0:
-                    price_index[name] = item
+                price_index[name] = item
+            available_levels = sorted({
+                int(profile[1])
+                for spell in self.server.spells
+                for profile in spell.get("class_levels", ())
+                if not class_name or str(profile[0]) == class_name})
             found = []
             for spell in self.server.spells:
                 name = str(spell.get("name", ""))
@@ -400,6 +504,7 @@ class _ShareHandler(BaseHTTPRequestHandler):
                 str(item.get("name", "")).casefold()))
             payload = json.dumps({
                 "source": "Bundled classic spells_us.txt · P99 Wiki links",
+                "available_levels": available_levels,
                 "total": len(found), "items": found[:250],
             }, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             self._send(200, payload, "application/json; charset=utf-8")
@@ -456,6 +561,7 @@ class MobileShareController(QObject):
             "name": entry.name,
             "class_levels": entry.class_levels,
             "icon_id": entry.icon_id,
+            "effect_hint": entry.effect_hint,
             "wiki_url": "https://wiki.project1999.com/" + quote(
                 entry.name.replace(" ", "_"), safe=""),
         } for entry in p99_spell_entries())

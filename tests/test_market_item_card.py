@@ -122,7 +122,7 @@ def test_native_zone_summary_stays_inside_the_app():
 def test_market_item_name_looks_and_behaves_like_a_link():
     model = MarketModel()
     model.set_items([{"n": "Fungus Covered Scale Tunic", "t": 0}])
-    index = model.index(0, 1)
+    index = model.index(0, 0)
 
     assert "Open the compact item card" in model.data(
         index, Qt.ItemDataRole.ToolTipRole)

@@ -204,6 +204,9 @@ QToolButton#QuickBarTickCountdown:hover {
     background-color: #20252A;
     border-radius: 3px;
 }
+#QuickBarTick[Compact="true"] QToolButton#QuickBarTickCountdown {
+    font-size: 8px;
+}
 #QuickBarTickProgress {
     background-color: #242930;
     border: none;

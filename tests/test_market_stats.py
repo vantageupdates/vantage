@@ -4,7 +4,7 @@ from PySide6.QtCore import Qt
 
 from vantage.parsers.market import (
     GEAR_COLUMN_DEFAULT_WIDTHS, GEAR_DB_FIELDS, GearFilter, GearItem,
-    GearModel, MarketFilter, MarketModel,
+    GearModel, MarketFilter, MarketModel, market_price_references,
     gear_item_summary_html, load_gear_items)
 
 
@@ -161,3 +161,15 @@ def test_price_results_can_be_found_by_equipment_effect_name():
     proxy.set_query("flowing thought")
 
     assert proxy.rowCount() == 1
+
+
+def test_price_reference_list_hides_listing_type_and_prefers_wts():
+    rows = market_price_references([
+        {"n": "Jade Mace", "t": 1, "a30": 4000, "t30": 20},
+        {"n": "Jade Mace", "t": 0, "a30": 5000, "t30": 5},
+        {"n": "Torpor", "t": 1, "a30": 45000, "t30": 3},
+    ])
+
+    assert [(row["n"], row["a30"]) for row in rows] == [
+        ("Jade Mace", 5000), ("Torpor", 45000)]
+    assert all(key != "t" for _label, key in MarketModel.COLUMNS)

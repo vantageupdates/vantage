@@ -121,7 +121,7 @@ class QuickBar(ParserWindow):
         # some Windows GPUs; a lightweight style pulse remains crisp.
         self._support_pulse_on = False
         self._support_pulse_timer = QTimer(self)
-        self._support_pulse_timer.setInterval(720)
+        self._support_pulse_timer.setInterval(520)
         self._support_pulse_timer.timeout.connect(
             self._advance_support_pulse)
 
@@ -289,6 +289,13 @@ class QuickBar(ParserWindow):
         self.action_frame.setProperty(
             "HeaderHidden", not self._header_visible)
         self.action_frame.setStyle(self.action_frame.style())
+        tick_width = 24 if vertical else 48
+        tick_inner_width = 20 if vertical else 44
+        self.tick_readout.setFixedSize(tick_width, 24)
+        self.tick_countdown.setFixedSize(tick_inner_width, 17)
+        self.tick_progress.setFixedSize(tick_inner_width, 3)
+        self.tick_readout.setProperty("Compact", vertical)
+        self.tick_readout.setStyle(self.tick_readout.style())
         self.orientation_button.setIcon(game_icon(
             "grid" if vertical else "layers"))
         self.orientation_button.setToolTip(
@@ -316,8 +323,7 @@ class QuickBar(ParserWindow):
             self.content.setAlignment(
                 self.action_frame,
                 Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
-            action_width = margins.left() + margins.right() + max(
-                24, 48 if tick_visible else 0)
+            action_width = margins.left() + margins.right() + 24
             action_height = (
                 margins.top() + margins.bottom() + visible_count * 24 +
                 (24 if tick_visible else 0) +
@@ -433,10 +439,6 @@ class QuickBar(ParserWindow):
             "An update is ready · open the verified updater" if update_ready
             else "Check GitHub for a verified Vantage update")
 
-        last_sound = str(getattr(
-            self._application, "_last_audio", "None yet"))
-        self._buttons["last_sound"].setToolTip(
-            f"Last sound: {last_sound} · click to replay it")
         self._buttons["support"].setToolTip(
             "Open the Vantage Buy Me a Coffee page in your default browser")
         self._buttons["support"].setAccessibleDescription(
@@ -471,6 +473,11 @@ class QuickBar(ParserWindow):
         if support is None:
             return
         support.setProperty("Pulse", self._support_pulse_on)
+        # Pulse the actual vector mug, not only its surrounding button. The
+        # two sizes are rasterized from SVG and stay sharp at high DPI.
+        support.setIconSize(QSize(
+            18 if self._support_pulse_on else 13,
+            18 if self._support_pulse_on else 13))
         support.setStyle(support.style())
 
     def _trigger(self, key):
@@ -482,6 +489,8 @@ class QuickBar(ParserWindow):
             self._application.show_mobile_share()
         elif key == "support":
             self._application.show_support()
+        elif key == "reload_ui":
+            self._application.reload_ui()
         elif key == "updates":
             self._application.show_update_dialog()
         elif key == "log_status":
@@ -492,8 +501,6 @@ class QuickBar(ParserWindow):
             self._application.show_log_help()
         elif key == "log_profiles":
             self._application.show_log_profiles()
-        elif key == "last_sound":
-            self._application.show_last_sound()
         elif key == "mute":
             self._application.toggle_audio_muted()
         elif key == "settings":

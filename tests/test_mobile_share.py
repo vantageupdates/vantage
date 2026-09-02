@@ -3,7 +3,9 @@ import threading
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from vantage.helpers.mobile_share import _MOBILE_PAGE, _ShareHTTPServer
+import vantage.helpers.mobile_share as mobile_share_module
+from vantage.helpers.mobile_share import (
+    _MOBILE_PAGE, _ShareHTTPServer, parse_mobile_spell_detail)
 
 
 class _FakeGameCapture:
@@ -78,7 +80,15 @@ def test_mobile_page_accessibility_updates_preserve_the_session_fragment():
     assert 'id="tabSpells"' in _MOBILE_PAGE
     assert 'id="zoomLock"' in _MOBILE_PAGE
     assert "vantageZoomLock" in _MOBILE_PAGE
+    assert "maximum-scale=1,user-scalable=no" in _MOBILE_PAGE
     assert "touches.length>1" in _MOBILE_PAGE
+    assert "document.addEventListener('touchmove'" in _MOBILE_PAGE
+    assert "'gesturestart','gesturechange','gestureend'" in _MOBILE_PAGE
+    assert "for(let level=1;level<=60" not in _MOBILE_PAGE
+    assert "syncSpellLevels(data.available_levels)" in _MOBILE_PAGE
+    assert "/api/spell-detail?name=" in _MOBILE_PAGE
+    assert 'id="mt"' not in _MOBILE_PAGE
+    assert ">Listing<" not in _MOBILE_PAGE
     assert "/api/timers/action" in _MOBILE_PAGE
     assert "Pause or resume this timer" in _MOBILE_PAGE
 
@@ -173,10 +183,12 @@ def test_mobile_spell_tab_filters_class_level_and_adds_market_price():
     spells = ({
         "spell_id": 42, "name": "Clarity",
         "class_levels": (("Enchanter", 29),), "icon_id": 5,
+        "effect_hint": "Improves mana regeneration.",
         "wiki_url": "https://wiki.project1999.com/Clarity",
     }, {
         "spell_id": 43, "name": "Torpor",
         "class_levels": (("Shaman", 60),), "icon_id": 6,
+        "effect_hint": "Regenerates health while slowing movement.",
         "wiki_url": "https://wiki.project1999.com/Torpor",
     })
 
@@ -200,6 +212,63 @@ def test_mobile_spell_tab_filters_class_level_and_adds_market_price():
         assert result["items"][0]["name"] == "Torpor"
         assert result["items"][0]["selected_level"] == 60
         assert result["items"][0]["price"] == 50000
+        assert result["items"][0]["effect_hint"].startswith("Regenerates")
+        assert result["available_levels"] == [60]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_mobile_spell_detail_parser_exposes_description_and_slot_effects():
+    detail = parse_mobile_spell_detail("""
+{{Spellpage
+| description = Surrounds your group in clarity, increasing mana regeneration.<br>Velious era.
+| slots =
+{{SpellSlotRow|1|Increase Mana by 10 per tick}}
+{{SpellSlotRow|2|Decrease Movement Speed by 20%}}
+| skill = Alteration
+}}
+""")
+
+    assert "increasing mana regeneration" in detail["description"]
+    assert detail["effects"] == [
+        "Increase Mana by 10 per tick",
+        "Decrease Movement Speed by 20%",
+    ]
+    assert detail["source"] == "Project 1999 Wiki"
+
+
+def test_mobile_spell_detail_endpoint_uses_exact_known_spell(monkeypatch):
+    spell = {
+        "spell_id": 42, "name": "Clarity",
+        "class_levels": (("Enchanter", 29),), "icon_id": 5,
+        "effect_hint": "Improves mana regeneration.",
+        "wiki_url": "https://wiki.project1999.com/Clarity",
+    }
+    monkeypatch.setattr(
+        mobile_share_module, "load_mobile_spell_detail",
+        lambda name: {
+            "description": f"{name} exact description",
+            "effects": ["Increase Mana by 10 per tick"],
+            "source": "Project 1999 Wiki",
+        })
+    server = _ShareHTTPServer(
+        ("127.0.0.1", 0), "secret", _snapshot, spells=(spell,))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        _, payload, _ = _request(
+            base, "/api/spell-detail?name=Clarity", "secret")
+        detail = json.loads(payload)
+        assert detail["description"] == "Clarity exact description"
+        assert detail["effects"] == ["Increase Mana by 10 per tick"]
+        try:
+            _request(base, "/api/spell-detail?name=Unknown", "secret")
+            assert False, "unknown spell names must not trigger Wiki fetches"
+        except HTTPError as error:
+            assert error.code == 404
     finally:
         server.shutdown()
         server.server_close()

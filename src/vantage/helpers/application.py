@@ -42,7 +42,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=9,
+    patch=10,
     build=""
 )
 
@@ -79,15 +79,7 @@ class VantageApp(QApplication):
         palette.setColor(QPalette.ColorRole.Link, QColor('#C7AE76'))
         palette.setColor(QPalette.ColorRole.LinkVisited, QColor('#9D895E'))
         self.setPalette(palette)
-        with open(resource_path('data/ui/_.css'), encoding='utf-8') as stylesheet:
-            theme = stylesheet.read()
-        theme = theme.replace(
-            '__VANTAGE_CHECK_ICON__',
-            resource_path('data/ui/icons/check.svg').replace('\\', '/'))
-        theme = theme.replace(
-            '__VANTAGE_CHECK_PARTIAL_ICON__',
-            resource_path('data/ui/icons/check-partial.svg').replace('\\', '/'))
-        self.setStyleSheet(theme)
+        self._apply_theme()
         self.setWindowIcon(QIcon(resource_path('data/ui/icon.png')))
         self._splash = StartupSplash()
         self._splash.show_centered()
@@ -434,6 +426,49 @@ class VantageApp(QApplication):
         if quickbar:
             quickbar.refresh_state()
 
+    def _apply_theme(self):
+        """Load the bundled theme and resolve portable icon paths."""
+        with open(
+                resource_path('data/ui/_.css'), encoding='utf-8') as stylesheet:
+            theme = stylesheet.read()
+        theme = theme.replace(
+            '__VANTAGE_CHECK_ICON__',
+            resource_path('data/ui/icons/check.svg').replace('\\', '/'))
+        theme = theme.replace(
+            '__VANTAGE_CHECK_PARTIAL_ICON__',
+            resource_path('data/ui/icons/check-partial.svg').replace('\\', '/'))
+        self.setStyleSheet(theme)
+
+    def reload_ui(self):
+        """Re-polish every Vantage surface without touching EverQuest."""
+        try:
+            self._apply_theme()
+            self._signals["settings"].config_updated.emit()
+            for parser in self._parsers:
+                refresh = getattr(parser, "refresh", None)
+                if callable(refresh):
+                    refresh()
+                parser._surface.updateGeometry()
+                parser._scale_scene.setSceneRect(
+                    parser._scale_scene.itemsBoundingRect())
+                parser._update_uniform_scale()
+                parser._update_window_mask()
+                parser._scale_view.viewport().update()
+                parser.update()
+            self._refresh_quickbar()
+            if self._mobile_dialog_instance is not None:
+                self._mobile_dialog_instance.refresh()
+            self.show_overlay_notification(
+                "Vantage UI reloaded",
+                "Theme, layouts, visible data and saved window settings were reloaded.",
+                msecs=4500, overlay_id="alerts")
+            return True
+        except (OSError, RuntimeError) as error:
+            self.show_overlay_notification(
+                "Vantage UI reload failed", str(error),
+                msecs=6500, overlay_id="alerts", text_color="#E08372")
+            return False
+
     def _log_activity(self, _line):
         self._last_log_activity = time.monotonic()
         if self._toggled and self._log_status != "ONLINE":
@@ -697,6 +732,10 @@ class VantageApp(QApplication):
         settings_action.setIcon(game_icon('settings'))
         mobile_action = menu.addAction('Vantage on Your Phone')
         mobile_action.setIcon(game_icon('mobile'))
+        reload_ui_action = menu.addAction('Reload Vantage UI')
+        reload_ui_action.setIcon(game_icon('refresh'))
+        reload_ui_action.setToolTip(
+            'Reload the theme, layouts and visible data without closing EverQuest')
         support_action = menu.addAction('Buy me a coffee')
         support_action.setIcon(game_icon('support'))
         support_action.setToolTip(
@@ -733,6 +772,9 @@ class VantageApp(QApplication):
 
         elif action == mobile_action:
             self.show_mobile_share()
+
+        elif action == reload_ui_action:
+            self.reload_ui()
 
         elif action == support_action:
             self.show_support()

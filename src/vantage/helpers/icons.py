@@ -11,8 +11,8 @@ from vantage.helpers import resource_path
 WINDOW_ICONS = {
     "quickbar": "compact",
     "maps": "map",
-    "spells": "spells",
-    "tick": "timer",
+    "spells": "bolt",
+    "tick": "tick",
     "timers": "timer",
     "combat": "combat",
     "heals": "heal",

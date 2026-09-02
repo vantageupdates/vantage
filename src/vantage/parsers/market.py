@@ -364,13 +364,13 @@ def _preview_auction_line(value):
 
 def compose_auction_lines(
         entries, trade_type="WTS", message_template="{type} {items} {suffix}",
-        item_template="{item} {price} {qty}", separator=" // ", suffix="PST",
+        item_template="{qty} {item} {price}", separator=" // ", suffix="PST",
         max_length=P99_CHAT_LIMIT):
     """Render and safely pack customized WTS/WTB messages for EQ chat."""
     trade_type = "WTB" if str(trade_type).strip().upper() == "WTB" else "WTS"
     maximum = max(80, int(max_length or P99_CHAT_LIMIT))
     message_template = str(message_template or "{type} {items} {suffix}")
-    item_template = str(item_template or "{item} {price} {qty}")
+    item_template = str(item_template or "{qty} {item} {price}")
     default_separator = str(separator if separator is not None else " // ")
 
     custom_separator = None
@@ -392,7 +392,7 @@ def compose_auction_lines(
         values = {
             "{item}": item_text,
             "{price}": normalize_auction_price(entry.price),
-            "{qty}": f"x{max(1, int(entry.quantity or 1))}"
+            "{qty}": f"{max(1, int(entry.quantity or 1))}x"
             if int(entry.quantity or 1) > 1 else "",
         }
         rendered = item_template
@@ -757,6 +757,27 @@ def _quality(item):
     return "Low", 0
 
 
+def market_price_references(items):
+    """Return one price-reference row per item, preferring seller evidence."""
+    selected = {}
+    order = []
+    for raw_item in items or ():
+        item = dict(raw_item or {})
+        key = _item_key(item.get("n"))
+        if not key:
+            continue
+        candidate = (
+            {0: 3, 2: 2, 1: 1}.get(item.get("t"), 0),
+            int(item.get("t30") or 0),
+            int(float(item.get("a30") or 0)))
+        current = selected.get(key)
+        if current is None:
+            order.append(key)
+        if current is None or candidate > current[0]:
+            selected[key] = (candidate, item)
+    return [selected[key][1] for key in order]
+
+
 def _invalidate_proxy_rows(proxy):
     """Refresh one proxy filter using the current Qt row-only API."""
     proxy.beginFilterChange()
@@ -765,11 +786,10 @@ def _invalidate_proxy_rows(proxy):
 
 class MarketModel(QAbstractTableModel):
     COLUMNS = (
-        ("Type", "t"), ("Item", "n"), ("30d price", "a30"),
+        ("Item", "n"), ("30d price", "a30"),
         ("30d posts", "t30"), ("60d price", "a60"),
         ("90d price", "a90"), ("6m price", "a6m"),
         ("Quality", "quality"), ("Last seen", "l"))
-    TYPE_NAMES = {0: "WTS", 1: "WTB", 2: "BOTH"}
 
     def __init__(self):
         super().__init__()
@@ -823,8 +843,6 @@ class MarketModel(QAbstractTableModel):
             return None
         if key == "quality":
             return quality
-        if key == "t":
-            return self.TYPE_NAMES.get(value, str(value))
         if key.startswith("a"):
             return f"{int(value):,} pp" if value else "—"
         if key == "l":
@@ -840,7 +858,6 @@ class MarketFilter(QSortFilterProxyModel):
     def __init__(self):
         super().__init__()
         self.query = ""
-        self.trade_type = None
         self.gear = {}
         self.class_bit = 0
         self.race_bit = 0
@@ -850,10 +867,6 @@ class MarketFilter(QSortFilterProxyModel):
 
     def set_query(self, query):
         self.query = query.strip().casefold()
-        _invalidate_proxy_rows(self)
-
-    def set_trade_type(self, trade_type):
-        self.trade_type = trade_type
         _invalidate_proxy_rows(self)
 
     def set_gear(self, gear):
@@ -873,8 +886,6 @@ class MarketFilter(QSortFilterProxyModel):
                 haystack = f"{haystack} {metadata.effect_text.casefold()}"
             if self.query not in haystack:
                 return False
-        if self.trade_type is not None and item.get("t") != self.trade_type:
-            return False
         if self.class_bit or self.race_bit or self.slot_bit:
             if not isinstance(metadata, GearItem):
                 return False
@@ -1404,6 +1415,11 @@ class AuctionComposer(QWidget):
 
     def __init__(self, price_resolver=None, parent=None):
         super().__init__(parent)
+        # Keep the real top-level parser window as the file-dialog owner.  Once
+        # this widget is inserted into QTabWidget it is reparented inside the
+        # QGraphicsProxyWidget canvas; using that embedded widget as a native
+        # Windows dialog parent can detach/collapse the Market surface.
+        self._dialog_parent = parent
         self._catalog = []
         self._by_name = {}
         self._price_resolver = price_resolver or (lambda _name: 0)
@@ -1417,19 +1433,19 @@ class AuctionComposer(QWidget):
         root.setContentsMargins(5, 4, 5, 5)
         root.setSpacing(4)
 
-        guide = QLabel(
-            "1  In EQ: /outputfile inventory   ·   2  Import file   ·   "
-            "3  Add items + prices   ·   4  Copy")
-        guide.setObjectName("MarketStatSummary")
-        guide.setWordWrap(True)
-        guide.setToolTip(
+        self.guide = QLabel(
+            "SELL: load your EQ inventory once, add items, enter prices, "
+            "then press Copy WTS.")
+        self.guide.setObjectName("MarketStatSummary")
+        self.guide.setWordWrap(True)
+        self.guide.setToolTip(
             "EverQuest writes Character-Inventory.txt in its main folder. "
             "Vantage reads that text file to obtain authentic item-link IDs.")
-        root.addWidget(guide)
+        root.addWidget(self.guide)
 
         source_row = QHBoxLayout()
         source_row.setSpacing(4)
-        self.import_button = QPushButton("1  Import inventory")
+        self.import_button = QPushButton("Load EQ inventory")
         self.import_button.setIcon(game_icon("import"))
         self.import_button.setAccessibleName("Import EverQuest inventory output")
         self.import_button.setToolTip(
@@ -1441,18 +1457,28 @@ class AuctionComposer(QWidget):
         self.inventory_status.setToolTip(
             "Vantage never guesses item IDs. WTB messages do not require this file.")
         source_row.addWidget(self.inventory_status, 1)
-        self.paste_help_button = QPushButton("Paste help")
+        self.paste_help_button = QPushButton("How to paste")
         self.paste_help_button.setIcon(game_icon("help"))
+        self.paste_help_button.setCheckable(True)
         self.paste_help_button.setToolTip(
-            "Show how to bind Paste from Clipboard in the P99 Titanium client")
+            "Show or hide the one-time EverQuest paste-key instructions")
         self.paste_help_button.clicked.connect(self.show_paste_help)
         source_row.addWidget(self.paste_help_button)
         root.addLayout(source_row)
 
+        self.paste_help = QLabel(
+            "In EverQuest: Alt+O → Keys → bind “Paste from Clipboard” once. "
+            "After Copy WTS, focus the chat line, press that key, then Enter.")
+        self.paste_help.setObjectName("MarketGearSource")
+        self.paste_help.setWordWrap(True)
+        self.paste_help.setVisible(False)
+        self.paste_help.setAccessibleName("EverQuest paste instructions")
+        root.addWidget(self.paste_help)
+
         picker = QHBoxLayout()
         picker.setSpacing(4)
         self.trade_type = QComboBox()
-        self.trade_type.addItems(("WTS · linked items", "WTB · plain text"))
+        self.trade_type.addItems(("Sell items (WTS)", "Buy items (WTB)"))
         self.trade_type.setAccessibleName("Auction message type")
         self.trade_type.setToolTip(
             "WTS creates clickable P99 item links; WTB always uses plain item names")
@@ -1478,7 +1504,7 @@ class AuctionComposer(QWidget):
         self.item_search.setCompleter(self._completer)
         self.item_search.returnPressed.connect(self.add_search_item)
         picker.addWidget(self.item_search, 1)
-        self.add_button = QPushButton("2  Add item")
+        self.add_button = QPushButton("Add")
         self.add_button.setIcon(game_icon("add"))
         self.add_button.setAccessibleName("Add selected item")
         self.add_button.setToolTip("Add this item to the message builder")
@@ -1487,7 +1513,7 @@ class AuctionComposer(QWidget):
         root.addLayout(picker)
 
         self.advanced_toggle = QToolButton()
-        self.advanced_toggle.setText("Customize message")
+        self.advanced_toggle.setText("Advanced wording (optional)")
         self.advanced_toggle.setCheckable(True)
         self.advanced_toggle.setArrowType(Qt.ArrowType.RightArrow)
         self.advanced_toggle.setToolButtonStyle(
@@ -1511,7 +1537,7 @@ class AuctionComposer(QWidget):
             "{type} {items: // } {suffix}")
         templates.addWidget(self.message_template, 0, 1, 1, 5)
         templates.addWidget(QLabel("Each item"), 1, 0)
-        self.item_template = QLineEdit("{item} {price} {qty}")
+        self.item_template = QLineEdit("{qty} {item} {price}")
         self.item_template.setAccessibleName("Item template")
         self.item_template.setToolTip(
             "Choose how every selected item, price, and optional quantity appears")
@@ -1558,7 +1584,7 @@ class AuctionComposer(QWidget):
         root.addWidget(self.advanced_panel)
 
         self.items = QTableWidget(0, 4)
-        self.items.setHorizontalHeaderLabels(("Item", "Price", "Qty", ""))
+        self.items.setHorizontalHeaderLabels(("Item", "Price", "How many", ""))
         for column, tooltip in enumerate((
                 "Selected P99 item name",
                 "Editable asking or buying price",
@@ -1579,7 +1605,7 @@ class AuctionComposer(QWidget):
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
         self.items.setColumnWidth(1, 92)
-        self.items.setColumnWidth(2, 56)
+        self.items.setColumnWidth(2, 70)
         self.items.setColumnWidth(3, 34)
         corner = self.items.findChild(QToolButton)
         if corner:
@@ -1599,7 +1625,7 @@ class AuctionComposer(QWidget):
         self.clear_button.setToolTip("Remove all selected items")
         self.clear_button.clicked.connect(self.clear_items)
         preview_header.addWidget(self.clear_button)
-        self.copy_button = QPushButton("3  Copy for EverQuest")
+        self.copy_button = QPushButton("Copy WTS")
         self.copy_button.setIcon(game_icon("copy"))
         self.copy_button.setAccessibleName("Copy next EverQuest auction message")
         self.copy_button.setToolTip(
@@ -1613,14 +1639,14 @@ class AuctionComposer(QWidget):
         self.preview.setMaximumBlockCount(20)
         self.preview.setMaximumHeight(88)
         self.preview.setPlaceholderText(
-            "Your generated WTS or WTB messages appear here.")
+            "The exact message that will paste into EverQuest appears here.")
         self.preview.setAccessibleName("Auction message preview")
         self.preview.setToolTip(
             "Square brackets represent clickable item links. Copy preserves the real link data.")
         root.addWidget(self.preview)
 
         self.paste_note = QLabel(
-            "After Copy: focus EQ chat and press your bound “Paste from Clipboard” key.")
+            "Copy WTS → focus EQ chat → press your Paste from Clipboard key.")
         self.paste_note.setObjectName("MarketGearSource")
         self.paste_note.setWordWrap(True)
         self.paste_note.setToolTip(
@@ -1646,6 +1672,17 @@ class AuctionComposer(QWidget):
             Qt.ArrowType.DownArrow if shown else Qt.ArrowType.RightArrow)
 
     def _trade_type_changed(self, *_args):
+        selling = self.trade_type.currentIndex() == 0
+        self.guide.setText(
+            "SELL: load your EQ inventory once, add items, enter prices, "
+            "then press Copy WTS." if selling else
+            "BUY: search the item, enter your offer and quantity, then press Copy WTB.")
+        self.import_button.setVisible(selling)
+        self.inventory_status.setVisible(selling)
+        self.copy_button.setText("Copy WTS" if selling else "Copy WTB")
+        self.paste_note.setText(
+            f"Copy {'WTS' if selling else 'WTB'} → focus EQ chat → press your "
+            "Paste from Clipboard key.")
         self._refresh_catalog_model()
         self._rebuild()
 
@@ -1750,7 +1787,8 @@ class AuctionComposer(QWidget):
         quantity.setRange(1, 99)
         quantity.setValue(1)
         quantity.setAccessibleName(f"Quantity of {item.name}")
-        quantity.setToolTip("Quantity; values above one add x2, x3, and so on")
+        quantity.setToolTip(
+            "How many copies; 2 becomes ‘2x Item’, 3 becomes ‘3x Item’")
         quantity.valueChanged.connect(self._rebuild)
         self.items.setCellWidget(row, 2, quantity)
 
@@ -1779,8 +1817,9 @@ class AuctionComposer(QWidget):
             start = str(
                 config.data.get("market", {}).get("inventory_file", "") or "")
             path, _ = QFileDialog.getOpenFileName(
-                self, "Import EverQuest inventory", start,
-                "EverQuest inventory (*.txt);;Text files (*.txt);;All files (*)")
+                self._dialog_parent, "Import EverQuest inventory", start,
+                "EverQuest inventory (*.txt);;Text files (*.txt);;All files (*)",
+                options=QFileDialog.Option.DontUseNativeDialog)
         if not path:
             return False
         try:
@@ -1826,15 +1865,11 @@ class AuctionComposer(QWidget):
             pass
         return True
 
-    def show_paste_help(self):
-        QMessageBox.information(
-            self, "Paste into EverQuest",
-            "1. Press Alt+O in EverQuest and open Keys.\n"
-            "2. Find “Paste from Clipboard” and assign a key once.\n"
-            "3. In Vantage, press Copy for EverQuest.\n"
-            "4. Focus the EQ chat line, press your assigned paste key, then Enter.\n\n"
-            "P99's Titanium client may not assign this action by default. "
-            "Vantage copies both legacy ANSI and Unicode clipboard formats.")
+    def show_paste_help(self, shown=False):
+        """Keep help inline so an embedded scaled surface is never detached."""
+        self.paste_help.setVisible(bool(shown))
+        self.paste_help_button.setText(
+            "Hide paste help" if shown else "How to paste")
 
     def _remove_cell(self, name_cell):
         row = self.items.row(name_cell)
@@ -1875,7 +1910,7 @@ class AuctionComposer(QWidget):
                 self.preview.setPlainText("")
                 self.preview_status.setText(
                     "Import /outputfile inventory to create real WTS links")
-                self.copy_button.setText("3  Copy for EverQuest")
+                self.copy_button.setText("Copy WTS")
                 self.copy_button.setEnabled(False)
                 return
         try:
@@ -1896,7 +1931,8 @@ class AuctionComposer(QWidget):
         self.copy_button.setEnabled(bool(self._raw_lines))
         if not self._raw_lines:
             self.preview_status.setText("Choose one or more items")
-            self.copy_button.setText("3  Copy for EverQuest")
+            self.copy_button.setText(
+                "Copy WTB" if trade_type == "WTB" else "Copy WTS")
             return
         self._copy_index %= len(self._raw_lines)
         lengths = [len(line) for line in self._raw_lines]
@@ -1906,7 +1942,7 @@ class AuctionComposer(QWidget):
             f"longest {max(lengths)}/{P99_CHAT_LIMIT} characters" +
             (" · shorten the template" if too_long else " · ready for EQ"))
         self.copy_button.setText(
-            f"3  Copy {self._copy_index + 1}/{len(self._raw_lines)}")
+            f"Copy {trade_type} {self._copy_index + 1}/{len(self._raw_lines)}")
         self.copy_button.setEnabled(not too_long)
 
     def refresh_prices(self):
@@ -1990,11 +2026,11 @@ class GreenMarket(ParserWindow):
         self._toolbar_layout.setContentsMargins(5, 5, 5, 5)
         self._toolbar_layout.setSpacing(4)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Search item, seller, or effect…")
+        self.search.setPlaceholderText("Search item or effect…")
         self.search.setClearButtonEnabled(True)
         self.search.setAccessibleName("Search the Green market")
         self.search.setToolTip(
-            "Type any part of an item, seller, click, proc, worn, focus, or bard effect; "
+            "Type any part of an item, click, proc, worn, focus, or bard effect; "
             "results filter while you type")
         clear_search = self.search.findChild(QToolButton)
         if clear_search:
@@ -2002,22 +2038,14 @@ class GreenMarket(ParserWindow):
             clear_search.setToolTip("Clear the search text")
         self.search.textChanged.connect(self._set_query)
 
-        self.trade_type = QComboBox()
-        self.trade_type.addItem("WTS + WTB", None)
-        self.trade_type.addItem("WTS only", 0)
-        self.trade_type.addItem("WTB only", 1)
-        self.trade_type.addItem("BOTH only", 2)
-        self.trade_type.setAccessibleName("Filter by listing type")
-        self.trade_type.currentIndexChanged.connect(
-            lambda _: self._proxy.set_trade_type(self.trade_type.currentData()))
-
         self._refresh_button = QPushButton("Refresh")
         self._refresh_button.setIcon(game_icon("refresh"))
         self._refresh_button.setToolTip("Refresh prices from PigParse Green")
         self._refresh_button.clicked.connect(self.refresh)
         self._sources_button = QPushButton("Sources")
-        self._sources_button.setIcon(game_icon("market"))
-        self._sources_button.setToolTip("View the source of prices, attributes, and listings")
+        self._sources_button.setIcon(game_icon("layers"))
+        self._sources_button.setToolTip(
+            "View the source of prices, attributes, and item metadata")
         self._sources_button.clicked.connect(self._show_sources)
         self._body_layout.addWidget(toolbar)
 
@@ -2182,7 +2210,7 @@ class GreenMarket(ParserWindow):
         self._wiki_button.clicked.connect(self._show_wiki_card)
         self._body_layout.addWidget(footer)
         self._responsive_widgets = (
-            self.search, self.trade_type, self._refresh_button,
+            self.search, self._refresh_button,
             self._sources_button, self.class_filter, self.race_filter,
             self.slot_filter, self.gear_status, self.status,
             self.stat_sort, self.effect_filter, self.tradeability_filter,
@@ -2268,7 +2296,7 @@ class GreenMarket(ParserWindow):
         table = QTableView()
         table.setModel(self._proxy)
         table.setSortingEnabled(True)
-        table.sortByColumn(1, Qt.SortOrder.AscendingOrder)
+        table.sortByColumn(0, Qt.SortOrder.AscendingOrder)
         table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         table.setSelectionMode(QTableView.SelectionMode.SingleSelection)
         table.setAlternatingRowColors(True)
@@ -2277,10 +2305,9 @@ class GreenMarket(ParserWindow):
         header = table.horizontalHeader()
         header.setMinimumSectionSize(44)
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        table.setColumnWidth(1, 250)
-        table.setColumnWidth(7, 70)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        table.setColumnWidth(0, 250)
+        table.setColumnWidth(6, 70)
         table.setToolTip(
             "Click an item's gold name to open its card")
         table.clicked.connect(self._market_item_clicked)
@@ -2352,7 +2379,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.9")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.10")
         reply = self._network.get(request)
         reply.finished.connect(
             lambda: self._wiki_item_finished(reply, card, json_path, icon_path))
@@ -2371,7 +2398,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.9")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.10")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._wiki_entity_finished(
             reply, card, cache_path, target, kind))
@@ -2455,7 +2482,7 @@ class GreenMarket(ParserWindow):
                     filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.9")
+                    "Vantage/1.44.10")
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
                     lambda: self._wiki_icon_finished(
@@ -2524,20 +2551,17 @@ class GreenMarket(ParserWindow):
         width = self._design_size.width()
 
         if width >= 760:
-            self._toolbar_layout.addWidget(self.search, 0, 0)
-            self._toolbar_layout.addWidget(self.trade_type, 0, 1)
+            self._toolbar_layout.addWidget(self.search, 0, 0, 1, 2)
             self._toolbar_layout.addWidget(self._refresh_button, 0, 2)
             self._toolbar_layout.addWidget(self._sources_button, 0, 3)
         elif width >= 460:
-            self._toolbar_layout.addWidget(self.search, 0, 0, 1, 3)
-            self._toolbar_layout.addWidget(self.trade_type, 1, 0)
-            self._toolbar_layout.addWidget(self._refresh_button, 1, 1)
-            self._toolbar_layout.addWidget(self._sources_button, 1, 2)
+            self._toolbar_layout.addWidget(self.search, 0, 0, 1, 2)
+            self._toolbar_layout.addWidget(self._refresh_button, 1, 0)
+            self._toolbar_layout.addWidget(self._sources_button, 1, 1)
         else:
             self._toolbar_layout.addWidget(self.search, 0, 0, 1, 2)
-            self._toolbar_layout.addWidget(self.trade_type, 1, 0, 1, 2)
-            self._toolbar_layout.addWidget(self._refresh_button, 2, 0)
-            self._toolbar_layout.addWidget(self._sources_button, 2, 1)
+            self._toolbar_layout.addWidget(self._refresh_button, 1, 0)
+            self._toolbar_layout.addWidget(self._sources_button, 1, 1)
         self._toolbar_layout.setColumnStretch(0, 1)
 
         if width >= 820:
@@ -2636,7 +2660,6 @@ class GreenMarket(ParserWindow):
             name = str(item.get("n") or "")
             rows.append({
                 "name": name,
-                "type": int(item.get("t") or 0),
                 "price": int(item.get("a30") or 0),
                 "posts": int(item.get("t30") or 0),
                 "quality": quality,
@@ -2686,7 +2709,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.9")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.10")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -2708,7 +2731,7 @@ class GreenMarket(ParserWindow):
                     return
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.9")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.10")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -2796,7 +2819,7 @@ class GreenMarket(ParserWindow):
         self._refresh_button.setText("Refreshing…")
         self.status.setText("Refreshing PigParse Green…")
         request = QNetworkRequest(QUrl(MARKET_ENDPOINT))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.9")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.10")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._finished(reply))
 
@@ -2814,8 +2837,9 @@ class GreenMarket(ParserWindow):
             items = json.loads(bytes(reply.readAll()).decode("utf-8"))
             if not isinstance(items, list):
                 raise ValueError("The response does not contain a list")
-            self._model.set_items(items)
-            self._gear_model.set_prices(items)
+            references = market_price_references(items)
+            self._model.set_items(references)
+            self._gear_model.set_prices(references)
             self.auction_composer.refresh_prices()
             self._rebuild_mobile_items()
             payload = {
@@ -2825,7 +2849,8 @@ class GreenMarket(ParserWindow):
             }
             _cache_file().write_text(json.dumps(payload), encoding="utf-8")
             self.status.setText(
-                f"PigParse API · {len(items):,} items · updated now · 10 min cycle")
+                f"PigParse API · {len(references):,} price references · updated now · "
+                "10 min cycle")
         except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
             self.status.setText(f"Refresh failed · using cache · {error}")
         finally:
@@ -2836,13 +2861,14 @@ class GreenMarket(ParserWindow):
     def _load_cache(self):
         try:
             payload = json.loads(_cache_file().read_text(encoding="utf-8"))
-            self._model.set_items(payload.get("items", []))
+            self._model.set_items(market_price_references(
+                payload.get("items", [])))
             self._gear_model.set_prices(self._model.items)
             self.auction_composer.refresh_prices()
             self._rebuild_mobile_items()
             stamp = datetime.datetime.fromisoformat(payload.get("updated_at", ""))
             self.status.setText(
-                f"PigParse API · {len(self._model.items):,} cached items · "
+                f"PigParse API · {len(self._model.items):,} cached price references · "
                 f"{stamp.astimezone():%Y-%m-%d %H:%M}")
         except (OSError, ValueError, json.JSONDecodeError):
             pass
@@ -2887,7 +2913,7 @@ class GreenMarket(ParserWindow):
         name = str(item.get("n", ""))
         self.status.setText(f"Evaluating PigParse history · {name}…")
         request = QNetworkRequest(QUrl(DETAIL_API.format(item_name=quote(name, safe=""))))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.9")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.10")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.finished.connect(lambda: self._analysis_finished(reply))

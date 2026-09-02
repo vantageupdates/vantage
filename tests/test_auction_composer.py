@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QFileDialog, QTabWidget, QWidget
 
 from vantage.parsers.market import (
     AuctionComposer, AuctionEntry, GearItem, P99_CHAT_LIMIT,
@@ -71,7 +71,7 @@ def test_wtb_messages_are_plain_text_even_with_valid_item_ids():
         [AuctionEntry(6040, "Manastone", "80k", 2)], "WTB",
         "{type} {items} {suffix}", "{item} {price} {qty}", " | ", "send tell")
 
-    assert lines == ["WTB Manastone 80k x2 send tell"]
+    assert lines == ["WTB Manastone 80k 2x send tell"]
     assert P99_ITEM_LINK_DELIMITER not in lines[0]
 
 
@@ -108,6 +108,34 @@ def test_auction_composer_requires_imported_id_then_copies_real_wts_link(tmp_pat
     composer.close()
 
 
+def test_inventory_picker_stays_outside_scaled_market_surface(
+        tmp_path, monkeypatch):
+    _app()
+    market_window = QWidget()
+    composer = AuctionComposer(parent=market_window)
+    tabs = QTabWidget()
+    tabs.addTab(composer, "WTS / WTB Builder")
+    inventory = tmp_path / "Mindflux-Inventory.txt"
+    inventory.write_text("General1 Manastone 13401 1 5\n", encoding="utf-8")
+    captured = {}
+
+    def choose_file(parent, caption, start, file_filter, **kwargs):
+        captured.update(
+            parent=parent, caption=caption, start=start,
+            file_filter=file_filter, options=kwargs.get("options"))
+        return str(inventory), "EverQuest inventory (*.txt)"
+
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(choose_file))
+
+    assert composer.import_inventory()
+    assert captured["parent"] is market_window
+    assert captured["options"] & QFileDialog.Option.DontUseNativeDialog
+    assert composer.parentWidget() is not market_window
+    assert "authentic item IDs ready" in composer.inventory_status.text()
+    tabs.close()
+    market_window.close()
+
+
 def test_wtb_is_simple_and_does_not_require_an_inventory_export():
     app = _app()
     composer = AuctionComposer()
@@ -128,6 +156,28 @@ def test_advanced_templates_are_hidden_until_requested():
     assert not composer.advanced_panel.isVisible()
     composer.advanced_toggle.setChecked(True)
     assert not composer.advanced_panel.isHidden()
+    composer.close()
+
+
+def test_default_wts_quantity_is_easy_to_read_before_the_item():
+    line = compose_auction_lines([
+        AuctionEntry(13401, "Manastone", "80k", 2)])[0]
+
+    assert line.startswith("WTS 2x ")
+    assert "Manastone" in line
+    assert line.endswith(" 80k PST")
+
+
+def test_paste_help_expands_inline_without_opening_a_dialog():
+    _app()
+    composer = AuctionComposer()
+
+    assert composer.paste_help.isHidden()
+    composer.paste_help_button.click()
+    assert not composer.paste_help.isHidden()
+    assert "Alt+O" in composer.paste_help.text()
+    composer.paste_help_button.click()
+    assert composer.paste_help.isHidden()
     composer.close()
 
 
