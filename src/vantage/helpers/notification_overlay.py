@@ -957,12 +957,13 @@ class NotificationOverlayManager:
                 else "text")
             overlay = self.overlays.get(self.fallback_id(overlay_type))
         if overlay is None:
-            return
+            return False
         overlay.notify(
             title, message, msecs=msecs, position=position,
             countdown_seconds=countdown_seconds, timer_key=timer_key,
             character=character, color=color, timer_mode=timer_mode,
             text_color=text_color)
+        return True
 
     def dismiss_timer(self, timer_key):
         for overlay in self.overlays.values():

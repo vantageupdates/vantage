@@ -69,10 +69,20 @@ downloading = {
 }
 controller.download_ready.emit(info, 'verified-Vantage.exe')
 app.processEvents()
+toast.show_success('9.8.6', '9.8.7')
+app.processEvents()
+success = {
+    'visible': toast.isVisible(),
+    'title': toast.title.text(),
+    'message': toast.message.text(),
+    'button': toast.update_button.text(),
+    'progress': toast.progress.value(),
+}
 print(json.dumps({
     'shown': shown,
     'downloading': downloading,
     'installed': target.installed,
+    'success': success,
 }))
 toast.close()
 app.quit()
@@ -110,3 +120,10 @@ def test_update_toast_is_top_right_and_one_click_installs(tmp_path):
     }
     assert result['installed'] == [
         '9.8.7', 'verified-Vantage.exe', True]
+    assert result['success'] == {
+        'visible': True,
+        'title': 'UPDATE COMPLETE',
+        'message': 'Vantage 9.8.7 is installed · was 9.8.6',
+        'button': 'Done',
+        'progress': 100,
+    }

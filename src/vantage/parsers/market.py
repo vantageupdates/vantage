@@ -2236,6 +2236,8 @@ class GreenMarket(ParserWindow):
         self._last_consider_name = ""
         self._consider_card = None
         self._live_alerted_at = {}
+        self._live_match_count = 0
+        self._last_live_alert = ""
 
         self._network = QNetworkAccessManager(self)
         self._model = MarketModel()
@@ -2292,6 +2294,14 @@ class GreenMarket(ParserWindow):
         self._sources_button.setToolTip(
             "View the source of prices, attributes, and item metadata")
         self._sources_button.clicked.connect(self._show_sources)
+        self._live_status_button = QPushButton("Sale alerts · 0")
+        self._live_status_button.setObjectName("MarketLiveStatus")
+        self._live_status_button.setIcon(game_icon("ph-storefront"))
+        self._live_status_button.setAccessibleName(
+            "Open live item sale alerts")
+        self._live_status_button.setToolTip(
+            "Open watched-item alerts from /auction messages in this EQ log")
+        self._live_status_button.clicked.connect(self._open_live_alerts)
         self._body_layout.addWidget(toolbar)
 
         filters = QWidget()
@@ -2469,9 +2479,26 @@ class GreenMarket(ParserWindow):
         self.live_alerts_enabled.toggled.connect(
             self._set_live_alerts_enabled)
         watch_layout.addWidget(self.live_alerts_enabled, 0, 4)
+        self.live_alert_test = QPushButton("Test alert")
+        self.live_alert_test.setIcon(game_icon("check"))
+        self.live_alert_test.setAccessibleName(
+            "Test the selected live sale alert")
+        self.live_alert_test.setToolTip(
+            "Show a sample sale notification using the selected watched item")
+        self.live_alert_test.clicked.connect(self._preview_live_alert)
+        watch_layout.addWidget(self.live_alert_test, 0, 5)
         watch_layout.setColumnStretch(0, 2)
         watch_layout.setColumnStretch(2, 1)
         live_layout.addWidget(watch_tools)
+        self.live_alert_status = QLabel(
+            "No watched items · select a market row and choose Watch sale")
+        self.live_alert_status.setObjectName("MarketLiveAlertStatus")
+        self.live_alert_status.setWordWrap(True)
+        self.live_alert_status.setAccessibleName(
+            "Live sale alert service status")
+        self.live_alert_status.setToolTip(
+            "Matched sales stay visible here even if notification overlays are disabled")
+        live_layout.addWidget(self.live_alert_status)
         self._refresh_live_watch_items()
         self.live_table = QTableView()
         self.live_table.setModel(self._local_proxy)
@@ -2523,14 +2550,23 @@ class GreenMarket(ParserWindow):
         self._wiki_button.setToolTip(
             "Show the Project 1999 Wiki item card and Green price inside Vantage")
         self._wiki_button.clicked.connect(self._show_wiki_card)
+        self._watch_selected_button = QPushButton("Watch sale")
+        self._watch_selected_button.setIcon(game_icon("ph-storefront"))
+        self._watch_selected_button.setAccessibleName(
+            "Watch the selected item for a live sale")
+        self._watch_selected_button.setToolTip(
+            "Alert when the selected item appears in a /auction line received by this EQ client")
+        self._watch_selected_button.clicked.connect(self._watch_selected_item)
         self._body_layout.addWidget(footer)
         self._responsive_widgets = (
             self.search, self._refresh_button,
-            self._sources_button, self.class_filter, self.race_filter,
+            self._sources_button, self._live_status_button,
+            self.class_filter, self.race_filter,
             self.slot_filter, self.gear_status, self.status,
             self.stat_sort, self.effect_filter, self.tradeability_filter,
             self.era_filter,
-            self._analyze_button, self._detail_button, self._wiki_button)
+            self._watch_selected_button, self._analyze_button,
+            self._detail_button, self._wiki_button)
         for widget in self._responsive_widgets:
             widget.setMinimumWidth(0)
             widget.setSizePolicy(
@@ -2695,7 +2731,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.18")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.19")
         reply = self._network.get(request)
         reply.finished.connect(
             lambda: self._wiki_item_finished(reply, card, json_path, icon_path))
@@ -2714,7 +2750,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.18")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.19")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._wiki_entity_finished(
             reply, card, cache_path, target, kind))
@@ -2798,7 +2834,7 @@ class GreenMarket(ParserWindow):
                     filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.18")
+                    "Vantage/1.44.19")
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
                     lambda: self._wiki_icon_finished(
@@ -2856,7 +2892,7 @@ class GreenMarket(ParserWindow):
             self._toolbar_layout.removeWidget(widget)
             self._filters_layout.removeWidget(widget)
             self._footer_layout.removeWidget(widget)
-        for column in range(4):
+        for column in range(5):
             self._toolbar_layout.setColumnStretch(column, 0)
             self._filters_layout.setColumnStretch(column, 0)
             self._footer_layout.setColumnStretch(column, 0)
@@ -2866,18 +2902,22 @@ class GreenMarket(ParserWindow):
         # avoid.
         width = self._design_size.width()
 
-        if width >= 760:
+        if width >= 900:
             self._toolbar_layout.addWidget(self.search, 0, 0, 1, 2)
             self._toolbar_layout.addWidget(self._refresh_button, 0, 2)
             self._toolbar_layout.addWidget(self._sources_button, 0, 3)
+            self._toolbar_layout.addWidget(self._live_status_button, 0, 4)
         elif width >= 460:
-            self._toolbar_layout.addWidget(self.search, 0, 0, 1, 2)
+            self._toolbar_layout.addWidget(self.search, 0, 0, 1, 3)
             self._toolbar_layout.addWidget(self._refresh_button, 1, 0)
             self._toolbar_layout.addWidget(self._sources_button, 1, 1)
+            self._toolbar_layout.addWidget(self._live_status_button, 1, 2)
         else:
             self._toolbar_layout.addWidget(self.search, 0, 0, 1, 2)
             self._toolbar_layout.addWidget(self._refresh_button, 1, 0)
             self._toolbar_layout.addWidget(self._sources_button, 1, 1)
+            self._toolbar_layout.addWidget(
+                self._live_status_button, 2, 0, 1, 2)
         self._toolbar_layout.setColumnStretch(0, 1)
 
         if width >= 820:
@@ -2897,27 +2937,37 @@ class GreenMarket(ParserWindow):
             self._filters_layout.addWidget(self.slot_filter, 1, 1)
             self._filters_layout.addWidget(self.gear_status, 2, 0, 1, 2)
 
-        if width >= 760:
+        if width >= 900:
             self._footer_layout.addWidget(self.status, 0, 0)
-            self._footer_layout.addWidget(self._analyze_button, 0, 1)
-            self._footer_layout.addWidget(self._detail_button, 0, 2)
-            self._footer_layout.addWidget(self._wiki_button, 0, 3)
+            self._footer_layout.addWidget(self._watch_selected_button, 0, 1)
+            self._footer_layout.addWidget(self._analyze_button, 0, 2)
+            self._footer_layout.addWidget(self._detail_button, 0, 3)
+            self._footer_layout.addWidget(self._wiki_button, 0, 4)
             self._footer_layout.setColumnStretch(0, 1)
+        elif width >= 760:
+            self._footer_layout.addWidget(self.status, 0, 0, 1, 4)
+            self._footer_layout.addWidget(self._watch_selected_button, 1, 0)
+            self._footer_layout.addWidget(self._analyze_button, 1, 1)
+            self._footer_layout.addWidget(self._detail_button, 1, 2)
+            self._footer_layout.addWidget(self._wiki_button, 1, 3)
         elif width >= 500:
             self._footer_layout.addWidget(self.status, 0, 0, 1, 3)
-            self._footer_layout.addWidget(self._analyze_button, 1, 0)
-            self._footer_layout.addWidget(self._detail_button, 1, 1)
-            self._footer_layout.addWidget(self._wiki_button, 1, 2)
+            self._footer_layout.addWidget(self._watch_selected_button, 1, 0)
+            self._footer_layout.addWidget(self._analyze_button, 1, 1)
+            self._footer_layout.addWidget(self._detail_button, 1, 2)
+            self._footer_layout.addWidget(self._wiki_button, 2, 0, 1, 3)
         elif width >= 400:
             self._footer_layout.addWidget(self.status, 0, 0, 1, 2)
-            self._footer_layout.addWidget(self._analyze_button, 1, 0)
-            self._footer_layout.addWidget(self._detail_button, 1, 1)
-            self._footer_layout.addWidget(self._wiki_button, 2, 0, 1, 2)
+            self._footer_layout.addWidget(self._watch_selected_button, 1, 0)
+            self._footer_layout.addWidget(self._analyze_button, 1, 1)
+            self._footer_layout.addWidget(self._detail_button, 2, 0)
+            self._footer_layout.addWidget(self._wiki_button, 2, 1)
         else:
             self._footer_layout.addWidget(self.status, 0, 0)
-            self._footer_layout.addWidget(self._analyze_button, 1, 0)
-            self._footer_layout.addWidget(self._detail_button, 2, 0)
-            self._footer_layout.addWidget(self._wiki_button, 3, 0)
+            self._footer_layout.addWidget(self._watch_selected_button, 1, 0)
+            self._footer_layout.addWidget(self._analyze_button, 2, 0)
+            self._footer_layout.addWidget(self._detail_button, 3, 0)
+            self._footer_layout.addWidget(self._wiki_button, 4, 0)
         QTimer.singleShot(0, self._sync_market_body_size)
 
     def _load_gear_cache(self):
@@ -3027,7 +3077,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.18")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.19")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -3049,7 +3099,7 @@ class GreenMarket(ParserWindow):
                     return
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.18")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.19")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -3123,6 +3173,48 @@ class GreenMarket(ParserWindow):
         if announce:
             _announce_accessible(self, text)
 
+    def _open_live_alerts(self):
+        """Expose the sale watcher instead of hiding it behind tab four."""
+        self.tabs.setCurrentIndex(self._live_tab_index)
+        self.live_watch_input.setFocus(Qt.FocusReason.ShortcutFocusReason)
+
+    def _update_live_alert_status(self):
+        watches = list(config.data["market"].get("live_watch_items", []))
+        enabled = bool(config.data["market"].get(
+            "live_alerts_enabled", True))
+        self._live_status_button.setText(f"Sale alerts · {len(watches)}")
+        self._live_status_button.setProperty(
+            "Active", bool(enabled and watches))
+        self._live_status_button.setStyle(self._live_status_button.style())
+        state = "on" if enabled else "off"
+        self._live_status_button.setToolTip(
+            f"Live sale alerts are {state} · {len(watches)} watched item"
+            f"{'s' if len(watches) != 1 else ''} · click to manage")
+        self._live_status_button.setAccessibleDescription(
+            self._live_status_button.toolTip())
+        self.live_alert_test.setEnabled(bool(enabled and watches))
+        if self._last_live_alert:
+            self.live_alert_status.setText(self._last_live_alert)
+        elif watches and enabled:
+            self.live_alert_status.setText(
+                f"Listening for {len(watches)} watched item"
+                f"{'s' if len(watches) != 1 else ''} in this EQ log")
+        elif watches:
+            self.live_alert_status.setText(
+                f"{len(watches)} watched item"
+                f"{'s' if len(watches) != 1 else ''} · alerts are off")
+        else:
+            self.live_alert_status.setText(
+                "No watched items · select a market row and choose Watch sale")
+
+    def _watch_selected_item(self):
+        item = self._selected_item()
+        if not item:
+            self.status.setText(
+                "Select a PigParse or Gear row, then choose Watch sale")
+            return False
+        return self._add_live_watch_name(str(item.get("n", "")))
+
     def _refresh_live_watch_items(self, selected=""):
         watches = list(config.data["market"].get("live_watch_items", []))
         selected = str(selected or self.live_watch_items.currentText())
@@ -3140,11 +3232,18 @@ class GreenMarket(ParserWindow):
             self.live_watch_items.setEnabled(False)
             self.live_watch_remove.setEnabled(False)
         self.live_watch_items.blockSignals(False)
+        self._update_live_alert_status()
 
     def _add_live_watch(self):
         watch = str(self.live_watch_input.text() or "").strip()[:96]
         if not watch:
             self.live_watch_input.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        return self._add_live_watch_name(watch)
+
+    def _add_live_watch_name(self, watch):
+        watch = str(watch or "").strip()[:96]
+        if not watch:
             return False
         watches = config.data["market"].setdefault("live_watch_items", [])
         catalog_match = next((
@@ -3162,6 +3261,8 @@ class GreenMarket(ParserWindow):
             config.save()
         self.live_watch_input.clear()
         self._refresh_live_watch_items(catalog_match)
+        self.status.setText(
+            f"Watching live EQ auction lines for {catalog_match}")
         _announce_accessible(
             self, f"Alert added for {catalog_match}; auction alerts are on")
         return True
@@ -3184,9 +3285,31 @@ class GreenMarket(ParserWindow):
         config.data["market"]["live_alerts_enabled"] = bool(enabled)
         if getattr(config, "_filename", ""):
             config.save()
+        self._update_live_alert_status()
         _announce_accessible(
             self, "Live auction alerts on" if enabled else
             "Live auction alerts off")
+
+    def _preview_live_alert(self):
+        item = str(self.live_watch_items.currentText() or "").strip()
+        if not self.live_watch_items.isEnabled() or not item:
+            self.live_alert_status.setText(
+                "Add or watch an item before testing a sale alert")
+            return False
+        app = QApplication.instance()
+        shown = bool(
+            app and hasattr(app, "show_overlay_notification") and
+            app.show_overlay_notification(
+                f"Test sale alert · {item}",
+                "EC Tunnel Trader · WTS sample listing",
+                msecs=6500, overlay_id="alerts", color="#6C4634",
+                text_color="#FFF0D5"))
+        self._last_live_alert = (
+            f"TEST · {item} · notification overlay shown" if shown else
+            f"TEST · {item} matched, but notification overlays are disabled")
+        self._update_live_alert_status()
+        _announce_accessible(self, self._last_live_alert, assertive=True)
+        return shown
 
     def _notify_live_watches(self, timestamp, seller, message):
         settings = config.data["market"]
@@ -3204,15 +3327,24 @@ class GreenMarket(ParserWindow):
             if now - float(self._live_alerted_at.get(key, 0)) < 60:
                 continue
             self._live_alerted_at[key] = now
-            if app and hasattr(app, "show_overlay_notification"):
+            shown = bool(
+                app and hasattr(app, "show_overlay_notification") and
                 app.show_overlay_notification(
                     f"For sale · {item}",
                     f"{seller} · {message}", msecs=8500,
                     overlay_id="alerts", color="#7A3F2D",
-                    text_color="#FFE6C2")
+                    text_color="#FFE6C2"))
+            self._live_match_count = int(getattr(
+                self, "_live_match_count", 0)) + 1
+            self._last_live_alert = (
+                f"MATCH {self._live_match_count} · {item} · {seller}"
+                + (" · overlay shown" if shown else
+                   " · overlay disabled; match preserved here"))
             _announce_accessible(
                 self, f"For sale: {item}, seller {seller}", assertive=True)
             notified.append(item)
+        if notified and hasattr(self, "live_alert_status"):
+            self._update_live_alert_status()
         return notified
 
     def _set_query(self, query):
@@ -3240,7 +3372,7 @@ class GreenMarket(ParserWindow):
         self._refresh_button.setText("Refreshing…")
         self.status.setText("Refreshing PigParse Green…")
         request = QNetworkRequest(QUrl(MARKET_ENDPOINT))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.18")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.19")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._finished(reply))
 
@@ -3334,7 +3466,7 @@ class GreenMarket(ParserWindow):
         name = str(item.get("n", ""))
         self.status.setText(f"Evaluating PigParse history · {name}…")
         request = QNetworkRequest(QUrl(DETAIL_API.format(item_name=quote(name, safe=""))))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.18")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.19")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.finished.connect(lambda: self._analysis_finished(reply))

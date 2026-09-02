@@ -42,7 +42,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=18,
+    patch=19,
     build=""
 )
 
@@ -171,6 +171,7 @@ class VantageApp(QApplication):
         updated_from = os.environ.pop("VANTAGE_UPDATED_FROM", "").strip()
         update_error = os.environ.pop("VANTAGE_UPDATE_ERROR", "").strip()
         if updated_from:
+            self._update_toast.show_success(updated_from, CURRENT_VERSION)
             self.show_overlay_notification(
                 "Vantage updated",
                 f"Updated from {updated_from} to {CURRENT_VERSION}.",
@@ -386,7 +387,7 @@ class VantageApp(QApplication):
             character="", color="", timer_mode="countdown",
             text_color=""):
         """Show an independent, click-through notice over the active screen."""
-        self._notification_overlay.notify(
+        return self._notification_overlay.notify(
             title, message, msecs=msecs, position=position,
             overlay_id=overlay_id, countdown_seconds=countdown_seconds,
             timer_key=timer_key, character=character, color=color,

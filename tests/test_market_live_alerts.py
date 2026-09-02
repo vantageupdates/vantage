@@ -40,5 +40,8 @@ def test_live_log_alert_service_deduplicates_seller_spam_for_one_minute():
         assert GreenMarket._notify_live_watches(
             service, first + datetime.timedelta(seconds=61),
             "Trader", "WTS Manastone 90k") == ["Manastone"]
+        assert service._live_match_count == 2
+        assert "Manastone" in service._last_live_alert
+        assert "preserved here" in service._last_live_alert
     finally:
         config.data["market"] = previous

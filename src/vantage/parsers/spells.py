@@ -1586,7 +1586,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.18')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.19')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -2584,7 +2584,7 @@ class SpellTarget(QFrame):
 
 
 class SpellProgressBar(QProgressBar):
-    """Compact glass progress bar with its name and countdown painted inside."""
+    """Compact flat progress bar with its name and countdown painted inside."""
 
     def __init__(self, spell_name):
         super().__init__()
@@ -2605,13 +2605,6 @@ class SpellProgressBar(QProgressBar):
         super().paintEvent(event)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        # Preserve the school colour at the rim while giving every timer the
-        # same quiet reading surface. This keeps white text legible without a
-        # glow and makes mixed-school lists feel like one coherent component.
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(5, 8, 11, 118))
-        painter.drawRoundedRect(self.rect().adjusted(2, 4, -2, -4), 3, 3)
         font = self.font()
         font.setFamily('Segoe UI')
         font.setPixelSize(max(9, min(11, self.height() - 7)))
@@ -3094,38 +3087,54 @@ def spell_school_name(spell):
 
 @functools.lru_cache(maxsize=256)
 def _spell_icon_accent(icon_index):
-    """Extract the dominant visible hue from the exact Velious icon art."""
-    image = spell_icon_pixmap(int(icon_index or 0), 20).toImage()
-    colors = {}
+    """Extract the dominant chromatic family from the exact Velious icon art."""
+    # Sample the native 40 px cell. Sampling the 20 px display copy allowed
+    # dark outlines to outvote the actual artwork on detailed icons.
+    image = spell_icon_pixmap(int(icon_index or 0), 40).toImage()
+    hue_bins = {}
     for y in range(image.height()):
         for x in range(image.width()):
             color = image.pixelColor(x, y)
-            if color.alpha() < 96 or color.value() < 28:
-                continue
             saturation = color.saturation()
-            # Quantizing groups neighboring pixel-art shades into the color
-            # family that visually occupies most of the icon.
-            key = tuple((value // 32) * 32 + 16 for value in (
-                color.red(), color.green(), color.blue()))
-            count, score = colors.get(key, (0, 0.0))
-            weight = .45 + saturation / 255.0
-            colors[key] = (count + 1, score + weight)
-    if not colors:
+            value = color.value()
+            hue = color.hue()
+            if (color.alpha() < 96 or value < 34 or
+                    saturation < 38 or hue < 0):
+                continue
+            # Twenty-four hue families are narrow enough to keep blue, teal,
+            # amber and red icons distinct while grouping their pixel-art
+            # highlights and shadows. Chroma is deliberately weighted more
+            # than luminance so gray borders never become the bar color.
+            key = int((hue + 7.5) // 15) % 24
+            weight = (0.35 + (saturation / 255.0) ** 1.65 * 2.8) * (
+                0.55 + value / 255.0 * 0.45)
+            total, red, green, blue = hue_bins.get(key, (0.0, 0.0, 0.0, 0.0))
+            hue_bins[key] = (
+                total + weight,
+                red + color.red() * weight,
+                green + color.green() * weight,
+                blue + color.blue() * weight)
+    if not hue_bins:
         return QColor('#477B91')
-    red, green, blue = max(
-        colors, key=lambda key: (colors[key][1], colors[key][0]))
-    accent = QColor(red, green, blue)
+    total, red, green, blue = max(
+        hue_bins.values(), key=lambda values: values[0])
+    accent = QColor(
+        round(red / total), round(green / total), round(blue / total))
     hue, saturation, value, alpha = accent.getHsv()
     if hue < 0:
         hue = 198
-    # Retain the icon's hue while placing it in a consistent dark UI range.
+    # Retain the icon's hue while putting every fill in the same restrained
+    # value range. This is a category color, not a decorative highlight.
     return QColor.fromHsv(
-        hue, max(72, min(205, saturation)),
-        max(92, min(142, value)), alpha)
+        hue, max(88, min(210, saturation)),
+        # The label crosses both the filled and empty portions of the bar,
+        # so every art-derived fill must remain dark enough for the same
+        # off-white text to stay readable across the whole countdown.
+        max(102, min(122, value)), alpha)
 
 
 def spell_progress_palette(spell):
-    """Build a restrained bar palette from the spell icon's dominant color."""
+    """Build a restrained flat palette from the spell icon's dominant color."""
     body = _spell_icon_accent(int(getattr(spell, 'spell_icon', 0) or 0))
     hue, saturation, value, alpha = body.getHsv()
     highlight = QColor.fromHsv(
@@ -3139,70 +3148,47 @@ def spell_progress_palette(spell):
 
 
 def spell_progress_stylesheet(spell):
-    """A compact, lightly dimensional bar keyed to the real icon artwork."""
+    """A compact flat bar keyed to the real icon artwork."""
     highlight, body, depth, border = spell_progress_palette(spell)
     return f"""
         QProgressBar {{
-        min-height: 20px;
-        max-height: 20px;
+            min-height: 20px;
+            max-height: 20px;
             border: 1px solid {border};
-            border-radius: 6px;
+            border-radius: 5px;
             padding: 0px;
-            background: qlineargradient(
-                x1:0, y1:0, x2:0, y2:1,
-                stop:0 #222930, stop:0.42 #12171C, stop:1 #080A0D);
+            background-color: #0B1015;
         }}
         QProgressBar::chunk {{
-            border-radius: 5px;
-            background: qlineargradient(
-                x1:0, y1:0, x2:0, y2:1,
-                stop:0 {highlight}, stop:0.24 {body},
-                stop:0.78 {body}, stop:1 {depth});
+            border-radius: 4px;
+            background-color: {body};
         }}
         QProgressBar[Warning="true"] {{
             border-color: #E7B85D;
         }}
         QProgressBar[Warning="true"]::chunk {{
-            background: qlineargradient(
-                x1:0, y1:0, x2:0, y2:1,
-                stop:0 #E9C35E, stop:0.24 #C8962D,
-                stop:0.78 #C8962D, stop:1 #9A681D);
+            background-color: #855312;
         }}
         QProgressBar[Warning="true"][Pulse="true"]::chunk {{
-            background: qlineargradient(
-                x1:0, y1:0, x2:0, y2:1,
-                stop:0 #F4D77F, stop:0.24 #DCAA39,
-                stop:0.78 #DCAA39, stop:1 #A87320);
+            background-color: #9A6515;
         }}
         QProgressBar[Critical="true"] {{
             border-color: #E35B5B;
         }}
         QProgressBar[Critical="true"]::chunk {{
-            background: qlineargradient(
-                x1:0, y1:0, x2:0, y2:1,
-                stop:0 #E96864, stop:0.24 #C83A40,
-                stop:0.78 #C83A40, stop:1 #90232D);
+            background-color: #B3363C;
         }}
         QProgressBar[Critical="true"][Pulse="true"]::chunk {{
-            background: qlineargradient(
-                x1:0, y1:0, x2:0, y2:1,
-                stop:0 #F1847D, stop:0.24 #DF4147,
-                stop:0.78 #DF4147, stop:1 #A32631);
+            background-color: #BC353C;
         }}
         QProgressBar[Faded="true"] {{
             border-color: #B54149;
         }}
         QProgressBar[Faded="true"]::chunk {{
-            background: qlineargradient(
-                x1:0, y1:0, x2:0, y2:1,
-                stop:0 #F07A72, stop:0.20 #C93640,
-                stop:0.74 #7D1D29, stop:1 #3E0D14);
+            background-color: #9B2831;
         }}
         QProgressBar[Faded="true"][Pulse="true"]::chunk {{
-            background: qlineargradient(
-                x1:0, y1:0, x2:0, y2:1,
-                stop:0 #FFF0EC, stop:0.18 #FF6F67,
-                stop:0.68 #D51F2F, stop:1 #6D0B15);
+            background-color: #D13E48;
         }}
     """
 

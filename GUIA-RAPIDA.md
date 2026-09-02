@@ -18,7 +18,7 @@ Haz clic derecho sobre el fondo o la cabecera de cualquier panel para moverlo a 
 - Por defecto, una línea `You have slain…` o `…has been slain by…` crea automáticamente el mob con el respawn de la zona detectada por zoning o `/who`.
 - Si el mismo mob vuelve a morir en esa zona, Vantage reinicia su fila: no crea duplicados. La lectura sigue activa aunque la ventana esté escondida.
 - El catálogo incluye las 121 zonas P99 presentes en Vantage. Cada fila automática muestra `P99 Respawn DB` como fuente; cuando la fuente no publica un tiempo, Vantage avisa y no inventa uno.
-- El log de EverQuest no etiqueta “named” frente a trash. Para asegurar que ningún named se pierda, el modo automático escucha ambas clases de muerte; se puede apagar en **Ajustes → Smart Timers**.
+- El log de EverQuest no etiqueta “named” frente a trash. Vantage cruza cada muerte con el catálogo named de la zona activa y sólo crea timers automáticos cuando existe una coincidencia; trash desconocido no crea filas. Se puede apagar en **Ajustes → Smart Timers**.
 - **Mob muerto** ancla el comienzo del respawn con la hora real.
 - **Spawn ahora** inicia la fase estimada de combate.
 - En modo inteligente, si dejas pasar uno o varios ciclos el timer calcula la fase actual sin perder el horario original.

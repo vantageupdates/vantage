@@ -88,6 +88,11 @@ class QuickUpdateToast(QWidget):
         root.addLayout(actions)
 
     def show_for(self, info):
+        try:
+            self.update_button.clicked.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+        self.update_button.clicked.connect(self.start_one_click_update)
         self.info = info
         self._one_click_active = False
         self.progress.hide()
@@ -95,8 +100,30 @@ class QuickUpdateToast(QWidget):
         self.close_button.setEnabled(True)
         self.update_button.setEnabled(True)
         self.update_button.setText("Update")
+        self.title.setText("VANTAGE UPDATE")
         self.message.setText(
             f"Vantage {info.version} is ready · verified GitHub Release")
+        self._move_top_right()
+        self.show()
+        self.raise_()
+
+    def show_success(self, previous_version, current_version):
+        """Leave an unmistakable receipt after the replacement restarts."""
+        self.info = None
+        self._one_click_active = False
+        self.progress.setValue(100)
+        self.progress.show()
+        self.close_button.setEnabled(True)
+        self.update_button.setEnabled(True)
+        self.update_button.setText("Done")
+        try:
+            self.update_button.clicked.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+        self.update_button.clicked.connect(self.hide)
+        self.title.setText("UPDATE COMPLETE")
+        self.message.setText(
+            f"Vantage {current_version} is installed · was {previous_version}")
         self._move_top_right()
         self.show()
         self.raise_()

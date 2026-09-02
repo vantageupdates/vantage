@@ -15,7 +15,7 @@ from PySide6.QtWidgets import QApplication, QFrame
 from vantage.helpers import config
 from vantage.helpers.spell_icons import spell_icon_pixmap
 from vantage.parsers.spells import (
-    SpellWidget, _spell_icon_coordinates, _spell_target_sort_key,
+    SpellWidget, _spell_icon_accent, _spell_icon_coordinates, _spell_target_sort_key,
     _spell_widget_sort_key,
     create_spell_book, spell_progress_palette, spell_progress_stylesheet,
     spell_school_name, spell_warning_state)
@@ -56,6 +56,13 @@ def test_velious_spell_icons_keep_crisp_art_with_rounded_corners():
     assert app is not None
     assert image.pixelColor(0, 0).alpha() == 0
     assert image.pixelColor(10, 10).alpha() == 255
+
+
+def test_spell_icon_accent_stays_dark_enough_for_overlay_text():
+    # The label spans filled and unfilled pixels, so every icon-derived fill
+    # keeps enough luminance headroom for the same off-white text.
+    for icon_index in (0, 5, 18, 42, 77, 118, 146):
+        assert _spell_icon_accent(icon_index).value() <= 122
 
 
 def test_spell_warning_has_yellow_and_fast_red_stages():
@@ -169,16 +176,17 @@ def test_spell_progress_palette_is_stable_colorful_and_icon_driven():
         max(int(color[index:index + 2], 16) for index in (1, 3, 5)) < 180
         for color in spell_progress_palette(beneficial)[:3])
     style = spell_progress_stylesheet(beneficial)
-    assert "qlineargradient" in style
+    assert "qlineargradient" not in style
+    assert "background-color" in style
     assert "Pulse" in style
     assert 'QProgressBar[Faded="true"]' in style
-    assert "stop:0 #FFF0EC" in style
+    assert "#D13E48" in style
     assert "min-height: 20px" in style
     assert "max-height: 20px" in style
     assert "padding: 0px" in style
-    assert "border-radius: 6px" in style
-    assert "stop:0 #F4D77F" in style
-    assert "stop:0 #F1847D" in style
+    assert "border-radius: 5px" in style
+    assert "#9A6515" in style
+    assert "#BC353C" in style
     assert "box-shadow" not in style
 
 

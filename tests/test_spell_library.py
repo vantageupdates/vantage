@@ -122,6 +122,18 @@ def test_spell_library_is_complete_but_lazy(monkeypatch):
         assert dialog.level_filter.count() == 61
         assert dialog.level_filter.itemData(1) == 1
         assert dialog.level_filter.itemData(60) == 60
+        dialog.class_filter.setCurrentText("Enchanter")
+        _app().processEvents()
+        enchanter_levels = [
+            dialog.level_filter.itemData(index)
+            for index in range(1, dialog.level_filter.count())]
+        assert enchanter_levels
+        assert enchanter_levels == sorted(set(enchanter_levels))
+        assert all(any(
+            class_name == "Enchanter" and level == listed_level
+            for entry in dialog._entries
+            for class_name, listed_level in entry.class_levels)
+                   for level in enchanter_levels)
         dialog.search.setText("Torpor")
         dialog.class_filter.setCurrentText("Shaman")
         dialog.level_filter.setCurrentIndex(

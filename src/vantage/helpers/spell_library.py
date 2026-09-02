@@ -35,7 +35,7 @@ P99_WIKI_API = (
     "https://wiki.project1999.com/api.php?action=parse&page={slug}"
     "&prop=text%7Cwikitext&format=json")
 P99_WIKI_URL = "https://wiki.project1999.com/{slug}"
-USER_AGENT = "Vantage/1.44.18"
+USER_AGENT = "Vantage/1.44.19"
 ACQUISITION_WORDS = (
     "merchant", "sold by", "where to obtain", "where to find", "drop",
     "research", "recipe", "created by", "quest", "reward", "turn in",
@@ -289,12 +289,14 @@ class SpellLibraryDialog(UniformScaleDialog):
         controls.addWidget(self.class_filter)
 
         self.level_filter = QComboBox()
-        self.level_filter.addItem("Any level", 0)
-        for level in range(1, 61):
+        self.level_filter.addItem("Any available level", 0)
+        for level in sorted({
+                level for entry in self._entries
+                for _class_name, level in entry.class_levels}):
             self.level_filter.addItem(f"Level {level}", level)
         self.level_filter.setAccessibleName("Filter spells by required level")
         self.level_filter.setToolTip(
-            "Choose any exact level from 1 through 60")
+            "Shows only levels that contain spells for the selected class")
         controls.addWidget(self.level_filter)
         root.addLayout(controls)
 
@@ -426,10 +428,34 @@ class SpellLibraryDialog(UniformScaleDialog):
         QTimer.singleShot(0, self._select_first)
 
     def _filters_changed(self, *_args):
+        self._sync_available_levels()
         self.proxy.set_filters(
             self.search.text(), self.class_filter.currentData(),
             self.level_filter.currentData())
         QTimer.singleShot(0, self._select_first)
+
+    def _sync_available_levels(self):
+        """Keep the level menu limited to real levels for the chosen class."""
+        class_name = str(self.class_filter.currentData() or "")
+        available = sorted({
+            level for entry in self._entries
+            for listed_class, level in entry.class_levels
+            if not class_name or listed_class == class_name})
+        current = int(self.level_filter.currentData() or 0)
+        values = [
+            int(self.level_filter.itemData(index) or 0)
+            for index in range(self.level_filter.count())]
+        wanted = [0, *available]
+        if values == wanted:
+            return
+        self.level_filter.blockSignals(True)
+        self.level_filter.clear()
+        self.level_filter.addItem("Any available level", 0)
+        for level in available:
+            self.level_filter.addItem(f"Level {level}", level)
+        index = self.level_filter.findData(current)
+        self.level_filter.setCurrentIndex(max(0, index))
+        self.level_filter.blockSignals(False)
 
     def _select_first(self):
         if self.proxy.rowCount() <= 0:
@@ -586,6 +612,7 @@ class SpellLibraryDialog(UniformScaleDialog):
         self.level_filter.blockSignals(True)
         self.search.clear()
         self.class_filter.setCurrentIndex(0)
+        self._sync_available_levels()
         self.level_filter.setCurrentIndex(0)
         self.search.blockSignals(False)
         self.class_filter.blockSignals(False)

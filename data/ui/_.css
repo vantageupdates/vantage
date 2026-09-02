@@ -628,6 +628,23 @@ QMenu::separator { height: 1px; background: #2D3238; margin: 4px 7px; }
     border-radius: 4px;
 }
 #SpellWidgetProgressBarGood, #SpellWidgetProgressBarBad { padding: 0; }
+#MarketLiveStatus {
+    color: #D9D4C8;
+    background-color: #15191D;
+    border: 1px solid #44484A;
+    border-radius: 6px;
+}
+#MarketLiveStatus[Active="true"] {
+    color: #FFF1CF;
+    background-color: #282116;
+    border-color: #8A7044;
+}
+#MarketLiveAlertStatus {
+    color: #B9B5AC;
+    background-color: #0D1115;
+    border-left: 2px solid #8A7044;
+    padding: 3px 6px;
+}
 #SpellEventTray {
     background-color: #0A0D10;
     border: none;
