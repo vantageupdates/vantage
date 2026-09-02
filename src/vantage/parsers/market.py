@@ -9,8 +9,6 @@ import hashlib
 import hmac
 import html
 import json
-import os
-from pathlib import Path
 import re
 import sqlite3
 import statistics
@@ -118,7 +116,7 @@ GEAR_DB_FIELDS = (
     "regen", "manaregen", "astr", "asta", "aagi", "adex", "aint",
     "awis", "acha", "mr", "fr", "cr", "dr", "pr", "attack",
     "haste", "clickName", "procName", "wornName", "focusName",
-    "bardName")
+    "bardName", "peqId")
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +125,7 @@ class GearItem:
 
     name: str
     id: int = 0
+    peqId: int = 0
     classes: int = 0
     races: int = 0
     slots: int = 0
@@ -279,7 +278,7 @@ def considered_name(text):
 
 P99_ITEM_LINK_DELIMITER = "\x12"
 P99_CHAT_LIMIT = 255
-P99_LINK_RX = re.compile(r"\x12.{45}([^\x12]*)\x12")
+P99_LINK_RX = re.compile(r"\x12.{45} ?([^\x12]*)\x12")
 
 
 @dataclass(frozen=True, slots=True)
@@ -290,61 +289,6 @@ class AuctionEntry:
     name: str
     price: str = ""
     quantity: int = 1
-
-
-@dataclass(frozen=True, slots=True)
-class InventoryItem:
-    """One authoritative item ID exported by the running EQ client."""
-
-    location: str
-    name: str
-    id: int
-    quantity: int = 1
-
-
-INVENTORY_LINE_RX = re.compile(
-    r"^\s*(?P<location>\S+)\s+(?P<name>.+?)\s+"
-    r"(?P<id>\d+)\s+(?P<quantity>\d+)\s+\d+\s*$")
-
-
-def parse_p99_inventory(text):
-    """Parse Titanium ``/outputfile inventory`` rows without guessing IDs."""
-    parsed = []
-    for raw_line in str(text or "").splitlines():
-        match = INVENTORY_LINE_RX.match(raw_line)
-        if not match:
-            continue
-        name = " ".join(match.group("name").split())
-        item_id = int(match.group("id"))
-        if name and item_id > 0:
-            parsed.append(InventoryItem(
-                match.group("location"), name, item_id,
-                max(1, int(match.group("quantity")))))
-    return tuple(parsed)
-
-
-def find_latest_p99_inventory(directories):
-    """Find the newest direct-child Titanium inventory export safely."""
-    found = {}
-    for raw_path in directories or ():
-        if not raw_path:
-            continue
-        try:
-            candidate = Path(raw_path).expanduser()
-            if candidate.is_file():
-                if candidate.name.casefold().endswith("-inventory.txt"):
-                    found[str(candidate.resolve()).casefold()] = candidate.resolve()
-                continue
-            if not candidate.is_dir():
-                continue
-            for exported in candidate.glob("*-Inventory.txt"):
-                if exported.is_file():
-                    found[str(exported.resolve()).casefold()] = exported.resolve()
-        except (OSError, RuntimeError, ValueError):
-            continue
-    if not found:
-        return None
-    return max(found.values(), key=lambda item: item.stat().st_mtime)
 
 
 def p99_item_link(item_id, display_name):
@@ -362,7 +306,12 @@ def p99_item_link(item_id, display_name):
     # Titanium payload: action nibble + five-digit item id + five empty
     # augment ids + the remaining reserved fields. The payload is 45 chars.
     payload = "0" + f"{numeric_id:05X}" + ("0" * 39)
-    return f"{P99_ITEM_LINK_DELIMITER}{payload}{name}{P99_ITEM_LINK_DELIMITER}"
+    # Titanium requires a literal space between the 45-character tag body and
+    # the visible item name. Without it the client consumes the DC2 markers but
+    # prints the hexadecimal body as ordinary chat text.
+    return (
+        f"{P99_ITEM_LINK_DELIMITER}{payload} {name}"
+        f"{P99_ITEM_LINK_DELIMITER}")
 
 
 def normalize_auction_price(value):
@@ -1505,8 +1454,6 @@ class AuctionComposer(QWidget):
         self._raw_lines = []
         self._copy_index = 0
         self._token_target = None
-        self._verified_ids = {}
-        self._inventory_names = {}
 
         root = QVBoxLayout(self)
         root.setContentsMargins(5, 4, 5, 5)
@@ -1514,32 +1461,24 @@ class AuctionComposer(QWidget):
 
         self.guide = QLabel(
             "Search item → Add → set price and quantity → Copy WTS. "
-            "Clickable item links are optional.")
+            "Clickable item links are generated automatically.")
         self.guide.setObjectName("MarketStatSummary")
         self.guide.setWordWrap(True)
         self.guide.setToolTip(
-            "Copy works immediately with item names. Optional clickable links "
-            "come from EverQuest's /outputfile inventory command.")
+            "Vantage uses the local P99 item index to build Titanium item links; "
+            "no inventory export is required.")
         root.addWidget(self.guide)
 
         source_row = QHBoxLayout()
         source_row.setSpacing(4)
-        self.import_button = QPushButton("Enable item links")
-        self.import_button.setIcon(game_icon("import"))
-        self.import_button.setAccessibleName(
-            "Automatically find EverQuest inventory item links")
-        self.import_button.setToolTip(
-            "Optional: type /outputfile inventory in EverQuest, then click here. "
-            "Vantage finds the newest export automatically; no file picker opens.")
-        self.import_button.clicked.connect(self.import_inventory)
-        source_row.addWidget(self.import_button)
-        self.inventory_status = QLabel(
-            "Optional · first type /outputfile inventory in EQ")
-        self.inventory_status.setObjectName("MarketGearSource")
-        self.inventory_status.setToolTip(
-            "Copy already works as plain text. This optional step adds authentic "
-            "clickable item links to items found in your EQ inventory.")
-        source_row.addWidget(self.inventory_status, 1)
+        self.link_status = QLabel(
+            "Automatic P99 item links · no inventory file needed")
+        self.link_status.setObjectName("MarketGearSource")
+        self.link_status.setAccessibleName("P99 item link source")
+        self.link_status.setToolTip(
+            "Link IDs come from the local P99 item database bundled into the "
+            "market index. Items without a verified link ID remain plain text.")
+        source_row.addWidget(self.link_status, 1)
         self.paste_help_button = QPushButton("How to paste")
         self.paste_help_button.setIcon(game_icon("help"))
         self.paste_help_button.setCheckable(True)
@@ -1564,7 +1503,7 @@ class AuctionComposer(QWidget):
         self.trade_type.addItems(("Sell items (WTS)", "Buy items (WTB)"))
         self.trade_type.setAccessibleName("Auction message type")
         self.trade_type.setToolTip(
-            "WTS creates clickable P99 item links; WTB always uses plain item names")
+            "WTS automatically creates clickable P99 item links; WTB uses plain names")
         self.trade_type.currentIndexChanged.connect(self._trade_type_changed)
         picker.addWidget(self.trade_type)
 
@@ -1745,10 +1684,6 @@ class AuctionComposer(QWidget):
             field.textChanged.connect(self._rebuild)
         self._token_target = self.message_template
         self._rebuild()
-        saved_inventory = str(
-            config.data.get("market", {}).get("inventory_file", "") or "")
-        if saved_inventory and Path(saved_inventory).is_file():
-            self.import_inventory(saved_inventory, quiet=True)
 
     def _toggle_advanced(self, shown):
         self.advanced_panel.setVisible(bool(shown))
@@ -1759,10 +1694,9 @@ class AuctionComposer(QWidget):
         selling = self.trade_type.currentIndex() == 0
         self.guide.setText(
             "Search item → Add → set price and quantity → Copy WTS. "
-            "Clickable item links are optional." if selling else
+            "Clickable item links are generated automatically." if selling else
             "Search item → Add → set your offer and quantity → Copy WTB.")
-        self.import_button.setVisible(selling)
-        self.inventory_status.setVisible(selling)
+        self.link_status.setVisible(selling)
         self.copy_button.setText("Copy WTS" if selling else "Copy WTB")
         self.paste_note.setText(
             f"Copy {'WTS' if selling else 'WTB'} → focus EQ chat → press your "
@@ -1798,9 +1732,8 @@ class AuctionComposer(QWidget):
         self._refresh_catalog_model()
 
     def _refresh_catalog_model(self):
-        names = sorted({
-            *[item.name for item in self._catalog],
-            *self._inventory_names.values()}, key=str.casefold)
+        names = sorted(
+            {item.name for item in self._catalog}, key=str.casefold)
         placeholder = (
             f"Find among {len(names):,} P99 items…" if names else
             "Search item name…")
@@ -1809,19 +1742,9 @@ class AuctionComposer(QWidget):
 
     def _matching_item(self, text):
         query = _item_key(text)
-        imported_name = self._inventory_names.get(query)
-        if imported_name:
-            return self._by_name.get(query) or GearItem(imported_name)
         exact = self._by_name.get(query)
         if exact:
             return exact
-        if self.trade_type.currentIndex() == 0 and self._inventory_names:
-            imported_match = next((
-                (key, name) for key, name in self._inventory_names.items()
-                if query and query in key), None)
-            if imported_match:
-                key, name = imported_match
-                return self._by_name.get(key) or GearItem(name)
         return next((
             item for item in self._catalog
             if query and query in _item_key(item.name)), None)
@@ -1842,13 +1765,13 @@ class AuctionComposer(QWidget):
         row = self.items.rowCount()
         self.items.insertRow(row)
         name_cell = QTableWidgetItem(item.name)
-        verified_id = int(self._verified_ids.get(_item_key(item.name), 0) or 0)
-        name_cell.setData(Qt.ItemDataRole.UserRole, verified_id)
+        link_id = int(getattr(item, "peqId", 0) or 0)
+        name_cell.setData(Qt.ItemDataRole.UserRole, link_id)
         name_cell.setFlags(name_cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
         name_cell.setToolTip(
-            (f"Verified EQ item ID {verified_id} from your inventory export"
-             if verified_id else
-             "Plain-text item · Copy works now; Enable item links is optional"))
+            (f"Automatic clickable P99 link · item ID {link_id}"
+             if link_id else
+             "No verified P99 link ID · this item will use plain text"))
         self.items.setItem(row, 0, name_cell)
 
         price = QLineEdit()
@@ -1885,84 +1808,6 @@ class AuctionComposer(QWidget):
         visible_rows = max(1, min(7, self.items.rowCount()))
         self.items.setFixedHeight(
             self.items.horizontalHeader().height() + visible_rows * 28 + 3)
-
-    def import_inventory(self, path=None, quiet=False):
-        if isinstance(path, bool):
-            path = None
-        if not path:
-            path = find_latest_p99_inventory(self._inventory_search_roots())
-        if not path:
-            if not quiet:
-                self.inventory_status.setText(
-                    "Not found · type /outputfile inventory in EQ, then click again")
-            return False
-        try:
-            raw = Path(path).read_bytes()
-            try:
-                content = raw.decode("utf-8-sig")
-            except UnicodeDecodeError:
-                content = raw.decode("cp1252")
-            rows = parse_p99_inventory(content)
-        except (OSError, UnicodeError) as error:
-            if not quiet:
-                self.inventory_status.setText(f"Could not read inventory: {error}")
-            return False
-        if not rows:
-            if not quiet:
-                self.inventory_status.setText(
-                    "No EQ inventory rows found · run /outputfile inventory in game")
-            return False
-
-        for entry in rows:
-            key = _item_key(entry.name)
-            self._verified_ids[key] = entry.id
-            self._inventory_names[key] = entry.name
-        for row in range(self.items.rowCount()):
-            cell = self.items.item(row, 0)
-            if not cell:
-                continue
-            verified_id = int(self._verified_ids.get(_item_key(cell.text()), 0) or 0)
-            cell.setData(Qt.ItemDataRole.UserRole, verified_id)
-            cell.setToolTip(
-                f"Verified EQ item ID {verified_id} from your inventory export"
-                if verified_id else
-                "This item was not found in the imported inventory")
-        self.inventory_status.setText(
-            f"Clickable links ready · {len(self._inventory_names):,} inventory items")
-        self.inventory_status.setToolTip(str(Path(path)))
-        self._refresh_catalog_model()
-        self._rebuild()
-        try:
-            config.data.setdefault("market", {})["inventory_file"] = str(Path(path))
-            config.save()
-        except OSError:
-            pass
-        return True
-
-    def _inventory_search_roots(self):
-        """Return a small bounded set of likely EQ folders; never scan the PC."""
-        general = config.data.get("general", {})
-        mobile = config.data.get("mobile", {})
-        stored = str(
-            config.data.get("market", {}).get("inventory_file", "") or "")
-        log_dir = str(general.get("eq_log_dir", "") or "")
-        executable = str(mobile.get("eq_executable", "") or "")
-        roots = []
-        if stored:
-            roots.extend((stored, str(Path(stored).parent)))
-        if log_dir:
-            logs = Path(log_dir)
-            roots.extend((str(logs), str(logs.parent)))
-        if executable:
-            roots.append(str(Path(executable).parent))
-        for variable in ("PROGRAMFILES(X86)", "PROGRAMFILES"):
-            base = str(os.environ.get(variable, "") or "")
-            if base:
-                roots.extend((
-                    str(Path(base) / "Sony" / "EverQuest"),
-                    str(Path(base) / "Daybreak Game Company" /
-                        "Installed Games" / "EverQuest")))
-        return tuple(dict.fromkeys(roots))
 
     def show_paste_help(self, shown=False):
         """Keep help inline so an embedded scaled surface is never detached."""
@@ -2474,7 +2319,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.11")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.12")
         reply = self._network.get(request)
         reply.finished.connect(
             lambda: self._wiki_item_finished(reply, card, json_path, icon_path))
@@ -2493,7 +2338,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.11")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.12")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._wiki_entity_finished(
             reply, card, cache_path, target, kind))
@@ -2577,7 +2422,7 @@ class GreenMarket(ParserWindow):
                     filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.11")
+                    "Vantage/1.44.12")
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
                     lambda: self._wiki_icon_finished(
@@ -2804,7 +2649,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.11")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.12")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -2826,7 +2671,7 @@ class GreenMarket(ParserWindow):
                     return
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.11")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.12")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -2914,7 +2759,7 @@ class GreenMarket(ParserWindow):
         self._refresh_button.setText("Refreshing…")
         self.status.setText("Refreshing PigParse Green…")
         request = QNetworkRequest(QUrl(MARKET_ENDPOINT))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.11")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.12")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._finished(reply))
 
@@ -3008,7 +2853,7 @@ class GreenMarket(ParserWindow):
         name = str(item.get("n", ""))
         self.status.setText(f"Evaluating PigParse history · {name}…")
         request = QNetworkRequest(QUrl(DETAIL_API.format(item_name=quote(name, safe=""))))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.11")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.12")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.finished.connect(lambda: self._analysis_finished(reply))

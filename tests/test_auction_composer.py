@@ -1,12 +1,9 @@
-import os
-
 from PySide6.QtWidgets import QApplication, QSpinBox
 
 from vantage.parsers.market import (
     AuctionComposer, AuctionEntry, AuctionQuantity, GearItem, P99_CHAT_LIMIT,
-    P99_ITEM_LINK_DELIMITER, compose_auction_lines,
-    find_latest_p99_inventory, normalize_auction_price, p99_item_link,
-    parse_p99_inventory)
+    P99_ITEM_LINK_DELIMITER, compose_auction_lines, normalize_auction_price,
+    p99_item_link)
 from vantage.helpers.eq_clipboard import clipboard_payloads
 
 
@@ -20,29 +17,26 @@ def test_titanium_item_link_uses_exact_p99_payload():
     assert link.startswith(P99_ITEM_LINK_DELIMITER)
     assert link.endswith(P99_ITEM_LINK_DELIMITER)
     assert link[1:46] == "001798" + ("0" * 39)
-    assert link[46:-1] == "Manastone"
+    assert link[46] == " "
+    assert link[47:-1] == "Manastone"
+
+
+def test_titanium_link_matches_the_documented_p99_blue_diamond_example():
+    link = p99_item_link(22503, "Blue Diamond")
+
+    assert link[1:7] == "0057E7"
+    assert link[1:46] == "0057E7" + ("0" * 39)
+    assert link[46:-1] == " Blue Diamond"
 
 
 def test_item_link_sanitizes_chat_controls_and_price_input():
     link = p99_item_link(2, "10 Dose\x12 Adrenaline\nTap")
 
     assert link.count(P99_ITEM_LINK_DELIMITER) == 2
-    assert link.endswith("10 Dose Adrenaline Tap\x12")
+    assert link.endswith(" 10 Dose Adrenaline Tap\x12")
     assert normalize_auction_price("1,500 pp") == "1500p"
     assert normalize_auction_price("1.50K") == "1.5k"
     assert normalize_auction_price("500") == "500p"
-
-
-def test_inventory_output_supplies_authoritative_item_ids_and_quantities():
-    rows = parse_p99_inventory(
-        "General6-Slot1 Edge of the Nightwalker 5649 1 5\n"
-        "Bank3 Fungus Covered Scale Tunic 2735 2 5\n"
-        "not an inventory row")
-
-    assert [(row.name, row.id, row.quantity) for row in rows] == [
-        ("Edge of the Nightwalker", 5649, 1),
-        ("Fungus Covered Scale Tunic", 2735, 2),
-    ]
 
 
 def test_titanium_clipboard_payload_preserves_item_link_control_bytes():
@@ -78,34 +72,26 @@ def test_wtb_messages_are_plain_text_even_with_valid_item_ids():
     assert P99_ITEM_LINK_DELIMITER not in lines[0]
 
 
-def test_composer_copies_plain_wts_immediately_then_upgrades_to_item_links(
-        tmp_path):
+def test_composer_builds_clickable_wts_from_local_p99_index_without_inventory():
     app = _app()
     composer = AuctionComposer(lambda name: 80000 if name == "Manastone" else 0)
     composer.set_catalog([
-        GearItem("Manastone", id=6040),
-        GearItem("Fungi Covered Great Staff", id=10400),
+        GearItem("Manastone", id=6040, peqId=13401),
+        GearItem("Fungi Covered Great Staff", id=10400, peqId=10400),
     ])
     composer.item_search.setText("mana")
 
     assert composer.add_search_item()
     assert composer.items.rowCount() == 1
     assert composer.copy_button.isEnabled()
-    assert "plain text" in composer.preview_status.text()
-    assert composer.copy_next()
-    copied = app.clipboard().text()
-    assert copied == "WTS Manastone 80000p PST"
-    assert P99_ITEM_LINK_DELIMITER not in copied
-
-    inventory = tmp_path / "Mindflux-Inventory.txt"
-    inventory.write_text("General1 Manastone 13401 1 5\n", encoding="utf-8")
-    assert composer.import_inventory(str(inventory))
+    assert "clickable link" in composer.preview_status.text()
     assert "[Manastone]" in composer.preview.toPlainText()
     assert composer.copy_next()
     copied = app.clipboard().text()
     assert copied.startswith("WTS ")
     assert P99_ITEM_LINK_DELIMITER in copied
     assert copied[5:11] == "003459"
+    assert copied[50:60] == " Manastone"
     assert "80000p" in copied
 
     composer.trade_type.setCurrentIndex(1)
@@ -116,29 +102,20 @@ def test_composer_copies_plain_wts_immediately_then_upgrades_to_item_links(
     composer.close()
 
 
-def test_inventory_links_are_discovered_automatically_without_a_file_picker(
-        tmp_path):
+def test_composer_has_no_inventory_import_step():
     _app()
-    older = tmp_path / "Old-Inventory.txt"
-    older.write_text("General1 Old Item 1 1 5\n", encoding="utf-8")
-    inventory = tmp_path / "Mindflux-Inventory.txt"
-    inventory.write_text("General1 Manastone 13401 1 5\n", encoding="utf-8")
-    os.utime(older, (1, 1))
-    os.utime(inventory, (2, 2))
     composer = AuctionComposer()
-    composer._inventory_search_roots = lambda: (tmp_path,)
 
-    assert find_latest_p99_inventory((tmp_path,)) == inventory
-    composer.import_button.click()
-    assert composer._verified_ids["manastone"] == 13401
-    assert "Clickable links ready" in composer.inventory_status.text()
+    assert not hasattr(composer, "import_button")
+    assert "no inventory file needed" in composer.link_status.text()
+    assert composer.link_status.accessibleName() == "P99 item link source"
     composer.close()
 
 
 def test_wtb_is_simple_and_does_not_require_an_inventory_export():
     app = _app()
     composer = AuctionComposer()
-    composer.set_catalog([GearItem("Manastone", id=6040)])
+    composer.set_catalog([GearItem("Manastone", id=6040, peqId=13401)])
     composer.trade_type.setCurrentIndex(1)
     composer.item_search.setText("Manastone")
 

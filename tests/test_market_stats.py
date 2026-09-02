@@ -35,7 +35,8 @@ def test_local_p99_index_loads_stats_and_effects(tmp_path):
         values = {
             field: 0 if field in numeric else "" for field in GEAR_DB_FIELDS}
         values.update({
-            "id": 4242, "name": "Crown of Insight", "classes": 8192,
+            "id": 4242, "peqId": 19437,
+            "name": "Crown of Insight", "classes": 8192,
             "races": 32, "slots": 4, "ac": 12, "mana": 75,
             # The downloaded classic EQ schema uses 0 for NO DROP.
             "aint": 9, "nodrop": 0, "wornName": "Flowing Thought I"})
@@ -50,6 +51,7 @@ def test_local_p99_index_loads_stats_and_effects(tmp_path):
 
     assert len(items) == 1
     assert items[0].id == 4242
+    assert items[0].peqId == 19437
     assert (items[0].ac, items[0].aint) == (12, 9)
     assert (items[0].nodrop, items[0].era) == (1, "velious")
     assert items[0].effects("worn") == (("Worn", "Flowing Thought I"),)
