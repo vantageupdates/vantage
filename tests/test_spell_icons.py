@@ -1,16 +1,21 @@
 import hashlib
+import datetime
+import copy
 import os
 from pathlib import Path
 from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtGui import QImage
+from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QImage, QKeyEvent
 from PySide6.QtWidgets import QApplication
 
+from vantage.helpers import config
 from vantage.helpers.spell_icons import spell_icon_pixmap
 from vantage.parsers.spells import (
-    _spell_icon_coordinates, _spell_target_sort_key, _spell_widget_sort_key,
+    SpellWidget, _spell_icon_coordinates, _spell_target_sort_key,
+    _spell_widget_sort_key,
     create_spell_book, spell_progress_palette, spell_progress_stylesheet,
     spell_school_name, spell_warning_state)
 
@@ -159,10 +164,49 @@ def test_spell_progress_palette_is_stable_colorful_and_glassy():
     assert "Pulse" in style
     assert 'QProgressBar[Faded="true"]' in style
     assert "stop:0 #FFF0EC" in style
-    assert "min-height: 24px" in style
-    assert "max-height: 24px" in style
+    assert "min-height: 20px" in style
+    assert "max-height: 20px" in style
     assert "padding: 0px" in style
     assert "border-radius: 6px" in style
     assert "stop:0 #FFFBE1" in style
     assert "stop:0 #FFF3EF" in style
     assert "box-shadow" not in style
+
+
+def test_spell_row_is_two_pixels_shorter_without_clipping_the_progress_bar():
+    app = QApplication.instance() or QApplication([])
+    original = copy.deepcopy(config.data)
+    try:
+        config.data.setdefault("general", {})["reduce_motion"] = True
+        config.data.setdefault("spells", {}).update({
+            "level": 60,
+            "use_secondary": [],
+            "use_secondary_all": False,
+            "fade_warning_seconds": 40,
+        })
+        spell_book, _, _ = create_spell_book()
+        widget = SpellWidget(
+            spell_book["Clarity II"], datetime.datetime.now())
+
+        assert app is not None
+        assert widget.height() == 26
+        assert widget.progress.height() == 22
+        assert widget.progress.height() <= widget.height()
+        assert widget.focusPolicy() == Qt.FocusPolicy.StrongFocus
+        assert "Shift+F10" in widget.accessibleDescription()
+
+        menu_calls = []
+        widget._sound_menu = lambda position: menu_calls.append(position)
+        widget.keyPressEvent(QKeyEvent(
+            QEvent.Type.KeyPress, Qt.Key.Key_F10,
+            Qt.KeyboardModifier.ShiftModifier))
+        assert len(menu_calls) == 1
+
+        widget.keyPressEvent(QKeyEvent(
+            QEvent.Type.KeyPress, Qt.Key.Key_Delete,
+            Qt.KeyboardModifier.NoModifier))
+        assert widget._removed is True
+
+        widget.deleteLater()
+    finally:
+        config.data = original

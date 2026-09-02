@@ -4,8 +4,10 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import vantage.helpers.mobile_share as mobile_share_module
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton
 from vantage.helpers.mobile_share import (
-    _MOBILE_PAGE, _ShareHTTPServer, parse_mobile_spell_detail)
+    MobileShareController, MobileShareDialog, _MOBILE_PAGE, _ShareHTTPServer,
+    parse_mobile_spell_detail)
 
 
 class _FakeGameCapture:
@@ -80,9 +82,11 @@ def test_mobile_page_accessibility_updates_preserve_the_session_fragment():
     assert 'id="tabSpells"' in _MOBILE_PAGE
     assert 'id="zoomLock"' in _MOBILE_PAGE
     assert "vantageZoomLock" in _MOBILE_PAGE
-    assert "maximum-scale=1,user-scalable=no" in _MOBILE_PAGE
+    assert "maximum-scale=5,user-scalable=yes" in _MOBILE_PAGE
+    assert "maximum-scale=1,user-scalable=no" not in _MOBILE_PAGE
     assert "touches.length>1" in _MOBILE_PAGE
-    assert "document.addEventListener('touchmove'" in _MOBILE_PAGE
+    assert "gameShell.addEventListener('touchmove'" in _MOBILE_PAGE
+    assert "document.addEventListener('touchmove'" not in _MOBILE_PAGE
     assert "'gesturestart','gesturechange','gestureend'" in _MOBILE_PAGE
     assert "for(let level=1;level<=60" not in _MOBILE_PAGE
     assert "syncSpellLevels(data.available_levels)" in _MOBILE_PAGE
@@ -90,7 +94,30 @@ def test_mobile_page_accessibility_updates_preserve_the_session_fragment():
     assert 'id="mt"' not in _MOBILE_PAGE
     assert ">Listing<" not in _MOBILE_PAGE
     assert "/api/timers/action" in _MOBILE_PAGE
-    assert "Pause or resume this timer" in _MOBILE_PAGE
+    assert "toggleAction+' '+name+' timer'" in _MOBILE_PAGE
+    assert "in a new tab" in _MOBILE_PAGE
+
+
+def test_mobile_dialog_keeps_the_phone_flow_qr_first_and_explicit():
+    app = QApplication.instance() or QApplication([])
+    controller = MobileShareController(_snapshot)
+    dialog = MobileShareDialog(controller)
+    labels = " ".join(
+        label.text() for label in dialog.scaled_surface.findChildren(QLabel))
+    buttons = [
+        button.text() for button in
+        dialog.scaled_surface.findChildren(QPushButton)]
+
+    assert app is not None
+    assert dialog.toggle.text() == "Start Phone QR"
+    assert "Copy Link" in buttons
+    assert "TIMERS · MARKET · SPELLS · EQ LIVE" in labels
+    assert "PERMANENT" not in labels.upper()
+    assert dialog.qr.accessibleName() == "Private mobile session QR code"
+    assert "generate the QR" in dialog.qr.accessibleDescription()
+
+    controller._snapshot_timer.stop()
+    dialog.close()
 
 
 def test_mobile_page_protects_state_and_filters_pigparse():

@@ -12,7 +12,6 @@ QUICKBAR_ITEMS = (
     ("market", "Green Market", "ph-storefront", "windows"),
     ("spell_library", "Spell Library", "ph-spellbook", "tools"),
     ("mobile", "Vantage on Your Phone", "ph-mobile", "tools"),
-    ("support", "Buy me a coffee", "ph-coffee", "tools"),
     ("reload_ui", "Reload Vantage UI", "ph-reload", "tools"),
     ("updates", "Check for Updates", "ph-download", "tools"),
     ("log_status", "Log Status", "ph-pulse", "logs"),
@@ -23,6 +22,8 @@ QUICKBAR_ITEMS = (
     ("settings", "Settings", "ph-settings", "system"),
     ("about", "About & Licenses", "ph-info", "system"),
     ("quit", "Quit Vantage", "ph-power", "system"),
+    # Support is deliberately last in both horizontal and vertical layouts.
+    ("support", "Buy me a coffee", "ph-coffee", "tools"),
 )
 
 QUICKBAR_ITEM_KEYS = tuple(item[0] for item in QUICKBAR_ITEMS)

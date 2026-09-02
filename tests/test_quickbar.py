@@ -5,7 +5,7 @@ import subprocess
 import sys
 
 from vantage.helpers import config
-from vantage.helpers.quickbar_items import QUICKBAR_ITEM_KEYS
+from vantage.helpers.quickbar_items import QUICKBAR_ITEM_KEYS, QUICKBAR_ITEMS
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +19,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QScrollArea
 from vantage.helpers import config
 from vantage.helpers.application import VantageApp
+from vantage.helpers.icons import game_icon
 from vantage.helpers.quickbar_items import QUICKBAR_ITEM_KEYS
 
 config.data['general']['startup_window_state'] = 'normal'
@@ -53,6 +54,34 @@ initial = {
         QPainter.RenderHint.SmoothPixmapTransform),
     'full_font_hinting': app.font().hintingPreference() ==
         QFont.HintingPreference.PreferFullHinting,
+    'support_is_last': bar.action_layout.itemAt(
+        bar.action_layout.count() - 1).widget() is bar._buttons['support'],
+}
+
+app._log_status = 'ONLINE'
+bar.refresh_state()
+online_log = {
+    'status': bar._buttons['log_status'].property('Status'),
+    'online': bar._buttons['log_status'].property('LogOnline'),
+    'green_icon': bar._buttons['log_status'].icon().cacheKey() ==
+        game_icon('ph-pulse-online').cacheKey(),
+    'tooltip': bar._buttons['log_status'].toolTip(),
+    'description': bar._buttons['log_status'].accessibleDescription(),
+}
+app._log_status = 'QUIET'
+bar.refresh_state()
+quiet_log = {
+    'online': bar._buttons['log_status'].property('LogOnline'),
+    'normal_icon': bar._buttons['log_status'].icon().cacheKey() ==
+        game_icon('ph-pulse').cacheKey(),
+}
+
+app.new_version_available = lambda: True
+bar.refresh_state()
+update_ready = {
+    'badge': bar._update_badge.isVisible(),
+    'name': bar._buttons['updates'].accessibleName(),
+    'description': bar._buttons['updates'].accessibleDescription(),
 }
 
 support_calls = []
@@ -143,6 +172,9 @@ print(json.dumps({
     'settings': settings_page,
     'support_calls': support_calls,
     'reload_calls': reload_calls,
+    'online_log': online_log,
+    'quiet_log': quiet_log,
+    'update_ready': update_ready,
 }))
 app.quit()
 """
@@ -324,6 +356,7 @@ def test_quickbar_uses_one_distinct_icon_per_action():
     icons = [icon for _key, _label, icon, _group in QUICKBAR_ITEMS]
     assert len(icons) == len(set(icons))
     assert all(icon.startswith("ph-") for icon in icons)
+    assert QUICKBAR_ITEMS[-1][0] == "support"
 
 
 def test_quickbar_repairs_hidden_support_once_and_preserves_later_choice(
@@ -372,6 +405,19 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
     assert initial['support_icon_visible'] is True
     assert initial['sharp_surface'] is True
     assert initial['full_font_hinting'] is True
+    assert initial['support_is_last'] is True
+    assert result['online_log']['status'] == 'online'
+    assert result['online_log']['online'] is True
+    assert result['online_log']['green_icon'] is True
+    assert 'ONLINE' in result['online_log']['tooltip']
+    assert 'activity detected' in result['online_log']['description']
+    assert result['quiet_log'] == {
+        'online': False,
+        'normal_icon': True,
+    }
+    assert result['update_ready']['badge'] is True
+    assert 'Update ready' in result['update_ready']['name']
+    assert 'ready to install' in result['update_ready']['description']
     assert result['support_calls'] == ['opened']
     assert result['reload_calls'] == ['reloaded']
 

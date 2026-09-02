@@ -1180,7 +1180,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.13')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.14')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -1714,6 +1714,8 @@ class SpellTarget(QFrame):
         self.target_label.setObjectName('SpellTargetLabel')
         self.target_label.setMinimumHeight(20)
         self.target_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.target_label.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.target_label.installEventFilter(self)
         self.target_label.mouseDoubleClickEvent = self._remove
         self._layout.addWidget(self.target_label, 0)
         self._layout.addStretch()
@@ -1764,17 +1766,30 @@ class SpellTarget(QFrame):
         if self.is_named:
             tooltip = (
                 'Named NPC · Vantage keeps one spell target instance in this zone. '
-                'Double-click to remove its timers.')
+                'Double-click, or focus and press Delete, to remove its timers.')
         elif int(total) > 1:
             tooltip = (
                 'EverQuest logs do not expose mob IDs. Vantage separated '
                 f'{total} active mobs with this name; a death line removes '
-                'the oldest matching instance. Double-click to remove this one.')
+                'the oldest matching instance. Double-click, or focus and press '
+                'Delete, to remove this one.')
         else:
-            tooltip = 'Double-click to remove this target and its spell timers'
+            tooltip = (
+                'Double-click, or focus and press Delete, to remove this target '
+                'and its spell timers')
         self.target_label.setToolTip(tooltip)
         self.target_label.setAccessibleName(display)
         self.target_label.setAccessibleDescription(tooltip)
+
+    def eventFilter(self, watched, event):
+        if (watched is self.target_label and
+                event.type() == QEvent.Type.KeyPress and
+                event.key() in {
+                    Qt.Key.Key_Delete, Qt.Key.Key_Backspace,
+                    Qt.Key.Key_Return, Qt.Key.Key_Enter}):
+            self._remove()
+            return True
+        return super().eventFilter(watched, event)
 
     def childEvent(self, event):
         if event.type() == QEvent.Type.ChildRemoved:
@@ -1893,6 +1908,8 @@ class SpellWidget(QFrame):
         super().__init__()
         self.setObjectName('SpellWidget')
         self.spell = spell
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAccessibleName(f'{self.spell.name} spell timer')
         self.runtime_character = str(character or '')
         self.runtime_server = str(server or '')
         self._active = True
@@ -1922,7 +1939,7 @@ class SpellWidget(QFrame):
         # Keep the row itself lean while giving nearly all of its height to
         # the useful coloured timer surface. The local progress-bar style
         # also overrides the application's generic 7 px progress-bar cap.
-        self.setFixedHeight(28)
+        self.setFixedHeight(26)
         layout = QHBoxLayout()
         layout.setContentsMargins(1, 2, 2, 2)
         self.setLayout(layout)
@@ -1931,7 +1948,6 @@ class SpellWidget(QFrame):
         layout.setSpacing(2)
 
         self.progress = SpellProgressBar(self.spell.name)
-        self.progress.setFixedHeight(24)
         self.progress.setProperty('Warning', False)
         self.progress.setProperty('Critical', False)
         self.progress.setProperty('Pulse', False)
@@ -1941,6 +1957,9 @@ class SpellWidget(QFrame):
         else:
             self.progress.setObjectName('SpellWidgetProgressBarBad')
         self.progress.setStyleSheet(spell_progress_stylesheet(self.spell))
+        # Apply the real widget metric after QSS so border-box arithmetic in
+        # Qt cannot silently grow the 22 px bar back to 24 px.
+        self.progress.setFixedHeight(22)
 
         layout.addWidget(self.progress, 1)
         school = spell_school_name(self.spell)
@@ -1951,6 +1970,10 @@ class SpellWidget(QFrame):
         self.setToolTip(
             f'{source_text}{school} · double-click to remove · '
             'right-click to customize the fading sound')
+        target_kind = 'beneficial or personal' if self.spell.type else 'hostile'
+        self.setAccessibleDescription(
+            f'{target_kind} {school} timer; press Delete to remove; press '
+            'Shift+F10 or the Menu key to customize the fading sound')
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._sound_menu)
 
@@ -2135,6 +2158,19 @@ class SpellWidget(QFrame):
     def mouseDoubleClickEvent(self, _):
         self._remove()
 
+    def keyPressEvent(self, event):
+        if event.key() in {Qt.Key.Key_Delete, Qt.Key.Key_Backspace}:
+            self._remove()
+            event.accept()
+            return
+        if (event.key() == Qt.Key.Key_Menu or
+                (event.key() == Qt.Key.Key_F10 and
+                 event.modifiers() & Qt.KeyboardModifier.ShiftModifier)):
+            self._sound_menu(self.rect().center())
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
 
 def _spell_icon_coordinates(icon_index):
     """Compatibility wrapper for the shared Velious atlas helper."""
@@ -2238,8 +2274,8 @@ def spell_progress_stylesheet(spell):
     highlight, body, depth, border = spell_progress_palette(spell)
     return f"""
         QProgressBar {{
-            min-height: 24px;
-            max-height: 24px;
+        min-height: 20px;
+        max-height: 20px;
             border: 1px solid {border};
             border-radius: 6px;
             padding: 0px;

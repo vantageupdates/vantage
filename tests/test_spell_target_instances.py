@@ -4,6 +4,8 @@ from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QApplication
 
 from vantage.helpers import config
@@ -71,6 +73,22 @@ def test_death_removes_one_duplicate_then_renumbers_the_survivor():
     targets = container.get_spell_targets_by_name("a frost giant")
     assert len(targets) == 1
     assert targets[0].target_label.text() == "A Frost Giant"
+
+
+def test_target_header_can_be_focused_and_removed_with_delete():
+    app = _app()
+    container = SpellContainer()
+    container.add_spell(_pacify(), datetime.datetime.now(), "a frost giant")
+    target = container.get_spell_target_by_name("a frost giant")
+
+    assert target.target_label.focusPolicy() == Qt.FocusPolicy.StrongFocus
+    handled = target.eventFilter(target.target_label, QKeyEvent(
+        QEvent.Type.KeyPress, Qt.Key.Key_Delete,
+        Qt.KeyboardModifier.NoModifier))
+    app.processEvents()
+
+    assert handled is True
+    assert container.get_spell_target_by_name("a frost giant") is None
 
 
 def test_late_same_name_landing_recasts_old_instance_instead_of_splitting():

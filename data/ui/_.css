@@ -148,6 +148,14 @@ QToolButton#QuickBarButton:checked {
     border: 1px solid #173E2A;
     border-radius: 3px;
 }
+#QuickBarAlertBadge {
+    color: #111418;
+    background-color: #F0C766;
+    border: 1px solid #FFF0B0;
+    border-radius: 4px;
+    font-size: 7px;
+    font-weight: 900;
+}
 QToolButton#QuickBarButton[Support="true"] {
     color: #FFF7E2;
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -176,6 +184,8 @@ QToolButton#QuickBarButton[Alert="true"] {
     border-color: #C49B49;
 }
 QToolButton#QuickBarButton[Status="online"] {
+    color: #63D69A;
+    background-color: #14251F;
     border-color: #55785D;
 }
 QToolButton#QuickBarButton[Status="waiting"],

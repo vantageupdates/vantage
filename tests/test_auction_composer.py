@@ -3,7 +3,7 @@ from PySide6.QtWidgets import QApplication, QSpinBox
 from vantage.parsers.market import (
     AuctionComposer, AuctionEntry, AuctionQuantity, GearItem, P99_CHAT_LIMIT,
     P99_ITEM_LINK_DELIMITER, compose_auction_lines, normalize_auction_price,
-    p99_item_link)
+    install_auction_hotbuttons, p99_item_link)
 from vantage.helpers.eq_clipboard import clipboard_payloads
 
 
@@ -72,7 +72,7 @@ def test_wtb_messages_are_plain_text_even_with_valid_item_ids():
     assert P99_ITEM_LINK_DELIMITER not in lines[0]
 
 
-def test_composer_builds_clickable_wts_from_local_p99_index_without_inventory():
+def test_composer_copies_plain_wts_and_builds_linked_hotbutton_without_inventory():
     app = _app()
     composer = AuctionComposer(lambda name: 80000 if name == "Manastone" else 0)
     composer.set_catalog([
@@ -84,15 +84,13 @@ def test_composer_builds_clickable_wts_from_local_p99_index_without_inventory():
     assert composer.add_search_item()
     assert composer.items.rowCount() == 1
     assert composer.copy_button.isEnabled()
-    assert "clickable link" in composer.preview_status.text()
-    assert "[Manastone]" in composer.preview.toPlainText()
+    assert "ready for EQ Hotbutton" in composer.preview_status.text()
+    assert "WTS Manastone 80000p PST" in composer.preview.toPlainText()
+    assert P99_ITEM_LINK_DELIMITER in composer._linked_lines[0]
     assert composer.copy_next()
     copied = app.clipboard().text()
-    assert copied.startswith("WTS ")
-    assert P99_ITEM_LINK_DELIMITER in copied
-    assert copied[5:11] == "003459"
-    assert copied[50:60] == " Manastone"
-    assert "80000p" in copied
+    assert copied == "WTS Manastone 80000p PST"
+    assert P99_ITEM_LINK_DELIMITER not in copied
 
     composer.trade_type.setCurrentIndex(1)
     assert composer.copy_next()
@@ -100,6 +98,31 @@ def test_composer_builds_clickable_wts_from_local_p99_index_without_inventory():
     assert copied == "WTB Manastone 80000p PST"
     assert P99_ITEM_LINK_DELIMITER not in copied
     composer.close()
+
+
+def test_linked_wts_installs_into_free_p99_social_with_backup(tmp_path):
+    ini = tmp_path / "Mindflux_P1999Green.ini"
+    original = (
+        "[Socials]\r\n"
+        "Page2Button1Name=KeepMe\r\n"
+        "Page2Button1Color=0\r\n"
+        "Page2Button1Line1=/loc\r\n"
+        "\r\n[ChatManager]\r\nLocked=0\r\n")
+    ini.write_bytes(original.encode("cp1252"))
+    linked = compose_auction_lines([
+        AuctionEntry(14701, "Black Sapphire Electrum Earring", "599p")])
+
+    slots, backup = install_auction_hotbuttons(ini, linked)
+
+    assert slots == ("Page2Button2",)
+    assert backup.read_bytes() == original.encode("cp1252")
+    installed = ini.read_bytes().decode("cp1252")
+    assert "Page2Button1Name=KeepMe" in installed
+    assert "Page2Button2Name=VantageWTS1" in installed
+    assert "Page2Button2Line1=/auction WTS " in installed
+    assert P99_ITEM_LINK_DELIMITER in installed
+    assert "00396D" in installed
+    assert "[ChatManager]" in installed
 
 
 def test_composer_has_no_inventory_import_step():
@@ -119,9 +142,14 @@ def test_wtb_is_simple_and_does_not_require_an_inventory_export():
     composer.trade_type.setCurrentIndex(1)
     composer.item_search.setText("Manastone")
 
+    assert composer.copy_button.accessibleName() == \
+        "Copy the EverQuest WTB message"
+    assert "WTB" in composer.copy_button.toolTip()
     assert composer.add_search_item()
     assert composer.copy_next()
     assert app.clipboard().text() == "WTB Manastone PST"
+    assert composer.copy_button.accessibleName() == \
+        "Copy the EverQuest WTB message"
     composer.close()
 
 

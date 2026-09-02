@@ -112,6 +112,14 @@ class QuickBar(ParserWindow):
             if key == "tick":
                 self._setup_tick_readout()
 
+        self._update_badge = QLabel("!", self._buttons["updates"])
+        self._update_badge.setObjectName("QuickBarAlertBadge")
+        self._update_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._update_badge.setGeometry(15, 1, 8, 9)
+        self._update_badge.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._update_badge.hide()
+
         support = self._buttons["support"]
         support.setProperty("Support", True)
         support.setStyle(support.style())
@@ -444,19 +452,35 @@ class QuickBar(ParserWindow):
         status = str(getattr(
             self._application, "_log_status", "NO LOGS"))
         logs_button = self._buttons["log_status"]
+        online = status.strip().upper() == "ONLINE"
         logs_button.setProperty("Status", status.casefold().replace(" ", "_"))
+        logs_button.setProperty("LogOnline", online)
+        logs_button.setIcon(game_icon(
+            "ph-pulse-online" if online else "ph-pulse"))
         logs_button.setStyle(logs_button.style())
         logs_button.setToolTip(
             f"Logs: {status} · click to inspect every log profile")
         logs_button.setAccessibleName(f"Log Status: {status}")
+        logs_button.setAccessibleDescription(
+            "Live log activity detected; monitoring is online" if online else
+            f"Log monitoring status is {status}")
 
         update_ready = self._application.new_version_available()
         update_button = self._buttons["updates"]
         update_button.setProperty("Alert", update_ready)
         update_button.setStyle(update_button.style())
+        self._update_badge.setVisible(update_ready)
+        if update_ready:
+            self._update_badge.raise_()
         update_button.setToolTip(
             "An update is ready · open the verified updater" if update_ready
             else "Check GitHub for a verified Vantage update")
+        update_button.setAccessibleName(
+            "Update ready; open Vantage updater" if update_ready
+            else "Check for Vantage updates")
+        update_button.setAccessibleDescription(
+            "A verified Vantage update is ready to install" if update_ready
+            else "No verified update is currently waiting")
 
         self._buttons["support"].setToolTip(
             "Open the Vantage Buy Me a Coffee page in your default browser")

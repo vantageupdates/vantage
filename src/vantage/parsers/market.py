@@ -9,7 +9,10 @@ import hashlib
 import hmac
 import html
 import json
+import os
+from pathlib import Path
 import re
+import shutil
 import sqlite3
 import statistics
 from urllib.parse import quote, unquote
@@ -22,7 +25,7 @@ from PySide6.QtGui import QColor, QFont, QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QComboBox, QCompleter, QDialog, QFrame,
-    QGridLayout, QHBoxLayout, QHeaderView, QLayout, QLabel, QLineEdit,
+    QFileDialog, QGridLayout, QHBoxLayout, QHeaderView, QLayout, QLabel, QLineEdit,
     QMessageBox, QPlainTextEdit, QPushButton, QTabWidget,
     QTableView, QTableWidget, QTableWidgetItem, QSizePolicy, QToolButton,
     QVBoxLayout, QWidget)
@@ -30,6 +33,7 @@ from PySide6.QtWidgets import (
 from vantage.helpers import config, resource_path
 from vantage.helpers.icons import game_icon
 from vantage.helpers.eq_clipboard import set_eq_clipboard
+from vantage.helpers.friends_manager import everquest_root_from_logs
 from vantage.helpers.parser import ParserWindow
 from vantage.helpers.portable import data_dir
 from vantage.helpers.responsive import ensure_tab_tooltips, scrollable
@@ -339,7 +343,7 @@ def _preview_auction_line(value):
 def compose_auction_lines(
         entries, trade_type="WTS", message_template="{type} {items} {suffix}",
         item_template="{qty} {item} {price}", separator=" // ", suffix="PST",
-        max_length=P99_CHAT_LIMIT):
+        max_length=P99_CHAT_LIMIT, clickable=True):
     """Render and safely pack customized WTS/WTB messages for EQ chat."""
     trade_type = "WTB" if str(trade_type).strip().upper() == "WTB" else "WTS"
     maximum = max(80, int(max_length or P99_CHAT_LIMIT))
@@ -363,7 +367,8 @@ def compose_auction_lines(
             str(entry.name or "").replace("\n", " ").split())
         item_text = (
             p99_item_link(entry.id, entry.name)
-            if trade_type == "WTS" and int(entry.id or 0) > 0 else
+            if (clickable and trade_type == "WTS" and
+                int(entry.id or 0) > 0) else
             plain_name)
         values = {
             "{item}": item_text,
@@ -395,6 +400,108 @@ def compose_auction_lines(
     if group:
         lines.append(render_message(group))
     return lines
+
+
+_SOCIAL_KEY_RX = re.compile(
+    r"^(Page(?P<page>\d+)Button(?P<button>\d+))"
+    r"(?:Name|Color|Line[1-5])\s*=", re.IGNORECASE)
+
+
+def install_auction_hotbuttons(ini_path, lines):
+    """Install linked auction lines into free P99 social buttons safely.
+
+    The Titanium chat editor strips item-link control bytes from ordinary
+    clipboard paste. Character INI social lines preserve them, so this is the
+    reliable route for generated clickable links.
+    """
+    target = Path(ini_path).expanduser().resolve(strict=True)
+    if not target.is_file() or target.suffix.casefold() != ".ini":
+        raise ValueError("Choose a Project 1999 character INI file")
+    if not re.search(
+            r"_(?:project1999|p1999(?:green|blue|pvp|red))\.ini$",
+            target.name, re.IGNORECASE):
+        raise ValueError("This does not look like a Project 1999 character INI")
+
+    commands = [
+        line if str(line).lstrip().startswith("/") else f"/auction {line}"
+        for line in (lines or ()) if str(line).strip()]
+    if not commands:
+        raise ValueError("Add at least one item before installing a hotbutton")
+    chunks = [commands[index:index + 5]
+              for index in range(0, len(commands), 5)]
+
+    original = target.read_bytes()
+    text = original.decode("cp1252")
+    rows = text.splitlines()
+    section_start = next((
+        index for index, row in enumerate(rows)
+        if row.strip().casefold() == "[socials]"), None)
+    if section_start is None:
+        if rows and rows[-1].strip():
+            rows.append("")
+        rows.append("[Socials]")
+        section_start = len(rows) - 1
+    section_end = next((
+        index for index in range(section_start + 1, len(rows))
+        if rows[index].strip().startswith("[") and
+        rows[index].strip().endswith("]")), len(rows))
+
+    vantage_slots = set()
+    for row in rows[section_start + 1:section_end]:
+        match = re.match(
+            r"^(Page\d+Button\d+)Name\s*=\s*VantageWTS\d*\s*$",
+            row.strip(), re.IGNORECASE)
+        if match:
+            vantage_slots.add(match.group(1).casefold())
+
+    kept = []
+    occupied = set()
+    for row in rows[section_start + 1:section_end]:
+        match = _SOCIAL_KEY_RX.match(row.strip())
+        prefix = match.group(1).casefold() if match else ""
+        if prefix and prefix in vantage_slots:
+            continue
+        if prefix:
+            occupied.add(prefix)
+        kept.append(row)
+
+    available = [
+        f"Page{page}Button{button}"
+        for page in range(2, 11) for button in range(1, 11)
+        if f"page{page}button{button}" not in occupied]
+    if len(available) < len(chunks):
+        raise ValueError("There are not enough empty social buttons on pages 2–10")
+
+    additions = []
+    installed = []
+    for index, command_group in enumerate(chunks, 1):
+        prefix = available[index - 1]
+        installed.append(prefix)
+        additions.extend((
+            f"{prefix}Name=VantageWTS{index}",
+            f"{prefix}Color=0"))
+        additions.extend(
+            f"{prefix}Line{line_number}={command}"
+            for line_number, command in enumerate(command_group, 1))
+        additions.append("")
+
+    rebuilt_section = kept
+    if rebuilt_section and rebuilt_section[-1].strip():
+        rebuilt_section.append("")
+    rebuilt_section.extend(additions)
+    updated = rows[:section_start + 1] + rebuilt_section + rows[section_end:]
+    payload = ("\r\n".join(updated).rstrip() + "\r\n").encode("cp1252")
+
+    backup = target.with_suffix(target.suffix + ".vantage-backup")
+    shutil.copy2(target, backup)
+    temporary = target.with_suffix(target.suffix + ".vantage-tmp")
+    try:
+        temporary.write_bytes(payload)
+        os.replace(temporary, target)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+    return tuple(installed), backup
 
 
 def _wiki_cache_paths(name):
@@ -1452,6 +1559,7 @@ class AuctionComposer(QWidget):
         self._by_name = {}
         self._price_resolver = price_resolver or (lambda _name: 0)
         self._raw_lines = []
+        self._linked_lines = []
         self._copy_index = 0
         self._token_target = None
 
@@ -1461,23 +1569,23 @@ class AuctionComposer(QWidget):
 
         self.guide = QLabel(
             "Search item → Add → set price and quantity → Copy WTS. "
-            "Clickable item links are generated automatically.")
+            "Use EQ Hotbutton for clickable links.")
         self.guide.setObjectName("MarketStatSummary")
         self.guide.setWordWrap(True)
         self.guide.setToolTip(
-            "Vantage uses the local P99 item index to build Titanium item links; "
-            "no inventory export is required.")
+            "Copy WTS pastes clean chat text immediately. EQ Hotbutton installs "
+            "clickable Titanium links; no inventory export is required.")
         root.addWidget(self.guide)
 
         source_row = QHBoxLayout()
         source_row.setSpacing(4)
         self.link_status = QLabel(
-            "Automatic P99 item links · no inventory file needed")
+            "Clickable links use an EQ social hotbutton · no inventory file needed")
         self.link_status.setObjectName("MarketGearSource")
         self.link_status.setAccessibleName("P99 item link source")
         self.link_status.setToolTip(
-            "Link IDs come from the local P99 item database bundled into the "
-            "market index. Items without a verified link ID remain plain text.")
+            "Titanium strips generated link bytes from normal chat paste. "
+            "Vantage can install the same message into a character social button.")
         source_row.addWidget(self.link_status, 1)
         self.paste_help_button = QPushButton("How to paste")
         self.paste_help_button.setIcon(game_icon("help"))
@@ -1490,7 +1598,8 @@ class AuctionComposer(QWidget):
 
         self.paste_help = QLabel(
             "In EverQuest: Alt+O → Keys → bind “Paste from Clipboard” once. "
-            "After Copy WTS, focus the chat line, press that key, then Enter.")
+            "Copy WTS pastes plain text. For clickable names, fully camp out and "
+            "use EQ Hotbutton; the links load on the next character login.")
         self.paste_help.setObjectName("MarketGearSource")
         self.paste_help.setWordWrap(True)
         self.paste_help.setVisible(False)
@@ -1536,10 +1645,20 @@ class AuctionComposer(QWidget):
         self.copy_button.setIcon(game_icon("copy"))
         self.copy_button.setAccessibleName("Copy the EverQuest WTS message")
         self.copy_button.setToolTip(
-            "Copy the generated message; then use EverQuest's Paste from Clipboard key")
+            "Copy clean WTS text; then use EverQuest's Paste from Clipboard key")
         self.copy_button.setEnabled(False)
         self.copy_button.clicked.connect(self.copy_next)
         picker.addWidget(self.copy_button)
+        self.hotbutton_button = QPushButton("EQ Hotbutton…")
+        self.hotbutton_button.setIcon(game_icon("export"))
+        self.hotbutton_button.setAccessibleName(
+            "Install clickable WTS as an EverQuest hotbutton")
+        self.hotbutton_button.setToolTip(
+            "Install real clickable item links into a free character social button; "
+            "fully camp out first")
+        self.hotbutton_button.setEnabled(False)
+        self.hotbutton_button.clicked.connect(self.install_hotbuttons)
+        picker.addWidget(self.hotbutton_button)
         root.addLayout(picker)
 
         self.advanced_toggle = QToolButton()
@@ -1665,15 +1784,17 @@ class AuctionComposer(QWidget):
             "The exact message that will paste into EverQuest appears here.")
         self.preview.setAccessibleName("Auction message preview")
         self.preview.setToolTip(
-            "Square brackets represent clickable item links. Copy preserves the real link data.")
+            "This is the exact plain-text message copied to the clipboard. "
+            "Use EQ Hotbutton when you need clickable item names.")
         root.addWidget(self.preview)
 
         self.paste_note = QLabel(
-            "Copy WTS → focus EQ chat → press your Paste from Clipboard key.")
+            "Copy WTS = instant plain text · EQ Hotbutton = clickable item links.")
         self.paste_note.setObjectName("MarketGearSource")
         self.paste_note.setWordWrap(True)
         self.paste_note.setToolTip(
-            "P99 Titanium may leave this action unbound. Use Alt+O → Keys to assign it.")
+            "Titanium strips generated item-link bytes from ordinary chat paste, "
+            "so linked messages must be loaded from a character social button.")
         root.addWidget(self.paste_note)
         root.addStretch(1)
 
@@ -1694,15 +1815,28 @@ class AuctionComposer(QWidget):
         selling = self.trade_type.currentIndex() == 0
         self.guide.setText(
             "Search item → Add → set price and quantity → Copy WTS. "
-            "Clickable item links are generated automatically." if selling else
+            "Use EQ Hotbutton for clickable links." if selling else
             "Search item → Add → set your offer and quantity → Copy WTB.")
         self.link_status.setVisible(selling)
+        self.hotbutton_button.setVisible(selling)
         self.copy_button.setText("Copy WTS" if selling else "Copy WTB")
+        self._sync_copy_button_accessibility()
         self.paste_note.setText(
             f"Copy {'WTS' if selling else 'WTB'} → focus EQ chat → press your "
             "Paste from Clipboard key.")
         self._refresh_catalog_model()
         self._rebuild()
+
+    def _sync_copy_button_accessibility(self):
+        trade_type = "WTB" if self.trade_type.currentIndex() == 1 else "WTS"
+        action = "buy" if trade_type == "WTB" else "sale"
+        self.copy_button.setAccessibleName(
+            f"Copy the EverQuest {trade_type} message")
+        self.copy_button.setAccessibleDescription(
+            f"Copies the next plain-text {action} message to the clipboard")
+        self.copy_button.setToolTip(
+            f"Copy clean {trade_type} text; then use EverQuest's "
+            "Paste from Clipboard key")
 
     def eventFilter(self, watched, event):
         if (event.type() == QEvent.Type.FocusIn and watched in {
@@ -1851,22 +1985,32 @@ class AuctionComposer(QWidget):
             self._raw_lines = compose_auction_lines(
                 selected, trade_type,
                 self.message_template.text(), self.item_template.text(),
-                self.separator.text(), self.suffix.text())
+                self.separator.text(), self.suffix.text(), clickable=False)
+            self._linked_lines = compose_auction_lines(
+                selected, trade_type,
+                self.message_template.text(), self.item_template.text(),
+                self.separator.text(), self.suffix.text(), clickable=True)
         except ValueError as error:
             self._raw_lines = []
+            self._linked_lines = []
             self.preview.setPlainText("")
             self.preview_status.setText(str(error))
             self.copy_button.setEnabled(False)
+            self.hotbutton_button.setEnabled(False)
             return
         previews = [
-            f"{index + 1}. {_preview_auction_line(line)}"
+            f"{index + 1}. {line}"
             for index, line in enumerate(self._raw_lines)]
         self.preview.setPlainText("\n".join(previews))
         self.copy_button.setEnabled(bool(self._raw_lines))
+        self.hotbutton_button.setEnabled(
+            bool(self._linked_lines) and trade_type == "WTS" and
+            any(entry.id for entry in selected))
         if not self._raw_lines:
             self.preview_status.setText("Choose one or more items")
             self.copy_button.setText(
                 "Copy WTB" if trade_type == "WTB" else "Copy WTS")
+            self._sync_copy_button_accessibility()
             return
         self._copy_index %= len(self._raw_lines)
         lengths = [len(line) for line in self._raw_lines]
@@ -1874,14 +2018,15 @@ class AuctionComposer(QWidget):
         linked = sum(1 for entry in selected if entry.id) \
             if trade_type == "WTS" else 0
         link_state = (
-            f" · {linked} clickable link{'s' if linked != 1 else ''}"
-            if linked else " · plain text")
+            f" · {linked} link{'s' if linked != 1 else ''} ready for EQ Hotbutton"
+            if linked else " · plain text only")
         self.preview_status.setText(
             f"{len(self._raw_lines)} message{'s' if len(self._raw_lines) != 1 else ''} · "
             f"{max(lengths)}/{P99_CHAT_LIMIT} characters" + link_state +
             (" · shorten it" if too_long else " · ready"))
         self.copy_button.setText(
             f"Copy {trade_type} {self._copy_index + 1}/{len(self._raw_lines)}")
+        self._sync_copy_button_accessibility()
         self.copy_button.setEnabled(not too_long)
 
     def refresh_prices(self):
@@ -1905,10 +2050,49 @@ class AuctionComposer(QWidget):
         copied = self._copy_index
         self._copy_index = (self._copy_index + 1) % len(self._raw_lines)
         self.preview_status.setText(
-            f"Copied {copied + 1}/{len(self._raw_lines)} · use EQ's Paste from Clipboard key")
+            f"Copied {copied + 1}/{len(self._raw_lines)} · plain text ready for EQ")
         self.copy_button.setText(
             f"Copy {'WTB' if self.trade_type.currentIndex() == 1 else 'WTS'} "
             f"{self._copy_index + 1}/{len(self._raw_lines)}")
+        self._sync_copy_button_accessibility()
+        return True
+
+    def install_hotbuttons(self):
+        if not self._linked_lines or not self.hotbutton_button.isEnabled():
+            return False
+        answer = QMessageBox.question(
+            self, "Install clickable EQ hotbutton",
+            "Fully camp this character out before continuing so EverQuest does "
+            "not overwrite the INI. Vantage will make a backup, replace any "
+            "existing social buttons named VantageWTS, and otherwise use only "
+            "empty social slots on pages 2–10.\n\nContinue?")
+        if answer != QMessageBox.StandardButton.Yes:
+            return False
+
+        logs = config.data.get("general", {}).get("eq_log_dir", "")
+        root = everquest_root_from_logs(logs)
+        start = str(root or Path.home())
+        selected, _filter = QFileDialog.getOpenFileName(
+            self, "Choose your Project 1999 character INI", start,
+            "P99 character INI (*_P1999Green.ini *_P1999Blue.ini "
+            "*_P1999PVP.ini *_project1999.ini);;INI files (*.ini)")
+        if not selected:
+            return False
+        try:
+            slots, backup = install_auction_hotbuttons(
+                selected, self._linked_lines)
+        except (OSError, UnicodeError, ValueError) as error:
+            QMessageBox.warning(self, "Hotbutton was not installed", str(error))
+            return False
+        slot_names = ", ".join(
+            re.sub(r"^Page(\d+)Button(\d+)$", r"page \1, button \2", slot)
+            for slot in slots)
+        QMessageBox.information(
+            self, "Clickable WTS ready",
+            f"Installed VantageWTS in {slot_names}. Log the character back in, "
+            f"open Socials, and use that button.\n\nBackup: {backup.name}")
+        self.preview_status.setText(
+            f"Clickable WTS installed · {slot_names} · relog the character")
         return True
 
 
@@ -2319,7 +2503,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.13")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.14")
         reply = self._network.get(request)
         reply.finished.connect(
             lambda: self._wiki_item_finished(reply, card, json_path, icon_path))
@@ -2338,7 +2522,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.13")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.14")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._wiki_entity_finished(
             reply, card, cache_path, target, kind))
@@ -2422,7 +2606,7 @@ class GreenMarket(ParserWindow):
                     filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.13")
+                    "Vantage/1.44.14")
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
                     lambda: self._wiki_icon_finished(
@@ -2649,7 +2833,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.13")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.14")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -2671,7 +2855,7 @@ class GreenMarket(ParserWindow):
                     return
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.13")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.14")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -2759,7 +2943,7 @@ class GreenMarket(ParserWindow):
         self._refresh_button.setText("Refreshing…")
         self.status.setText("Refreshing PigParse Green…")
         request = QNetworkRequest(QUrl(MARKET_ENDPOINT))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.13")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.14")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._finished(reply))
 
@@ -2853,7 +3037,7 @@ class GreenMarket(ParserWindow):
         name = str(item.get("n", ""))
         self.status.setText(f"Evaluating PigParse history · {name}…")
         request = QNetworkRequest(QUrl(DETAIL_API.format(item_name=quote(name, safe=""))))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.13")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.14")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.finished.connect(lambda: self._analysis_finished(reply))

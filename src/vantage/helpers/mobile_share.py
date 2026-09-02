@@ -20,7 +20,7 @@ from urllib.parse import parse_qs, quote, urlsplit
 
 import segno
 from PySide6.QtCore import QObject, QProcess, QSize, QTimer, Qt, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QPixmap
+from PySide6.QtGui import QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QHBoxLayout,
@@ -99,7 +99,7 @@ def load_mobile_spell_detail(name):
     request = Request(
         P99_SPELL_DETAIL_API.format(
             slug=quote(str(name).strip().replace(" ", "_"), safe="")),
-        headers={"User-Agent": "Vantage/1.44.13"})
+        headers={"User-Agent": "Vantage/1.44.14"})
     with urlopen(request, timeout=8) as response:
         payload_bytes = response.read(2_000_001)
     if len(payload_bytes) > 2_000_000:
@@ -126,7 +126,7 @@ _MOBILE_PAGE = r"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta id="viewport" name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta id="viewport" name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes">
 <meta name="referrer" content="no-referrer">
 <title>Vantage · P99 Companion</title>
 <style>
@@ -176,7 +176,7 @@ dialog{width:min(92vw,620px);max-height:84vh;overflow:auto;border:1px solid #6e6
 <dialog id="detailDialog" aria-labelledby="detailTitle"><div class="dialog-head"><h2 id="detailTitle">Details</h2><button id="detailClose" class="dialog-close" type="button" aria-label="Close details">Close</button></div><div id="detailBody" class="dialog-body"></div></dialog>
 <script>
 const token=location.hash.slice(1),byId=id=>document.getElementById(id);
-const viewport=byId('viewport'),mainContent=byId('main-content'),skipLink=byId('skipLink'),timersPanel=byId('timers'),timersRoot=byId('timerRows'),timerEmpty=byId('timerEmpty'),timerStatus=byId('timerStatus'),timerZone=byId('timerZone');
+const mainContent=byId('main-content'),skipLink=byId('skipLink'),timersPanel=byId('timers'),timersRoot=byId('timerRows'),timerEmpty=byId('timerEmpty'),timerStatus=byId('timerStatus'),timerZone=byId('timerZone');
 const marketPanel=byId('marketPage'),marketRoot=byId('marketRows'),marketNote=byId('marketNote'),marketStatus=byId('marketStatus'),spellsPanel=byId('spellsPage'),spellRoot=byId('spellRows'),spellNote=byId('spellNote'),spellStatus=byId('spellStatus');
 const gamePanel=byId('gamePage'),gameState=byId('gameState'),gameHelp=byId('gameHelp'),gameFrame=byId('gameFrame'),gameShell=byId('gameShell'),gameSize=byId('gameSize'),zoomLock=byId('zoomLock');
 const state=byId('state'),connectionStatus=byId('connectionStatus'),connectionAlert=byId('connectionAlert'),detailDialog=byId('detailDialog'),detailTitle=byId('detailTitle'),detailBody=byId('detailBody');
@@ -187,19 +187,19 @@ function node(tag,cls,text){const n=document.createElement(tag);if(cls)n.classNa
 async function get(path){const r=await fetch(path,{cache:'no-store',headers:{Authorization:'Bearer '+token}});if(!r.ok)throw Error(String(r.status));return r.json()}
 async function post(path,data){const r=await fetch(path,{method:'POST',cache:'no-store',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(data)});if(!r.ok)throw Error(String(r.status));return r.json()}
 function saved(key,fallback){try{const value=localStorage.getItem(key);return value===null?fallback:value==='true'}catch(_){return fallback}}function save(key,value){try{localStorage.setItem(key,String(value))}catch(_){}}
-let zoomLocked=saved('vantageZoomLock',true),nativeSize=saved('vantageNativeSize',false);function applyGameView(){gameShell.classList.toggle('zoom-locked',zoomLocked);gameShell.classList.toggle('native',nativeSize);zoomLock.textContent=zoomLocked?'ZOOM LOCKED':'ZOOM FREE';zoomLock.setAttribute('aria-pressed',String(zoomLocked));gameSize.textContent=nativeSize?'1:1 PIXELS':'FIT TO SCREEN';viewport.setAttribute('content',zoomLocked?'width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no':'width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes');const touchAction=zoomLocked?'pan-x pan-y':'auto';document.documentElement.style.touchAction=touchAction;document.body.style.touchAction=touchAction}applyGameView();
-zoomLock.addEventListener('click',()=>{zoomLocked=!zoomLocked;save('vantageZoomLock',zoomLocked);applyGameView()});gameSize.addEventListener('click',()=>{nativeSize=!nativeSize;save('vantageNativeSize',nativeSize);applyGameView()});document.addEventListener('touchmove',event=>{if(zoomLocked&&event.touches.length>1)event.preventDefault()},{passive:false});for(const eventName of ['gesturestart','gesturechange','gestureend'])document.addEventListener(eventName,event=>{if(zoomLocked)event.preventDefault()},{passive:false});
+let zoomLocked=saved('vantageZoomLock',true),nativeSize=saved('vantageNativeSize',false);function applyGameView(){gameShell.classList.toggle('zoom-locked',zoomLocked);gameShell.classList.toggle('native',nativeSize);zoomLock.textContent=zoomLocked?'EQ VIEW LOCKED':'EQ VIEW FREE';zoomLock.setAttribute('aria-pressed',String(zoomLocked));zoomLock.setAttribute('aria-label',zoomLocked?'Unlock pinch gestures inside the EverQuest live image':'Lock pinch gestures inside the EverQuest live image');gameSize.textContent=nativeSize?'1:1 PIXELS':'FIT TO SCREEN'}applyGameView();
+zoomLock.addEventListener('click',()=>{zoomLocked=!zoomLocked;save('vantageZoomLock',zoomLocked);applyGameView()});gameSize.addEventListener('click',()=>{nativeSize=!nativeSize;save('vantageNativeSize',nativeSize);applyGameView()});gameShell.addEventListener('touchmove',event=>{if(zoomLocked&&event.touches.length>1)event.preventDefault()},{passive:false});for(const eventName of ['gesturestart','gesturechange','gestureend'])gameShell.addEventListener(eventName,event=>{if(zoomLocked)event.preventDefault()},{passive:false});
 async function loadGame(){clearTimeout(gameDelay);if(gamePanel.hidden||document.hidden)return;if(gameLoading){gameDelay=setTimeout(loadGame,180);return}gameLoading=true;let delay=500;try{const status=await get('/api/game/status');delay=Math.max(100,Math.round(1000/(Number(status.fps)||5)));announce(gameState,(status.title?status.title+' · ':'')+String(status.message||'')+(status.image_quality_label?' · '+status.image_quality_label:''));if(!status.enabled||!status.available){gameFrame.hidden=true;gameHelp.hidden=false;gameHelp.textContent=String(status.message||'View unavailable.');return}const response=await fetch('/api/game/frame',{cache:'no-store',headers:{Authorization:'Bearer '+token}});if(!response.ok){let failure={};try{failure=await response.json()}catch(_){}const message=String(failure.message||(response.status===403?'EverQuest Live is available only through the local Wi-Fi link.':'The EverQuest window could not be captured.'));gameFrame.hidden=true;gameHelp.hidden=false;gameHelp.textContent=message;announce(gameState,(failure.title?String(failure.title)+' · ':'')+message);delay=1000;return}const blob=await response.blob(),next=URL.createObjectURL(blob),old=gameObjectUrl;gameObjectUrl=next;gameFrame.onload=()=>{if(old)URL.revokeObjectURL(old)};gameFrame.src=next;gameFrame.hidden=false;gameHelp.hidden=true}catch(_){gameFrame.hidden=true;gameHelp.hidden=false;gameHelp.textContent='Local connection to Vantage was lost. Retrying…';announce(gameState,gameHelp.textContent);delay=1000}finally{gameLoading=false;if(!gamePanel.hidden&&!document.hidden)gameDelay=setTimeout(loadGame,delay)}}
 function setConnection(text,offline=false,urgent=''){if(text===lastConnection)return;lastConnection=text;state.textContent=text;state.classList.toggle('offline',offline);if(urgent){connectionStatus.textContent='';announce(connectionAlert,urgent)}else{connectionAlert.textContent='';announce(connectionStatus,text)}}
 function actionButton(label,action,title){const button=node('button','',label);button.type='button';button.dataset.action=action;button.title=title;button.setAttribute('aria-label',title);return button}
 function createTimerRow(key){const row=node('li','timer');row.dataset.key=key;const top=node('div','top'),name=node('h3','name'),phase=node('span','phase idle'),time=node('span','time');name.id='timer-name-'+(++timerUid);time.setAttribute('role','timer');top.append(name,phase,time);row.append(top);const track=node('div','track'),fill=node('div','fill');track.setAttribute('role','progressbar');track.setAttribute('aria-valuemin','0');track.setAttribute('aria-valuemax','100');track.setAttribute('aria-labelledby',name.id);fill.setAttribute('aria-hidden','true');track.append(fill);row.append(track);const meta=node('p','meta');row.append(meta);const actions=node('div','timer-actions'),toggle=actionButton('Pause','toggle','Pause or resume this timer'),restart=actionButton('Restart','restart','Restart this timer from the beginning'),clear=actionButton('Stop','clear','Stop and clear this countdown to READY');actions.append(toggle,restart,clear);row.append(actions);for(const button of actions.children)button.addEventListener('click',()=>runTimerAction(row,button.dataset.action));row._parts={name,phase,time,track,fill,meta,actions,toggle};return row}
 async function runTimerAction(row,action){for(const button of row._parts.actions.children)button.disabled=true;try{await post('/api/timers/action',{action,target:row.dataset.key});announce(timerStatus,row._parts.name.textContent+' action sent to Vantage.');setTimeout(poll,160);setTimeout(poll,700)}catch(error){announce(timerStatus,String(error.message)==='403'?'Timer controls require the local Wi-Fi QR link.':'Timer action failed.')}finally{setTimeout(()=>{for(const button of row._parts.actions.children)button.disabled=false},450)}}
-function updateTimerRow(row,t){const p=row._parts,name=String(t.name||'Spawn'),remaining=String(t.remaining||'--:--'),pn=['idle','respawn','combat','available'].includes(t.phase)?t.phase:'idle',progress=Math.max(0,Math.min(100,Number(t.progress)||0));row.style.setProperty('--timer-color',/^#[0-9a-f]{6}$/i.test(t.color)?t.color:'#a88b57');p.name.textContent=name;p.phase.className='phase '+pn;p.phase.textContent=t.running===false&&pn!=='idle'?'PAUSED':phases[pn];p.time.textContent=remaining;p.track.setAttribute('aria-valuenow',String(progress));p.track.setAttribute('aria-valuetext',progress+'% · '+remaining+' remaining');p.fill.style.width=progress+'%';p.toggle.textContent=t.running?'Pause':pn==='idle'?'Start':'Resume';const bits=[];if(t.zone)bits.push('ZONE · '+String(t.zone));bits.push(t.smart?'AUTO':'MANUAL','kill '+String(t.kill||'--:--'),'cycle '+String(Number(t.cycles)||0));p.meta.textContent=bits.join(' · ')}
+function updateTimerRow(row,t){const p=row._parts,name=String(t.name||'Spawn'),remaining=String(t.remaining||'--:--'),pn=['idle','respawn','combat','available'].includes(t.phase)?t.phase:'idle',progress=Math.max(0,Math.min(100,Number(t.progress)||0));row.style.setProperty('--timer-color',/^#[0-9a-f]{6}$/i.test(t.color)?t.color:'#a88b57');p.name.textContent=name;p.phase.className='phase '+pn;p.phase.textContent=t.running===false&&pn!=='idle'?'PAUSED':phases[pn];p.time.textContent=remaining;p.track.setAttribute('aria-valuenow',String(progress));p.track.setAttribute('aria-valuetext',progress+'% · '+remaining+' remaining');p.fill.style.width=progress+'%';const toggleAction=t.running?'Pause':pn==='idle'?'Start':'Resume';p.toggle.textContent=toggleAction;p.toggle.setAttribute('aria-label',toggleAction+' '+name+' timer');p.actions.children[1].setAttribute('aria-label','Restart '+name+' timer from the beginning');p.actions.children[2].setAttribute('aria-label','Stop and clear '+name+' timer');const bits=[];if(t.zone)bits.push('ZONE · '+String(t.zone));bits.push(t.smart?'AUTO':'MANUAL','kill '+String(t.kill||'--:--'),'cycle '+String(Number(t.cycles)||0));p.meta.textContent=bits.join(' · ')}
 function syncTimerZone(data){const zones=Array.isArray(data.timer_zones)?data.timer_zones:[''],selected=String(data.timer_zone||'');syncingZone=true;const current=Array.from(timerZone.options).map(option=>option.value);if(JSON.stringify(current)!==JSON.stringify(zones)){timerZone.replaceChildren(...zones.map(zone=>{const option=node('option','',zone||'All zones');option.value=zone;return option}))}timerZone.value=selected;syncingZone=false}
 function drawTimers(data){syncTimerZone(data);const rows=Array.isArray(data.timers)?data.timers:[],existing=new Map(Array.from(timersRoot.children).map(row=>[row.dataset.key,row])),used=new Set(),nextStates=new Map(),milestones=[];let anchor=timersRoot.firstElementChild;for(const t of rows){const key=String(t.timer_id||[t.name,t.zone,t.kill].join('\u241f'));let row=existing.get(key);if(!row)row=createTimerRow(key);used.add(key);updateTimerRow(row,t);const name=String(t.name||'Spawn'),phase=['idle','respawn','combat','available'].includes(t.phase)?t.phase:'idle',running=t.running!==false,previous=timerStates.get(key);if(previous){if(previous.running!==running)milestones.push(name+(running?' resumed.':' paused.'));if(previous.phase!==phase)milestones.push(name+': '+phases[phase].toLowerCase()+'.')}nextStates.set(key,{phase,running});if(row!==anchor)timersRoot.insertBefore(row,anchor);anchor=row.nextElementSibling}for(const row of Array.from(timersRoot.children))if(!used.has(row.dataset.key))row.remove();const empty=rows.length===0;if(timerListWasEmpty!==null&&timerListWasEmpty!==empty)milestones.push(empty?'No timers in this zone.':rows.length+' timer'+(rows.length===1?' is':'s are')+' visible.');if(milestones.length)announce(timerStatus,milestones.slice(0,3).join(' '));timerStates=nextStates;timerListWasEmpty=empty;timerEmpty.hidden=!empty;timersRoot.hidden=empty}
 timerZone.addEventListener('change',async()=>{if(syncingZone)return;timerZone.disabled=true;try{await post('/api/timers/action',{action:'zone',target:timerZone.value});setTimeout(poll,120)}catch(error){announce(timerStatus,String(error.message)==='403'?'Zone sync requires the local Wi-Fi QR link.':'Zone could not be changed.')}finally{setTimeout(()=>timerZone.disabled=false,350)}});
 function statSummary(item){const stats=item.stats||{},values=Object.entries(stats).slice(0,7).map(([key,value])=>(statLabels[key]||key.toUpperCase())+' '+(Number(value)>0?'+':'')+String(value));return values.join(' · ')}
-function openMarketDetail(item){detailTitle.textContent=String(item.name||'Item');detailBody.replaceChildren();const top=node('div','top');top.append(node('span','source','PIGPARSE PRICE REFERENCE'),node('span','chip',item.nodrop?'NO DROP':'DROPPABLE'),node('span','chip',item.era?String(item.era).toUpperCase():'ERA UNKNOWN'));detailBody.append(top,node('p','price',item.price?Number(item.price).toLocaleString()+' pp':'No current price'),node('p','meta',String(Number(item.posts)||0)+' price observations in 30 days'));const stats=item.stats||{},keys=Object.keys(stats);if(keys.length){detailBody.append(node('h3','detail-section','ITEM STATS'));const grid=node('div','detail-grid');for(const key of keys){const cell=node('div','detail-cell');cell.append(node('b','',statLabels[key]||key.toUpperCase()),node('span','',((Number(stats[key])>0)?'+':'')+String(stats[key])));grid.append(cell)}detailBody.append(grid)}const effects=Array.isArray(item.effects)?item.effects:[];if(effects.length){detailBody.append(node('h3','detail-section','CLICK / PROC / WORN EFFECTS'));for(const effect of effects)detailBody.append(node('div','effect',String(effect.type||'Effect')+' · '+String(effect.name||'')))}const link=node('a','source-link','Open Project 1999 Wiki source');link.href=String(item.wiki_url||'#');link.target='_blank';link.rel='noreferrer noopener';detailBody.append(link);detailDialog.showModal()}
+function openMarketDetail(item){detailTitle.textContent=String(item.name||'Item');detailBody.replaceChildren();const top=node('div','top');top.append(node('span','source','PIGPARSE PRICE REFERENCE'),node('span','chip',item.nodrop?'NO DROP':'DROPPABLE'),node('span','chip',item.era?String(item.era).toUpperCase():'ERA UNKNOWN'));detailBody.append(top,node('p','price',item.price?Number(item.price).toLocaleString()+' pp':'No current price'),node('p','meta',String(Number(item.posts)||0)+' price observations in 30 days'));const stats=item.stats||{},keys=Object.keys(stats);if(keys.length){detailBody.append(node('h3','detail-section','ITEM STATS'));const grid=node('div','detail-grid');for(const key of keys){const cell=node('div','detail-cell');cell.append(node('b','',statLabels[key]||key.toUpperCase()),node('span','',((Number(stats[key])>0)?'+':'')+String(stats[key])));grid.append(cell)}detailBody.append(grid)}const effects=Array.isArray(item.effects)?item.effects:[];if(effects.length){detailBody.append(node('h3','detail-section','CLICK / PROC / WORN EFFECTS'));for(const effect of effects)detailBody.append(node('div','effect',String(effect.type||'Effect')+' · '+String(effect.name||'')))}const link=node('a','source-link','Open Project 1999 Wiki source');link.setAttribute('aria-label','Open Project 1999 Wiki source in a new tab');link.href=String(item.wiki_url||'#');link.target='_blank';link.rel='noreferrer noopener';detailBody.append(link);detailDialog.showModal()}
 function createMarketRow(key){const row=node('li','card');row.dataset.key=key;const button=node('button','card-button');button.type='button';const top=node('div','top'),name=node('h3','name'),source=node('span','source','PIGPARSE');top.append(name,source);const priceLine=node('div','top'),price=node('span','price'),quality=node('span','quality');priceLine.append(price,quality);const meta=node('p','meta'),summary=node('p','stat-line');button.append(top,priceLine,meta,summary);button.addEventListener('click',()=>openMarketDetail(button._item));row.append(button);row._parts={button,name,price,quality,meta,summary};return row}
 function updateMarketRow(row,item){const p=row._parts,quality=String(item.quality||'Low'),summary=statSummary(item);p.button._item=item;p.name.textContent=String(item.name||'Item');p.price.textContent=item.price?Number(item.price).toLocaleString()+' pp':'—';p.quality.className='quality '+quality;p.quality.textContent=quality;p.meta.textContent=String(Number(item.posts)||0)+' price observations · '+(item.nodrop?'NO DROP':'Droppable')+(item.era?' · '+String(item.era).toUpperCase():'');p.summary.textContent=summary;p.summary.hidden=!summary}
 function showListMessage(root,text){root.replaceChildren(node('li','empty',text))}
@@ -209,7 +209,7 @@ async function poll(){if(polling)return;if(!token){setConnection('INVALID QR',tr
 function params(ids){const p=new URLSearchParams();for(const [key,id] of Object.entries(ids))p.set(key,byId(id).value);return p}
 async function loadMarket(announceLoading=true){const request=++marketRequest,p=params({q:'mq',class:'mc',race:'mr',slot:'ms',effect:'me',drop:'md',era:'mera',sort:'mso'});marketRoot.setAttribute('aria-busy','true');if(announceLoading)announce(marketStatus,'Loading market and item stats.');try{const data=await get('/api/market?'+p);if(request!==marketRequest)return;drawMarket(data);announce(marketStatus,(Number(data.total)||0)+' matches')}catch(_){if(request!==marketRequest)return;showListMessage(marketRoot,'Market data could not be loaded.');announce(marketStatus,'Market data could not be loaded.')}finally{if(request===marketRequest)marketRoot.setAttribute('aria-busy','false')}}
 function marketChanged(){clearTimeout(marketDelay);marketDelay=setTimeout(()=>loadMarket(true),220)}for(const id of ['mq','mc','mr','ms','me','md','mera','mso'])byId(id).addEventListener(id==='mq'?'input':'change',marketChanged);byId('marketFilters').addEventListener('submit',event=>{event.preventDefault();clearTimeout(marketDelay);loadMarket(true)});
-async function openSpellDetail(spell){detailTitle.textContent=String(spell.name||'Spell');detailBody.replaceChildren();const top=node('div','top');top.append(node('span','source','P99 CLASSIC DATA'),node('span','chip','SPELL ID '+String(spell.spell_id||'—')));const effectBox=node('div','');effectBox.append(node('h3','detail-section','WHAT IT DOES'),node('p','summary',String(spell.effect_hint||'Loading the exact Project 1999 Wiki description…')));detailBody.append(top,effectBox,node('h3','detail-section','CLASSES AND LEVELS'));for(const profile of spell.class_levels||[])detailBody.append(node('div','effect',String(profile[0])+' · Level '+String(profile[1])));if(spell.price)detailBody.append(node('h3','detail-section','PIGPARSE GREEN PRICE'),node('p','price',Number(spell.price).toLocaleString()+' pp'),node('p','meta',String(Number(spell.posts)||0)+' price observations in 30 days · '+String(spell.quality||'Low')+' confidence'));const link=node('a','source-link','Open complete Project 1999 Wiki spell page');link.href=String(spell.wiki_url||'#');link.target='_blank';link.rel='noreferrer noopener';detailBody.append(link);detailDialog.showModal();try{const detail=await get('/api/spell-detail?name='+encodeURIComponent(String(spell.name||'')));effectBox.replaceChildren(node('h3','detail-section','WHAT IT DOES'));effectBox.append(node('p','summary',String(detail.description||spell.effect_hint||'No description available.')));for(const effect of detail.effects||[])effectBox.append(node('div','effect',String(effect)));effectBox.append(node('p','meta','Source · '+String(detail.source||'Project 1999 Wiki')))}catch(_){effectBox.append(node('p','meta','Exact Wiki description is unavailable; showing bundled spell text.'))}}
+async function openSpellDetail(spell){detailTitle.textContent=String(spell.name||'Spell');detailBody.replaceChildren();const top=node('div','top');top.append(node('span','source','P99 CLASSIC DATA'),node('span','chip','SPELL ID '+String(spell.spell_id||'—')));const effectBox=node('div','');effectBox.append(node('h3','detail-section','WHAT IT DOES'),node('p','summary',String(spell.effect_hint||'Loading the exact Project 1999 Wiki description…')));detailBody.append(top,effectBox,node('h3','detail-section','CLASSES AND LEVELS'));for(const profile of spell.class_levels||[])detailBody.append(node('div','effect',String(profile[0])+' · Level '+String(profile[1])));if(spell.price)detailBody.append(node('h3','detail-section','PIGPARSE GREEN PRICE'),node('p','price',Number(spell.price).toLocaleString()+' pp'),node('p','meta',String(Number(spell.posts)||0)+' price observations in 30 days · '+String(spell.quality||'Low')+' confidence'));const link=node('a','source-link','Open complete Project 1999 Wiki spell page');link.setAttribute('aria-label','Open complete Project 1999 Wiki spell page in a new tab');link.href=String(spell.wiki_url||'#');link.target='_blank';link.rel='noreferrer noopener';detailBody.append(link);detailDialog.showModal();try{const detail=await get('/api/spell-detail?name='+encodeURIComponent(String(spell.name||'')));effectBox.replaceChildren(node('h3','detail-section','WHAT IT DOES'));effectBox.append(node('p','summary',String(detail.description||spell.effect_hint||'No description available.')));for(const effect of detail.effects||[])effectBox.append(node('div','effect',String(effect)));effectBox.append(node('p','meta','Source · '+String(detail.source||'Project 1999 Wiki')))}catch(_){effectBox.append(node('p','meta','Exact Wiki description is unavailable; showing bundled spell text.'))}}
 function drawSpells(data){const items=Array.isArray(data.items)?data.items:[];spellNote.textContent=String(Number(data.total)||0)+' matches · local class/level index · tap for exact effects';if(!items.length){showListMessage(spellRoot,'No spells match these filters.');return}spellRoot.replaceChildren(...items.map(spell=>{const row=node('li','card'),button=node('button','card-button');button.type='button';const top=node('div','top'),name=node('h3','name',String(spell.name)),level=node('span','chip',String(spell.selected_class||'ALL')+' '+String(spell.selected_level||''));top.append(name,level);button.append(top,node('p','summary',String(spell.effect_hint||(spell.class_levels||[]).map(profile=>profile[0]+' '+profile[1]).join(' · '))));if(spell.price)button.append(node('p','stat-line','PigParse · '+Number(spell.price).toLocaleString()+' pp'));button.addEventListener('click',()=>openSpellDetail(spell));row.append(button);return row}))}
 function syncSpellLevels(levels){const select=byId('sl'),current=select.value,available=(Array.isArray(levels)?levels:[]).map(Number).filter(level=>level>=1&&level<=60);select.replaceChildren();const any=node('option','','Any level');any.value='0';select.append(any,...available.map(level=>{const option=node('option','',`Level ${level}`);option.value=String(level);return option}));select.value=available.includes(Number(current))?current:'0'}
 async function loadSpells(announceLoading=true){const request=++spellRequest,p=params({q:'sq',class:'sc',level:'sl'});spellRoot.setAttribute('aria-busy','true');if(announceLoading)announce(spellStatus,'Loading spells.');try{const data=await get('/api/spells?'+p);if(request!==spellRequest)return;syncSpellLevels(data.available_levels);drawSpells(data);announce(spellStatus,(Number(data.total)||0)+' spell matches')}catch(_){if(request!==spellRequest)return;showListMessage(spellRoot,'Spell library could not be loaded.');announce(spellStatus,'Spell library could not be loaded.')}finally{if(request===spellRequest)spellRoot.setAttribute('aria-busy','false')}}
@@ -240,7 +240,7 @@ class _ShareHTTPServer(ThreadingHTTPServer):
 
 
 class _ShareHandler(BaseHTTPRequestHandler):
-    server_version = "VantageMobile/1.44.13"
+    server_version = "VantageMobile/1.44.14"
 
     def log_message(self, *_):
         # Do not write access paths or the user's network details to disk.
@@ -987,8 +987,8 @@ class EverQuestLiveSetupDialog(UniformScaleDialog):
 class MobileShareDialog(UniformScaleDialog):
     def __init__(self, controller, parent=None):
         super().__init__(
-            QSize(560, 720), parent, minimum_size=QSize(168, 216),
-            initial_size=QSize(420, 540))
+            QSize(520, 610), parent, minimum_size=QSize(182, 214),
+            initial_size=QSize(390, 458))
         self.controller = controller
         self._current_link = ""
         self.setWindowTitle("Vantage on Your Phone")
@@ -1000,111 +1000,43 @@ class MobileShareDialog(UniformScaleDialog):
         heading.setObjectName("MobileShareTitle")
         layout.addWidget(heading)
         note = QLabel(
-            "Each user creates a personal link with a new key every session. "
-            "It never shares logs or controls EverQuest; phone buttons only "
-            "pause, restart, or clear Vantage timers over local Wi-Fi.")
+            "One private QR opens your Timers, Market, Spells, and optional "
+            "EverQuest Live view. Keep Vantage running while you use it.")
         note.setWordWrap(True)
+        note.setAccessibleName(
+            "The private QR includes Timers, Market, Spells, and EverQuest Live")
         layout.addWidget(note)
 
-        permanent_box = QWidget()
-        permanent_box.setObjectName("MobileSharePermanent")
-        permanent_layout = QVBoxLayout(permanent_box)
-        permanent_layout.setContentsMargins(8, 8, 8, 8)
-        permanent_title = QLabel("MARKET & SPELLS · PERMANENT")
-        permanent_title.setObjectName("SettingsHeader")
-        permanent_layout.addWidget(permanent_title)
-        permanent_note = QLabel(
-            "Open this address without a QR. Install it on the phone Home Screen "
-            "and, after the first successful load, item stats, spells, filters, "
-            "and the last PigParse price snapshot remain available offline. "
-            "Live timers, zone sync, and EverQuest Live still require a current "
-            "PC session.")
-        permanent_note.setWordWrap(True)
-        permanent_note.setAccessibleName(
-            "Permanent mobile companion availability and limitations")
-        permanent_layout.addWidget(permanent_note)
-        self.permanent_link = QLineEdit(COMPANION_URL)
-        self.permanent_link.setReadOnly(True)
-        self.permanent_link.setAccessibleName(
-            "Permanent Market and Spells companion address")
-        self.permanent_link.setToolTip(
-            "This public app address works without creating a temporary QR session")
-        permanent_layout.addWidget(self.permanent_link)
-        permanent_actions = ResponsiveActionBar(180)
-        open_permanent = QPushButton("Open Permanent Companion")
-        open_permanent.setObjectName("PrimaryAction")
-        open_permanent.setIcon(game_icon("mobile"))
-        open_permanent.setToolTip(
-            "Open the permanent installable Market and Spells app in your browser")
-        open_permanent.clicked.connect(self._open_permanent)
-        permanent_actions.addWidget(open_permanent)
-        copy_permanent = QPushButton("Copy Permanent Address")
-        copy_permanent.setIcon(game_icon("copy"))
-        copy_permanent.setToolTip(
-            "Copy the permanent address so it can be opened on your phone")
-        copy_permanent.clicked.connect(self._copy_permanent)
-        permanent_actions.addWidget(copy_permanent)
-        permanent_layout.addWidget(permanent_actions)
-        install_note = QLabel(
-            "iPhone/iPad · Safari › Share › Add to Home Screen › Open as Web App.  "
-            "Android/Chrome · tap Install App on the Companion page.")
-        install_note.setWordWrap(True)
-        install_note.setObjectName("MobileShareTerms")
-        install_note.setToolTip(
-            "The Companion page also contains full installation and offline instructions")
-        permanent_layout.addWidget(install_note)
-        layout.addWidget(permanent_box)
+        steps = QLabel(
+            "1 · START PHONE QR    2 · SCAN IT    3 · OPEN A TAB")
+        steps.setObjectName("SettingsHeader")
+        steps.setWordWrap(True)
+        steps.setAccessibleName(
+            "Step 1 start the phone QR. Step 2 scan it. Step 3 open a tab.")
+        layout.addWidget(steps)
 
-        live_box = QWidget()
-        live_layout = QVBoxLayout(live_box)
-        live_layout.setContentsMargins(8, 8, 8, 8)
-        live_title = QLabel("EVERQUEST LIVE · SEPARATE SETUP")
-        live_title.setObjectName("SettingsHeader")
-        live_layout.addWidget(live_title)
-        self.game_summary = QLabel(
-            "Optional · local read-only view · sends no controls")
-        self.game_summary.setWordWrap(True)
-        self.game_summary.setToolTip(
-            "Open the setup guide to detect eqgame.exe and configure quality")
-        live_layout.addWidget(self.game_summary)
-        configure_live = QPushButton("Set Up EverQuest Live…")
-        configure_live.setIcon(game_icon("follow"))
-        configure_live.setToolTip(
-            "Open the separate detection and setup guide")
-        configure_live.clicked.connect(self._show_live_setup)
-        live_layout.addWidget(configure_live)
-        layout.addWidget(live_box)
-        self._live_setup = EverQuestLiveSetupDialog(controller, self)
+        actions = ResponsiveActionBar(180)
+        self.toggle = QPushButton("Start Phone QR")
+        self.toggle.setObjectName("PrimaryAction")
+        self.toggle.setIcon(game_icon("mobile"))
+        self.toggle.setToolTip(
+            "Start one private phone session and display its QR code")
+        self.toggle.clicked.connect(self._toggle)
+        actions.addWidget(self.toggle)
+        self.download = QPushButton("Enable Remote Link")
+        self.download.setIcon(game_icon("refresh"))
+        self.download.setVisible(False)
+        self.download.setToolTip(
+            "Download the official signed Cloudflare component for use away from home")
+        self.download.clicked.connect(self._confirm_download)
+        actions.addWidget(self.download)
+        layout.addWidget(actions)
 
-        self.qr = QLabel("Create a session to display the QR code")
-        self.qr.setObjectName("MobileShareQR")
-        self.qr.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.qr.setMinimumHeight(180)
-        self.qr.setAccessibleName("Mobile link QR code")
-        self.qr.setToolTip(
-            "Scan this private companion link with your phone camera")
-        layout.addWidget(self.qr)
-
-        link_row = QVBoxLayout()
-        self.link = QLineEdit()
-        self.link.setReadOnly(True)
-        self.link.setPlaceholderText("The temporary link will appear here")
-        self.link.setAccessibleName("Temporary mobile link")
-        self.link.setToolTip(
-            "Private companion address; use Copy or scan the QR code")
-        link_row.addWidget(self.link, 1)
-        copy = QPushButton("Copy")
-        copy.setIcon(game_icon("copy"))
-        copy.setToolTip("Copy the current private mobile link")
-        copy.clicked.connect(self._copy)
-        link_row.addWidget(copy)
-        layout.addLayout(link_row)
-
-        self.status = QLabel("Stopped")
+        self.status = QLabel("Stopped · click Start Phone QR")
         self.status.setObjectName("MobileShareStatus")
         self.status.setWordWrap(True)
         self.status.setToolTip(
-            "Current local server, tunnel, download, or connection state")
+            "Current phone session, Wi-Fi link, remote link, or download state")
         layout.addWidget(self.status)
 
         self.progress = QProgressBar()
@@ -1113,6 +1045,61 @@ class MobileShareDialog(UniformScaleDialog):
         self.progress.setToolTip(
             "Download progress for the official Cloudflare component")
         layout.addWidget(self.progress)
+
+        self.qr = QLabel("1 · Click Start Phone QR")
+        self.qr.setObjectName("MobileShareQR")
+        self.qr.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.qr.setMinimumHeight(180)
+        self.qr.setAccessibleName("Private mobile session QR code")
+        self.qr.setAccessibleDescription(
+            "Start the phone session to generate the QR code")
+        self.qr.setToolTip(
+            "Scan this private companion link with your phone camera")
+        layout.addWidget(self.qr)
+
+        included = QLabel(
+            "QR INCLUDES · TIMERS · MARKET · SPELLS · EQ LIVE (OPTIONAL)")
+        included.setObjectName("MobileShareTerms")
+        included.setWordWrap(True)
+        included.setAccessibleName(
+            "The QR includes Timers, Market, Spells, and optional EverQuest Live")
+        layout.addWidget(included)
+
+        link_row = QHBoxLayout()
+        self.link = QLineEdit()
+        self.link.setReadOnly(True)
+        self.link.setPlaceholderText("The QR address will appear here")
+        self.link.setAccessibleName("Current private mobile link")
+        self.link.setToolTip(
+            "Private companion address; scan the QR or copy this link")
+        link_row.addWidget(self.link, 1)
+        copy = QPushButton("Copy Link")
+        copy.setIcon(game_icon("copy"))
+        copy.setToolTip("Copy the current private mobile link")
+        copy.clicked.connect(self._copy)
+        link_row.addWidget(copy)
+        layout.addLayout(link_row)
+
+        live_box = QWidget()
+        live_layout = QVBoxLayout(live_box)
+        live_layout.setContentsMargins(8, 8, 8, 8)
+        live_title = QLabel("OPTIONAL · EVERQUEST LIVE")
+        live_title.setObjectName("SettingsHeader")
+        live_layout.addWidget(live_title)
+        self.game_summary = QLabel(
+            "Optional · local read-only view · sends no controls")
+        self.game_summary.setWordWrap(True)
+        self.game_summary.setToolTip(
+            "Open the setup guide to detect eqgame.exe and configure quality")
+        live_layout.addWidget(self.game_summary)
+        configure_live = QPushButton("Set Up EQ Live…")
+        configure_live.setIcon(game_icon("follow"))
+        configure_live.setToolTip(
+            "Open the separate detection and setup guide")
+        configure_live.clicked.connect(self._show_live_setup)
+        live_layout.addWidget(configure_live)
+        layout.addWidget(live_box)
+        self._live_setup = EverQuestLiveSetupDialog(controller, self)
 
         self.terms = QLabel(
             "Remote access uses <a href='" + CLOUDFLARE_QUICK_TUNNEL_DOCS +
@@ -1126,22 +1113,6 @@ class MobileShareDialog(UniformScaleDialog):
             "Open the official documentation for free temporary Quick Tunnels")
         layout.addWidget(self.terms)
 
-        actions = ResponsiveActionBar(180)
-        self.download = QPushButton("Download Official Component")
-        self.download.setIcon(game_icon("refresh"))
-        self.download.setVisible(False)
-        self.download.setToolTip(
-            "Download the official signed cloudflared component after confirmation")
-        self.download.clicked.connect(self._confirm_download)
-        actions.addWidget(self.download)
-        self.toggle = QPushButton("Create Free Link")
-        self.toggle.setObjectName("PrimaryAction")
-        self.toggle.setIcon(game_icon("mobile"))
-        self.toggle.setToolTip(
-            "Create an individual temporary companion link for this session")
-        self.toggle.clicked.connect(self._toggle)
-        actions.addWidget(self.toggle)
-        layout.addWidget(actions)
 
         controller.status_changed.connect(self.status.setText)
         controller.link_changed.connect(self._set_link)
@@ -1168,11 +1139,11 @@ class MobileShareDialog(UniformScaleDialog):
             self.controller.start()
 
     def _set_running(self, running):
-        self.toggle.setText("Stop Session" if running else "Create Free Link")
+        self.toggle.setText("Stop Phone QR" if running else "Start Phone QR")
         self.toggle.setIcon(game_icon("stop" if running else "mobile"))
         self.toggle.setToolTip(
-            "Stop this temporary session and invalidate its links" if running
-            else "Create an individual temporary companion link for this session")
+            "Stop this private phone session and invalidate its QR" if running
+            else "Start one private phone session and display its QR code")
         self.toggle.setObjectName("DangerAction" if running else "PrimaryAction")
         self.toggle.style().unpolish(self.toggle)
         self.toggle.style().polish(self.toggle)
@@ -1191,24 +1162,19 @@ class MobileShareDialog(UniformScaleDialog):
         self._live_setup.raise_()
         self._live_setup.activateWindow()
 
-    def _open_permanent(self):
-        opened = QDesktopServices.openUrl(QUrl(COMPANION_URL))
-        self.status.setText(
-            "Permanent Companion opened in your browser." if opened else
-            "The browser could not be opened. Copy the permanent address instead.")
-
-    def _copy_permanent(self):
-        QApplication.clipboard().setText(COMPANION_URL)
-        self.status.setText("Permanent Companion address copied.")
-
     def _set_link(self, link, public):
         self._current_link = link
         self.link.setText(link)
         if not link:
             self.qr.clear()
-            self.qr.setText("Session stopped")
+            self.qr.setText("1 · Click Start Phone QR")
+            self.qr.setAccessibleDescription(
+                "The phone session is stopped; start it to generate a QR code")
             return
         self._update_qr()
+        link_kind = "temporary remote" if public else "same Wi-Fi"
+        self.qr.setAccessibleDescription(
+            f"QR code ready for the {link_kind} phone link")
         self.qr.setToolTip(
             "Temporary remote link" if public else "Link available on the same Wi-Fi network")
 
