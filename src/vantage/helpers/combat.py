@@ -898,12 +898,15 @@ class Encounter:
 
 
 class CombatTracker:
-    """Keeps active and recently completed parsed fights in bounded memory."""
+    """Keeps active and recent fights; the UI archives the complete history."""
 
     def __init__(self, timeout=12, max_history=250, pet_links=None):
         self.timeout = max(3, int(timeout))
         self.active = {}
         self.completed = deque(maxlen=max_history)
+        # A short-lived delivery queue lets durable storage receive every
+        # completion even when a large expiration batch exceeds max_history.
+        self._completion_events = deque()
         self._completed_undo = deque(maxlen=20)
         self.session_attackers = {}
         self.session_tanks = {}
@@ -1698,6 +1701,7 @@ class CombatTracker:
         encounter.killed = killed
         self._completed_undo.clear()
         self.completed.appendleft(encounter)
+        self._completion_events.append(encounter)
         return encounter
 
     def expire(self, now):
@@ -1707,7 +1711,15 @@ class CombatTracker:
         if stale:
             self._completed_undo.clear()
         for key in stale:
-            self.completed.appendleft(self.active.pop(key))
+            encounter = self.active.pop(key)
+            self.completed.appendleft(encounter)
+            self._completion_events.append(encounter)
+
+    def drain_completed(self):
+        """Return each newly completed encounter exactly once to its archive."""
+        encounters = list(self._completion_events)
+        self._completion_events.clear()
+        return encounters
 
     def current(self):
         if not self.active:
@@ -1730,6 +1742,9 @@ class CombatTracker:
                 if len({encounter.zone for encounter in encounters}) == 1
                 else "Multiple zones"),
             killed=all(encounter.killed for encounter in encounters))
+        combined.archived_from_previous_session = all(
+            getattr(encounter, "archived_from_previous_session", False)
+            for encounter in encounters)
         for encounter in encounters:
             for player, stats in encounter.attackers.items():
                 combined.attackers.setdefault(
@@ -1810,6 +1825,23 @@ class CombatTracker:
         completed[index].target = name
         return True
 
+    def delete_completed(self, indices):
+        """Remove selected fights while retaining an in-session Undo snapshot."""
+        completed = list(self.completed)
+        indices = sorted({
+            int(index) for index in indices
+            if isinstance(index, int) and 0 <= index < len(completed)})
+        if not indices:
+            return []
+        self._checkpoint_completed()
+        removed = [completed[index] for index in indices]
+        removed_ids = {id(encounter) for encounter in removed}
+        self.completed = deque(
+            (encounter for encounter in completed
+             if id(encounter) not in removed_ids),
+            maxlen=self.completed.maxlen)
+        return removed
+
     def undo_completed_change(self):
         """Undo the most recent manual combine or rename operation."""
         if not self._completed_undo:
@@ -1823,7 +1855,10 @@ class CombatTracker:
         return True
 
     def session(self):
-        encounters = list(self.completed) + list(self.active.values())
+        encounters = [
+            encounter for encounter in self.completed
+            if not getattr(encounter, "archived_from_previous_session", False)
+        ] + list(self.active.values())
         if not encounters and not any((
                 self.session_attackers, self.session_spells,
                 self.session_healers, self.session_tanks)):
@@ -1858,6 +1893,7 @@ class CombatTracker:
         self.active.clear()
         self.completed.clear()
         self._completed_undo.clear()
+        self._completion_events.clear()
         self.session_attackers.clear()
         self.session_tanks.clear()
         self.session_spells.clear()

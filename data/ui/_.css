@@ -54,8 +54,8 @@ QDialog, QMessageBox, QMenu, QToolTip {
     padding: 0 1px;
 }
 
-#ParserWindowMoveButton, #ParserWindowRollButton,
-#ParserWindowMinimizeButton {
+#ParserWindowMoveButton, #ParserWindowSettingsButton,
+#ParserWindowRollButton, #ParserWindowMinimizeButton {
     color: #8F959B;
     background-color: transparent;
     border: 1px solid transparent;
@@ -79,20 +79,23 @@ QDialog, QMessageBox, QMenu, QToolTip {
     padding: 0;
 }
 
-#ParserWindowMoveButton:hover, #ParserWindowRollButton:hover,
+#ParserWindowMoveButton:hover, #ParserWindowSettingsButton:hover,
+#ParserWindowRollButton:hover,
 #ParserWindowMinimizeButton:hover, #ParserWindowMenu QPushButton:hover {
     color: #FFFFFF;
     background-color: #20242A;
     border-color: #4A5159;
 }
 
-#ParserWindowMoveButton:focus, #ParserWindowRollButton:focus,
+#ParserWindowMoveButton:focus, #ParserWindowSettingsButton:focus,
+#ParserWindowRollButton:focus,
 #ParserWindowMinimizeButton:focus, #ParserWindowMenu QPushButton:focus {
     background-color: #1B1E22;
     border: 1px solid #A88B57;
 }
 
-#ParserWindowMoveButton:pressed, #ParserWindowRollButton:pressed,
+#ParserWindowMoveButton:pressed, #ParserWindowSettingsButton:pressed,
+#ParserWindowRollButton:pressed,
 #ParserWindowMinimizeButton:pressed, #ParserWindowMenu QPushButton:pressed {
     background-color: #0A0B0D;
     border-color: #A88B57;
@@ -625,6 +628,39 @@ QMenu::separator { height: 1px; background: #2D3238; margin: 4px 7px; }
     border-radius: 4px;
 }
 #SpellWidgetProgressBarGood, #SpellWidgetProgressBarBad { padding: 0; }
+#SpellEventTray {
+    background-color: #0A0D10;
+    border: none;
+    border-top: 1px solid #292E34;
+}
+#SpellEventPill {
+    color: #E8E5DE;
+    background-color: #1A1E23;
+    border: 1px solid #3B424A;
+    border-radius: 8px;
+    padding: 1px 6px;
+    font-size: 9px;
+    font-weight: bold;
+}
+#SpellEventPill[EventKind="resist"],
+#SpellEventPill[EventKind="did_not_hold"],
+#SpellEventPill[EventKind="cast_blocked"] {
+    color: #FFD6A0;
+    background-color: #2A1D12;
+    border-color: #8B5A2B;
+}
+#SpellEventPill[EventKind="worn_off"],
+#SpellEventPill[EventKind="charm_broke"] {
+    color: #FFC0B4;
+    background-color: #2C1718;
+    border-color: #93494B;
+}
+#SpellEventPill[EventKind="fizzle"],
+#SpellEventPill[EventKind="interrupted"] {
+    color: #D1C6EE;
+    background-color: #211B2D;
+    border-color: #65527F;
+}
 #SpellEmptyState {
     color: #737A82;
     background-color: transparent;
@@ -676,7 +712,7 @@ QMenu::separator { height: 1px; background: #2D3238; margin: 4px 7px; }
     font-weight: bold;
 }
 #SpawnTimerPhase[Phase="respawn"] { color: #E4D8BA; border-color: #6B5A3C; background-color: #282218; }
-#SpawnTimerPhase[Phase="combat"] { color: #FFD17A; border-color: #85662F; background-color: #33260F; }
+#SpawnTimerPhase[Phase="combat"] { color: #B8F4D8; border-color: #438F70; background-color: #123026; }
 #SpawnTimerPhase[Phase="available"] { color: #A4F2CE; border-color: #397D62; background-color: #123026; }
 
 #SpawnTimerDetail, #SpawnTimerStatus { color: #AAA8A3; }
@@ -728,6 +764,15 @@ QProgressBar {
     padding: 4px 7px;
     font-family: "Cascadia Mono", "Consolas";
     font-size: 11px;
+    font-weight: bold;
+}
+#HealChainHeaderCountdown {
+    color: #D6EAF0;
+    background-color: #11181D;
+    border: 1px solid #40505C;
+    border-radius: 4px;
+    padding: 1px 4px;
+    font-size: 9px;
     font-weight: bold;
 }
 #HealChainProgress {
@@ -1122,13 +1167,14 @@ QDialog, QMessageBox, QMenu, QToolTip {
     border-bottom: 1px solid #40505C;
 }
 #ParserWindowTitle { color: #E7E4DE; }
-#ParserWindowMoveButton, #ParserWindowRollButton,
+#ParserWindowMoveButton, #ParserWindowSettingsButton, #ParserWindowRollButton,
 #ParserWindowMinimizeButton, #ParserWindowMenu QPushButton {
     color: #AEB5B9;
     background-color: transparent;
     border-color: transparent;
 }
-#ParserWindowMoveButton:hover, #ParserWindowRollButton:hover,
+#ParserWindowMoveButton:hover, #ParserWindowSettingsButton:hover,
+#ParserWindowRollButton:hover,
 #ParserWindowMinimizeButton:hover, #ParserWindowMenu QPushButton:hover {
     color: #FFFFFF;
     background-color: #2A353E;

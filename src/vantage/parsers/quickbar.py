@@ -303,6 +303,10 @@ class QuickBar(ParserWindow):
         # roll-up and tray commands remain available from the context menu.
         self._button.setVisible(not vertical)
         self._parser_menu_area.setVisible(not vertical)
+        # The vertical rail already has a dedicated Settings action. Keeping
+        # the base header gear beside the centered V logo exceeds the genuine
+        # 30 px column and clips both controls.
+        self._settings_button.setVisible(not vertical)
         self._roll_button.setVisible(not vertical)
         self._minimize_button.setVisible(not vertical)
         header_margin = 3 if vertical else 5
@@ -443,9 +447,12 @@ class QuickBar(ParserWindow):
         if mute_dot is not None:
             mute_dot.setVisible(muted)
             mute_dot.raise_()
+        blocked = str(getattr(
+            self._application, "_last_audio_blocked", "None yet"))
         mute_button.setToolTip(
-            "Unmute all Vantage sounds" if muted else
-            "Mute all Vantage sounds")
+            (("All Vantage audio is blocked · last prevented: " + blocked)
+             if muted else
+             ("Mute all Vantage sounds · last prevented: " + blocked)))
         mute_button.setAccessibleDescription(
             "All sounds are muted" if muted else "Sounds are active")
 

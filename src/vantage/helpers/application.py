@@ -42,7 +42,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=17,
+    patch=18,
     build=""
 )
 
@@ -92,6 +92,7 @@ class VantageApp(QApplication):
         self._last_log_activity = None
         self._last_audio = "None yet"
         self._last_audio_event = None
+        self._last_audio_blocked = "None yet"
         set_audio_muted(config.data['general'].get('audio_muted', False))
 
         # Load Signals
@@ -410,11 +411,28 @@ class VantageApp(QApplication):
         dialog = OverlayManagerDialog(self._notification_overlay, parent)
         return dialog.exec()
 
-    def audio_started(self, source, sound_path, volume):
+    def audio_playback_allowed(self, channel):
+        """Apply the owning panel's background-audio preference."""
+        channel = str(channel or "").strip().casefold()
+        parser = getattr(self, "_parsers_dict", {}).get(channel)
+        if parser is None or (parser.isVisible() and not parser.isMinimized()):
+            return True
+        return bool(config.data.get(channel, {}).get(
+            "sounds_when_hidden", False))
+
+    def audio_blocked(self, source, reason, channel=""):
+        """Remember suppressed audio without creating another notification."""
+        label = str(source or "Vantage alert")
+        owner = str(channel or "").strip().title()
+        self._last_audio_blocked = (
+            f"{label} · {reason}" + (f" · {owner}" if owner else ""))
+        self._refresh_quickbar()
+
+    def audio_started(self, source, sound_path, volume, channel=""):
         """Make every audible event attributable instead of mysterious."""
         self._last_audio_event = (
             str(source or "Vantage alert"), str(sound_path or ""),
-            max(0, min(100, int(volume))))
+            max(0, min(100, int(volume))), str(channel or ""))
         self._last_audio = (
             f"{source} · {sound_display_name(sound_path)} · {volume}%")
         self.show_overlay_notification(
@@ -546,14 +564,16 @@ class VantageApp(QApplication):
                 "Sounds are muted. Unmute Vantage to replay the last sound.",
                 msecs=5000)
             return False
-        source, sound_path, volume = event
+        source, sound_path, volume, _channel = event
         previous_label = self._last_audio
         if sound_path.startswith("tts:"):
             played = speak_text(
-                sound_path[4:], volume, source=f"Replay · {source}")
+                sound_path[4:], volume, source=f"Replay · {source}",
+                allow_hidden=True)
         else:
             played = play_alert(
-                sound_path, volume, source=f"Replay · {source}")
+                sound_path, volume, source=f"Replay · {source}",
+                allow_hidden=True)
         # Playback attribution is useful on screen, but the replay itself must
         # not replace the original event or accumulate "Replay · Replay".
         self._last_audio_event = event
@@ -702,6 +722,12 @@ class VantageApp(QApplication):
         last_audio_action.setEnabled(False)
         last_audio_action.setToolTip(
             "Shows exactly which alert produced the most recent sound")
+        blocked_audio_action = menu.addAction(
+            f"BLOCKED AUDIO · {self._last_audio_blocked}")
+        blocked_audio_action.setEnabled(False)
+        blocked_audio_action.setToolTip(
+            "Shows the most recent sound Vantage prevented because mute was "
+            "active or its owning window was hidden")
         mute_audio_action = menu.addAction('Mute All Sounds')
         mute_audio_action.setIcon(game_icon('ph-mute'))
         mute_audio_action.setCheckable(True)

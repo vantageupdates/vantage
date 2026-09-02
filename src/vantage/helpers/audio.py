@@ -96,7 +96,12 @@ def add_custom_sound_to_combo(combo, value):
 
 
 def audio_muted():
-    return _MUTED
+    # Read both the live kill switch and the persisted preference.  Keeping
+    # these two sources in the gate makes every call site fail closed even if
+    # a settings signal and the Quick Bar are processed in adjacent Qt turns.
+    return bool(
+        _MUTED or
+        config.data.get("general", {}).get("audio_muted", False))
 
 
 def set_audio_muted(muted):
@@ -105,6 +110,32 @@ def set_audio_muted(muted):
     _MUTED = bool(muted)
     if _MUTED:
         stop_all_audio()
+
+
+def _playback_block_reason(app, channel="", allow_hidden=False):
+    """Return why a new sound must not start, or an empty string.
+
+    This is the single gate used by WAV and text-to-speech playback.  Runtime
+    parsers identify their owning panel with ``channel``; explicit Test and
+    Replay controls opt into ``allow_hidden`` because they are direct user
+    actions.
+    """
+    if audio_muted():
+        return "muted"
+    channel = str(channel or "").strip().casefold()
+    if channel and not allow_hidden:
+        checker = getattr(app, "audio_playback_allowed", None)
+        if callable(checker) and not checker(channel):
+            return "window hidden"
+    return ""
+
+
+def _report_blocked(app, source, reason, channel=""):
+    notifier = getattr(app, "audio_blocked", None)
+    if callable(notifier):
+        notifier(
+            str(source or "Vantage alert"), str(reason or "blocked"),
+            str(channel or ""))
 
 
 def _audio_profile_key(character="", server=""):
@@ -224,14 +255,18 @@ def stop_all_audio():
 
 def play_alert(
         path="", volume=80, repeat=1, source="Vantage alert",
-        character="", server=""):
+        character="", server="", channel="", allow_hidden=False):
     """Play an identified gallery/custom WAV with per-alert volume control."""
+    app = QApplication.instance()
+    blocked = _playback_block_reason(app, channel, allow_hidden)
+    if blocked:
+        _report_blocked(app, source, blocked, channel)
+        return False
     volume = max(0, min(100, int(volume)))
     profile = profile_audio_settings(character, server)
     volume = round(volume * int(profile.get("volume", 100)) / 100)
-    if volume <= 0 or _MUTED:
+    if volume <= 0:
         return False
-    app = QApplication.instance()
     sound = resolve_sound(path)
     if not app or not sound.is_file():
         return False
@@ -256,7 +291,12 @@ def play_alert(
     effect.play()
     notifier = getattr(app, "audio_started", None)
     if callable(notifier):
-        notifier(str(source or "Vantage alert"), path, volume)
+        try:
+            notifier(
+                str(source or "Vantage alert"), path, volume,
+                str(channel or ""))
+        except TypeError:  # Backward-compatible host/test adapter.
+            notifier(str(source or "Vantage alert"), path, volume)
     # Also release failed/unsupported playback without keeping a dead object.
     QTimer.singleShot(12_000, release_if_finished)
     return True
@@ -264,22 +304,33 @@ def play_alert(
 
 def speak_text(
         text, volume=80, interrupt=False, source="Vantage speech",
-        character="", server=""):
+        character="", server="", channel="", allow_hidden=False):
     """Speak resolved trigger text through the built-in Windows voice."""
     message = str(text or "").strip()
+    app = QApplication.instance()
+    blocked = _playback_block_reason(app, channel, allow_hidden)
+    if blocked:
+        _report_blocked(app, source, blocked, channel)
+        return False
     volume = max(0, min(100, int(volume)))
     profile = profile_audio_settings(character, server)
     volume = round(volume * int(profile.get("volume", 100)) / 100)
     speech = _speech_engine()
-    if not message or volume <= 0 or _MUTED or speech is None:
+    if not message or volume <= 0 or speech is None:
         return False
     if interrupt:
         speech.stop()
     _apply_speech_profile(speech, profile)
     speech.setVolume(volume / 100.0)
     speech.say(message)
-    app = QApplication.instance()
     notifier = getattr(app, "audio_started", None)
     if callable(notifier):
-        notifier(str(source or "Vantage speech"), f"tts:{message[:60]}", volume)
+        try:
+            notifier(
+                str(source or "Vantage speech"),
+                f"tts:{message[:60]}", volume, str(channel or ""))
+        except TypeError:  # Backward-compatible host/test adapter.
+            notifier(
+                str(source or "Vantage speech"),
+                f"tts:{message[:60]}", volume)
     return True

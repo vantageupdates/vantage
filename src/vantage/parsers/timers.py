@@ -523,7 +523,8 @@ class TimerRow(QFrame):
             self.setProperty("Pulse", pulse)
             accent = (
                 "#FFD166" if warning and pulse else
-                "#51C79B" if spawn_window and pulse else timer.color)
+                "#6EE7B7" if spawn_window and pulse else
+                "#3FA77D" if spawn_window else timer.color)
             self.progress.setStyleSheet(
                 "QProgressBar::chunk {"
                 f"background-color:{accent}; border-radius:3px;"
@@ -886,7 +887,8 @@ class SpawnTimers(ParserWindow):
                             source=(f"Timer · {timer.name} · " +
                                     ("due" if schedule_due else
                                      "spawn" if event.kind == "spawn" else
-                                     "advance warning")))
+                                     "advance warning")),
+                            channel="timers")
                 if schedule_due:
                     completed_schedule_ids.append(timer.timer_id)
         for timer_id in completed_schedule_ids:
@@ -906,7 +908,7 @@ class SpawnTimers(ParserWindow):
         if config.data['timers'].get('encounter_sound_enabled', False):
             play_alert(
                 'builtin:warden-bell', config.data['timers']['volume'], 2,
-                source=f"Encounter · {source}")
+                source=f"Encounter · {source}", channel="timers")
 
     def _safety_alert(self, alert):
         enabled = config.data['timers'].get(
@@ -923,7 +925,7 @@ class SpawnTimers(ParserWindow):
                 'builtin:danger-double', config.data['timers']['volume'], 2,
                 source=("Safety · attacked while tabbed out"
                         if alert.kind == 'afk_attacked' else
-                        "Safety · death loop"))
+                        "Safety · death loop"), channel="timers")
 
     def _remove_timer(self, timer_id):
         row = self._rows.pop(timer_id, None)

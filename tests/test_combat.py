@@ -263,6 +263,16 @@ def test_manual_combine_by_target_leaves_unmatched_fights_alone():
         "a bat · 2 fights", "a rat"]
 
 
+def test_manual_delete_preserves_the_completed_memory_limit():
+    tracker = CombatTracker(max_history=2)
+    for offset, target in ((0, "a bat"), (2, "a rat")):
+        tracker.ingest(at(offset), f"You hit {target} for 5 points of damage.")
+        tracker.ingest(at(offset + 1), f"You have slain {target}!")
+
+    assert tracker.delete_completed([0])
+    assert tracker.completed.maxlen == 2
+
+
 def test_keeps_bounded_chat_and_loot_activity():
     tracker = CombatTracker()
     tracker.ingest(at(0), "Trader auctions, 'WTS FBSS 12k'")

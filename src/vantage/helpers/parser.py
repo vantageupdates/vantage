@@ -9,7 +9,7 @@ from PySide6.QtGui import QCursor, QPainter, QPainterPath, QRegion
 from PySide6.QtWidgets import (
     QAbstractButton, QApplication, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton,
     QFrame, QGraphicsItem, QGraphicsOpacityEffect, QGraphicsScene, QGraphicsView,
-    QSizePolicy, QVBoxLayout, QWidget)
+    QSizePolicy, QToolButton, QVBoxLayout, QWidget)
 
 from vantage.helpers import config
 from vantage.helpers.icons import WINDOW_ICONS, game_icon, game_pixmap
@@ -252,11 +252,20 @@ class ParserWindow(QWidget):
         self._menu_content.setSpacing(2)
         # Keep controls clear of the 9 px rounded window mask. This margin is
         # part of the logical replica, so it remains proportional when scaled.
-        self._menu_content.setContentsMargins(5, 0, 5, 0)
+        self._menu_content.setContentsMargins(6, 0, 6, 0)
         self._menu_content.addWidget(self._button, 0)
         self._menu_content.addWidget(self._title_icon, 0)
         self._menu_content.addWidget(self._title, 1)
         self._menu_content.addWidget(self._parser_menu_area, 0)
+        self._settings_button = QToolButton()
+        self._settings_button.setObjectName("ParserWindowSettingsButton")
+        self._settings_button.setIcon(game_icon("settings"))
+        self._settings_button.setIconSize(QSize(13, 13))
+        self._settings_button.setAccessibleName("Settings for this window")
+        self._settings_button.setToolTip(
+            "Adjust this window here, or open all settings for this tool")
+        self._settings_button.clicked.connect(self._show_inline_settings)
+        self._menu_content.addWidget(self._settings_button)
         self._roll_button = QPushButton()
         self._roll_button.setObjectName("ParserWindowRollButton")
         self._roll_button.setIcon(game_icon("roll"))
@@ -682,6 +691,7 @@ class ParserWindow(QWidget):
                 "Scale the complete panel without moving or reflowing its controls")
             size_actions[size_action] = scale
         minimize = menu.addAction("Hide in System Tray")
+        window_settings = menu.addAction("Settings for This Window…")
 
         return menu, {
             "positions": position_actions,
@@ -695,6 +705,7 @@ class ParserWindow(QWidget):
             "recommended_size": recommended_size,
             "sizes": size_actions,
             "minimize": minimize,
+            "window_settings": window_settings,
         }
 
     def _show_window_context_menu(self, global_position=None):
@@ -726,6 +737,85 @@ class ParserWindow(QWidget):
             self._set_replica_scale(actions["sizes"][selected])
         elif selected == actions["minimize"]:
             self._minimize_to_tray()
+        elif selected == actions["window_settings"]:
+            self._show_inline_settings()
+
+    def _settings_section(self):
+        return {
+            "maps": "Maps", "spells": "Buffs & Triggers",
+            "timers": "Smart Timers", "combat": "Combat",
+            "heals": "Heal Chain", "market": "Green Market",
+            "quickbar": "Quick Bar", "tick": "Appearance",
+        }.get(self.name, "Appearance")
+
+    def _show_inline_settings(self):
+        """Expose each panel's common settings from the panel itself."""
+        menu = QMenu(self)
+        menu.setToolTipsVisible(True)
+        always_top = menu.addAction("Always on Top")
+        always_top.setCheckable(True)
+        always_top.setChecked(self._always_on_top)
+        auto_hide = menu.addAction("Auto-hide Header")
+        auto_hide.setCheckable(True)
+        auto_hide.setChecked(self._auto_hide_menu)
+        clickthrough = None
+        if self._allow_clickthrough:
+            clickthrough = menu.addAction("Allow Click-through")
+            clickthrough.setCheckable(True)
+            clickthrough.setChecked(self._clickthrough)
+            clickthrough.setToolTip(
+                "Let mouse input pass through this window to EverQuest")
+        background_audio = None
+        if self.name in {"spells", "timers"}:
+            background_audio = menu.addAction("Sound while Window Is Hidden")
+            background_audio.setCheckable(True)
+            background_audio.setChecked(bool(
+                config.data[self.name].get("sounds_when_hidden", False)))
+            background_audio.setToolTip(
+                "Allow this tool's attributed alerts when its panel is hidden; "
+                "master mute still blocks every sound")
+        opacity_menu = menu.addMenu("Opacity")
+        opacity_actions = {}
+        for opacity in (25, 40, 55, 70, 85, 100):
+            action = opacity_menu.addAction(f"{opacity}%")
+            action.setCheckable(True)
+            action.setChecked(abs(self._window_opacity - opacity) <= 4)
+            opacity_actions[action] = opacity
+        menu.addSeparator()
+        section = self._settings_section()
+        full_settings = menu.addAction(f"All {section} Settings…")
+        full_settings.setIcon(game_icon("settings"))
+        full_settings.setToolTip(
+            f"Open the complete {section} settings page")
+        selected = menu.exec(
+            self._settings_button.mapToGlobal(
+                self._settings_button.rect().bottomLeft()))
+        if selected == always_top:
+            self._set_always_on_top(always_top.isChecked())
+        elif selected == auto_hide:
+            self._auto_hide_menu = auto_hide.isChecked()
+            config.data[self.name]["auto_hide_menu"] = self._auto_hide_menu
+            self._set_header_revealed(
+                self._collapsed or not self._auto_hide_menu)
+            config.save()
+        elif clickthrough is not None and selected == clickthrough:
+            geometry = self.geometry()
+            visible = self.isVisible()
+            self._clickthrough = clickthrough.isChecked()
+            config.data[self.name]["clickthrough"] = self._clickthrough
+            self._set_flags()
+            self.setGeometry(geometry)
+            if visible:
+                self.show()
+            config.save()
+        elif background_audio is not None and selected == background_audio:
+            config.data[self.name]["sounds_when_hidden"] = \
+                background_audio.isChecked()
+            config.save()
+        elif selected in opacity_actions:
+            self._set_window_opacity(opacity_actions[selected])
+        elif selected == full_settings:
+            QApplication.instance().show_settings(section)
 
     def _set_always_on_top(self, enabled):
         geometry = self.geometry()
@@ -991,7 +1081,7 @@ class ParserWindow(QWidget):
         """Return the logical width required by the visible header only."""
         widgets = (
             self._button, self._title_icon, self._title,
-            self._parser_menu_area, self._roll_button,
+            self._parser_menu_area, self._settings_button, self._roll_button,
             self._minimize_button)
         visible = [widget for widget in widgets if widget.isVisible()]
         margins = self._menu_content.contentsMargins()

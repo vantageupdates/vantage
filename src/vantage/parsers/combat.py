@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 from vantage.helpers import config
 from vantage.helpers.activity_archive import ActivityArchive
 from vantage.helpers.chat_archive import ChatArchive
+from vantage.helpers.combat_archive import CombatArchive
 from vantage.helpers.combat import (
     ChatEvent, CoinEvent, CombatTracker, FactionEvent, LootEvent,
     build_random_sets)
@@ -368,6 +369,20 @@ class Combat(ParserWindow):
         self._tracker.set_diagnostics_enabled(
             config.data["combat"].get("parser_diagnostics_enabled", False))
         self._diagnostics_dialog = None
+        self._combat_archive = CombatArchive()
+        self._session_archive_ids = set()
+        self._combat_history_undo = None
+        for encounter in self._combat_archive.load_recent(
+                config.data["combat"]["history_limit"]):
+            encounter.archived_from_previous_session = True
+            self._tracker.completed.append(encounter)
+        self._fight_records = self._combat_archive.summaries()
+        # Save any still-active encounter before a normal application exit,
+        # then close the database. Expired and killed encounters are saved as
+        # soon as the parser completes them.
+        QApplication.instance().aboutToQuit.connect(
+            self._archive_open_encounters)
+        QApplication.instance().aboutToQuit.connect(self._combat_archive.close)
         self._chat_archive = ChatArchive()
         for values in self._chat_archive.recent(self._tracker.chat.maxlen):
             self._tracker.chat.append(ChatEvent(*values))
@@ -434,12 +449,13 @@ class Combat(ParserWindow):
 
         self.export = QToolButton()
         self.export.setObjectName("CompactMenuButton")
-        self.export.setIcon(game_icon("copy"))
-        self.export.setAccessibleName("Copy or export combat data")
+        self.export.setIcon(game_icon("export"))
+        self.export.setAccessibleName("Send combat summary to EverQuest chat")
         self.export.setToolTip(
-            "Click to copy this table; use the arrow to export CSV or session JSON")
+            "Click to copy a paste-ready EQ chat summary; use the arrow for "
+            "highlighted players, tables, reports, and output options")
         self.export.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
-        self.export.clicked.connect(self._copy_current_view)
+        self.export.clicked.connect(self._copy_eq_summary)
         self.export_menu = QMenu(self.export)
         self.export_menu.setToolTipsVisible(True)
         self._build_export_menu()
@@ -448,8 +464,9 @@ class Combat(ParserWindow):
 
         clear = QPushButton()
         clear.setIcon(game_icon("delete"))
-        clear.setAccessibleName("Clear combat session")
-        clear.setToolTip("Clear active and completed parsed fights")
+        clear.setAccessibleName("Delete all combat history")
+        clear.setToolTip(
+            "Delete every active and saved parsed fight; the original EQ log remains unchanged")
         clear.setObjectName("DangerAction")
         clear.clicked.connect(self._clear)
         self.menu_area.addWidget(clear)
@@ -1758,10 +1775,10 @@ class Combat(ParserWindow):
         controls.setContentsMargins(3, 3, 3, 0)
         controls.setSpacing(3)
         self.fight_status = QLabel(
-            'Select fights to combine, or double-click to inspect the selection')
+            'Persistent local history · select fights or double-click to inspect')
         self.fight_status.setObjectName('CombatDataNotice')
         self.fight_status.setToolTip(
-            'Manual history edits affect only this Vantage session, never the EQ log')
+            'Parsed fights remain after restart until you delete them; the EQ log is never changed')
         controls.addWidget(self.fight_status, 1)
         self.fight_combine = QToolButton()
         self.fight_combine.setText('Combine')
@@ -1789,11 +1806,19 @@ class Combat(ParserWindow):
             'Rename one selected encounter without changing parsed statistics')
         self.fight_rename.clicked.connect(self._rename_selected_fight)
         controls.addWidget(self.fight_rename)
+        self.fight_delete = QToolButton()
+        self.fight_delete.setIcon(game_icon('delete'))
+        self.fight_delete.setObjectName('DangerAction')
+        self.fight_delete.setAccessibleName('Delete selected fights')
+        self.fight_delete.setToolTip(
+            'Delete only the selected saved fights; Undo remains available this session')
+        self.fight_delete.clicked.connect(self._delete_selected_fights)
+        controls.addWidget(self.fight_delete)
         self.fight_undo = QToolButton()
         self.fight_undo.setIcon(game_icon('refresh'))
         self.fight_undo.setAccessibleName('Undo fight history edit')
         self.fight_undo.setToolTip(
-            'Undo the most recent combine or rename operation')
+            'Undo the most recent combine, rename, or selected deletion')
         self.fight_undo.clicked.connect(self._undo_fight_change)
         controls.addWidget(self.fight_undo)
         layout.addLayout(controls)
@@ -2290,6 +2315,7 @@ class Combat(ParserWindow):
         previous_faction = (
             self._tracker.faction[0] if self._tracker.faction else None)
         self._tracker.ingest(timestamp, text)
+        self._sync_combat_archive()
         if self._tracker.chat and self._tracker.chat[0] is not previous_chat:
             event = self._tracker.chat[0]
             event.character = str(getattr(self, "_active_character", "") or "")
@@ -2322,22 +2348,83 @@ class Combat(ParserWindow):
         self._threat.ingest(timestamp, text)
 
     def _clear(self):
-        if not any((self._tracker.active, self._tracker.completed)):
+        if not any((
+                self._tracker.active, self._tracker.completed,
+                self._combat_archive.count())):
             return
         answer = QMessageBox.question(
-            self, "Clear Combat Session",
-            "Clear every active and completed parsed fight?\n"
+            self, "Delete All Combat History",
+            "Permanently delete every active and saved parsed fight?\n"
             "The original EverQuest log file will not be changed.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Cancel)
         if answer == QMessageBox.StandardButton.Yes:
             self._tracker.reset_session(include_activity=False)
+            self._combat_archive.clear()
+            self._fight_records = []
+            self._session_archive_ids.clear()
+            self._combat_history_undo = None
             self._threat.reset()
             self._random_breaks.clear()
             self._history_signature = None
             self._activity_signature = None
             self._chart_signature = None
             self.refresh()
+
+    def _sync_combat_archive(self):
+        """Persist every newly completed encounter without replay duplicates."""
+        character = str(getattr(self, "_active_character", "") or "")
+        server = str(getattr(self, "_active_server", "") or "")
+        candidates = self._tracker.drain_completed()
+        seen = {id(encounter) for encounter in candidates}
+        candidates.extend(
+            encounter for encounter in reversed(self._tracker.completed)
+            if id(encounter) not in seen and
+            getattr(encounter, "archive_id", None) is None)
+        changed = False
+        for encounter in candidates:
+            if getattr(encounter, "archive_id", None) is None:
+                archive_id = self._combat_archive.append(
+                    encounter, character, server)
+                if archive_id is not None:
+                    self._session_archive_ids.add(archive_id)
+                    changed = True
+        if changed:
+            self._reload_fight_records()
+
+    def _reload_fight_records(self):
+        self._fight_records = self._combat_archive.summaries()
+        self._history_signature = None
+
+    def _reload_recent_fights(self):
+        """Keep only the configured recent payloads in working memory."""
+        recent = self._combat_archive.load_recent(
+            config.data["combat"]["history_limit"])
+        self._tracker.completed.clear()
+        for encounter in recent:
+            encounter.archived_from_previous_session = (
+                encounter.archive_id not in self._session_archive_ids)
+            self._tracker.completed.append(encounter)
+        self._reload_fight_records()
+
+    def _archive_open_encounters(self):
+        """Keep partially observed fights when Vantage exits normally."""
+        if not self._tracker.active:
+            return
+        active = sorted(
+            self._tracker.active.values(),
+            key=lambda encounter: encounter.last_at)
+        self._tracker.active.clear()
+        for encounter in active:
+            archive_id = self._combat_archive.append(
+                encounter,
+                str(getattr(self, "_active_character", "") or ""),
+                str(getattr(self, "_active_server", "") or ""))
+            if archive_id is not None:
+                self._session_archive_ids.add(archive_id)
+            self._tracker.completed.appendleft(encounter)
+        self._tracker.drain_completed()
+        self._reload_fight_records()
 
     def _scope(self):
         mode = self.mode.currentData()
@@ -2347,11 +2434,11 @@ class Combat(ParserWindow):
             return self._tracker.last()
         if mode == "session":
             return self._tracker.session()
-        selected = []
-        completed = list(self._tracker.completed)
-        for index in sorted({item.row() for item in self.tables["Fights"].selectedItems()}):
-            if 0 <= index < len(completed):
-                selected.append(completed[index])
+        archive_ids = [
+            self._fight_records[index].archive_id
+            for index in self._selected_fight_rows()
+            if 0 <= index < len(self._fight_records)]
+        selected = self._combat_archive.load(archive_ids)
         return self._tracker.combine(
             selected, f"Selected · {len(selected)} fights")
 
@@ -2364,12 +2451,17 @@ class Combat(ParserWindow):
         if len(rows) < 2:
             self.fight_status.setText('Select at least two fights to combine')
             return
+        records = [
+            self._fight_records[row] for row in rows
+            if 0 <= row < len(self._fight_records)]
+        selected = self._combat_archive.load(
+            record.archive_id for record in records)
+        if len(selected) < 2:
+            self.fight_status.setText('The selected fights could not be loaded')
+            return
         name = ''
         if not by_target:
-            completed = list(self._tracker.completed)
-            targets = [
-                completed[row].target for row in rows
-                if 0 <= row < len(completed)]
+            targets = [record.target for record in records]
             unique = list(dict.fromkeys(targets))
             suggested = (
                 f'{unique[0]} · {len(rows)} fights' if len(unique) == 1 else
@@ -2380,21 +2472,52 @@ class Combat(ParserWindow):
             name = name.strip()[:120]
             if not accepted or not name:
                 return
-        combined = self._tracker.combine_completed(
-            rows, name=name, by_target=by_target)
+        groups = []
+        if by_target:
+            grouped = {}
+            for encounter in selected:
+                grouped.setdefault(
+                    encounter.target.casefold(), []).append(encounter)
+            groups = [values for values in grouped.values() if len(values) >= 2]
+        else:
+            groups = [selected]
+        combined = [
+            self._tracker.combine(
+                group,
+                f'{group[0].target} · {len(group)} fights'
+                if by_target else name)
+            for group in groups]
         if not combined:
             self.fight_status.setText(
                 'No matching target has two selected fights to combine'
                 if by_target else 'The selected fights could not be combined')
             self._update_fight_actions()
             return
-        self._history_signature = None
+        removed = [encounter for group in groups for encounter in group]
+        removed_ids = [encounter.archive_id for encounter in removed]
+        session_flags = [
+            archive_id in self._session_archive_ids
+            for archive_id in removed_ids]
+        new_ids = self._combat_archive.replace_selected(
+            removed_ids, combined)
+        if len(new_ids) != len(combined):
+            self.fight_status.setText(
+                'Could not save the combined history · original fights retained')
+            return
+        for archive_id in removed_ids:
+            self._session_archive_ids.discard(archive_id)
+        if any(session_flags):
+            self._session_archive_ids.update(new_ids)
+        self._combat_history_undo = {
+            'remove_ids': list(new_ids), 'restore': removed,
+            'restore_session': session_flags}
+        self._reload_recent_fights()
         self._refresh_fights()
-        combined_ids = {id(encounter) for encounter in combined}
+        combined_ids = set(new_ids)
         table = self.tables['Fights']
         table.clearSelection()
-        for row, encounter in enumerate(self._tracker.completed):
-            if id(encounter) in combined_ids:
+        for row, record in enumerate(self._fight_records):
+            if record.archive_id in combined_ids:
                 for column in range(table.columnCount()):
                     item = table.item(row, column)
                     if item:
@@ -2410,26 +2533,102 @@ class Combat(ParserWindow):
         if len(rows) != 1:
             self.fight_status.setText('Select exactly one fight to rename')
             return
-        completed = list(self._tracker.completed)
-        if not 0 <= rows[0] < len(completed):
+        if not 0 <= rows[0] < len(self._fight_records):
             return
-        encounter = completed[rows[0]]
+        record = self._fight_records[rows[0]]
+        loaded = self._combat_archive.load([record.archive_id])
+        if not loaded:
+            self.fight_status.setText('The selected fight could not be loaded')
+            return
+        original = loaded[0]
         name, accepted = QInputDialog.getText(
-            self, 'Rename Fight', 'Encounter name:', text=encounter.target)
-        if not accepted or not self._tracker.rename_completed(rows[0], name):
+            self, 'Rename Fight', 'Encounter name:', text=original.target)
+        name = name.strip()[:120]
+        if not accepted or not name or name == original.target:
             return
-        self._history_signature = None
+        renamed = self._combat_archive.load([record.archive_id])[0]
+        renamed.target = name
+        was_session = record.archive_id in self._session_archive_ids
+        new_ids = self._combat_archive.replace_selected(
+            [record.archive_id], [renamed])
+        if not new_ids:
+            self.fight_status.setText('Could not save the renamed fight')
+            return
+        self._session_archive_ids.discard(record.archive_id)
+        if was_session:
+            self._session_archive_ids.add(new_ids[0])
+        self._combat_history_undo = {
+            'remove_ids': list(new_ids), 'restore': [original],
+            'restore_session': [was_session]}
+        self._reload_recent_fights()
         self._refresh_fights()
-        self.tables['Fights'].selectRow(rows[0])
-        self.fight_status.setText(f'Renamed encounter · {name.strip()[:120]}')
+        renamed_row = next((
+            row for row, item in enumerate(self._fight_records)
+            if item.archive_id == new_ids[0]), -1)
+        if renamed_row >= 0:
+            self.tables['Fights'].selectRow(renamed_row)
+        self.fight_status.setText(f'Renamed encounter · {name}')
+        self._update_fight_actions()
+        self.refresh()
+
+    def _delete_selected_fights(self):
+        rows = self._selected_fight_rows()
+        if not rows:
+            self.fight_status.setText('Select one or more fights to delete')
+            return
+        count = len(rows)
+        answer = QMessageBox.question(
+            self, 'Delete Selected Fights',
+            f'Delete {count} selected saved fight' +
+            ('s' if count != 1 else '') + '?\n'
+            'You can Undo during this Vantage session. The original EQ log '
+            'will not be changed.',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        records = [
+            self._fight_records[row] for row in rows
+            if 0 <= row < len(self._fight_records)]
+        removed_ids = [record.archive_id for record in records]
+        removed = self._combat_archive.load(removed_ids)
+        session_flags = [
+            archive_id in self._session_archive_ids
+            for archive_id in removed_ids]
+        if not removed or not self._combat_archive.delete(removed_ids):
+            self.fight_status.setText('Could not delete the selected fights')
+            return
+        for archive_id in removed_ids:
+            self._session_archive_ids.discard(archive_id)
+        self._combat_history_undo = {
+            'remove_ids': [], 'restore': removed,
+            'restore_session': session_flags}
+        self._reload_recent_fights()
+        self._refresh_fights()
+        self.fight_status.setText(
+            f'Deleted {len(removed)} saved fight' +
+            ('s' if len(removed) != 1 else '') + ' · Undo is available')
         self._update_fight_actions()
         self.refresh()
 
     def _undo_fight_change(self):
-        if not self._tracker.undo_completed_change():
+        undo = self._combat_history_undo
+        if not undo:
             self.fight_status.setText('Nothing to undo')
             return
-        self._history_signature = None
+        for archive_id in undo['remove_ids']:
+            self._session_archive_ids.discard(archive_id)
+        new_ids = self._combat_archive.replace_selected(
+            undo['remove_ids'], undo['restore'])
+        if len(new_ids) != len(undo['restore']):
+            self.fight_status.setText('Could not restore the previous history')
+            return
+        for archive_id, was_session in zip(
+                new_ids, undo['restore_session']):
+            if was_session:
+                self._session_archive_ids.add(archive_id)
+        self._combat_history_undo = None
+        self._reload_recent_fights()
         self._refresh_fights()
         self.fight_status.setText('Restored the previous fight history')
         self._update_fight_actions()
@@ -2441,8 +2640,8 @@ class Combat(ParserWindow):
         count = len(self._selected_fight_rows())
         self.fight_combine.setEnabled(count >= 2)
         self.fight_rename.setEnabled(count == 1)
-        self.fight_undo.setEnabled(
-            self._tracker.can_undo_completed_change)
+        self.fight_delete.setEnabled(count >= 1)
+        self.fight_undo.setEnabled(bool(self._combat_history_undo))
 
     def _fight_selection_changed(self):
         self._update_fight_actions()
@@ -2699,10 +2898,11 @@ class Combat(ParserWindow):
         self._set_rows(self.tables["Damage Mods"], rows)
 
     def _refresh_fights(self):
-        completed = list(self._tracker.completed)
+        completed = list(self._fight_records)
         signature = tuple((
-            encounter.target, encounter.started_at, encounter.last_at,
-            encounter.total_damage, encounter.killed) for encounter in completed)
+            encounter.archive_id, encounter.target, encounter.started_at,
+            encounter.last_at, encounter.total_damage, encounter.killed)
+            for encounter in completed)
         if signature == self._history_signature:
             return
         selected = {item.row() for item in self.tables["Fights"].selectedItems()}
@@ -2710,7 +2910,7 @@ class Combat(ParserWindow):
         for encounter in completed:
             rows.append((
                 encounter.target,
-                encounter.started_at.strftime("%H:%M:%S"),
+                encounter.started_at.strftime("%Y-%m-%d %H:%M:%S"),
                 self._format_duration(encounter.duration),
                 encounter.zone or "—",
                 encounter.player_count,
@@ -2884,6 +3084,7 @@ class Combat(ParserWindow):
 
     def refresh(self, *_):
         self._tracker.expire(datetime.datetime.now())
+        self._sync_combat_archive()
         self._refresh_fights()
         self._refresh_activity()
         self._refresh_pets()
@@ -3035,12 +3236,12 @@ class Combat(ParserWindow):
             "Copy the visible table as tab-separated text",
             self._copy_current_view)
         add_action(
-            clipboard_menu, "EQ summary",
-            "Copy a ranked EQ-sized summary; Vantage never sends input to the game",
+            clipboard_menu, "Send summary to EQ chat",
+            "Copy a ranked, EQ-sized summary ready to paste; Vantage never sends input to the game",
             self._copy_eq_summary)
         add_action(
-            clipboard_menu, "Highlighted players for EQ",
-            "Copy only rows selected in Overview using the configured EQ fields",
+            clipboard_menu, "Send highlighted players to EQ chat",
+            "Copy only rows selected in Overview using the configured EQ fields, ready to paste",
             lambda: self._copy_eq_summary(highlighted=True))
         add_action(
             clipboard_menu, "Selected spell casters for EQ",

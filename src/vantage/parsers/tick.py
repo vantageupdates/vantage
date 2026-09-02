@@ -221,6 +221,31 @@ class ServerTick(ParserWindow):
         layout.addLayout(controls)
         self.content.addWidget(panel, 1)
 
+    def resizeEvent(self, event):
+        """Never expose a clipped half-control state in this fixed dashboard."""
+        super().resizeEvent(event)
+        if (self._collapsed or self.maximumHeight() <= 30 or
+                not hasattr(self, '_design_size')):
+            return
+        base_minimum = max(48, round(
+            self._design_size.height() * self._effective_minimum_scale()))
+        # Keep the stored minimum independent from the previous width. This
+        # lets a later horizontal drag shrink the complete replica instead of
+        # inheriting a stale, taller minimum from its former size.
+        if self.minimumHeight() != base_minimum:
+            self.setMinimumHeight(base_minimum)
+        scale = max(
+            self._effective_minimum_scale(),
+            self.width() / max(1, self._design_size.width()))
+        required = max(48, round(self._design_size.height() * scale))
+        if self.height() < required:
+            QTimer.singleShot(0, lambda: self._enforce_complete_height(required))
+
+    def _enforce_complete_height(self, required):
+        if (not self._collapsed and self.maximumHeight() > 30 and
+                self.height() < int(required)):
+            self.resize(self.width(), int(required))
+
     def _mode_changed(self):
         config.data["tick"]["mode"] = self.mode.currentData()
         config.save()

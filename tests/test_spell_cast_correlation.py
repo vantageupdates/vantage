@@ -47,6 +47,13 @@ spells.parse(now + datetime.timedelta(seconds=24), 'You begin casting Allure.')
 spells.parse(now + datetime.timedelta(seconds=25), 'Your spell fizzles!')
 fizzle_cleared = (
     spells._spell_trigger is None and spells._pending_charm is None)
+fizzle_event = spells.recent_spell_events()[0]
+
+spells.parse(now + datetime.timedelta(seconds=26), 'You begin casting Fetter.')
+spells.parse(
+    now + datetime.timedelta(seconds=27),
+    'Your target resisted the Fetter spell.')
+resist_event = spells.recent_spell_events()[0]
 
 # P99 emits no normal target landing text for charm. After the bounded cast
 # window, the player-owned pet command identifies the charmed mob exactly.
@@ -72,6 +79,8 @@ print(json.dumps({
     'named_label': named_rows[0].target_label.text(),
     'interrupted_cleared': interrupted_cleared,
     'fizzle_cleared': fizzle_cleared,
+    'fizzle_event': fizzle_event,
+    'resist_event': resist_event,
     'pending_before_activity': pending_before_activity,
     'pending_after_activity': spells._pending_charm is None,
     'charm_spell': charmed.spell_widgets()[0].spell.name if charmed else '',
@@ -98,6 +107,8 @@ def test_live_casts_recast_named_track_charm_and_clear_interruptions(tmp_path):
         'named_label': 'Crystal Fang',
         'interrupted_cleared': True,
         'fizzle_cleared': True,
+        'fizzle_event': 'FIZZLE · Allure',
+        'resist_event': 'RESIST · Fetter',
         'pending_before_activity': True,
         'pending_after_activity': True,
         'charm_spell': 'allure',

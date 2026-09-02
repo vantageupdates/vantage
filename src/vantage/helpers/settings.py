@@ -546,6 +546,12 @@ class SettingsWindow(UniformScaleDialog):
         fade_enabled = QCheckBox()
         fade_enabled.setObjectName('spells:fade_sound_enabled')
         ssl.addRow('Enable fading sound', fade_enabled)
+        spell_background_audio = QCheckBox()
+        spell_background_audio.setObjectName('spells:sounds_when_hidden')
+        spell_background_audio.setToolTip(
+            'Allow buff, resist, and trigger sounds while the Buffs & Triggers '
+            'window is hidden; off by default so every sound has a visible source')
+        ssl.addRow('Sound while window hidden', spell_background_audio)
         fade_warning = QSpinBox()
         fade_warning.setRange(0, 600)
         fade_warning.setSuffix(' s')
@@ -673,6 +679,12 @@ class SettingsWindow(UniformScaleDialog):
         timer_volume.setToolTip(
             'Default volume for new timers; each timer can change it in its own row')
         tsl.addRow('Default timer volume', timer_volume)
+        timer_background_audio = QCheckBox()
+        timer_background_audio.setObjectName('timers:sounds_when_hidden')
+        timer_background_audio.setToolTip(
+            'Keep critical timer alarms audible while Smart Timers is hidden; '
+            'turn this off for strict visible-window-only audio')
+        tsl.addRow('Timer sounds while hidden', timer_background_audio)
         timer_compact = QCheckBox()
         timer_compact.setObjectName('timers:compact')
         timer_compact.setToolTip(
@@ -759,8 +771,16 @@ class SettingsWindow(UniformScaleDialog):
         combat_history.setSingleStep(25)
         combat_history.setObjectName('combat:history_limit')
         combat_history.setToolTip(
-            'Maximum completed encounters retained in bounded memory')
-        csl.addRow('Fight history limit', combat_history)
+            'Maximum recent threat targets retained in working memory; saved fights are not limited')
+        csl.addRow('Threat target memory', combat_history)
+        combat_storage = QLabel(
+            'Unlimited local SQLite history · every parsed fight remains '
+            'until you delete selected fights or clear all history.')
+        combat_storage.setWordWrap(True)
+        combat_storage.setObjectName('CombatDataNotice')
+        combat_storage.setToolTip(
+            'Open Combat › Fights to inspect, combine, rename, undo, or delete saved encounters')
+        csl.addRow('Saved fights', combat_storage)
         combat_views = QLabel(
             'Overview · Player DPS · Tanking · Spells · Healing · Fights\n'
             'Parsing continues while the Combat window is hidden.')

@@ -91,9 +91,11 @@ def test_client_spell_skill_field_maps_the_five_casting_schools():
     for name, (skill, school) in expected.items():
         assert spell_book[name].skill == skill
         assert spell_school_name(spell_book[name]) == school
+    # Bar colors now follow the exact icon artwork, independently of the
+    # textual casting-school classification.
     assert len({
         spell_progress_palette(spell_book[name]) for name in expected
-    }) == 5
+    }) >= 3
 
 
 def test_current_p99_spell_index_maps_spirit_of_wolf():
@@ -145,7 +147,7 @@ def test_spell_rows_sort_by_soonest_expiry_then_name():
             sooner_a, sooner_b, later]
 
 
-def test_spell_progress_palette_is_stable_colorful_and_glassy():
+def test_spell_progress_palette_is_stable_colorful_and_icon_driven():
     beneficial = SimpleNamespace(
         name="Spirit of Wolf", spell_icon=155, type=1, resist_type=0,
         skill=5)
@@ -157,17 +159,12 @@ def test_spell_progress_palette_is_stable_colorful_and_glassy():
         beneficial)
     assert spell_progress_palette(beneficial) != spell_progress_palette(
         evocation)
-    for palette in (
-            spell_progress_palette(beneficial),
-            spell_progress_palette(evocation)):
+    for palette in (spell_progress_palette(beneficial),
+                    spell_progress_palette(evocation)):
         for color in palette[:3]:
             red, green, blue = (
                 int(color[index:index + 2], 16) for index in (1, 3, 5))
-            assert not (green > red and green > blue)
-    hostile = spell_progress_palette(evocation)
-    assert all(
-        int(color[1:3], 16) > int(color[5:7], 16)
-        for color in hostile[:3])
+            assert max(red, green, blue) - min(red, green, blue) >= 20
     assert all(
         max(int(color[index:index + 2], 16) for index in (1, 3, 5)) < 180
         for color in spell_progress_palette(beneficial)[:3])
@@ -180,8 +177,8 @@ def test_spell_progress_palette_is_stable_colorful_and_glassy():
     assert "max-height: 20px" in style
     assert "padding: 0px" in style
     assert "border-radius: 6px" in style
-    assert "stop:0 #FFFBE1" in style
-    assert "stop:0 #FFF3EF" in style
+    assert "stop:0 #F4D77F" in style
+    assert "stop:0 #F1847D" in style
     assert "box-shadow" not in style
 
 

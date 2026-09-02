@@ -30,10 +30,22 @@ class HealChain(ParserWindow):
         self._history_revision = -1
         self._last_turn_key = None
 
+        self.header_countdown = QLabel("READY")
+        self.header_countdown.setObjectName("HealChainHeaderCountdown")
+        self.header_countdown.setMinimumWidth(58)
+        self.header_countdown.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.header_countdown.setAccessibleName(
+            "Current Complete Heal countdown")
+        self.header_countdown.setToolTip(
+            "Current cleric marker and cast time remaining; stays visible when rolled up")
+        self.menu_area.addWidget(self.header_countdown)
+
         self.interval = QSpinBox()
         self.interval.setRange(1, 9)
         self.interval.setSuffix("s")
         self.interval.setValue(settings["interval"])
+        self.interval.setMinimumWidth(43)
+        self.interval.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.interval.setAccessibleName("Complete Heal chain interval")
         self.interval.setToolTip(
             "Expected time between clerics; /gu !KI3 changes it to 3 seconds")
@@ -199,14 +211,26 @@ class HealChain(ParserWindow):
 
         if active:
             latest = active[0]
+            remaining = latest.remaining(now, self._tracker.cast_seconds)
+            self.header_countdown.setText(
+                f"{latest.marker} {remaining:.1f}s")
+            self.header_countdown.setToolTip(
+                f"{latest.cleric} healing {latest.tank} · "
+                f"{remaining:.1f} seconds remain · next "
+                f"{self._tracker.next_marker(latest.tank, latest.marker)}")
             next_marker = self._tracker.next_marker(latest.tank, latest.marker)
             self.summary.setText(
                 f"{latest.tank} · {latest.marker} {latest.cleric} · "
                 f"NEXT {next_marker} · {self._tracker.interval}s spacing")
         elif not self.pause.isChecked():
+            self.header_countdown.setText("READY")
+            self.header_countdown.setToolTip(
+                "No Complete Heal cast is currently active")
             self.summary.setText(
                 f"Listening · {self._tracker.interval}s spacing · "
                 f"format: {self._tracker.hotkey_format}")
+        else:
+            self.header_countdown.setText("PAUSED")
 
         if self._history_revision == self._tracker.revision:
             return

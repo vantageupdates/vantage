@@ -43,7 +43,8 @@ options.update({
 })
 combat_module.config.data['combat']['export_options'] = options
 
-combat._copy_eq_summary()
+# The compact header's primary export action is the GamParse-style EQ output.
+combat.export.click()
 eq_text = app.clipboard().text()
 combat._copy_eq_summary(highlighted=True)
 highlighted_text = app.clipboard().text()
@@ -90,6 +91,7 @@ for action in combat.export_menu.actions():
 
 print(json.dumps({
     'eq_prefix': eq_text.startswith('/gu '),
+    'eq_primary_action': 'paste-ready EQ chat summary' in combat.export.toolTip(),
     'eq_has_players': 'Alice' in eq_text and 'You' in eq_text,
     'highlighted_one_rank': highlighted_text.count('#') == 1,
     'plain_shape': all(value in plain_text for value in (
@@ -122,6 +124,7 @@ def test_combat_output_formats_dialog_menu_and_files(tmp_path):
     result = json.loads(completed.stdout.strip().splitlines()[-1])
     assert result == {
         'eq_prefix': True,
+        'eq_primary_action': True,
         'eq_has_players': True,
         'highlighted_one_rank': True,
         'plain_shape': True,

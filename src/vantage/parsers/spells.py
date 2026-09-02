@@ -1,7 +1,6 @@
 import datetime
 import copy
 import functools
-import hashlib
 import json
 import math
 import string
@@ -260,6 +259,17 @@ class Spells(ParserWindow):
         self._scroll_area.setWidget(self._spell_container)
         self._scroll_area.setObjectName('SpellScrollArea')
         self.content.addWidget(self._scroll_area, 1)
+        # Recent spell outcomes live beside the timer rows that caused them.
+        # The tray is heightless while empty and grows to at most three compact
+        # pills, so it does not reserve another permanent status line.
+        self._event_tray = QFrame()
+        self._event_tray.setObjectName('SpellEventTray')
+        self._event_layout = QVBoxLayout(self._event_tray)
+        self._event_layout.setContentsMargins(3, 2, 3, 2)
+        self._event_layout.setSpacing(2)
+        self._event_pills = deque()
+        self._event_tray.hide()
+        self.content.addWidget(self._event_tray, 0)
         self._custom_timer_toggle = QPushButton()
         self._custom_timer_toggle.setIcon(game_icon('timer'))
         self._custom_timer_toggle.setCheckable(True)
@@ -338,15 +348,103 @@ class Spells(ParserWindow):
         profile_layout = QHBoxLayout(self._profile_bar)
         profile_layout.setContentsMargins(3, 1, 3, 1)
         profile_layout.setSpacing(2)
-        profile_label = QLabel('Character')
-        profile_label.setToolTip(
+        self._profile_label = QLabel('Character')
+        self._profile_label.setToolTip(
             'Timers can be filtered by character and each profile keeps its level')
-        profile_layout.addWidget(profile_label, 0)
+        profile_layout.addWidget(self._profile_label, 0)
         profile_layout.addWidget(self._character_widget, 1)
         profile_layout.addWidget(self._add_character_button, 0)
         profile_layout.addWidget(self._level_widget, 0)
         self.content.insertWidget(1, self._profile_bar, 0)
         self._camp_state = ''
+        self._update_profile_bar_density()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_profile_bar_density()
+
+    def _update_profile_bar_density(self):
+        """Keep every profile field readable in genuinely tiny replicas."""
+        if not hasattr(self, '_profile_label'):
+            return
+        compact = self.width() < 250
+        very_compact = self.width() < 150
+        self._profile_label.setVisible(not compact)
+        self._add_character_button.setVisible(not very_compact)
+        self._level_widget.setPrefix('Lv ' if compact else 'lvl. ')
+        self._character_widget.setMinimumWidth(44 if compact else 72)
+        self._level_widget.setMinimumWidth(48 if compact else 64)
+
+    def _dismiss_spell_event(self, pill):
+        try:
+            self._event_pills.remove(pill)
+        except ValueError:
+            return
+        self._event_layout.removeWidget(pill)
+        pill.deleteLater()
+        self._event_tray.setVisible(bool(self._event_pills))
+
+    def _push_spell_event(self, kind, spell_name='', target_name=''):
+        """Show one attributable, temporary outcome at the panel bottom."""
+        kind = str(kind or 'EVENT').strip().upper()
+        spell_name = string.capwords(str(spell_name or '').strip())
+        spell_name = ' '.join(
+            token.upper() if token.casefold() in {
+                'ii', 'iii', 'iv', 'vi', 'vii', 'viii', 'ix'} else token
+            for token in spell_name.split())
+        target_name = str(target_name or '').strip()
+        parts = [kind]
+        if spell_name:
+            parts.append(spell_name)
+        if target_name and target_name.casefold() not in {
+                '__you__', '__custom__', '__utility__'}:
+            parts.append(target_name)
+        message = ' · '.join(parts)
+        pill = QLabel(message)
+        pill.setObjectName('SpellEventPill')
+        pill.setProperty('EventKind', kind.casefold().replace(' ', '_'))
+        pill.setToolTip(
+            f'Recent EQ log event: {message}. This notice clears automatically.')
+        pill.setAccessibleName(message)
+        pill.setAccessibleDescription(
+            'Temporary spell outcome parsed from the linked EverQuest log')
+        pill.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        pill.setFixedHeight(20)
+        self._event_layout.insertWidget(0, pill)
+        self._event_pills.appendleft(pill)
+        while len(self._event_pills) > 3:
+            self._dismiss_spell_event(self._event_pills[-1])
+        self._event_tray.show()
+        QTimer.singleShot(12_000, lambda item=pill: self._dismiss_spell_event(item))
+        return pill
+
+    def recent_spell_events(self):
+        """Return visible event text for diagnostics, mobile, and tests."""
+        return [pill.text() for pill in self._event_pills]
+
+    def _line_has_custom_audio(self, text):
+        """Avoid playing both a row-fade sound and a matching trigger sound."""
+        active_character = (
+            self._active_character or
+            config.data.get('sharing', {}).get('player_name', ''))
+        for rx, _end_rxs, trigger in self._custom_timers:
+            match = rx.match(text)
+            captured_character = (
+                match.groupdict().get('c') if match else '')
+            if (match and trigger.enabled and
+                    (trigger.sound_path or trigger.tts_text) and
+                    group_enabled(
+                        config.data['spells'], trigger.category,
+                        active_character) and
+                    (not trigger.profile or trigger.profile.casefold() ==
+                     active_character.casefold()) and
+                    (not captured_character or not active_character or
+                     captured_character.casefold() ==
+                     active_character.casefold()) and
+                    (not trigger.zone or trigger.zone.casefold() ==
+                     self._current_zone.casefold())):
+                return True
+        return False
 
     @staticmethod
     def _profile_key(character='', server=''):
@@ -597,9 +695,21 @@ class Spells(ParserWindow):
         # Worn-off lines carry no target id. Mark only the oldest matching
         # instance as FADED so the affected mob remains visibly identifiable
         # for a few seconds instead of disappearing without an explanation.
-        faded = self._spell_container.mark_worn_off(text, timestamp)
+        faded = self._spell_container.mark_worn_off(
+            text, timestamp,
+            play_sound=not self._line_has_custom_audio(text))
         if faded:
             target = faded.parentWidget()
+            target_name = (
+                target.target_label.text()
+                if target and hasattr(target, 'target_label') else '')
+            event_kind = (
+                'CHARM BROKE'
+                if str(text or '').strip().casefold() in CHARM_BREAK_LINES
+                else 'WORN OFF')
+            self._push_spell_event(
+                event_kind, getattr(faded.spell, 'name', 'Spell'),
+                target_name)
             self.spell_faded.emit(
                 str(getattr(target, 'name', '')),
                 str(getattr(faded.spell, 'name', 'Spell')))
@@ -718,7 +828,8 @@ class Spells(ParserWindow):
                             config.data['spells']['fade_sound_volume'], 1,
                             source=f"Trigger · {timer_name}",
                             character=active_character,
-                            server=getattr(self, '_active_server', ''))
+                            server=getattr(self, '_active_server', ''),
+                            channel='spells')
                         output.append(
                             f"Sound · {sound_display_name(ct.sound_path)}")
                     if ct.tts_text:
@@ -728,7 +839,8 @@ class Spells(ParserWindow):
                             ct.interrupt_speech,
                             source=f"Trigger · {timer_name} · speech",
                             character=active_character,
-                            server=getattr(self, '_active_server', ''))
+                            server=getattr(self, '_active_server', ''),
+                            channel='spells')
                         output.append("Text-to-speech")
                     if ct.clipboard_text:
                         QApplication.clipboard().setText(
@@ -808,7 +920,15 @@ class Spells(ParserWindow):
               text.startswith('Your target resisted') or
               text.startswith('Your spell did not take hold.') or
               text.startswith('You try to cast a spell on'))):
-            interrupted_charm = _is_charm_spell(self._spell_trigger.spell)
+            failed_spell = self._spell_trigger.spell
+            interrupted_charm = _is_charm_spell(failed_spell)
+            event_kind = (
+                'RESIST' if text.startswith('Your target resisted') else
+                'FIZZLE' if text == 'Your spell fizzles!' else
+                'INTERRUPTED' if text == 'Your spell is interrupted.' else
+                'DID NOT HOLD' if text.startswith(
+                    'Your spell did not take hold.') else 'CAST BLOCKED')
+            self._push_spell_event(event_kind, failed_spell.name)
             self._remove_spell_trigger()
             if interrupted_charm:
                 self._pending_charm = None
@@ -943,7 +1063,8 @@ class Spells(ParserWindow):
                     config.data['spells']['fade_sound_volume'], True,
                     source='Bard AE Count',
                     character=getattr(self, '_active_character', ''),
-                    server=getattr(self, '_active_server', ''))
+                    server=getattr(self, '_active_server', ''),
+                    channel='spells')
 
     def _trigger_run_keys(self, trigger):
         """Return every live internal run owned by one trigger definition."""
@@ -1056,14 +1177,14 @@ class Spells(ParserWindow):
                 sound, config.data['spells']['fade_sound_volume'], 1,
                 source=f"Trigger · {run['name']} · {label}",
                 character=run.get('character', ''),
-                server=run.get('server', ''))
+                server=run.get('server', ''), channel='spells')
             outputs.append(f"Sound · {sound_display_name(sound)}")
         if speech:
             speak_text(
                 speech, config.data['spells']['fade_sound_volume'], interrupt,
                 source=f"Trigger · {run['name']} · {label} speech",
                 character=run.get('character', ''),
-                server=run.get('server', ''))
+                server=run.get('server', ''), channel='spells')
             outputs.append('Text-to-speech')
         if text and trigger.overlay_id != 'none':
             QApplication.instance().show_overlay_notification(
@@ -1465,7 +1586,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.17')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.18')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -2067,7 +2188,7 @@ class SpellContainer(QFrame):
         self._sync_empty_state()
         return True
 
-    def mark_worn_off(self, text, timestamp=None):
+    def mark_worn_off(self, text, timestamp=None, play_sound=True):
         """Mark one best matching row FADED without erasing its mob context."""
         worn_text = str(text or '').strip().casefold()
         if not worn_text:
@@ -2086,7 +2207,7 @@ class SpellContainer(QFrame):
         if not matches:
             return None
         victim = min(matches, key=lambda widget: widget.end_time)
-        victim.mark_faded(timestamp)
+        victim.mark_faded(timestamp, play_sound=play_sound)
         return victim
 
     def _renumber_target_instances(self, name):
@@ -2210,6 +2331,7 @@ class SpellTarget(QFrame):
         self.last_activity_order = 0
         self.created_order = int(created_order)
         self.instance_number = 1
+        self.instance_total = 1
         self.is_named = bool(named)
         self.instance_marker = str(marker or '')[:8]
         self.alias = str(alias or '').strip()[:32]
@@ -2294,10 +2416,15 @@ class SpellTarget(QFrame):
 
     def set_instance_number(self, number, total=1):
         self.instance_number = max(1, int(number))
+        self.instance_total = max(1, int(total))
         if self.name.startswith('__'):
             return
         base = self.title.title()
-        marker = self.alias or self.instance_marker
+        # A/B markers identify simultaneous same-named mobs. A lone mob does
+        # not need a suffix, which also makes clearing a custom label visibly
+        # return to the plain mob name.
+        marker = self.alias or (
+            self.instance_marker if self.instance_total > 1 else '')
         display = (
             f'{base} · {marker}' if marker and not self.is_named else base)
         self.target_label.setText(display)
@@ -2335,7 +2462,10 @@ class SpellTarget(QFrame):
         rename = menu.addAction('Name this mob…')
         rename.setToolTip(
             'Give this tracked instance a location label such as Entrance or Ramp')
-        clear = menu.addAction('Clear mob name')
+        clear = menu.addAction('Clear custom mob name')
+        clear.setToolTip(
+            'Remove the custom location label; A/B remains only when multiple '
+            'same-named mobs must be distinguished')
         clear.setEnabled(bool(self.alias))
         menu.addSeparator()
         remove = menu.addAction('Remove this mob and its spell timers')
@@ -2345,19 +2475,23 @@ class SpellTarget(QFrame):
                 self, 'Name tracked mob', 'Short location or marker:',
                 text=self.alias)
             if accepted:
-                self.alias = str(value or '').strip()[:32]
-                self.set_instance_number(self.instance_number)
-                owner = self.parentWidget()
-                if owner and hasattr(owner, 'state_changed'):
-                    owner.state_changed.emit()
+                self.set_mob_alias(value)
         elif action == clear:
-            self.alias = ''
-            self.set_instance_number(self.instance_number)
-            owner = self.parentWidget()
-            if owner and hasattr(owner, 'state_changed'):
-                owner.state_changed.emit()
+            self.set_mob_alias('')
         elif action == remove:
             self._remove()
+
+    def set_mob_alias(self, value):
+        """Set or clear a persisted location label and repaint immediately."""
+        normalized = str(value or '').strip()[:32]
+        if normalized == self.alias:
+            return False
+        self.alias = normalized
+        self.set_instance_number(self.instance_number, self.instance_total)
+        owner = self.parentWidget()
+        if owner and hasattr(owner, 'state_changed'):
+            owner.state_changed.emit()
+        return True
 
     def eventFilter(self, watched, event):
         if (watched is self.target_label and
@@ -2384,30 +2518,50 @@ class SpellTarget(QFrame):
 
     def add_spell(self, spell, timestamp, character='', server=''):
         target_type = 0 if _spell_targets_enemy(spell) else 1
-        recast = False
+        matching = []
         spell_key = str(getattr(spell, 'runtime_key', spell.name))
         for sw in self.findChildren(SpellWidget):
             target_type *= 0 if _spell_targets_enemy(sw.spell) else 1
             widget_key = str(getattr(
                 sw.spell, 'runtime_key', sw.spell.name))
+            # Self buffs describe one active effect per character.  Old saved
+            # rows and item-click aliases may use a different runtime key for
+            # the same visible buff, so their canonical identity is the spell
+            # name. Enemy timers keep the stronger runtime key because same-
+            # named mobs and custom effects must remain independently movable.
+            same_spell = (
+                (self.name == '__you__' and
+                 str(sw.spell.name).strip().casefold() ==
+                 str(spell.name).strip().casefold()) or
+                widget_key == spell_key)
+            existing_character = str(
+                sw.runtime_character or '').strip().casefold()
+            incoming_character = str(character or '').strip().casefold()
+            existing_server = str(sw.runtime_server or '').strip().casefold()
+            incoming_server = str(server or '').strip().casefold()
             same_profile = (
                 not self.name.startswith('__') or
-                not str(character or '').strip() or
-                (sw.runtime_character.casefold() ==
-                 str(character or '').strip().casefold() and
-                 (not str(server or '').strip() or
-                  not sw.runtime_server.strip() or
-                  sw.runtime_server.casefold() ==
-                  str(server or '').strip().casefold())))
-            if widget_key == spell_key and same_profile:
-                recast = True
-                # The log may supply a different authoritative duration on a
-                # later cooldown line; replace the timer model before recast.
-                sw.spell = spell
-                sw.runtime_character = str(character or '')
-                sw.runtime_server = str(server or '')
-                sw.recast(timestamp)
-        if not recast:
+                not incoming_character or not existing_character or
+                (existing_character == incoming_character and
+                 (not incoming_server or not existing_server or
+                  existing_server == incoming_server)))
+            if same_spell and same_profile:
+                matching.append(sw)
+        if matching:
+            # Keep one row and remove legacy duplicates. Prefer the explicitly
+            # profiled row over a pre-profile row with an empty character.
+            primary = max(matching, key=lambda widget: (
+                bool(str(widget.runtime_character or '').strip()),
+                widget.end_time))
+            primary.spell = spell
+            primary.runtime_character = str(
+                character or primary.runtime_character or '')
+            primary.runtime_server = str(server or primary.runtime_server or '')
+            primary.recast(timestamp)
+            for duplicate in matching:
+                if duplicate is not primary:
+                    duplicate._remove()
+        else:
             self._layout.addWidget(SpellWidget(
                 spell, timestamp, character, server))
         if self.name in ('__you__', '__custom__', '__utility__'):
@@ -2514,6 +2668,10 @@ class SpellWidget(QFrame):
             self.spell, 'saved_warning_played', False))
 
         self._setup_ui()
+        # Child construction can cause some Qt platform styles to restore a
+        # QFrame's default NoFocus policy. Set this after the complete row is
+        # assembled so keyboard removal and actions remain reliable.
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._calculate(timestamp)
         self.setProperty('Warning', False)
         self._update()
@@ -2675,7 +2833,7 @@ class SpellWidget(QFrame):
         self._request_resort()
         self._notify_state_changed()
 
-    def mark_faded(self, timestamp=None):
+    def mark_faded(self, timestamp=None, play_sound=True):
         """Keep an early worn-off effect visible as a red blinking FADED row."""
         if self._removed or self._faded:
             return
@@ -2693,7 +2851,7 @@ class SpellWidget(QFrame):
             'the row remains for 6 seconds')
         self.progress.setToolTip(tooltip)
         self.setToolTip(tooltip)
-        if not self._warning_played:
+        if play_sound and not self._warning_played:
             self._warning_played = True
             self._play_fade_alert()
         self._request_resort()
@@ -2763,7 +2921,9 @@ class SpellWidget(QFrame):
             source=("Test" if force else "Buff fading") +
             f" · {self.spell.name}",
             character=self.runtime_character,
-            server=self.runtime_server)
+            server=self.runtime_server,
+            channel='' if force else 'spells',
+            allow_hidden=bool(force))
 
     def _sound_menu(self, position):
         settings = config.data['spells']
@@ -2926,49 +3086,60 @@ SPELL_SCHOOLS = {
     18: 'Divination',
     24: 'Evocation',
 }
-_SELF_SCHOOL_PROGRESS_PALETTES = {
-    4: ('#4D83A8', '#2A628F', '#123753', '#355E7D'),   # Abjuration
-    5: ('#6576A8', '#46598C', '#263455', '#4B5878'),   # Alteration
-    14: ('#76559A', '#5D3B84', '#2E1C48', '#574177'),  # Conjuration
-    18: ('#9A7834', '#7B5B1F', '#45310F', '#665936'),  # Divination
-    24: ('#8D5B78', '#70425F', '#3F2436', '#624354'),  # Evocation
-}
-_MOB_PROGRESS_PALETTES = {
-    1: ('#A84D5A', '#873340', '#4B1C25', '#6A3540'),  # magic
-    2: ('#B0642F', '#91461F', '#522616', '#70452C'),  # fire
-    3: ('#A97432', '#865521', '#4B3014', '#685035'),  # cold
-    4: ('#9D5A35', '#7D3F25', '#482419', '#633D2E'),  # poison
-    5: ('#A44747', '#842E34', '#49191F', '#65343A'),  # disease
-}
-_DEFAULT_MOB_PALETTE = (
-    '#A64D3E', '#85362D', '#4B211D', '#60372F')
-
-
 def spell_school_name(spell):
     """Return the EQ casting skill represented by the client spell record."""
     skill = int(getattr(spell, 'skill', 0) or 0)
     return SPELL_SCHOOLS.get(skill, 'Other casting skill')
 
 
+@functools.lru_cache(maxsize=256)
+def _spell_icon_accent(icon_index):
+    """Extract the dominant visible hue from the exact Velious icon art."""
+    image = spell_icon_pixmap(int(icon_index or 0), 20).toImage()
+    colors = {}
+    for y in range(image.height()):
+        for x in range(image.width()):
+            color = image.pixelColor(x, y)
+            if color.alpha() < 96 or color.value() < 28:
+                continue
+            saturation = color.saturation()
+            # Quantizing groups neighboring pixel-art shades into the color
+            # family that visually occupies most of the icon.
+            key = tuple((value // 32) * 32 + 16 for value in (
+                color.red(), color.green(), color.blue()))
+            count, score = colors.get(key, (0, 0.0))
+            weight = .45 + saturation / 255.0
+            colors[key] = (count + 1, score + weight)
+    if not colors:
+        return QColor('#477B91')
+    red, green, blue = max(
+        colors, key=lambda key: (colors[key][1], colors[key][0]))
+    accent = QColor(red, green, blue)
+    hue, saturation, value, alpha = accent.getHsv()
+    if hue < 0:
+        hue = 198
+    # Retain the icon's hue while placing it in a consistent dark UI range.
+    return QColor.fromHsv(
+        hue, max(72, min(205, saturation)),
+        max(92, min(142, value)), alpha)
+
+
 def spell_progress_palette(spell):
-    """Use calm non-green self colors and warm hostile mob colors."""
-    if _spell_targets_enemy(spell):
-        return _MOB_PROGRESS_PALETTES.get(
-            int(getattr(spell, 'resist_type', 0)), _DEFAULT_MOB_PALETTE)
-    skill = int(getattr(spell, 'skill', 0) or 0)
-    if skill in _SELF_SCHOOL_PROGRESS_PALETTES:
-        return _SELF_SCHOOL_PROGRESS_PALETTES[skill]
-    identity = (
-        f"{getattr(spell, 'name', '')}|{getattr(spell, 'spell_icon', 0)}"
-        .encode('utf-8', errors='replace'))
-    index = int.from_bytes(
-        hashlib.blake2s(identity, digest_size=2).digest(), 'big')
-    fallback_palettes = tuple(_SELF_SCHOOL_PROGRESS_PALETTES.values())
-    return fallback_palettes[index % len(fallback_palettes)]
+    """Build a restrained bar palette from the spell icon's dominant color."""
+    body = _spell_icon_accent(int(getattr(spell, 'spell_icon', 0) or 0))
+    hue, saturation, value, alpha = body.getHsv()
+    highlight = QColor.fromHsv(
+        hue, max(58, saturation - 10), min(170, value + 18), alpha)
+    depth = QColor.fromHsv(
+        hue, min(220, saturation + 8), max(62, value - 16), alpha)
+    border = QColor.fromHsv(
+        hue, max(48, saturation - 20), min(162, value + 10), alpha)
+    return tuple(color.name(QColor.NameFormat.HexRgb).upper() for color in (
+        highlight, body, depth, border))
 
 
 def spell_progress_stylesheet(spell):
-    """A compact dark-glass bar with readable school colour and soft edges."""
+    """A compact, lightly dimensional bar keyed to the real icon artwork."""
     highlight, body, depth, border = spell_progress_palette(spell)
     return f"""
         QProgressBar {{
@@ -2985,8 +3156,8 @@ def spell_progress_stylesheet(spell):
             border-radius: 5px;
             background: qlineargradient(
                 x1:0, y1:0, x2:0, y2:1,
-                stop:0 {highlight}, stop:0.12 {highlight},
-                stop:0.22 {body}, stop:0.70 {body}, stop:1 {depth});
+                stop:0 {highlight}, stop:0.24 {body},
+                stop:0.78 {body}, stop:1 {depth});
         }}
         QProgressBar[Warning="true"] {{
             border-color: #E7B85D;
@@ -2994,14 +3165,14 @@ def spell_progress_stylesheet(spell):
         QProgressBar[Warning="true"]::chunk {{
             background: qlineargradient(
                 x1:0, y1:0, x2:0, y2:1,
-                stop:0 #FFF0A0, stop:0.18 #E6B84E,
-                stop:0.72 #A96818, stop:1 #53310F);
+                stop:0 #E9C35E, stop:0.24 #C8962D,
+                stop:0.78 #C8962D, stop:1 #9A681D);
         }}
         QProgressBar[Warning="true"][Pulse="true"]::chunk {{
             background: qlineargradient(
                 x1:0, y1:0, x2:0, y2:1,
-                stop:0 #FFFBE1, stop:0.16 #FFD867,
-                stop:0.66 #E49324, stop:1 #7A470F);
+                stop:0 #F4D77F, stop:0.24 #DCAA39,
+                stop:0.78 #DCAA39, stop:1 #A87320);
         }}
         QProgressBar[Critical="true"] {{
             border-color: #E35B5B;
@@ -3009,14 +3180,14 @@ def spell_progress_stylesheet(spell):
         QProgressBar[Critical="true"]::chunk {{
             background: qlineargradient(
                 x1:0, y1:0, x2:0, y2:1,
-                stop:0 #FFB0A8, stop:0.18 #F05A52,
-                stop:0.72 #B5262E, stop:1 #5B1218);
+                stop:0 #E96864, stop:0.24 #C83A40,
+                stop:0.78 #C83A40, stop:1 #90232D);
         }}
         QProgressBar[Critical="true"][Pulse="true"]::chunk {{
             background: qlineargradient(
                 x1:0, y1:0, x2:0, y2:1,
-                stop:0 #FFF3EF, stop:0.16 #FF8178,
-                stop:0.66 #E02F38, stop:1 #7B111B);
+                stop:0 #F1847D, stop:0.24 #DF4147,
+                stop:0.78 #DF4147, stop:1 #A32631);
         }}
         QProgressBar[Faded="true"] {{
             border-color: #B54149;

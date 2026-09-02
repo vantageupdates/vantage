@@ -217,6 +217,7 @@ vertical_header = {
     'title_visible': bar._title.isVisible(),
     'roll_visible': bar._roll_button.isVisible(),
     'minimize_visible': bar._minimize_button.isVisible(),
+    'settings_visible': bar._settings_button.isVisible(),
     'targets_24': all(
         button.width() == 24 and button.height() == 24
         for button in [bar.orientation_button, *bar._buttons.values()]),
@@ -483,6 +484,7 @@ def test_vertical_quickbar_shrinkwrap_logo_tooltips_and_pulse_lifecycle(
     assert vertical['title_visible'] is False
     assert vertical['roll_visible'] is False
     assert vertical['minimize_visible'] is False
+    assert vertical['settings_visible'] is False
 
     assert result['vertical_header_hidden'] == {
         'design_width': 30,

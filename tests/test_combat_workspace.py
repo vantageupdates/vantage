@@ -71,6 +71,14 @@ combined_target = combat._tracker.last().target
 undo_enabled = combat.fight_undo.isEnabled()
 combat._undo_fight_change()
 restored_count = len(combat._tracker.completed)
+combat.tables['Fights'].clearSelection()
+combat.tables['Fights'].selectRow(0)
+combat_module.QMessageBox.question = staticmethod(
+    lambda *args, **kwargs: combat_module.QMessageBox.StandardButton.Yes)
+combat._delete_selected_fights()
+deleted_count = len(combat._tracker.completed)
+combat._undo_fight_change()
+persisted_count = combat._combat_archive.count()
 
 print(json.dumps({
     'saved_name': saved['name'],
@@ -89,6 +97,8 @@ print(json.dumps({
     'combined_target': combined_target,
     'undo_enabled': undo_enabled,
     'restored_count': restored_count,
+    'deleted_count': deleted_count,
+    'persisted_count': persisted_count,
 }))
 app.quit()
 """
@@ -120,4 +130,6 @@ def test_saved_search_export_and_compact_percent_visual(tmp_path):
         'combined_target': 'Merged fights',
         'undo_enabled': True,
         'restored_count': 2,
+        'deleted_count': 1,
+        'persisted_count': 2,
     }

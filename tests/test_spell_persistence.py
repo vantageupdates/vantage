@@ -102,6 +102,38 @@ def test_character_filter_keeps_separate_same_spell_rows():
         if not widget.isHidden()] == ["Harmflux"]
 
 
+def test_self_buff_recast_claims_and_collapses_legacy_duplicate_rows():
+    _app()
+    now = datetime.datetime.now()
+    container = SpellContainer()
+    legacy = _spell(
+        "Clarity II", runtime_key="legacy-click:clarity-ii",
+        effect_text_other=" feels a clarity of mind.",
+        effect_text_worn_off="Your mind fogs.", type=1)
+    current = _spell(
+        "Clarity II", runtime_key="spell:clarity-ii",
+        effect_text_other=" feels a clarity of mind.",
+        effect_text_worn_off="Your mind fogs.", type=1)
+    container.add_spell(legacy, now, "__you__", "", "")
+    container.add_spell(
+        current, now + datetime.timedelta(seconds=5), "__you__",
+        "Mindflux", "Green")
+    # A second old row can exist in a persisted state from a pre-profile build;
+    # the next authoritative cast must collapse all compatible copies.
+    target = container.get_spell_target_by_name("__you__")
+    target._layout.addWidget(SpellWidget(
+        legacy, now + datetime.timedelta(seconds=1), "", ""))
+    container.add_spell(
+        current, now + datetime.timedelta(seconds=10), "__you__",
+        "Mindflux", "Green")
+
+    widgets = target.spell_widgets()
+    assert len(widgets) == 1
+    assert widgets[0].spell.name == "Clarity II"
+    assert widgets[0].runtime_character == "Mindflux"
+    assert widgets[0].runtime_server == "Green"
+
+
 def test_runtime_character_level_controls_duration():
     _app()
     previous_level = config.data['spells']['level']

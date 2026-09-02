@@ -84,9 +84,10 @@ def test_death_removes_one_duplicate_then_renumbers_the_survivor():
 
     targets = container.get_spell_targets_by_name("a frost giant")
     assert len(targets) == 1
-    # The surviving marker stays stable so a player's location alias does not
-    # silently change identity when another mob dies.
-    assert targets[0].target_label.text() == "A Frost Giant · B"
+    # The surviving marker stays stable internally but no longer adds visual
+    # clutter once there is only one same-named mob left.
+    assert targets[0].instance_marker == "B"
+    assert targets[0].target_label.text() == "A Frost Giant"
 
 
 def test_target_header_can_be_focused_and_removed_with_delete():
@@ -166,6 +167,26 @@ def test_mob_alias_is_displayed_and_kept_with_its_marker():
 
     assert target.target_label.text() == "A Crystalline Devourer · Ramp"
     assert "Pacify" in target.target_label.toolTip()
+
+    assert target.set_mob_alias("") is True
+    assert target.alias == ""
+    assert target.target_label.text() == "A Crystalline Devourer"
+
+
+def test_automatic_mob_markers_only_show_when_duplicates_need_them():
+    _app()
+    container = SpellContainer()
+    now = datetime.datetime.now()
+    container.add_spell(_pacify(), now, "a crystalline devourer")
+    first = container.get_spell_target_by_name("a crystalline devourer")
+    assert first.target_label.text() == "A Crystalline Devourer"
+
+    container.add_spell(
+        _pacify(), now + datetime.timedelta(seconds=1),
+        "a crystalline devourer")
+    targets = container.get_spell_targets_by_name("a crystalline devourer")
+    assert [target.target_label.text() for target in targets] == [
+        "A Crystalline Devourer · A", "A Crystalline Devourer · B"]
 
 
 def test_current_zone_catalog_recognizes_named_but_not_trash():

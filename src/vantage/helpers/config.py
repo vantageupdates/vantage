@@ -554,6 +554,8 @@ def verify_settings():
         )
     data['spells']['fade_sound_enabled'] = get_setting(
         data['spells'].get('fade_sound_enabled', True), True)
+    data['spells']['sounds_when_hidden'] = get_setting(
+        data['spells'].get('sounds_when_hidden', False), False)
     warning_seconds = data['spells'].get('fade_warning_seconds', 40)
     if warning_seconds == 30:
         warning_seconds = 40  # migrate the former default
@@ -657,6 +659,8 @@ def verify_settings():
     data['timers']['volume'] = get_setting(
         data['timers'].get('volume', 85), 85,
         lambda x: 0 <= x <= 100)
+    data['timers']['sounds_when_hidden'] = get_setting(
+        data['timers'].get('sounds_when_hidden', True), True)
     data['timers']['compact'] = get_setting(
         data['timers'].get('compact', False), False)
     data['timers']['auto_from_log'] = get_setting(
