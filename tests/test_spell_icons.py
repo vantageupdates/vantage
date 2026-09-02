@@ -202,13 +202,13 @@ def test_icon_palette_chroma_depth_and_text_contrast_are_bounded():
         highlight, body, depth, border = colors
         distinct_hues.add(round(body.hue() / 15) if body.hue() >= 0 else -1)
 
-        # The icon hue is moderately saturated, but value stays in the dark
+        # The icon hue is clearly saturated, but value stays in the dark
         # overlay range. Hex serialization can shift HSV by one point.
-        assert 103 <= body.saturation() <= 221
+        assert 155 <= body.saturation() <= 249
         assert 102 <= body.value() <= 122
-        assert 95 <= highlight.saturation() <= 221
-        assert 113 <= depth.saturation() <= 231
-        assert 84 <= border.saturation() <= 203
+        assert 147 <= highlight.saturation() <= 241
+        assert 165 <= depth.saturation() <= 249
+        assert 111 <= border.saturation() <= 233
 
         # Preserve the restrained three-stop depth: the upper sheen and lower
         # shade never become a harsh bevel.

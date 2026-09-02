@@ -19,6 +19,10 @@ def test_shared_svg_icons_are_valid_attributed_vector_assets():
                 assert any(color in source for color in ("#D0B675", "#FFE09A"))
             elif icon.name.startswith("ph-pulse-online-"):
                 assert any(color in source for color in ("#55C785", "#8EF0B8"))
+            elif icon.name == "ph-pulse-quiet.svg":
+                assert "#F0C766" in source
+            elif icon.name == "ph-pulse-disconnected.svg":
+                assert "#F06E78" in source
             else:
                 assert "#D0B675" in source
         else:

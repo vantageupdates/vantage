@@ -80,10 +80,16 @@ Combine [[Rune A]] and [[Rune B]].
     assert "Emperor Chottal" in acquisition
     sanitized = sanitize_wiki_html(
         '<script>alert(1)</script><img src="track"><a href="/Torpor" '
-        'onclick="bad()">Torpor</a>')
+        'onclick="bad()">Torpor</a><table bgcolor="#fff" border=1>'
+        '<tr><td style="background:white" color=black>Dark cell</td>'
+        '</tr></table>')
     assert "script" not in sanitized.casefold()
     assert "<img" not in sanitized.casefold()
     assert "onclick" not in sanitized.casefold()
+    assert "bgcolor=" not in sanitized.casefold()
+    assert "background:white" not in sanitized.casefold()
+    assert "color=black" not in sanitized.casefold()
+    assert "border=" not in sanitized.casefold()
     assert 'href="https://wiki.project1999.com/Torpor"' in sanitized
     assert _wiki_title_from_url(
         "https://wiki.project1999.com/Emperor_Chottal") == "Emperor Chottal"

@@ -36,7 +36,7 @@ P99_WIKI_API = (
     "https://wiki.project1999.com/api.php?action=parse&page={slug}"
     "&prop=text%7Cwikitext&format=json")
 P99_WIKI_URL = "https://wiki.project1999.com/{slug}"
-USER_AGENT = "Vantage/1.44.23"
+USER_AGENT = "Vantage/1.44.24"
 ACQUISITION_WORDS = (
     "merchant", "sold by", "where to obtain", "where to find", "drop",
     "research", "recipe", "created by", "quest", "reward", "turn in",
@@ -144,7 +144,8 @@ def sanitize_wiki_html(rendered_html):
         "", source, flags=re.IGNORECASE | re.DOTALL)
     source = re.sub(r"<img\b[^>]*>", "", source, flags=re.IGNORECASE)
     source = re.sub(
-        r"\s(?:style|class|id|srcset|src|on\w+)=(?:\"[^\"]*\"|'[^']*')",
+        r"\s(?:style|class|id|srcset|src|bgcolor|background|color|border|"
+        r"cellpadding|cellspacing|on\w+)\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s>]+)",
         "", source, flags=re.IGNORECASE)
     source = re.sub(
         r'href=["\'](?:javascript|data):[^"\']*["\']',
@@ -393,9 +394,11 @@ class SpellLibraryDialog(UniformScaleDialog):
             "body { color: #D9D2C3; background: #101419; }"
             "h1, h2, h3, h4 { color: #D7BD7B; }"
             "a { color: #D7BD7B; }"
-            "table { border-collapse: collapse; }"
+            "table { color: #E6E2D9; background: #10161B; "
+            "border-collapse: collapse; }"
             "th { color: #E8D59D; background: #1B2026; }"
-            "td, th { border: 1px solid #3A3D3D; padding: 3px; }"
+            "td { color: #E6E2D9; background: #10161B; }"
+            "td, th { border: 1px solid #3A4650; padding: 3px; }"
             ".source { color: #948D7E; }"
             ".acquisition { background: #171B20; border: 1px solid #4A4232; }"
         )

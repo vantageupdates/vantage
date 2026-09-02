@@ -456,9 +456,10 @@ class Spells(ParserWindow):
         # the step controls over the number.
         level_text_width = self._level_widget.fontMetrics().horizontalAdvance(
             f'Lv {self._level_widget.maximum()}')
-        # Qt's spin-box style reserves additional internal edit margins beyond
-        # the rocker width, so keep 42 px beyond the longest visible value.
-        level_width = max(70, level_text_width + 44)
+        # Keep the complete label clear of both embedded rocker halves even at
+        # fractional overlay scale. The previous 70 px capsule let Windows'
+        # native edit margins cover the leading ``L`` in ``Lv 60``.
+        level_width = max(82, level_text_width + 56)
         self._level_widget.setFixedWidth(level_width)
         compact_header = self.width() < 215
         self._boat_toggle.setVisible(not compact_header)
@@ -703,13 +704,8 @@ class Spells(ParserWindow):
         if trigger is not self._spell_trigger:
             return
         if trigger:
-            for target in trigger.targets:
-                spell = self._spell_for_active_profile(trigger.spell)
-                self._spell_container.add_spell(
-                    spell, target[0], target[1],
-                    getattr(self, '_active_character', ''),
-                    getattr(self, '_active_server', ''),
-                    named=self._is_named_target(target[1]))
+            for index in range(len(trigger.targets)):
+                self._spell_target_detected(trigger, index)
             if (not trigger.targets and _is_charm_spell(trigger.spell)):
                 # Classic EQ does not print a normal target landing line for
                 # charm. A failure removes the trigger before this point; a
@@ -717,6 +713,26 @@ class Spells(ParserWindow):
                 # activity to identify the controlled NPC.
                 self._pending_charm = (trigger.timestamp, trigger.spell)
         self._remove_spell_trigger(trigger)
+
+    def _spell_target_detected(self, trigger, target_index):
+        """Paint a confirmed landing immediately, including group spells."""
+        if trigger is not self._spell_trigger:
+            return False
+        try:
+            target_index = int(target_index)
+            timestamp, target_name = trigger.targets[target_index]
+        except (IndexError, TypeError, ValueError):
+            return False
+        if target_index in trigger.delivered_target_indexes:
+            return False
+        spell = self._spell_for_active_profile(trigger.spell)
+        self._spell_container.add_spell(
+            spell, timestamp, target_name,
+            getattr(self, '_active_character', ''),
+            getattr(self, '_active_server', ''),
+            named=self._is_named_target(target_name))
+        trigger.delivered_target_indexes.add(target_index)
+        return True
 
     def _consume_charm_activity(self, timestamp, text):
         """Create a charm timer from the first bounded pet activity proof."""
@@ -1015,6 +1031,8 @@ class Spells(ParserWindow):
                     spell=spell,
                     timestamp=timestamp
                 )
+                spell_trigger.target_detected.connect(
+                    self._spell_target_detected)
                 spell_trigger.spell_triggered.connect(self._spell_triggered)
                 self._spell_trigger = spell_trigger
 
@@ -1711,7 +1729,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.23')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.24')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -3293,12 +3311,12 @@ def _spell_icon_accent(icon_index):
     if hue < 0:
         hue = 198
     # Retain the icon's hue while putting every fill in the same restrained
-    # value range. Give the native pixel-art chroma a small, bounded lift so
-    # distinct gems remain recognizable on the dark overlay without turning
-    # the bars into neon category colors.
-    boosted_saturation = saturation + max(10, round(saturation * 0.06))
+    # value range. Give the native pixel-art chroma a deliberate but bounded
+    # lift: bars should read as the icon's color at a glance while the shared
+    # dark value ceiling keeps white countdown text comfortably legible.
+    boosted_saturation = saturation + max(28, round(saturation * 0.26))
     return QColor.fromHsv(
-        hue, max(104, min(220, boosted_saturation)),
+        hue, max(156, min(248, boosted_saturation)),
         # The label crosses both the filled and empty portions of the bar,
         # so every art-derived fill must remain dark enough for the same
         # off-white text to stay readable across the whole countdown.
@@ -3342,9 +3360,10 @@ def spell_progress_palette(spell):
         hue, max(96, saturation - 8), min(170, value + 18), alpha))
     body = _readable_spell_bar_color(body)
     depth = _readable_spell_bar_color(QColor.fromHsv(
-        hue, min(228, saturation + 10), max(62, value - 16), alpha))
+        hue, min(248, saturation + 10), max(62, value - 16), alpha))
     border = QColor.fromHsv(
-        hue, max(84, saturation - 18), min(162, value + 10), alpha)
+        hue, max(112, min(232, saturation - 18)),
+        min(162, value + 10), alpha)
     return tuple(color.name(QColor.NameFormat.HexRgb).upper() for color in (
         highlight, body, depth, border))
 
@@ -3447,6 +3466,7 @@ class Spell:
 class SpellTrigger(QObject):
 
     spell_triggered = Signal(object)
+    target_detected = Signal(object, int)
 
     def __init__(self, **kwargs):
         super().__init__()
@@ -3455,6 +3475,7 @@ class SpellTrigger(QObject):
         self.__dict__.update(kwargs)
 
         self.targets = []  # [(timestamp, target)]
+        self.delivered_target_indexes = set()
         self.activated = False
         self._item_cast_timestamp = None
 
@@ -3516,6 +3537,10 @@ class SpellTrigger(QObject):
                     self.targets.append((landed, target))
             if self.targets:
                 self.activated = True
+                # Do not hold confirmed group/AOE targets until the cleanup
+                # window expires. The direct Qt signal updates the row in the
+                # same event that consumed the EQ log line.
+                self.target_detected.emit(self, len(self.targets) - 1)
             if self.targets and self.spell.max_targets == 1:
                 self.stop()  # make sure you don't get two triggers
                 self.activated = True

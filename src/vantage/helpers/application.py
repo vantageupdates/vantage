@@ -42,7 +42,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=23,
+    patch=24,
     build=""
 )
 
@@ -127,6 +127,7 @@ class VantageApp(QApplication):
         self._splash.step("Preparing lightweight on-demand tools…", 82)
         self._settings_instance = None
         self._update_dialog_instance = None
+        self._log_monitor_dialog_instance = None
         self._update_controller = UpdateController(CURRENT_VERSION, self)
         self._update_controller.check_finished.connect(
             self._update_check_finished)
@@ -542,7 +543,13 @@ class VantageApp(QApplication):
 
     def show_log_profiles(self):
         from vantage.helpers.log_monitor import LogMonitorDialog
-        LogMonitorDialog(self).exec()
+        if self._log_monitor_dialog_instance is None:
+            self._log_monitor_dialog_instance = LogMonitorDialog(self)
+        self._log_monitor_dialog_instance.refresh()
+        self._log_monitor_dialog_instance.show()
+        self._log_monitor_dialog_instance.raise_()
+        self._log_monitor_dialog_instance.activateWindow()
+        return self._log_monitor_dialog_instance
 
     def toggle_audio_muted(self):
         muted = not audio_muted()
@@ -596,7 +603,10 @@ class VantageApp(QApplication):
         self._settings._set_values()
         if section:
             self._settings.select_section(section)
-        self._settings.exec()
+        self._settings.show()
+        self._settings.raise_()
+        self._settings.activateWindow()
+        return self._settings
 
     def quit_vantage(self, confirm=False, parent=None):
         if confirm:

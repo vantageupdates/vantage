@@ -130,7 +130,7 @@ def test_narrow_spell_header_collapses_low_priority_tools_without_overlap(
     level = result['level']
     assert level['object_name'] == 'SpellLevelRocker'
     assert level['display'] == 'Lv 60'
-    assert level['width'] >= level['text_width'] + 31
+    assert level['width'] >= level['text_width'] + 45
     assert level['edit_width'] >= level['text_width']
     assert level['up_inside'] is True
     assert level['down_inside'] is True

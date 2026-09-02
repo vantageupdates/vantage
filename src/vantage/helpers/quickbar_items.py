@@ -16,12 +16,12 @@ QUICKBAR_ITEMS = (
     ("log_help", "How to Link Logs", "ph-file-search", "logs"),
     ("log_profiles", "Log Profiles", "ph-stack", "logs"),
     ("mute", "Mute All Sounds", "ph-mute", "audio"),
-    ("settings", "Settings", "ph-settings", "system"),
     ("about", "About & Licenses", "ph-info", "system"),
     # Frequently checked status/recovery controls stay beside shutdown.
     ("log_status", "Log Status", "ph-pulse", "logs"),
     ("reload_ui", "Reload Vantage UI", "ph-reload", "tools"),
     ("updates", "Check for Updates", "ph-download", "tools"),
+    ("settings", "Settings", "ph-settings", "system"),
     ("quit", "Quit Vantage", "ph-power", "system"),
     # Support is deliberately last in both horizontal and vertical layouts.
     ("support", "Buy me a coffee", "ph-coffee", "tools"),

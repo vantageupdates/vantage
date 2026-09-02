@@ -56,6 +56,8 @@ initial = {
         QFont.HintingPreference.PreferFullHinting,
     'support_is_last': bar.action_layout.itemAt(
         bar.action_layout.count() - 1).widget() is bar._buttons['support'],
+    'dialog_actions_checkable': all(
+        bar._buttons[key].isCheckable() for key in bar._DIALOG_ACTIONS),
 }
 
 app._log_status = 'ONLINE'
@@ -71,9 +73,19 @@ online_log = {
 app._log_status = 'QUIET'
 bar.refresh_state()
 quiet_log = {
+    'status': bar._buttons['log_status'].property('Status'),
     'online': bar._buttons['log_status'].property('LogOnline'),
-    'normal_icon': bar._buttons['log_status'].icon().cacheKey() ==
-        game_icon('ph-pulse').cacheKey(),
+    'yellow_icon': bar._buttons['log_status'].icon().cacheKey() ==
+        game_icon('ph-pulse-quiet').cacheKey(),
+}
+app._log_status = 'NO LOGS'
+bar.refresh_state()
+disconnected_log = {
+    'status': bar._buttons['log_status'].property('Status'),
+    'online': bar._buttons['log_status'].property('LogOnline'),
+    'red_icon': bar._buttons['log_status'].icon().cacheKey() ==
+        game_icon('ph-pulse-disconnected').cacheKey(),
+    'name': bar._buttons['log_status'].accessibleName(),
 }
 
 app.new_version_available = lambda: True
@@ -128,6 +140,13 @@ toggled = {
     'maps_dot': bar._enabled_dots['maps'].isVisible(),
     'maps_visible': maps.isVisible(),
 }
+bar._trigger('maps')
+app.processEvents()
+toggled_closed = {
+    'maps_checked': bar._buttons['maps'].isChecked(),
+    'maps_dot': bar._enabled_dots['maps'].isVisible(),
+    'maps_visible': maps.isVisible(),
+}
 
 config.data['quickbar']['orientation'] = 'vertical'
 config.data['quickbar']['show_market'] = False
@@ -161,6 +180,20 @@ settings_page = {
             f'quickbar:show_{key}') is not None
         for key in QUICKBAR_ITEM_KEYS),
 }
+bar._trigger('settings')
+app.processEvents()
+settings_open = {
+    'visible': settings.isVisible(),
+    'checked': bar._buttons['settings'].isChecked(),
+    'dot': bar._enabled_dots['settings'].isVisible(),
+}
+bar._trigger('settings')
+app.processEvents()
+settings_closed = {
+    'visible': settings.isVisible(),
+    'checked': bar._buttons['settings'].isChecked(),
+    'dot': bar._enabled_dots['settings'].isVisible(),
+}
 
 print(json.dumps({
     'initial': initial,
@@ -168,12 +201,16 @@ print(json.dumps({
     'buttons_only': buttons_only,
     'header_height': header_height,
     'toggled': toggled,
+    'toggled_closed': toggled_closed,
     'vertical': vertical,
     'settings': settings_page,
+    'settings_open': settings_open,
+    'settings_closed': settings_closed,
     'support_calls': support_calls,
     'reload_calls': reload_calls,
     'online_log': online_log,
     'quiet_log': quiet_log,
+    'disconnected_log': disconnected_log,
     'update_ready': update_ready,
 }))
 app.quit()
@@ -399,8 +436,8 @@ quiet = {
     'debouncing': bar._log_online_debounce.isActive(),
     'animating': bar._log_pulse_timer.isActive(),
     'live_pulse': bool(bar._buttons['log_status'].property('LivePulse')),
-    'offline_icon': bar._buttons['log_status'].icon().cacheKey() ==
-        game_icon('ph-pulse').cacheKey(),
+    'yellow_icon': bar._buttons['log_status'].icon().cacheKey() ==
+        game_icon('ph-pulse-quiet').cacheKey(),
 }
 
 app._log_status = 'ONLINE'
@@ -494,8 +531,9 @@ def test_quickbar_uses_one_distinct_icon_per_action():
 def test_quickbar_keeps_timers_beside_spells_and_recovery_beside_quit():
     keys = [key for key, _label, _icon, _group in QUICKBAR_ITEMS]
     assert keys.index("timers") == keys.index("spells") + 1
-    assert keys[keys.index("quit") - 3:keys.index("quit")] == [
-        "log_status", "reload_ui", "updates"]
+    assert keys[keys.index("quit") - 4:keys.index("quit")] == [
+        "log_status", "reload_ui", "updates", "settings"]
+    assert keys.index("settings") == keys.index("quit") - 1
 
 
 def test_quickbar_repairs_hidden_support_once_and_preserves_later_choice(
@@ -546,6 +584,7 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
     assert initial['sharp_surface'] is True
     assert initial['full_font_hinting'] is True
     assert initial['support_is_last'] is True
+    assert initial['dialog_actions_checkable'] is True
     assert result['online_log']['status'] == 'online'
     assert result['online_log']['online'] is True
     assert result['online_log']['green_icon'] is True
@@ -553,8 +592,15 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
     assert 'live log activity' in result['online_log']['tooltip']
     assert 'activity detected' in result['online_log']['description']
     assert result['quiet_log'] == {
+        'status': 'quiet',
         'online': False,
-        'normal_icon': True,
+        'yellow_icon': True,
+    }
+    assert result['disconnected_log'] == {
+        'status': 'no_logs',
+        'online': False,
+        'red_icon': True,
+        'name': 'Log Status: DISCONNECTED',
     }
     assert result['update_ready']['badge'] is True
     assert 'Update ready' in result['update_ready']['name']
@@ -577,6 +623,11 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
         'maps_dot': True,
         'maps_visible': True,
     }
+    assert result['toggled_closed'] == {
+        'maps_checked': False,
+        'maps_dot': False,
+        'maps_visible': False,
+    }
     vertical = result['vertical']
     assert vertical['orientation'] == 'vertical'
     assert vertical['design'][1] > vertical['design'][0]
@@ -590,6 +641,16 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
         'header_control': True,
         'tick_control': True,
         'all_item_controls': True,
+    }
+    assert result['settings_open'] == {
+        'visible': True,
+        'checked': True,
+        'dot': True,
+    }
+    assert result['settings_closed'] == {
+        'visible': False,
+        'checked': False,
+        'dot': False,
     }
 
 
@@ -708,7 +769,7 @@ def test_quickbar_animation_variants_debounce_visibility_and_reduced_motion(
         'debouncing': False,
         'animating': False,
         'live_pulse': False,
-        'offline_icon': True,
+        'yellow_icon': True,
     }
     assert result['button_hidden'] == {
         'button': False,

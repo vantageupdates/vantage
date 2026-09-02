@@ -89,6 +89,10 @@ def test_timer_row_uses_border_light_crisp_controls():
     assert all(
         button.iconSize() == QSize(16, 16)
         for button in row.findChildren(QPushButton))
+    assert row.controls.layout().spacing() == 0
+    assert row.controls.width() == 242
+    assert row.volume.property("IntegratedRocker") is True
+    assert row.volume.parentWidget() is row.controls
     row.close()
     row.deleteLater()
     app.processEvents()

@@ -22,12 +22,22 @@ class QuickBar(ParserWindow):
     name = "quickbar"
     _allow_clickthrough = False
     _LOG_ONLINE_DEBOUNCE_MS = 2000
+    _DIALOG_ACTIONS = {
+        "spell_library": ("_spell_library_dialog", "show_spell_library"),
+        "mobile": ("_mobile_dialog_instance", "show_mobile_share"),
+        "settings": ("_settings_instance", "show_settings"),
+        "about": ("_about_dialog_instance", "show_about"),
+        "updates": ("_update_dialog_instance", "show_update_dialog"),
+        "log_status": ("_log_monitor_dialog_instance", "show_log_profiles"),
+        "log_profiles": ("_log_monitor_dialog_instance", "show_log_profiles"),
+    }
 
     def __init__(self, application, window_targets):
         self._application = application
         self._window_targets = dict(window_targets)
         self._target_names = {
             target: name for name, target in self._window_targets.items()}
+        self._dialog_targets = {}
         self._buttons = {}
         self._enabled_dots = {}
         self._orientation = "horizontal"
@@ -95,9 +105,11 @@ class QuickBar(ParserWindow):
             button.setFixedSize(24, 24)
             button.setIconSize(QSize(16, 16))
             button.setAccessibleName(label)
+            button.setProperty("BaseLabel", label)
             button.setToolTip(label)
             button.setCheckable(
-                key in self._window_targets or key == "mute")
+                key in self._window_targets or key in self._DIALOG_ACTIONS or
+                key == "mute")
             if button.isCheckable():
                 dot = QFrame(button)
                 dot.setObjectName("QuickBarEnabledDot")
@@ -262,7 +274,8 @@ class QuickBar(ParserWindow):
         """The Quick Bar contains commands and does not parse log lines."""
 
     def eventFilter(self, watched, event):
-        if (watched in self._target_names and
+        if ((watched in self._target_names or
+             watched in self._dialog_targets) and
                 event.type() in (QEvent.Type.Show, QEvent.Type.Hide)):
             QTimer.singleShot(0, self.refresh_state)
         return super().eventFilter(watched, event)
@@ -473,6 +486,30 @@ class QuickBar(ParserWindow):
             button.setToolTip(f"{label} is {state} · click to toggle")
             button.setAccessibleDescription(f"Currently {state}")
 
+        for key, (attribute, _opener) in self._DIALOG_ACTIONS.items():
+            button = self._buttons.get(key)
+            if button is None:
+                continue
+            dialog = getattr(self._application, attribute, None)
+            visible = bool(dialog is not None and dialog.isVisible())
+            if dialog is not None and dialog not in self._dialog_targets:
+                self._dialog_targets[dialog] = key
+                dialog.installEventFilter(self)
+            button.blockSignals(True)
+            button.setChecked(visible)
+            button.blockSignals(False)
+            dot = self._enabled_dots.get(key)
+            if dot is not None:
+                dot.setVisible(visible)
+                if visible:
+                    dot.raise_()
+            if key not in ("log_status", "log_profiles"):
+                label = str(button.property("BaseLabel") or
+                            button.accessibleName())
+                state = "open" if visible else "hidden"
+                button.setToolTip(f"{label} is {state} · click to toggle")
+                button.setAccessibleDescription(f"Currently {state}")
+
         muted = audio_muted()
         mute_button = self._buttons["mute"]
         mute_button.blockSignals(True)
@@ -498,8 +535,11 @@ class QuickBar(ParserWindow):
         self._log_online = online
         logs_button.setProperty("Status", status.casefold().replace(" ", "_"))
         logs_button.setProperty("LogOnline", online)
-        logs_button.setAccessibleName(f"Log Status: {status}")
-        self._apply_log_status_copy(status)
+        display_status = (
+            "DISCONNECTED" if status in {"NO LOGS", "DISCONNECTED"} else
+            status)
+        logs_button.setAccessibleName(f"Log Status: {display_status}")
+        self._apply_log_status_copy(display_status)
         self._sync_log_animation()
 
         update_ready = self._application.new_version_available()
@@ -622,7 +662,12 @@ class QuickBar(ParserWindow):
                 "ph-pulse-online-bright" if self._log_pulse_on else
                 "ph-pulse-online-rest")
         else:
-            icon_name = "ph-pulse"
+            status = str(logs_button.property("Status") or "")
+            icon_name = (
+                "ph-pulse-quiet" if status in {"quiet", "waiting"} else
+                "ph-pulse-disconnected" if status in {
+                    "no_logs", "disconnected", "stale"} else
+                "ph-pulse")
         logs_button.setIcon(game_icon(icon_name))
         logs_button.setIconSize(QSize(16, 16))
         self._log_motion_marker.setVisible(
@@ -668,30 +713,36 @@ class QuickBar(ParserWindow):
     def _trigger(self, key):
         if key in self._window_targets:
             self._window_targets[key].toggle()
-        elif key == "spell_library":
-            self._application.show_spell_library()
-        elif key == "mobile":
-            self._application.show_mobile_share()
+        elif key in self._DIALOG_ACTIONS:
+            self._toggle_dialog_action(key)
         elif key == "support":
             self._application.show_support()
         elif key == "reload_ui":
             self._application.reload_ui()
-        elif key == "updates":
-            self._application.show_update_dialog()
-        elif key == "log_status":
-            self._application.show_log_profiles()
         elif key == "link_logs":
             self._application.select_logs_folder()
         elif key == "log_help":
             self._application.show_log_help()
-        elif key == "log_profiles":
-            self._application.show_log_profiles()
         elif key == "mute":
             self._application.toggle_audio_muted()
-        elif key == "settings":
-            self._application.show_settings("Quick Bar")
-        elif key == "about":
-            self._application.show_about()
         elif key == "quit":
             self._application.quit_vantage(confirm=True, parent=self)
         QTimer.singleShot(0, self.refresh_state)
+
+    def _toggle_dialog_action(self, key):
+        """Give every Quick Bar window button true open/close behavior."""
+        attribute, opener_name = self._DIALOG_ACTIONS[key]
+        dialog = getattr(self._application, attribute, None)
+        if dialog is not None and dialog.isVisible():
+            dialog.close()
+            return False
+        opener = getattr(self._application, opener_name)
+        if key == "settings":
+            opener("Quick Bar")
+        else:
+            opener()
+        dialog = getattr(self._application, attribute, None)
+        if dialog is not None and dialog not in self._dialog_targets:
+            self._dialog_targets[dialog] = key
+            dialog.installEventFilter(self)
+        return bool(dialog is not None and dialog.isVisible())

@@ -118,6 +118,12 @@ clarity_before_werewolf = clarity.end_time
 spells.parse(now + datetime.timedelta(seconds=50),
              'You begin casting See Invisible.')
 spells.parse(now + datetime.timedelta(seconds=52), 'Your eyes tingle.')
+see_invisible_immediate = any(
+    widget.spell.name == 'see invisible'
+    for widget in clarity_target.spell_widgets())
+see_trigger_still_collecting = (
+    spells._spell_trigger is not None and
+    spells._spell_trigger.spell.name == 'see invisible')
 spells.parse(now + datetime.timedelta(seconds=60),
              'You begin casting Illusion: Werewolf.')
 spells.parse(now + datetime.timedelta(seconds=63), 'You feel different.')
@@ -162,6 +168,8 @@ print(json.dumps({
     'backlogged_target': backlogged.targets[0][1],
     'stale_signal_kept_current': stale_signal_kept_current,
     'unanchored_ignored': before_unanchored == after_unanchored,
+    'see_invisible_immediate': see_invisible_immediate,
+    'see_trigger_still_collecting': see_trigger_still_collecting,
     'timestamp_correlated_names': sorted(timestamp_rows),
     'werewolf_did_not_refresh_clarity': (
         clarity.end_time == clarity_before_werewolf),
@@ -201,6 +209,8 @@ def test_live_casts_recast_named_track_charm_and_clear_interruptions(tmp_path):
         'backlogged_target': 'Crystal Fang',
         'stale_signal_kept_current': True,
         'unanchored_ignored': True,
+        'see_invisible_immediate': True,
+        'see_trigger_still_collecting': True,
         'timestamp_correlated_names': [
             'clarity', 'clarity ii', 'illusion: werewolf', 'see invisible'],
         'werewolf_did_not_refresh_clarity': True,

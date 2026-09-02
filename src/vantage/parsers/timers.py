@@ -172,13 +172,16 @@ SPAWN_TIMER_WINDOW_STYLE = """
         font-size: 10px;
     }
     QWidget#SpawnTimerActions {
-        background: transparent;
-        border: none;
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 #202B33, stop:1 #11181D);
+        border: 1px solid #3D4B55;
+        border-radius: 7px;
     }
     QWidget#SpawnTimerActions QPushButton[TimerRowAction="true"] {
-        background-color: #1A242B;
+        background-color: transparent;
         border: none;
-        border-radius: 6px;
+        border-right: 1px solid #334049;
+        border-radius: 0;
         min-width: 26px;
         max-width: 26px;
         min-height: 26px;
@@ -187,7 +190,7 @@ SPAWN_TIMER_WINDOW_STYLE = """
     }
     QWidget#SpawnTimerActions QPushButton[TimerRowAction="true"]:hover {
         background-color: #2A3740;
-        border: 1px solid #7A8992;
+        border-right: 1px solid #52616C;
     }
     QWidget#SpawnTimerActions QPushButton[TimerRowAction="true"]:focus {
         background-color: #253139;
@@ -206,19 +209,39 @@ SPAWN_TIMER_WINDOW_STYLE = """
     QWidget#SpawnTimerActions QPushButton[TimerKind="danger"] {
         background-color: #351B20;
     }
+    QWidget#SpawnTimerActions QPushButton[SegmentEnd="true"] {
+        border-right: none;
+        border-top-right-radius: 6px;
+        border-bottom-right-radius: 6px;
+    }
     QSpinBox#SpawnTimerVolume {
         color: #E9E7E1;
-        background-color: #1A242B;
+        background-color: transparent;
         border: none;
-        border-radius: 6px;
+        border-right: 1px solid #334049;
+        border-radius: 0;
         min-height: 26px;
         max-height: 26px;
-        padding: 0 3px;
+        padding: 0 16px 0 3px;
         font-family: "Segoe UI Variable", "Segoe UI";
         font-size: 10px;
     }
     QSpinBox#SpawnTimerVolume:focus {
         border: 1px solid #B99A60;
+    }
+    QSpinBox#SpawnTimerVolume::up-button,
+    QSpinBox#SpawnTimerVolume::down-button {
+        subcontrol-origin: border;
+        width: 14px;
+        border: none;
+        border-left: 1px solid #40505C;
+        background-color: transparent;
+    }
+    QSpinBox#SpawnTimerVolume::up-button {
+        subcontrol-position: top right;
+    }
+    QSpinBox#SpawnTimerVolume::down-button {
+        subcontrol-position: bottom right;
     }
 """
 
@@ -527,8 +550,12 @@ class TimerRow(QFrame):
         info.addWidget(self.detail_label)
         root.addWidget(info_widget, 1)
 
-        controls = ResponsiveActionBar(28, spacing=2)
+        controls = QFrame()
         controls.setObjectName("SpawnTimerActions")
+        controls_layout = QHBoxLayout(controls)
+        controls_layout.setContentsMargins(1, 1, 1, 1)
+        controls_layout.setSpacing(0)
+        self.controls = controls
         self.play_button = QPushButton()
         self._polish_action(self.play_button)
         self.play_button.setIcon(game_icon("play"))
@@ -536,7 +563,7 @@ class TimerRow(QFrame):
         self.play_button.setToolTip(
             f"Start, pause, or resume {timer.name} without changing its phase")
         self.play_button.clicked.connect(self._toggle)
-        controls.addWidget(self.play_button)
+        controls_layout.addWidget(self.play_button)
 
         self.restart_button = QPushButton()
         self._polish_action(self.restart_button)
@@ -545,7 +572,7 @@ class TimerRow(QFrame):
         self.restart_button.setToolTip(
             "Restart the complete respawn countdown immediately")
         self.restart_button.clicked.connect(self._restart)
-        controls.addWidget(self.restart_button)
+        controls_layout.addWidget(self.restart_button)
 
         self.clear_button = QPushButton()
         self._polish_action(self.clear_button)
@@ -554,7 +581,7 @@ class TimerRow(QFrame):
         self.clear_button.setToolTip(
             "Clear the countdown and return to READY without deleting it")
         self.clear_button.clicked.connect(self._clear)
-        controls.addWidget(self.clear_button)
+        controls_layout.addWidget(self.clear_button)
 
         killed = QPushButton()
         self._polish_action(killed, "warning")
@@ -563,7 +590,7 @@ class TimerRow(QFrame):
         killed.setAccessibleName(f"Confirm death of {timer.name}")
         killed.setToolTip("Mob killed: start respawn")
         killed.clicked.connect(self._killed)
-        controls.addWidget(killed)
+        controls_layout.addWidget(killed)
 
         spawned = QPushButton()
         self._polish_action(spawned, "primary")
@@ -572,19 +599,20 @@ class TimerRow(QFrame):
         spawned.setAccessibleName(f"Confirm spawn of {timer.name}")
         spawned.setToolTip("Mob spawned: start estimated kill time")
         spawned.clicked.connect(self._spawned)
-        controls.addWidget(spawned)
+        controls_layout.addWidget(spawned)
 
         self.volume = QSpinBox()
         self.volume.setObjectName("SpawnTimerVolume")
         self.volume.setRange(0, 100)
         self.volume.setSuffix("%")
         self.volume.setValue(timer.volume)
+        self.volume.setProperty("IntegratedRocker", True)
         self.volume.setAccessibleName(f"Volume for {timer.name}")
         self.volume.setToolTip(
             f"Individual alarm volume for {timer.name}")
         self.volume.setFixedWidth(58)
         self.volume.editingFinished.connect(self._volume_changed)
-        controls.addWidget(self.volume)
+        controls_layout.addWidget(self.volume)
 
         edit = QPushButton()
         self._polish_action(edit)
@@ -593,19 +621,20 @@ class TimerRow(QFrame):
         edit.setToolTip(
             f"Edit {timer.name}: name, durations, smart reset, color, sound, and volume")
         edit.clicked.connect(lambda: owner.edit_timer(timer.timer_id))
-        controls.addWidget(edit)
+        controls_layout.addWidget(edit)
 
         delete = QPushButton()
         self._polish_action(delete, "danger")
         delete.setIcon(game_icon("delete"))
         delete.setObjectName("DangerAction")
+        delete.setProperty("SegmentEnd", True)
         delete.setAccessibleName(f"Delete {timer.name}")
         delete.setToolTip(f"Delete {timer.name} after confirmation")
         delete.clicked.connect(lambda: owner.delete_timer(timer.timer_id))
-        controls.addWidget(delete)
+        controls_layout.addWidget(delete)
         # Keep every action in one dense logical row. The outer window scales
         # this whole row with the rest of the timer canvas.
-        controls.setFixedWidth(266)
+        controls.setFixedWidth(242)
         root.addWidget(controls, 0, Qt.AlignmentFlag.AlignRight)
 
         self.refresh()
@@ -615,6 +644,7 @@ class TimerRow(QFrame):
         button.setProperty("TimerRowAction", True)
         button.setProperty("TimerKind", kind)
         button.setIconSize(QSize(16, 16))
+        button.setFixedSize(26, 26)
 
     def _toggle(self):
         if self.timer.running:
