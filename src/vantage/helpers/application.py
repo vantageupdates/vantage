@@ -42,7 +42,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=22,
+    patch=23,
     build=""
 )
 
@@ -859,6 +859,17 @@ class VantageApp(QApplication):
             return False
         self._system_tray.setVisible(False)
         self.quit()
+        return True
+
+    def checkpoint_for_update(self):
+        """Persist live countdown state before the updater starts another EXE."""
+        spells = self._parsers_dict.get('spells')
+        timers = self._parsers_dict.get('timers')
+        if spells is not None:
+            spells.checkpoint_runtime_state()
+        if timers is not None:
+            timers.checkpoint_runtime_state()
+        config.save()
         return True
 
     def show_update_dialog(self):

@@ -5,7 +5,7 @@ https://github.com/nomns/nparse. The original copyright and license notices are
 preserved here and in the repository history. Vantage modifications made in
 2026 are distributed under the same GNU GPL version 3 license.
 
-Market values are attributed in-app to PigParse Green. Project 1999 Wiki is a separately labeled secondary reference for item icons, statistics, drop NPCs and zones. Robust estimates are local calculations and never alter upstream records.
+Market values are attributed in-app to PigParse Green. Project 1999 Wiki is a separately labeled secondary reference for item icons, statistics, drop NPCs, zones, and the shipped item-to-click-effect index. Robust estimates are local calculations and never alter upstream records.
 
 Class, race and equipment-slot metadata is loaded from the P99 Planner community snapshot of Project 1999 Wiki data. It is not used as a price source. Optional mobile Internet sharing uses Cloudflare Quick Tunnels and downloads the official signed `cloudflared` Windows binary only with the user's approval.
 

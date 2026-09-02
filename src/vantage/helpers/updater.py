@@ -30,7 +30,7 @@ LATEST_RELEASE_API = (
     f"https://api.github.com/repos/{REPOSITORY}/releases/latest")
 RELEASES_URL = f"https://github.com/{REPOSITORY}/releases"
 ASSET_NAME = "Vantage.exe"
-USER_AGENT = "Vantage/1.44.22"
+USER_AGENT = "Vantage/1.44.23"
 
 
 def file_sha256(path):
@@ -259,6 +259,11 @@ class UpdateController(QObject):
             prefix=".vantage-write-test-", dir=str(target.parent))
         os.close(handle)
         Path(probe).unlink()
+        app = QApplication.instance()
+        checkpoint = getattr(app, 'checkpoint_for_update', None)
+        if not callable(checkpoint) or not checkpoint():
+            raise RuntimeError(
+                'Vantage could not preserve live buffs and timers; update cancelled.')
         flags = 0
         if os.name == "nt":
             flags = 0x00000008 | 0x00000200

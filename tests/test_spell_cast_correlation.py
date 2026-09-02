@@ -84,12 +84,63 @@ spells.parse(
 charmed = spells._spell_container.get_spell_target_by_name(
     'a blizzard hunter')
 
-# A backlogged short cast must be active immediately instead of asking Qt to
-# start a negative activation timer and then silently missing its landing.
+# Backlogged casts are correlated by log timestamps, not wall-clock age. This
+# is the path used when Vantage catches up after startup or a busy UI frame.
 book, _, _ = create_spell_book()
 config.data['spells']['use_casting_window'] = True
+config.data['spells']['casting_window_buffer'] = 250
 backlogged = SpellTrigger(
     spell=book['Fetter'], timestamp=now - datetime.timedelta(seconds=10))
+backlogged.parse(
+    now - datetime.timedelta(seconds=8),
+    "Crystal Fang's feet adhere to the ground.")
+
+# A late signal from an already-replaced cast cannot finish the newer cast.
+old_trigger = SpellTrigger(
+    spell=book['Clarity II'], timestamp=now - datetime.timedelta(seconds=2))
+current_trigger = SpellTrigger(
+    spell=book['Illusion: Werewolf'], timestamp=now)
+old_trigger.spell_triggered.connect(spells._spell_triggered)
+spells._spell_trigger = current_trigger
+old_trigger._times_up()
+stale_signal_kept_current = spells._spell_trigger is current_trigger
+
+# P99 reuses generic landing text for many unrelated effects. Without a cast
+# or item-glow anchor it must not invent an item-only Airplane illusion.
+spells._remove_spell_trigger(current_trigger)
+before_unanchored = len(clarity_target.spell_widgets())
+spells.parse(now + datetime.timedelta(seconds=45), 'You feel different.')
+after_unanchored = len(clarity_target.spell_widgets())
+
+# See Invisible is represented as a multi-target spell in the P99 spell file.
+# Its one self landing must survive until the next cast closes the window.
+clarity_before_werewolf = clarity.end_time
+spells.parse(now + datetime.timedelta(seconds=50),
+             'You begin casting See Invisible.')
+spells.parse(now + datetime.timedelta(seconds=52), 'Your eyes tingle.')
+spells.parse(now + datetime.timedelta(seconds=60),
+             'You begin casting Illusion: Werewolf.')
+spells.parse(now + datetime.timedelta(seconds=63), 'You feel different.')
+spells.parse(now + datetime.timedelta(seconds=64),
+             'You begin casting Clarity II.')
+spells.parse(
+    now + datetime.timedelta(seconds=68),
+    'A soft breeze slips through your mind.')
+timestamp_rows = {
+    widget.spell.name: widget for widget in clarity_target.spell_widgets()}
+
+# A delayed resist names the old spell. It remains visible but cannot cancel
+# the different cast currently waiting for its landing line.
+spells.parse(now + datetime.timedelta(seconds=70),
+             'You begin casting Illusion: Werewolf.')
+spells.parse(
+    now + datetime.timedelta(seconds=71),
+    'Your target resisted the Fetter spell.')
+mismatched_resist_kept_cast = (
+    spells._spell_trigger is not None and
+    spells._spell_trigger.spell.name == 'illusion: werewolf')
+mismatched_resist_event = spells.recent_spell_events()[0]
+spells.parse(now + datetime.timedelta(seconds=73), 'You feel different.')
 
 print(json.dumps({
     'clarity_count': len(clarity_rows),
@@ -108,9 +159,17 @@ print(json.dumps({
     'pending_before_activity': pending_before_activity,
     'pending_after_activity': spells._pending_charm is None,
     'charm_spell': charmed.spell_widgets()[0].spell.name if charmed else '',
-    'backlogged_active': backlogged.activated,
+    'backlogged_target': backlogged.targets[0][1],
+    'stale_signal_kept_current': stale_signal_kept_current,
+    'unanchored_ignored': before_unanchored == after_unanchored,
+    'timestamp_correlated_names': sorted(timestamp_rows),
+    'werewolf_did_not_refresh_clarity': (
+        clarity.end_time == clarity_before_werewolf),
+    'mismatched_resist_kept_cast': mismatched_resist_kept_cast,
+    'mismatched_resist_event': mismatched_resist_event,
 }))
 backlogged.stop()
+old_trigger.stop()
 app.quit()
 """
 
@@ -139,5 +198,12 @@ def test_live_casts_recast_named_track_charm_and_clear_interruptions(tmp_path):
         'pending_before_activity': True,
         'pending_after_activity': True,
         'charm_spell': 'allure',
-        'backlogged_active': True,
+        'backlogged_target': 'Crystal Fang',
+        'stale_signal_kept_current': True,
+        'unanchored_ignored': True,
+        'timestamp_correlated_names': [
+            'clarity', 'clarity ii', 'illusion: werewolf', 'see invisible'],
+        'werewolf_did_not_refresh_clarity': True,
+        'mismatched_resist_kept_cast': True,
+        'mismatched_resist_event': 'RESIST · Fetter',
     }

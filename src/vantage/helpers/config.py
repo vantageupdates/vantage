@@ -5,6 +5,7 @@ import os
 from glob import glob
 import json
 import re
+import tempfile
 
 from vantage.helpers.trigger_groups import normalize_trigger_groups
 from vantage.helpers.quickbar_items import QUICKBAR_ITEM_KEYS
@@ -218,10 +219,27 @@ def load(filename):
 
 def save():
     """
-    Saves json to previously opened location.
+    Save JSON atomically so an update or power loss cannot truncate timers.
     """
-    with open(_filename, mode='w') as f:
-        f.write(json.dumps(data, indent=4, sort_keys=True))
+    destination = os.path.abspath(_filename)
+    directory = os.path.dirname(destination)
+    temporary = ''
+    try:
+        with tempfile.NamedTemporaryFile(
+                mode='w', encoding='utf-8', newline='\n', delete=False,
+                dir=directory, prefix='.vantage-config-', suffix='.tmp') as file:
+            temporary = file.name
+            json.dump(data, file, indent=4, sort_keys=True)
+            file.write('\n')
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temporary, destination)
+    finally:
+        if temporary and os.path.exists(temporary):
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
 
 
 def verify_settings():

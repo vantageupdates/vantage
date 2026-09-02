@@ -4,6 +4,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+from vantage.parsers.spells import item_click_spell_name
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -68,3 +70,11 @@ def test_casted_and_instant_item_clicks_appear_in_spell_window(tmp_path):
     assert result["self_source"] == "Journeyman's Boots"
     assert "Item click" in result["self_tooltip"]
 
+
+def test_shipped_clicky_index_uses_current_project_1999_item_names():
+    assert item_click_spell_name("Amulet of Necropotence") == (
+        "Illusion: Skeleton")
+    assert item_click_spell_name("Beguiler's Trousers") == "Clarity"
+    assert item_click_spell_name("Staff of the Serpent") == (
+        "Speed of the Shissar")
+    assert item_click_spell_name("Elder Spiritist's Gauntlets") == "Snare"

@@ -51,6 +51,10 @@ ITEM_GLOW_RX = re.compile(
     r"(?:begin(?:s)? to glow(?:[^.]*)?|glows?(?:[^.]*))\.$")
 ITEM_CLICK_WINDOW_SECONDS = 15.0
 CHARM_TARGET_WINDOW_SECONDS = 45.0
+# Log lines have one-second timestamps and the file reader polls independently
+# from Qt's timers. Keep a small late-arrival margin so a valid landing line
+# cannot lose its cast merely because the UI event loop ran first.
+SPELL_LANDING_GRACE_MS = 3000
 # EQ can report the replaced copy's worn-off line just after the refreshed
 # landing line. Only an actual recast receives this short guard; first casts
 # and later fades remain authoritative.
@@ -62,6 +66,10 @@ CHARM_BREAK_LINES = {
     'your charm spell has worn off.',
     'you are no longer charmed.',
 }
+SPELL_WORN_OFF_RX = re.compile(
+    r'^Your (?P<spell>.+?) spell has worn off\.$', re.IGNORECASE)
+SPELL_RESIST_RX = re.compile(
+    r'^Your target resisted the (?P<spell>.+?) spell\.$', re.IGNORECASE)
 COMMON_ITEM_CLICK_SPELLS = {
     "journeyman's boots": "JourneymanBoots",
     "elder spiritist's gauntlets": "Snare",
@@ -69,6 +77,23 @@ COMMON_ITEM_CLICK_SPELLS = {
     "spear of fate": "Curse of the Spirits",
     "fungi covered great staff": "Fungal Regrowth",
 }
+
+
+@functools.lru_cache(maxsize=1)
+def _p99_click_spell_names():
+    """Return the shipped Project 1999 Wiki clicky item/effect index."""
+    try:
+        with open(resource_path(
+                'data/spells/p99_clickies.json'), encoding='utf-8') as source:
+            payload = json.load(source)
+    except (OSError, ValueError, TypeError):
+        return {}
+    items = payload.get('items', {}) if isinstance(payload, dict) else {}
+    return {
+        str(item).strip().casefold(): str(effect).strip()
+        for item, effect in items.items()
+        if str(item).strip() and str(effect).strip()
+    }
 
 
 @functools.lru_cache(maxsize=512)
@@ -79,18 +104,19 @@ def item_click_spell_name(item_name):
     if common:
         return common
     database = data_dir('cache', create=False) / 'p99-item-metadata.sqlite'
-    if not database.is_file():
-        return ''
-    try:
-        with sqlite3.connect(
-                f"file:{database.as_posix()}?mode=ro", uri=True) as connection:
-            row = connection.execute(
-                "SELECT clickName FROM items WHERE name = ? COLLATE NOCASE "
-                "AND trim(coalesce(clickName, '')) <> '' LIMIT 1",
-                (item_name,)).fetchone()
-        return str(row[0]).strip() if row else ''
-    except sqlite3.Error:
-        return ''
+    if database.is_file():
+        try:
+            with sqlite3.connect(
+                    f"file:{database.as_posix()}?mode=ro", uri=True) as connection:
+                row = connection.execute(
+                    "SELECT clickName FROM items WHERE name = ? COLLATE NOCASE "
+                    "AND trim(coalesce(clickName, '')) <> '' LIMIT 1",
+                    (item_name,)).fetchone()
+            if row and str(row[0]).strip():
+                return str(row[0]).strip()
+        except sqlite3.Error:
+            pass
+    return _p99_click_spell_names().get(item_name.casefold(), '')
 
 
 def _is_charm_spell(spell):
@@ -645,10 +671,16 @@ class Spells(ParserWindow):
         self._runtime_state_save_timer.start()
 
     def _persist_runtime_timer_state(self):
+        self.checkpoint_runtime_state()
+
+    def checkpoint_runtime_state(self):
+        """Synchronously preserve every active buff before an app handoff."""
+        self._runtime_state_save_timer.stop()
         config.data['spells']['active_timer_state'] = \
             self._spell_container.snapshot_runtime_state()
         if getattr(config, '_filename', ''):
             config.save()
+        return len(config.data['spells']['active_timer_state'])
 
     def _restore_runtime_timer_state(self):
         saved = config.data['spells'].get('active_timer_state', [])
@@ -663,28 +695,28 @@ class Spells(ParserWindow):
                 config.save()
         return restored
 
-    def _spell_triggered(self):
+    def _spell_triggered(self, trigger=None):
         """SpellTrigger spell_triggered event handler. """
-        if self._spell_trigger:
-            if self._spell_trigger.activated:
-                for target in self._spell_trigger.targets:
-                    spell = self._spell_for_active_profile(
-                        self._spell_trigger.spell)
-                    self._spell_container.add_spell(
-                        spell, target[0], target[1],
-                        getattr(self, '_active_character', ''),
-                        getattr(self, '_active_server', ''),
-                        named=self._is_named_target(target[1]))
-                if (not self._spell_trigger.targets and
-                        _is_charm_spell(self._spell_trigger.spell)):
-                    # Classic EQ does not print a normal target landing line
-                    # for charm. Keep a short correlation window and bind the
-                    # timer only after a player-owned pet activity line names
-                    # the newly controlled NPC.
-                    self._pending_charm = (
-                        self._spell_trigger.timestamp,
-                        self._spell_trigger.spell)
-        self._remove_spell_trigger()
+        trigger = trigger or self._spell_trigger
+        # A timeout already queued by Qt must never complete whichever newer
+        # cast happens to be current. The emitting trigger owns its result.
+        if trigger is not self._spell_trigger:
+            return
+        if trigger:
+            for target in trigger.targets:
+                spell = self._spell_for_active_profile(trigger.spell)
+                self._spell_container.add_spell(
+                    spell, target[0], target[1],
+                    getattr(self, '_active_character', ''),
+                    getattr(self, '_active_server', ''),
+                    named=self._is_named_target(target[1]))
+            if (not trigger.targets and _is_charm_spell(trigger.spell)):
+                # Classic EQ does not print a normal target landing line for
+                # charm. A failure removes the trigger before this point; a
+                # completed window may therefore wait for player-owned pet
+                # activity to identify the controlled NPC.
+                self._pending_charm = (trigger.timestamp, trigger.spell)
+        self._remove_spell_trigger(trigger)
 
     def _consume_charm_activity(self, timestamp, text):
         """Create a charm timer from the first bounded pet activity proof."""
@@ -960,8 +992,9 @@ class Spells(ParserWindow):
             self._pending_item_click = (
                 timestamp, item_name, item_click_spell_name(item_name))
             if self._spell_trigger:
-                self._spell_trigger.mark_item_cast(item_name)
-        elif config.data['spells']['use_item_triggers']:
+                self._spell_trigger.mark_item_cast(item_name, timestamp)
+        elif (config.data['spells']['use_item_triggers'] and
+              self._pending_item_click):
             self._consume_item_effect(timestamp, text)
         else:
             self._pending_item_click = None
@@ -985,17 +1018,26 @@ class Spells(ParserWindow):
                 spell_trigger.spell_triggered.connect(self._spell_triggered)
                 self._spell_trigger = spell_trigger
 
-        # Spell Interrupted
-        elif (self._spell_trigger and (
+        # Spell Interrupted. A resist names its spell, so a delayed resist from
+        # an earlier cast must not cancel a newer unrelated trigger.
+        else:
+            resist = SPELL_RESIST_RX.match(text)
+            current_name = (
+                str(self._spell_trigger.spell.name).strip().casefold()
+                if self._spell_trigger else '')
+            resist_name = resist.group('spell').strip() if resist else ''
+            matching_resist = bool(
+                resist and current_name == resist_name.casefold())
+        if (text[:17] != 'You begin casting' and self._spell_trigger and (
               text == 'Your spell is interrupted.' or
               text == 'Your spell fizzles!' or
-              text.startswith('Your target resisted') or
+              matching_resist or
               text.startswith('Your spell did not take hold.') or
               text.startswith('You try to cast a spell on'))):
             failed_spell = self._spell_trigger.spell
             interrupted_charm = _is_charm_spell(failed_spell)
             event_kind = (
-                'RESIST' if text.startswith('Your target resisted') else
+                'RESIST' if matching_resist else
                 'FIZZLE' if text == 'Your spell fizzles!' else
                 'INTERRUPTED' if text == 'Your spell is interrupted.' else
                 'DID NOT HOLD' if text.startswith(
@@ -1004,6 +1046,12 @@ class Spells(ParserWindow):
             self._remove_spell_trigger()
             if interrupted_charm:
                 self._pending_charm = None
+
+        elif (text[:17] != 'You begin casting' and resist and
+              not matching_resist):
+            # Still make the P99 outcome visible, but preserve any newer cast
+            # that is currently waiting for its own landing line.
+            self._push_spell_event('RESIST', resist_name)
 
         # Elongate self buff timers by time zoning
         elif text[:23] == 'LOADING, PLEASE WAIT...':
@@ -1320,10 +1368,13 @@ class Spells(ParserWindow):
                 if run_key in trigger.active_names:
                     trigger.active_names.remove(run_key)
 
-    def _remove_spell_trigger(self):
-        if self._spell_trigger:
-            self._spell_trigger.stop()
-            self._spell_trigger.deleteLater()
+    def _remove_spell_trigger(self, trigger=None):
+        trigger = trigger or self._spell_trigger
+        if trigger is None:
+            return
+        trigger.stop()
+        trigger.deleteLater()
+        if trigger is self._spell_trigger:
             self._spell_trigger = None
 
     @staticmethod
@@ -1660,7 +1711,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.22')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.23')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -2269,12 +2320,19 @@ class SpellContainer(QFrame):
             return None
         matches = []
         charm_break = worn_text in CHARM_BREAK_LINES
+        named_worn_off = SPELL_WORN_OFF_RX.match(str(text or '').strip())
+        reported_spell = (
+            named_worn_off.group('spell').strip().casefold()
+            if named_worn_off else '')
         for target in self.spell_targets():
             for widget in target.spell_widgets():
                 worn_off = str(
                     widget.spell.effect_text_worn_off or '').strip().casefold()
                 exact_match = worn_off and worn_text == worn_off
-                if ((exact_match or
+                spell_name_match = (
+                    reported_spell and
+                    str(widget.spell.name).strip().casefold() == reported_spell)
+                if ((exact_match or spell_name_match or
                      (charm_break and _is_charm_spell(widget.spell))) and
                         not widget._faded and
                         not widget.ignores_replaced_worn_off(timestamp)):
@@ -3379,6 +3437,7 @@ class Spell:
         self.type = 0
         self.spell_icon = 0
         self.skill = 0
+        self.target_type = 0
         self.class_levels = ()
         self.item_only = False
         self.source_item = ''
@@ -3387,7 +3446,7 @@ class Spell:
 
 class SpellTrigger(QObject):
 
-    spell_triggered = Signal()
+    spell_triggered = Signal(object)
 
     def __init__(self, **kwargs):
         super().__init__()
@@ -3397,36 +3456,47 @@ class SpellTrigger(QObject):
 
         self.targets = []  # [(timestamp, target)]
         self.activated = False
+        self._item_cast_timestamp = None
 
         # create casting trigger window
-        self._times_up_timer = QTimer()
+        self._times_up_timer = QTimer(self)
         self._times_up_timer.setSingleShot(True)
         self._times_up_timer.timeout.connect(self._times_up)
-        self._activate_timer = QTimer()
-        self._activate_timer.setSingleShot(True)
-        self._activate_timer.timeout.connect(self._activate)
-
         if config.data['spells']['use_casting_window']:
-            #  just in case user set casting window buffer super low, create offset for more accuracy.
-            msec_offset = (datetime.datetime.now() -
-                           self.timestamp).total_seconds() * 1000
             buffer_ms = config.data['spells']['casting_window_buffer']
-            expiry_delay = int(self.spell.cast_time + buffer_ms - msec_offset)
-            activation_delay = int(
-                self.spell.cast_time - buffer_ms - msec_offset)
-            # A live log can arrive in a burst after the cast timestamp. Qt
-            # does not reliably fire negative-interval timers, which left the
-            # trigger permanently inactive and ignored a valid landing line.
+            # Start cleanup from when the log line was consumed, not from its
+            # wall-clock timestamp. On startup a backlog is parsed in a burst;
+            # subtracting that backlog age used to expire every cast before its
+            # immediately-following landing line could be read.
+            expiry_delay = int(
+                self.spell.cast_time + buffer_ms + SPELL_LANDING_GRACE_MS)
             self._times_up_timer.start(max(1, expiry_delay))
-            if activation_delay <= 0:
-                self.activated = True
-            else:
-                self._activate_timer.start(activation_delay)
         else:
             self.activated = True
 
     def parse(self, timestamp, text):
-        if self.activated:
+        if self._item_cast_timestamp is not None:
+            try:
+                elapsed_ms = (
+                    timestamp - self._item_cast_timestamp).total_seconds() * 1000
+            except (AttributeError, TypeError):
+                return
+            in_window = 0 <= elapsed_ms <= ITEM_CLICK_WINDOW_SECONDS * 1000
+        elif config.data['spells']['use_casting_window']:
+            try:
+                elapsed_ms = (
+                    timestamp - self.timestamp).total_seconds() * 1000
+            except (AttributeError, TypeError):
+                return
+            buffer_ms = config.data['spells']['casting_window_buffer']
+            earliest = max(0, int(self.spell.cast_time) - buffer_ms)
+            latest = (
+                int(self.spell.cast_time) + buffer_ms +
+                SPELL_LANDING_GRACE_MS)
+            in_window = earliest <= elapsed_ms <= latest
+        else:
+            in_window = True
+        if in_window:
             folded = str(text or '').casefold()
             effect_you = str(self.spell.effect_text_you or '')
             effect_other = str(self.spell.effect_text_other or '')
@@ -3444,35 +3514,35 @@ class SpellTrigger(QObject):
                         milliseconds=max(
                             0, int(getattr(self.spell, 'cast_time', 0) or 0)))
                     self.targets.append((landed, target))
+            if self.targets:
+                self.activated = True
             if self.targets and self.spell.max_targets == 1:
                 self.stop()  # make sure you don't get two triggers
-                self.spell_triggered.emit()
+                self.activated = True
+                self.spell_triggered.emit(self)
 
-    def mark_item_cast(self, item_name):
+    def mark_item_cast(self, item_name, timestamp=None):
         """Trust a player-owned item glow and widen the item's landing window."""
         if not getattr(self.spell, 'source_item', ''):
             self.spell = copy.copy(self.spell)
         self.spell.source_item = str(item_name or 'Item click')
+        self._item_cast_timestamp = timestamp or self.timestamp
         self.stop()
         self.activated = True
         self._times_up_timer.start(round(ITEM_CLICK_WINDOW_SECONDS * 1000))
 
     def _times_up(self):
-        self.spell_triggered.emit()
-
-    def _activate(self):
-        self.activated = True
+        self.spell_triggered.emit(self)
 
     def stop(self):
         self._times_up_timer.stop()
-        self._activate_timer.stop()
 
 
 def create_spell_book():
     """ Returns a dictionary of Spell by k, v -> spell_name, Spell() """
     spell_book = {}
-    text_lookup_self = {}
-    text_lookup_other = {}
+    self_candidates = {}
+    other_candidates = {}
     with open(resource_path('data/spells/spells_us.txt')) as spell_file:
         for line in spell_file:
             values = line.strip().split('^')
@@ -3493,6 +3563,7 @@ def create_spell_book():
                 type=int(values[83]),
                 spell_icon=int(values[144]),
                 skill=int(values[100]),
+                target_type=int(values[98]),
                 class_levels=tuple(
                     int(values[index]) for index in range(104, 120)),
                 item_only=all(
@@ -3500,8 +3571,26 @@ def create_spell_book():
                     for index in range(104, 120))
             )
             spell_book[values[1]] = spell
-            text_lookup_self[spell.effect_text_you] = spell
-            text_lookup_other[spell.effect_text_other] = spell
+            if spell.effect_text_you:
+                self_candidates.setdefault(
+                    spell.effect_text_you.casefold(), []).append(spell)
+            if spell.effect_text_other:
+                other_candidates.setdefault(
+                    spell.effect_text_other.casefold(), []).append(spell)
+    # A landing sentence is not an item identity. P99 has dozens of effects
+    # such as "You feel different." shared by unrelated illusions. Keep only
+    # messages that resolve to one spell name; a player-owned item-glow plus
+    # the P99 clicky index handles ambiguous effects explicitly.
+    text_lookup_self = {
+        candidates[-1].effect_text_you: candidates[-1]
+        for candidates in self_candidates.values()
+        if len({spell.name.casefold() for spell in candidates}) == 1
+    }
+    text_lookup_other = {
+        candidates[-1].effect_text_other: candidates[-1]
+        for candidates in other_candidates.values()
+        if len({spell.name.casefold() for spell in candidates}) == 1
+    }
     return spell_book, text_lookup_self, text_lookup_other
 
 

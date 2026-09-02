@@ -1100,8 +1100,13 @@ class SpawnTimers(ParserWindow):
         self._schedule_timer_canvas()
 
     def _save(self):
+        self.checkpoint_runtime_state()
+
+    def checkpoint_runtime_state(self):
+        """Synchronously preserve Smart Timers before an app handoff."""
         config.data['timers']['items'] = [timer.to_dict() for timer in self._states.values()]
         config.save()
+        return len(config.data['timers']['items'])
 
     @staticmethod
     def _share_time_label(epoch):

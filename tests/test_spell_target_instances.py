@@ -208,7 +208,8 @@ def test_worn_off_marks_only_oldest_matching_mob_bar_as_faded():
             _fetter(), now + datetime.timedelta(seconds=5), "a snow dervish")
 
         faded = container.mark_worn_off(
-            "Your feet come free.", now + datetime.timedelta(seconds=10))
+            "Your Fetter spell has worn off.",
+            now + datetime.timedelta(seconds=10))
         first = container.get_spell_target_by_name(
             "a frost giant").spell_widgets()[0]
         second = container.get_spell_target_by_name(
