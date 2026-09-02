@@ -1,0 +1,21 @@
+{
+  "name": "Vantage Companion · P99 Green",
+  "short_name": "Vantage",
+  "description": "Offline Market and Spells reference for Vantage Companion on Project 1999 Green.",
+  "id": "/vantage/companion/",
+  "start_url": "/vantage/companion/#market",
+  "scope": "/vantage/companion/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#091015",
+  "theme_color": "#10171b",
+  "categories": ["utilities", "games"],
+  "icons": [
+    {"src": "icon-256.png", "sizes": "256x256", "type": "image/png", "purpose": "any"},
+    {"src": "icon-1254.png", "sizes": "1254x1254", "type": "image/png", "purpose": "any maskable"}
+  ],
+  "shortcuts": [
+    {"name": "Market", "url": "/vantage/companion/#market"},
+    {"name": "Spells", "url": "/vantage/companion/#spells"}
+  ]
+}
