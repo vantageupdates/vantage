@@ -38,9 +38,14 @@ if __name__ == "__main__":
         import tempfile
         import traceback
         try:
+            # Import the complete application graph so a release smoke test
+            # catches missing src-layout packages and transitive Qt modules,
+            # not merely the lightweight portable helper.
+            from vantage.helpers.application import CURRENT_VERSION
             from vantage.helpers.portable import data_dir
             marker = data_dir() / "portable-self-test.txt"
-            marker.write_text(str(data_dir()), encoding="utf-8")
+            marker.write_text(
+                f"{CURRENT_VERSION}\n{data_dir()}", encoding="utf-8")
         except Exception:
             error_file = Path(tempfile.gettempdir()) / (
                 "vantage-self-test-error.txt")

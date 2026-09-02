@@ -5,6 +5,14 @@ import sys
 
 block_cipher = None
 
+# Vantage uses a src-layout. PyInstaller can still create an apparently valid
+# executable when this path is omitted, but every ``vantage.*`` import then
+# fails at runtime. Keep the package root explicit and fail the build early if
+# the checkout is incomplete or the spec is launched from the wrong folder.
+source_root = Path('src').resolve()
+if not (source_root / 'vantage' / 'helpers' / 'application.py').is_file():
+    raise RuntimeError(f'Vantage package root not found: {source_root}')
+
 # Package every non-map asset, but only map files reachable through the P99
 # zone index. Brewall's *_2 vector-font sheets and unrelated modern zones add
 # weight and create no usable Vantage screen.
@@ -39,7 +47,7 @@ data += copy_metadata('colorhash')
 
 a = Analysis(
     ['vantage_app.py'],
-    pathex=[],
+    pathex=[str(source_root)],
     binaries=[],
     datas=data,
     hiddenimports=[],
