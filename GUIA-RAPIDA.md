@@ -27,6 +27,9 @@ Haz clic derecho sobre el fondo o la cabecera de cualquier panel para moverlo a 
 - Cada fila muestra su propio volumen y tiene un botón de reinicio directo que vuelve a **LISTO**.
 - Cada timer puede usar uno de los seis sonidos incluidos o un WAV propio. Su volumen individual se ajusta en la misma fila o al editarlo.
 - La barra pulsa en ámbar durante el aviso previo y en verde durante la ventana de spawn.
+- Para entregar un camp, selecciona su zona y pulsa **Share visible timers** en el encabezado, o usa `Ctrl+Shift+S`. Vantage copia uno o varios códigos: envía cada línea por `/tell`, `/say` o un mensaje externo.
+- El receptor no tiene que importar nada: con `/log on`, Vantage reconoce el código en el log, descuenta los segundos transcurridos desde su creación y añade o actualiza los timers en la zona correcta. Los pausados no pierden tiempo y los inteligentes avanzan las fases que hayan transcurrido.
+- El eco propio y los códigos repetidos se ignoran. Los códigos caducan a las 24 horas y sólo transportan nombre, zona y tiempos; los sonidos, colores y volúmenes del receptor no se sobrescriben.
 
 ## Buffs, triggers y combate
 

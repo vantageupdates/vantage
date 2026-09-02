@@ -4,6 +4,7 @@ General global settings setup to provide settings.data
 import os
 from glob import glob
 import json
+import re
 
 from vantage.helpers.trigger_groups import normalize_trigger_groups
 from vantage.helpers.quickbar_items import QUICKBAR_ITEM_KEYS
@@ -670,6 +671,12 @@ def verify_settings():
     data['timers']['view_zone'] = get_setting(
         data['timers'].get('view_zone', ''), '',
         lambda value: isinstance(value, str))
+    data['timers']['seen_share_ids'] = get_setting(
+        data['timers'].get('seen_share_ids', []), [],
+        lambda value: isinstance(value, list))
+    data['timers']['seen_share_ids'] = [
+        str(value) for value in data['timers']['seen_share_ids']
+        if re.fullmatch(r'[A-Za-z0-9_-]{6,16}', str(value or ''))][-256:]
     try:
         data['timers']['last_session_closed_at'] = max(
             0.0, float(data['timers'].get(

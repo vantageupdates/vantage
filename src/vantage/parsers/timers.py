@@ -8,8 +8,9 @@ import re
 import string
 import time
 
-from PySide6.QtCore import QSize, Qt, QTimer
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QDateTime, QLocale, QSize, Qt, QTimer
+from PySide6.QtGui import (
+    QAccessible, QAccessibleAnnouncementEvent, QColor, QKeySequence, QShortcut)
 from PySide6.QtWidgets import (
     QApplication,
     QBoxLayout,
@@ -39,6 +40,7 @@ from vantage.helpers.log_events import extract_killed_mob
 from vantage.helpers.encounter_events import (
     RING_WAR_SCHEDULE_SOURCE, parse_encounter_event,
     ring_war_milestones)
+from vantage.helpers.eq_clipboard import set_eq_clipboard
 from vantage.helpers.parser import ParserWindow
 from vantage.helpers.portable import store_portable_file
 from vantage.helpers.responsive import (
@@ -59,6 +61,14 @@ from vantage.helpers.spawn_timer import (
     format_seconds,
     parse_duration_input,
     zone_timer_visible,
+)
+from vantage.helpers.timer_share import (
+    TIMER_SHARE_PREFIX,
+    TimerShareError,
+    build_timer_share_codes,
+    decode_timer_share_code,
+    extract_timer_share_codes,
+    shared_record_to_state,
 )
 
 
@@ -579,6 +589,20 @@ class SpawnTimers(ParserWindow):
             self._zone_filter_changed)
         self.menu_area.addWidget(self.zone_filter)
 
+        self.share_button = QPushButton()
+        self.share_button.setIcon(game_icon("export"))
+        self.share_button.setAccessibleName("Share visible timers")
+        self.share_button.setToolTip(
+            "Copy the timers visible in this zone view as time-adjusting "
+            "Vantage chat codes (Ctrl+Shift+S); includes timer names, zones, "
+            "and timing only")
+        self.share_button.clicked.connect(self.share_visible_timers)
+        self.menu_area.addWidget(self.share_button)
+        self._share_shortcut = QShortcut(
+            QKeySequence("Ctrl+Shift+S"), self)
+        self._share_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        self._share_shortcut.activated.connect(self.share_visible_timers)
+
         mobile = QPushButton()
         mobile.setIcon(game_icon("mobile"))
         mobile.setAccessibleName("View Vantage on your phone")
@@ -854,6 +878,106 @@ class SpawnTimers(ParserWindow):
         config.data['timers']['items'] = [timer.to_dict() for timer in self._states.values()]
         config.save()
 
+    @staticmethod
+    def _share_time_label(epoch):
+        return QLocale.system().toString(
+            QDateTime.fromSecsSinceEpoch(int(epoch)),
+            QLocale.FormatType.ShortFormat)
+
+    def _remember_share_packet(self, packet_id):
+        seen = config.data['timers'].setdefault('seen_share_ids', [])
+        packet_id = str(packet_id or '')
+        if packet_id in seen:
+            return False
+        seen.append(packet_id)
+        del seen[:-256]
+        return True
+
+    def share_visible_timers(self):
+        """Copy this zone view as codes safe for EQ Titanium chat."""
+        timers = [
+            timer for timer_id, timer in self._states.items()
+            if timer_id in self._rows and not self._rows[timer_id].isHidden()]
+        try:
+            exported = build_timer_share_codes(timers)
+        except TimerShareError as error:
+            self.announce(f"SHARE TIMERS · {error}")
+            return False
+        copied = set_eq_clipboard("\n".join(exported.codes))
+        if not copied:
+            self.announce(
+                "SHARE TIMERS FAILED · clipboard unavailable; try again")
+            return False
+        for packet_id in exported.packet_ids:
+            self._remember_share_packet(packet_id)
+        config.save()
+        zone = self._selected_zone or "All zones"
+        line_text = (
+            "1 chat code" if len(exported.codes) == 1 else
+            f"{len(exported.codes)} chat-code lines; send each line")
+        self.announce(
+            f"SHARED · {exported.timer_count} timer"
+            f"{'s' if exported.timer_count != 1 else ''} · {zone} · "
+            f"{line_text} copied · {self._share_time_label(exported.generated_at)}")
+        return True
+
+    def _merge_shared_timer(self, incoming):
+        key = (incoming.zone.strip().casefold(), incoming.name.casefold())
+        existing = next((
+            timer for timer in self._states.values()
+            if (timer.zone.strip().casefold(), timer.name.casefold()) == key),
+            None)
+        if existing is None:
+            self._states[incoming.timer_id] = incoming
+            self._add_row(incoming)
+            return "added"
+        # Timing is handed off, while the receiver keeps local alert choices.
+        for field in (
+                "name", "respawn_seconds", "kill_seconds", "warning_seconds",
+                "smart", "zone", "mob_pattern", "source", "automatic",
+                "phase", "running", "phase_started_at", "deadline",
+                "paused_remaining", "cycles", "warning_sent"):
+            setattr(existing, field, getattr(incoming, field))
+        return "updated"
+
+    def _import_shared_timer_code(self, code, event_time):
+        try:
+            packet = decode_timer_share_code(code, received_at=event_time)
+        except TimerShareError as error:
+            self.announce(
+                f"TIMER SHARE REJECTED · {error}; ask the sender to share again")
+            return False
+        if packet.packet_id in config.data['timers'].get(
+                'seen_share_ids', []):
+            return False
+
+        outcomes = []
+        for record in packet.timers:
+            incoming = shared_record_to_state(
+                record, packet, event_time,
+                volume=config.data['timers']['volume'])
+            outcomes.append(self._merge_shared_timer(incoming))
+        self._remember_share_packet(packet.packet_id)
+        self._refresh_zone_filter(self._selected_zone)
+        self.state_changed()
+        added = outcomes.count("added")
+        updated = outcomes.count("updated")
+        zones = sorted({record.zone for record in packet.timers if record.zone})
+        hidden_zone = (
+            zones[0] if len(zones) == 1 and self._selected_zone and
+            zones[0].casefold() != self._selected_zone.casefold() else "")
+        clock_note = (
+            f" · sender clock ahead {packet.future_clock_skew_seconds}s"
+            if packet.future_clock_skew_seconds else "")
+        location_note = f" · saved under {hidden_zone}" if hidden_zone else ""
+        self.announce(
+            f"IMPORTED · {len(packet.timers)} shared timer"
+            f"{'s' if len(packet.timers) != 1 else ''} · {added} added · "
+            f"{updated} updated · adjusted {packet.age_seconds}s · "
+            f"shared {self._share_time_label(packet.generated_at)}"
+            f"{location_note}{clock_note}")
+        return True
+
     def _toggle_compact(self):
         config.data['timers']['compact'] = self.compact.isChecked()
         self.state_changed()
@@ -900,6 +1024,11 @@ class SpawnTimers(ParserWindow):
 
     def announce(self, message):
         self.status.setText(message)
+        try:
+            QAccessible.updateAccessibility(
+                QAccessibleAnnouncementEvent(self.status, str(message)))
+        except (AttributeError, RuntimeError, TypeError):
+            pass
         QApplication.instance().show_overlay_notification(
             "Vantage", message, msecs=3500, overlay_id="timers")
 
@@ -1066,6 +1195,16 @@ class SpawnTimers(ParserWindow):
         event_time = (
             timestamp.timestamp()
             if isinstance(timestamp, datetime.datetime) else time.time())
+        if TIMER_SHARE_PREFIX in text:
+            codes = extract_timer_share_codes(text)
+            if not codes:
+                self.announce(
+                    "TIMER SHARE REJECTED · incomplete code; ask the sender "
+                    "to share again")
+                return
+            for code in codes:
+                self._import_shared_timer_code(code, event_time)
+            return
         self._safety.configure(
             config.data['timers'].get('death_loop_deaths', 4),
             config.data['timers'].get('death_loop_seconds', 120))

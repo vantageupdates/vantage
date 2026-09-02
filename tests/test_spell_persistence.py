@@ -34,7 +34,10 @@ def _spell(name="Fetter", **values):
 
 def test_spell_state_restores_current_remaining_time_after_downtime():
     _app()
-    started = datetime.datetime(2026, 9, 2, 12, 0, 0)
+    # Keep the live Qt timer in the future while testing the independent
+    # snapshot clock. A fixed wall-clock date eventually makes the widget
+    # expire before the snapshot assertion is reached.
+    started = datetime.datetime.now()
     container = SpellContainer()
     container.add_spell(
         _spell(runtime_level=60), started, "a crystalline devourer",
