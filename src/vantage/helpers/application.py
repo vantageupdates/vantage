@@ -42,7 +42,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=20,
+    patch=21,
     build=""
 )
 
@@ -208,7 +208,7 @@ class VantageApp(QApplication):
         tick = ServerTick()
         spells.spell_faded.connect(tick.spell_faded)
         timers = SpawnTimers()
-        self._splash.step("Preparing combat and Green Market…", 70)
+        self._splash.step("Preparing combat and Market…", 70)
         combat = Combat()
         heals = HealChain()
         market = GreenMarket()
@@ -745,7 +745,7 @@ class VantageApp(QApplication):
                 "tick": "Server Tick",
                 "timers": "Smart Timers",
                 "heals": "Heal Chain",
-                "market": "Green Market",
+                "market": "Market",
             }.get(parser.name, parser.name.title())
             toggle = menu.addAction(label)
             toggle.setIcon(game_icon(WINDOW_ICONS.get(parser.name, 'timer')))

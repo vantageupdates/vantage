@@ -258,6 +258,10 @@ class SettingsWindow(UniformScaleDialog):
         self._list_widget.setAccessibleName('Settings section list')
         self._list_widget.setToolTip(
             'Choose General, Triggers, Maps, Timers, Combat, Market, Sharing, Quick Bar, or Appearance')
+        self._list_widget.setIconSize(QSize(15, 15))
+        self._list_widget.setSpacing(1)
+        self._list_widget.setUniformItemSizes(True)
+        self._list_widget.setMovement(QListWidget.Movement.Static)
         self._list_widget.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
         self._list_widget.currentItemChanged.connect(self._switch_stack)
         self._widget_stack = QStackedWidget()
@@ -272,7 +276,7 @@ class SettingsWindow(UniformScaleDialog):
                 'General': 'settings', 'Buffs & Triggers': 'spells', 'Maps': 'map',
                 'Smart Timers': 'timer', 'Combat': 'combat',
                 'Heal Chain': 'heal',
-                'Green Market': 'market',
+                'Market': 'market',
                 'Sharing': 'spawn', 'Appearance': 'compact',
                 'Quick Bar': 'compact',
             }
@@ -870,7 +874,7 @@ class SettingsWindow(UniformScaleDialog):
         market_source.setWordWrap(True)
         mrsl.addRow('Sources', market_source)
         market_settings.setLayout(mrsl)
-        stacked_widgets.append(('Green Market', market_settings))
+        stacked_widgets.append(('Market', market_settings))
 
         # Sharing Settings
         sharing_settings = QFrame()

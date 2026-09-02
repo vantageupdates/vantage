@@ -9,7 +9,7 @@ QUICKBAR_ITEMS = (
     ("timers", "Smart Timers", "ph-countdown", "windows"),
     ("combat", "Combat Parser", "ph-sword", "windows"),
     ("heals", "Heal Chain", "ph-heal", "windows"),
-    ("market", "Green Market", "ph-storefront", "windows"),
+    ("market", "Market", "ph-storefront", "windows"),
     ("spell_library", "Spell Library", "ph-spellbook", "tools"),
     ("mobile", "Vantage on Your Phone", "ph-mobile", "tools"),
     ("reload_ui", "Reload Vantage UI", "ph-reload", "tools"),

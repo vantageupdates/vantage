@@ -28,24 +28,26 @@ from vantage.helpers.portable import data_dir
 from vantage.helpers.scaled_dialog import UniformScaleDialog
 from vantage.helpers.spell_catalog import P99_SPELL_CLASSES, p99_spell_entries
 from vantage.parsers.market import (
-    combined_market_price, parse_wiki_green_auction_html)
+    combined_market_price, normalize_market_server,
+    parse_wiki_auction_html)
 
 
 P99_WIKI_API = (
     "https://wiki.project1999.com/api.php?action=parse&page={slug}"
     "&prop=text%7Cwikitext&format=json")
 P99_WIKI_URL = "https://wiki.project1999.com/{slug}"
-USER_AGENT = "Vantage/1.44.20"
+USER_AGENT = "Vantage/1.44.21"
 ACQUISITION_WORDS = (
     "merchant", "sold by", "where to obtain", "where to find", "drop",
     "research", "recipe", "created by", "quest", "reward", "turn in",
 )
 
 
-def _cache_path(name):
+def _cache_path(name, server="Green"):
+    server = normalize_market_server(server).casefold()
     digest = hashlib.sha256(
         str(name).strip().casefold().encode("utf-8")).hexdigest()[:20]
-    return data_dir("cache", "wiki-spells") / f"{digest}.json"
+    return data_dir("cache", "wiki-spells") / f"{server}-{digest}.json"
 
 
 def _wiki_url(name):
@@ -501,7 +503,7 @@ class SpellLibraryDialog(UniformScaleDialog):
         self.class_label.setText(entry.levels_text)
         self._set_icon(entry.icon_id)
         self._render_local(entry)
-        cache_path = _cache_path(entry.name)
+        cache_path = _cache_path(entry.name, self._market_server())
         cached = None
         try:
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -530,7 +532,11 @@ class SpellLibraryDialog(UniformScaleDialog):
         lookup = getattr(self.market, "price_for_spell", None)
         return lookup(entry.name) if callable(lookup) else {}
 
+    def _market_server(self):
+        return normalize_market_server(getattr(self.market, "_server", "Green"))
+
     def _price_html(self, entry, auction=None):
+        server = self._market_server()
         item = self._market_item(entry) or {}
         combined = combined_market_price(item, auction or {})
         parts = []
@@ -538,10 +544,10 @@ class SpellLibraryDialog(UniformScaleDialog):
         wiki = int(combined.get("wiki") or 0)
         if pig:
             parts.append(
-                f"PigParse Green {html.escape(combined.get('pig_period') or '')}: "
+                f"PigParse {server} {html.escape(combined.get('pig_period') or '')}: "
                 f"<b>{pig:,} pp</b>")
         if wiki:
-            parts.append(f"P99 Wiki Green: <b>{wiki:,} pp</b>")
+            parts.append(f"P99 Wiki {server}: <b>{wiki:,} pp</b>")
         if combined.get("close"):
             parts.append(
                 f"Sources agree · cautious average: "
@@ -551,7 +557,8 @@ class SpellLibraryDialog(UniformScaleDialog):
                 f"Sources differ by {combined.get('difference_percent', 0):.0f}% · "
                 "kept separate")
         if not parts:
-            parts.append("No current Green auction price found for this spell scroll")
+            parts.append(
+                f"No current {server} auction price found for this spell scroll")
         return " · ".join(parts)
 
     def _render_local(self, entry):
@@ -591,7 +598,7 @@ class SpellLibraryDialog(UniformScaleDialog):
         self.source.setText(
             "PROJECT 1999 WIKI · " +
             ("LOCAL CACHE" if cached else "UPDATED NOW") +
-            " · PIGPARSE GREEN PRICES SHOWN SEPARATELY")
+            f" · PIGPARSE {self._market_server().upper()} PRICES SHOWN SEPARATELY")
 
     def _open_detail_link(self, url):
         """Keep P99 Wiki navigation inside Vantage whenever possible."""
@@ -720,10 +727,11 @@ class SpellLibraryDialog(UniformScaleDialog):
         reply = self._network.get(request)
         self._reply = reply
         self.refresh_button.setEnabled(False)
+        server = self._market_server()
         reply.finished.connect(
-            lambda: self._finished(reply, entry, generation))
+            lambda: self._finished(reply, entry, generation, server))
 
-    def _finished(self, reply, entry, generation):
+    def _finished(self, reply, entry, generation, server="Green"):
         try:
             if generation != self._request_generation:
                 return
@@ -749,11 +757,12 @@ class SpellLibraryDialog(UniformScaleDialog):
                     datetime.timezone.utc).isoformat(),
                 "acquisition": extract_acquisition_text(wikitext),
                 "wiki_html": sanitize_wiki_html(rendered),
-                "auction": parse_wiki_green_auction_html(rendered),
+                "auction": parse_wiki_auction_html(rendered, server),
             }
-            _cache_path(entry.name).write_text(
+            _cache_path(entry.name, server).write_text(
                 json.dumps(record, ensure_ascii=False), encoding="utf-8")
-            self._render_record(entry, record)
+            if server == self._market_server():
+                self._render_record(entry, record)
         except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
             if self._current is not None and self._current.name == entry.name:
                 self.source.setText(

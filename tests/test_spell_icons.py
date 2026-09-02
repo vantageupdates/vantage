@@ -8,14 +8,15 @@ from types import SimpleNamespace
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QImage, QKeyEvent
+from PySide6.QtGui import QColor, QImage, QKeyEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QFrame
 
 from vantage.helpers import config
 from vantage.helpers.spell_icons import spell_icon_pixmap
 from vantage.parsers.spells import (
-    SpellWidget, _spell_icon_accent, _spell_icon_coordinates, _spell_target_sort_key,
+    SpellWidget, _spell_bar_contrast, _spell_icon_accent,
+    _spell_icon_coordinates, _spell_target_sort_key,
     _spell_widget_sort_key,
     create_spell_book, spell_progress_palette, spell_progress_stylesheet,
     spell_school_name, spell_warning_state)
@@ -176,8 +177,9 @@ def test_spell_progress_palette_is_stable_colorful_and_icon_driven():
         max(int(color[index:index + 2], 16) for index in (1, 3, 5)) < 180
         for color in spell_progress_palette(beneficial)[:3])
     style = spell_progress_stylesheet(beneficial)
-    assert "qlineargradient" not in style
-    assert "background-color" in style
+    assert style.count("qlineargradient") >= 7
+    assert f"stop:0 {spell_progress_palette(beneficial)[0]}" in style
+    assert f"stop:1 {spell_progress_palette(beneficial)[2]}" in style
     assert "Pulse" in style
     assert 'QProgressBar[Faded="true"]' in style
     assert "#D13E48" in style
@@ -188,6 +190,36 @@ def test_spell_progress_palette_is_stable_colorful_and_icon_driven():
     assert "#9A6515" in style
     assert "#BC353C" in style
     assert "box-shadow" not in style
+
+
+def test_icon_palette_chroma_depth_and_text_contrast_are_bounded():
+    foreground = QColor('#F7F8F8')
+    distinct_hues = set()
+    for icon_index in range(216):
+        spell = SimpleNamespace(spell_icon=icon_index)
+        palette = spell_progress_palette(spell)
+        colors = [QColor(value) for value in palette]
+        highlight, body, depth, border = colors
+        distinct_hues.add(round(body.hue() / 15) if body.hue() >= 0 else -1)
+
+        # The icon hue is moderately saturated, but value stays in the dark
+        # overlay range. Hex serialization can shift HSV by one point.
+        assert 103 <= body.saturation() <= 221
+        assert 102 <= body.value() <= 122
+        assert 95 <= highlight.saturation() <= 221
+        assert 113 <= depth.saturation() <= 231
+        assert 84 <= border.saturation() <= 203
+
+        # Preserve the restrained three-stop depth: the upper sheen and lower
+        # shade never become a harsh bevel.
+        assert 0 <= highlight.value() - body.value() <= 18
+        assert 0 <= body.value() - depth.value() <= 16
+        for stop in (highlight, body, depth):
+            assert _spell_bar_contrast(foreground, stop) >= 4.5
+
+    # Icon art, rather than a uniform teal/green override, still determines
+    # visibly distinct spell families.
+    assert len(distinct_hues) >= 6
 
 
 def test_spell_row_is_two_pixels_shorter_without_clipping_the_progress_bar():

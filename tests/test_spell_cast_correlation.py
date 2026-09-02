@@ -23,6 +23,24 @@ config.data['spells']['fade_sound_enabled'] = False
 spells._current_zone = "Velketor's Labyrinth"
 now = datetime.datetime.now().replace(microsecond=0)
 
+# Replacing Clarity can emit the old copy's fade line just after the new
+# landing. The new generation must keep its one row and refreshed deadline.
+spells.parse(now, 'You begin casting Clarity.')
+spells.parse(
+    now + datetime.timedelta(seconds=4),
+    'A cool breeze slips through your mind.')
+clarity_target = spells._spell_container.get_spell_target_by_name('__you__')
+clarity = clarity_target.spell_widgets()[0]
+clarity_first_end = clarity.end_time
+spells.parse(now + datetime.timedelta(seconds=10),
+             'You begin casting Clarity.')
+spells.parse(
+    now + datetime.timedelta(seconds=14),
+    'A cool breeze slips through your mind.')
+spells.parse(
+    now + datetime.timedelta(seconds=15), 'The cool breeze fades.')
+clarity_rows = clarity_target.spell_widgets()
+
 # Exact live-log wording: a named recast must restart the existing row.
 spells.parse(now, 'You begin casting Fetter.')
 spells.parse(
@@ -74,6 +92,12 @@ backlogged = SpellTrigger(
     spell=book['Fetter'], timestamp=now - datetime.timedelta(seconds=10))
 
 print(json.dumps({
+    'clarity_count': len(clarity_rows),
+    'clarity_refreshed': (
+        clarity_rows[0] is clarity and clarity.end_time > clarity_first_end),
+    'clarity_active_after_stale_fade': (
+        not clarity._faded and not clarity._removed and
+        clarity.progress._time_text != 'FADED'),
     'named_count': len(named_rows),
     'named_restarted': named_rows[0].spell_widget('fetter').end_time > first_end,
     'named_label': named_rows[0].target_label.text(),
@@ -102,6 +126,9 @@ def test_live_casts_recast_named_track_charm_and_clear_interruptions(tmp_path):
     result = json.loads(completed.stdout.strip().splitlines()[-1])
 
     assert result == {
+        'clarity_count': 1,
+        'clarity_refreshed': True,
+        'clarity_active_after_stale_fade': True,
         'named_count': 1,
         'named_restarted': True,
         'named_label': 'Crystal Fang',

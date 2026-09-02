@@ -862,8 +862,11 @@ def verify_settings():
     data['heals']['own_marker'] = get_setting(
         data['heals'].get('own_marker', ''), '')
 
-    # Native view over PigParse's public Green market data.
+    # Native view over PigParse's public Green or Blue market data.
     data['market'] = data.get('market', {})
+    data['market']['server'] = get_setting(
+        str(data['market'].get('server', 'Green')).title(), 'Green',
+        lambda value: value in ('Green', 'Blue'))
     data['market']['geometry'] = get_setting(
         data['market'].get('geometry', [180, 100, 980, 620]),
         [180, 100, 980, 620],

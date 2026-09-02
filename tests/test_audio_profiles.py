@@ -9,9 +9,16 @@ class _Signal:
 
 
 class _Effect:
+    instances = []
+
     def __init__(self, _parent):
         self.playingChanged = _Signal()
         self.volume = None
+        self.muted = False
+        self.play_count = 0
+        self.stop_count = 0
+        self.deleted = False
+        self.__class__.instances.append(self)
 
     def setSource(self, _source):
         pass
@@ -23,7 +30,16 @@ class _Effect:
         pass
 
     def play(self):
-        pass
+        self.play_count += 1
+
+    def setMuted(self, muted):
+        self.muted = bool(muted)
+
+    def stop(self):
+        self.stop_count += 1
+
+    def deleteLater(self):
+        self.deleted = True
 
     def isPlaying(self):
         return True
@@ -44,6 +60,8 @@ class _Speech:
         self.rate = None
         self.volume = None
         self.message = None
+        self.stop_count = 0
+        self.deleted = False
 
     def availableVoices(self):
         return self.voices
@@ -61,7 +79,10 @@ class _Speech:
         self.message = message
 
     def stop(self):
-        pass
+        self.stop_count += 1
+
+    def deleteLater(self):
+        self.deleted = True
 
 
 class _App:
@@ -188,3 +209,120 @@ def test_hidden_owner_blocks_runtime_audio_but_direct_test_can_play(
         channel='spells', allow_hidden=True)
     assert app.events[-1] == ('Test · buff sound', 'builtin:test', 80)
     audio._ACTIVE_EFFECTS.clear()
+
+
+def test_config_reload_mute_stops_active_wav_and_flushes_speech(monkeypatch):
+    config.data = {
+        'general': {'audio_muted': False},
+        'spells': {'audio_profiles': {}}}
+    monkeypatch.setattr(audio, '_MUTED', False)
+    effect = _Effect(None)
+    speech = _Speech()
+    monkeypatch.setattr(audio, '_ACTIVE_EFFECTS', {effect})
+    monkeypatch.setattr(audio, '_SPEECH', speech)
+
+    # Simulate settings/config being reloaded without the Quick Bar callback.
+    config.data['general']['audio_muted'] = True
+
+    assert audio.audio_muted() is True
+    assert effect.muted is True
+    assert effect.volume == 0.0
+    assert effect.stop_count == 1
+    assert effect.deleted is True
+    assert audio._ACTIVE_EFFECTS == set()
+    assert speech.volume == 0.0
+    assert speech.stop_count == 1
+    assert speech.deleted is True
+    assert audio._SPEECH is None
+
+
+def test_master_mute_stops_now_blocks_tests_and_replay_then_unmutes(
+        monkeypatch, tmp_path):
+    app = _App()
+    wav = tmp_path / 'test.wav'
+    wav.write_bytes(b'RIFF')
+    config.data = {
+        'general': {'audio_muted': False},
+        'spells': {'audio_profiles': {}}}
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, '_ACTIVE_EFFECTS', set())
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, 'resolve_sound', lambda _path: Path(wav))
+    monkeypatch.setattr(audio, 'QSoundEffect', _Effect)
+    monkeypatch.setattr(audio, 'QTimer', type(
+        'Timer', (), {'singleShot': staticmethod(lambda *_args: None)}))
+    _Effect.instances.clear()
+    speech = _Speech()
+    monkeypatch.setattr(audio, '_SPEECH', speech)
+
+    assert audio.play_alert(
+        'builtin:test', 80, source='Active sound', channel='spells')
+    assert audio.speak_text(
+        'Active speech', 80, source='Active speech', channel='spells')
+    active_effect = _Effect.instances[-1]
+    audio.set_audio_muted(True)
+
+    assert active_effect.muted is True
+    assert active_effect.volume == 0.0
+    assert active_effect.stop_count == 1
+    assert speech.volume == 0.0
+    assert speech.stop_count == 1
+    assert config.data['general']['audio_muted'] is True
+
+    created_while_muted = len(_Effect.instances)
+    assert not audio.play_alert(
+        'builtin:test', 80, source='Test while muted',
+        channel='spells', allow_hidden=True)
+    assert not audio.speak_text(
+        'Replay while muted', 80, source='Replay while muted',
+        channel='spells', allow_hidden=True)
+    assert len(_Effect.instances) == created_while_muted
+    assert app.blocked[-2:] == [
+        ('Test while muted', 'muted', 'spells'),
+        ('Replay while muted', 'muted', 'spells')]
+
+    audio.set_audio_muted(False)
+    fresh_speech = _Speech()
+    monkeypatch.setattr(audio, '_SPEECH', fresh_speech)
+    assert config.data['general']['audio_muted'] is False
+    assert audio.play_alert(
+        'builtin:test', 65, source='Unmuted sound',
+        channel='spells', allow_hidden=True)
+    assert audio.speak_text(
+        'Unmuted speech', 65, source='Unmuted speech',
+        channel='spells', allow_hidden=True)
+    assert _Effect.instances[-1].play_count == 1
+    assert fresh_speech.message == 'Unmuted speech'
+    audio._ACTIVE_EFFECTS.clear()
+
+
+def test_final_backend_gate_catches_mute_during_effect_setup(
+        monkeypatch, tmp_path):
+    app = _App()
+    wav = tmp_path / 'test.wav'
+    wav.write_bytes(b'RIFF')
+    config.data = {
+        'general': {'audio_muted': False},
+        'spells': {'audio_profiles': {}}}
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, '_ACTIVE_EFFECTS', set())
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, 'resolve_sound', lambda _path: Path(wav))
+
+    class _MuteDuringSetup(_Effect):
+        def setLoopCount(self, _count):
+            audio.set_audio_muted(True)
+
+    monkeypatch.setattr(audio, 'QSoundEffect', _MuteDuringSetup)
+
+    assert not audio.play_alert(
+        'builtin:test', 80, source='Racing sound',
+        channel='spells', allow_hidden=True)
+    effect = _MuteDuringSetup.instances[-1]
+    assert effect.play_count == 0
+    assert effect.muted is True
+    assert effect.deleted is True
+    assert app.blocked[-1] == ('Racing sound', 'muted', 'spells')
+    audio.set_audio_muted(False)

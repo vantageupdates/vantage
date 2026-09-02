@@ -191,6 +191,10 @@ QToolButton#QuickBarButton[Status="online"] {
     background-color: #14251F;
     border-color: #55785D;
 }
+QToolButton#QuickBarButton[Status="online"][LivePulse="true"] {
+    background-color: #193329;
+    border-color: #8EF0B8;
+}
 QToolButton#QuickBarButton[Status="waiting"],
 QToolButton#QuickBarButton[Status="quiet"] {
     border-color: #8A7545;
@@ -577,12 +581,35 @@ QMenu::item:selected { color: #FFFFFF; background-color: #3E3526; }
 QMenu::separator { height: 1px; background: #2D3238; margin: 4px 7px; }
 
 #SettingsList {
-    min-width: 142px;
+    min-width: 136px;
     background-color: #101216;
-    border-right: 1px solid #2D3238;
+    border: 1px solid #303B43;
+    border-radius: 7px;
+    padding: 3px;
+    outline: none;
 }
-#SettingsList::item { min-height: 32px; border: none; border-radius: 6px; }
-#SettingsList::item:selected { color: #F4F0E8; background-color: #242018; border: none; }
+#SettingsList:focus { border-color: #9B814C; }
+#SettingsList::item {
+    min-height: 27px;
+    color: #D6DDE1;
+    padding: 0 7px;
+    margin: 1px 0;
+    border-top: none;
+    border-right: none;
+    border-bottom: none;
+    border-left: 2px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+}
+#SettingsList::item:hover {
+    color: #F6F8F9;
+    background-color: #1A2329;
+}
+#SettingsList::item:selected {
+    color: #FAF6EC;
+    background-color: #192228;
+    border-left: 2px solid #B99B5B;
+}
 #SettingsButtons { border-top: 1px solid #292E34; padding-top: 6px; }
 
 #SettingsLabel {
@@ -1389,12 +1416,14 @@ QMenu::separator { background: #34434E; }
 
 #SettingsList {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #0A0F13, stop:1 #151D23);
-    border-right-color: #34434E;
+        stop:0 #0B1014, stop:1 #121A20);
+    border-color: #34434E;
 }
 #SettingsList::item:selected {
     color: #FAF6EC;
-    background-color: #3B3325;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #202B32, stop:1 #151D22);
+    border-left: 2px solid #B99B5B;
 }
 #SettingsLabel, #TriggerTokenLegend, #MobileShareStatus,
 #UpdateStatus, #ServerTickConfidence {
@@ -1448,6 +1477,28 @@ QMenu::separator { background: #34434E; }
     padding: 0 4px;
     font-size: 9px;
     border-radius: 4px;
+}
+#ParserWindowMenu QSpinBox,
+#ParserWindowMenu QDoubleSpinBox {
+    min-width: 48px;
+    padding: 0 13px 0 4px;
+}
+#ParserWindowMenu QSpinBox::up-button,
+#ParserWindowMenu QSpinBox::down-button,
+#ParserWindowMenu QDoubleSpinBox::up-button,
+#ParserWindowMenu QDoubleSpinBox::down-button {
+    subcontrol-origin: border;
+    width: 10px;
+    border: none;
+    border-left: 1px solid #40505C;
+}
+#ParserWindowMenu QSpinBox::up-button,
+#ParserWindowMenu QDoubleSpinBox::up-button {
+    subcontrol-position: top right;
+}
+#ParserWindowMenu QSpinBox::down-button,
+#ParserWindowMenu QDoubleSpinBox::down-button {
+    subcontrol-position: bottom right;
 }
 #ParserWindowMenu QComboBox::drop-down {
     width: 13px;

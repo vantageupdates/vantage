@@ -1,4 +1,4 @@
-"""Native, cached UI for PigParse Green market data and local auction lines."""
+"""Native, server-isolated UI for PigParse market data and local auctions."""
 
 from __future__ import annotations
 
@@ -41,6 +41,7 @@ from vantage.helpers.responsive import ensure_tab_tooltips, scrollable
 from vantage.helpers.scaled_dialog import UniformScaleDialog
 
 
+MARKET_SERVERS = ("Green", "Blue")
 MARKET_ENDPOINT = "https://pigparse.azurewebsites.net/api/item/getall/Green"
 DETAIL_API = "https://pigparse.azurewebsites.net/api/item/getdetails/Green/{item_name}"
 DETAIL_URL = "https://pigparse.azurewebsites.net/ItemDetails/{item_id}"
@@ -68,6 +69,28 @@ CON_MESSAGES = (
     "glares at you threateningly",
     "scowls at you, ready to attack",
 )
+
+
+def normalize_market_server(value):
+    """Return one supported PigParse server, defaulting safely to Green."""
+    folded = str(value or "").strip().casefold()
+    return next((server for server in MARKET_SERVERS
+                 if server.casefold() == folded), "Green")
+
+
+def market_endpoint(server="Green"):
+    return ("https://pigparse.azurewebsites.net/api/item/getall/" +
+            normalize_market_server(server))
+
+
+def market_detail_api(server="Green"):
+    return ("https://pigparse.azurewebsites.net/api/item/getdetails/" +
+            normalize_market_server(server) + "/{item_name}")
+
+
+def pigparse_server_url(server="Green"):
+    return ("https://pigparse.azurewebsites.net/ServerIndex/" +
+            normalize_market_server(server))
 
 
 def _announce_accessible(widget, text, assertive=False):
@@ -270,8 +293,9 @@ def gear_item_summary_html(item):
     return "<br>".join(groups) or "No numeric stats or effects are listed."
 
 
-def _cache_file():
-    return data_dir("cache") / "pigparse-green-cache.json"
+def _cache_file(server="Green"):
+    server = normalize_market_server(server).casefold()
+    return data_dir("cache") / f"pigparse-{server}-cache.json"
 
 
 def _gear_cache_file():
@@ -537,10 +561,14 @@ def install_auction_hotbuttons(ini_path, lines):
     return tuple(installed), backup
 
 
-def _wiki_cache_paths(name):
-    digest = hashlib.sha256(_item_key(name).encode("utf-8")).hexdigest()[:20]
+def _wiki_cache_paths(name, server="Green"):
+    server = normalize_market_server(server)
+    digest = hashlib.sha256(
+        f"{server}|{_item_key(name)}".encode("utf-8")).hexdigest()[:20]
+    icon_digest = hashlib.sha256(
+        _item_key(name).encode("utf-8")).hexdigest()[:20]
     cache = data_dir("cache", "wiki-items")
-    return cache / f"{digest}.json", cache / f"{digest}.png"
+    return cache / f"{digest}.json", cache / f"{icon_digest}.png"
 
 
 def _wiki_entity_cache_path(target):
@@ -673,16 +701,17 @@ def _average_cell(value):
     )
 
 
-def parse_wiki_green_auction_html(rendered_html):
-    """Extract Green Auction Tracker values from the rendered Wiki page.
+def parse_wiki_auction_html(rendered_html, server="Green"):
+    """Extract one server's Auction Tracker values from rendered Wiki HTML.
 
     The tracker is injected by a MediaWiki extension and is not present in the
-    page's wikitext. Only recent Green values are candidates for comparison;
+    page's wikitext. Only recent server values are candidates for comparison;
     the all-time average is retained for context but never used as an estimate.
     """
+    server = normalize_market_server(server)
     source = str(rendered_html or "")
     section_match = re.search(
-        r"<div\b[^>]*\bid=[\"']auc_Green[\"'][^>]*>(.*?)"
+        rf"<div\b[^>]*\bid=[\"']auc_{re.escape(server)}[\"'][^>]*>(.*?)"
         r"(?=<div\b[^>]*\bid=[\"']auc_[^\"']+[\"']|\Z)",
         source, re.IGNORECASE | re.DOTALL)
     if not section_match:
@@ -761,7 +790,7 @@ def parse_wiki_green_auction_html(rendered_html):
     else:
         quality = "Low"
     return {
-        "source": "Project 1999 Wiki Auction Tracker · Green",
+        "source": f"Project 1999 Wiki Auction Tracker · {server}",
         "avg_30": avg_30,
         "spread_30": spread_30,
         "avg_90": avg_90,
@@ -781,6 +810,11 @@ def parse_wiki_green_auction_html(rendered_html):
         "warning": warning,
         "records": records,
     }
+
+
+def parse_wiki_green_auction_html(rendered_html):
+    """Compatibility wrapper for callers that explicitly request Green."""
+    return parse_wiki_auction_html(rendered_html, "Green")
 
 
 def combined_market_price(item, wiki_auction, closeness=1.30):
@@ -1256,11 +1290,12 @@ class WikiItemCard(UniformScaleDialog):
 
     wiki_entity_requested = Signal(str, str, str)
 
-    def __init__(self, item, parent=None):
+    def __init__(self, item, parent=None, server="Green"):
         super().__init__(
             QSize(500, 430), parent, minimum_size=QSize(175, 151),
             initial_size=QSize(450, 387))
         self.item = item
+        self.server = normalize_market_server(server)
         self.item_name = str(item.get("n") or "Item")
         self.wiki_name = self.item_name.replace("Spell: ", "")
         self.wiki_url = P99_WIKI_URL.format(
@@ -1298,7 +1333,7 @@ class WikiItemCard(UniformScaleDialog):
         self.source.setToolTip(
             "Stats and effects come from the local P99 item index; the item card, "
             "icon, drops, and secondary price come from Project 1999 Wiki; "
-            "PigParse Green remains the price source of truth")
+            f"PigParse {self.server} remains the price source of truth")
         card_layout.addWidget(self.source, 1, 1)
 
         self.attributes = QLabel(gear_item_summary_html(item.get("_gear")))
@@ -1347,8 +1382,8 @@ class WikiItemCard(UniformScaleDialog):
         self._pig_price_text = (
             " · ".join(prices) if prices else "no recent price")
         self.price = QLabel(
-            "PigParse Green · " + self._pig_price_text +
-            "\nP99 Wiki Green · loading price…")
+            f"PigParse {self.server} · " + self._pig_price_text +
+            f"\nP99 Wiki {self.server} · loading price…")
         self.price.setObjectName("WikiItemPrice")
         self.price.setWordWrap(True)
         self.price.setToolTip(
@@ -1408,14 +1443,14 @@ class WikiItemCard(UniformScaleDialog):
         wiki_price = comparison["wiki"]
         if not wiki_price:
             self.price.setText(
-                "PigParse Green · " + self._pig_price_text +
-                "\nP99 Wiki Green · no recognized recent price")
+                f"PigParse {self.server} · " + self._pig_price_text +
+                f"\nP99 Wiki {self.server} · no recognized recent price")
             return
         wiki_period = str(auction.get("reference_period") or "recent")
         seen = int(auction.get("recent_samples") or 0)
         last_date = str(auction.get("last_date") or "")
         wiki_line = (
-            f"P99 Wiki Green · {wiki_price:,} pp ({wiki_period}"
+            f"P99 Wiki {self.server} · {wiki_price:,} pp ({wiki_period}"
             + (f" · {seen} listings" if seen else "")
             + (f" · {last_date}" if last_date else "") + ")")
         if comparison["close"]:
@@ -1430,7 +1465,7 @@ class WikiItemCard(UniformScaleDialog):
             headline = "WIKI REFERENCE · PigParse has no recent price"
         warning = str(auction.get("warning") or "")
         self.price.setText(
-            headline + "\nPigParse Green · " + self._pig_price_text +
+            headline + f"\nPigParse {self.server} · " + self._pig_price_text +
             "\n" + wiki_line + ("\n⚠ " + warning if warning else ""))
 
     def _internal_wiki_link(self, link):
@@ -2226,10 +2261,13 @@ class GreenMarket(ParserWindow):
         if config.data["market"].get("clickthrough"):
             config.data["market"]["clickthrough"] = False
             config.save()
-        self.setWindowTitle("Green Market · PigParse")
+        self._server = normalize_market_server(
+            config.data["market"].get("server", "Green"))
+        self.setWindowTitle(f"{self._server} Market · PigParse")
+        self._title.setText(f"Market · {self._server}")
         self._zone = ""
         self._loaded_online = False
-        self._request_in_flight = False
+        self._requests_in_flight = set()
         self._gear_source = "P99 Wiki metadata"
         self._mobile_items = ()
         self._mobile_revision = 0
@@ -2275,7 +2313,10 @@ class GreenMarket(ParserWindow):
         self.search = QLineEdit()
         self.search.setPlaceholderText("Search item or effect…")
         self.search.setClearButtonEnabled(True)
-        self.search.setAccessibleName("Search the Green market")
+        self.search.setAccessibleName(f"Search the {self._server} market")
+        self.search.setAccessibleDescription(
+            f"Filters PigParse {self._server} prices and the shared P99 item "
+            "metadata while you type")
         self.search.setToolTip(
             "Type any part of an item, click, proc, worn, focus, or bard effect; "
             "results filter while you type")
@@ -2285,9 +2326,23 @@ class GreenMarket(ParserWindow):
             clear_search.setToolTip("Clear the search text")
         self.search.textChanged.connect(self._set_query)
 
+        self.server_selector = QComboBox()
+        self.server_selector.setObjectName("MarketServerSelector")
+        self.server_selector.addItems(MARKET_SERVERS)
+        self.server_selector.setCurrentText(self._server)
+        self.server_selector.setAccessibleName("PigParse market server")
+        self.server_selector.setAccessibleDescription(
+            "Choose Green or Blue; prices and Wiki Auction Tracker values stay "
+            "separate while item stats remain shared")
+        self.server_selector.setToolTip(
+            "Choose PigParse Green or Blue prices · selection is remembered · "
+            "local /auction history is not changed")
+        self.server_selector.currentTextChanged.connect(self._server_changed)
+
         self._refresh_button = QPushButton("Refresh")
         self._refresh_button.setIcon(game_icon("refresh"))
-        self._refresh_button.setToolTip("Refresh prices from PigParse Green")
+        self._refresh_button.setToolTip(
+            f"Refresh prices from PigParse {self._server}")
         self._refresh_button.clicked.connect(self.refresh)
         self._sources_button = QPushButton("Sources")
         self._sources_button.setIcon(game_icon("layers"))
@@ -2417,7 +2472,8 @@ class GreenMarket(ParserWindow):
         self.live_note = QLabel(
             "Live Log and Notification Service · monitors the local EverQuest "
             "log for /auction lines visible to your client in the EC tunnel. "
-            "It is not an Internet-wide auction feed.")
+            "It is not an Internet-wide Green or Blue feed, and changing the "
+            "PigParse server does not clear this local history.")
         self.live_note.setWordWrap(True)
         self.live_note.setAccessibleName(self.live_note.text())
         self.live_note.setToolTip(
@@ -2515,7 +2571,8 @@ class GreenMarket(ParserWindow):
         self._live_tab_index = self.tabs.addTab(
             live_page, "Live Log & Alerts · 0")
         ensure_tab_tooltips(self.tabs, {
-            "PigParse · prices": "Search cached PigParse Green listings and prices",
+            "PigParse · prices": (
+                f"Search cached PigParse {self._server} listings and prices"),
             "Gear · stats": (
                 "Compare and sort P99 items by stats, class, race, slot, and effects"),
             "WTS / WTB Builder": (
@@ -2533,7 +2590,7 @@ class GreenMarket(ParserWindow):
             QLayout.SizeConstraint.SetNoConstraint)
         self._footer_layout.setContentsMargins(5, 3, 5, 4)
         self._footer_layout.setSpacing(3)
-        self.status = QLabel("Preparing PigParse Green…")
+        self.status = QLabel(f"Preparing PigParse {self._server}…")
         self.status.setWordWrap(True)
         self._analyze_button = QPushButton("Evaluate Price")
         self._analyze_button.setIcon(game_icon("timer"))
@@ -2543,12 +2600,12 @@ class GreenMarket(ParserWindow):
         self._detail_button = QPushButton("PigParse History")
         self._detail_button.setIcon(game_icon("market"))
         self._detail_button.setToolTip(
-            "Open the selected item's full history in PigParse")
+            f"Open the selected item's full PigParse {self._server} history")
         self._detail_button.clicked.connect(self._open_detail)
         self._wiki_button = QPushButton("Item + Wiki Price")
         self._wiki_button.setIcon(game_icon("map"))
         self._wiki_button.setToolTip(
-            "Show the Project 1999 Wiki item card and Green price inside Vantage")
+            f"Show the item card and P99 Wiki {self._server} price inside Vantage")
         self._wiki_button.clicked.connect(self._show_wiki_card)
         self._watch_selected_button = QPushButton("Watch sale")
         self._watch_selected_button.setIcon(game_icon("ph-storefront"))
@@ -2559,7 +2616,7 @@ class GreenMarket(ParserWindow):
         self._watch_selected_button.clicked.connect(self._watch_selected_item)
         self._body_layout.addWidget(footer)
         self._responsive_widgets = (
-            self.search, self._refresh_button,
+            self.search, self.server_selector, self._refresh_button,
             self._sources_button, self._live_status_button,
             self.class_filter, self.race_filter,
             self.slot_filter, self.gear_status, self.status,
@@ -2583,7 +2640,7 @@ class GreenMarket(ParserWindow):
         from PySide6.QtWidgets import QApplication
         QApplication.instance()._signals["settings"].config_updated.connect(
             self._market_config_updated)
-        self._load_cache()
+        self._load_cache(self._server)
         self._load_gear_cache()
         # Cached data is usable immediately. Network initialization is delayed
         # until the event loop is settled so Windows can finish showing the
@@ -2714,11 +2771,12 @@ class GreenMarket(ParserWindow):
         if not item:
             self.status.setText("Select an item name to open its card")
             return
-        card = WikiItemCard(item, self)
+        server = self._server
+        card = WikiItemCard(item, self, server=server)
         card.wiki_entity_requested.connect(self._show_wiki_entity)
         card.show()
         card.raise_()
-        json_path, icon_path = _wiki_cache_paths(item.get("n"))
+        json_path, icon_path = _wiki_cache_paths(item.get("n"), server)
         try:
             cached = json.loads(json_path.read_text(encoding="utf-8"))
             card.set_item_data(cached, cached=True)
@@ -2731,7 +2789,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.20")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.21")
         reply = self._network.get(request)
         reply.finished.connect(
             lambda: self._wiki_item_finished(reply, card, json_path, icon_path))
@@ -2750,7 +2808,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.20")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.21")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._wiki_entity_finished(
             reply, card, cache_path, target, kind))
@@ -2822,7 +2880,8 @@ class GreenMarket(ParserWindow):
             rendered = parse.get("text", {})
             if isinstance(rendered, dict):
                 rendered = rendered.get("*", "")
-            data["auction"] = parse_wiki_green_auction_html(rendered)
+            data["auction"] = parse_wiki_auction_html(
+                rendered, card.server)
             card.set_item_data(data)
             json_path.write_text(json.dumps(data), encoding="utf-8")
 
@@ -2834,7 +2893,7 @@ class GreenMarket(ParserWindow):
                     filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.20")
+                    "Vantage/1.44.21")
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
                     lambda: self._wiki_icon_finished(
@@ -2892,7 +2951,7 @@ class GreenMarket(ParserWindow):
             self._toolbar_layout.removeWidget(widget)
             self._filters_layout.removeWidget(widget)
             self._footer_layout.removeWidget(widget)
-        for column in range(5):
+        for column in range(6):
             self._toolbar_layout.setColumnStretch(column, 0)
             self._filters_layout.setColumnStretch(column, 0)
             self._footer_layout.setColumnStretch(column, 0)
@@ -2904,20 +2963,24 @@ class GreenMarket(ParserWindow):
 
         if width >= 900:
             self._toolbar_layout.addWidget(self.search, 0, 0, 1, 2)
-            self._toolbar_layout.addWidget(self._refresh_button, 0, 2)
-            self._toolbar_layout.addWidget(self._sources_button, 0, 3)
-            self._toolbar_layout.addWidget(self._live_status_button, 0, 4)
+            self._toolbar_layout.addWidget(self.server_selector, 0, 2)
+            self._toolbar_layout.addWidget(self._refresh_button, 0, 3)
+            self._toolbar_layout.addWidget(self._sources_button, 0, 4)
+            self._toolbar_layout.addWidget(self._live_status_button, 0, 5)
         elif width >= 460:
             self._toolbar_layout.addWidget(self.search, 0, 0, 1, 3)
-            self._toolbar_layout.addWidget(self._refresh_button, 1, 0)
-            self._toolbar_layout.addWidget(self._sources_button, 1, 1)
-            self._toolbar_layout.addWidget(self._live_status_button, 1, 2)
+            self._toolbar_layout.addWidget(self.server_selector, 1, 0)
+            self._toolbar_layout.addWidget(self._refresh_button, 1, 1)
+            self._toolbar_layout.addWidget(self._sources_button, 1, 2)
+            self._toolbar_layout.addWidget(
+                self._live_status_button, 2, 0, 1, 3)
         else:
             self._toolbar_layout.addWidget(self.search, 0, 0, 1, 2)
-            self._toolbar_layout.addWidget(self._refresh_button, 1, 0)
-            self._toolbar_layout.addWidget(self._sources_button, 1, 1)
+            self._toolbar_layout.addWidget(self.server_selector, 1, 0)
+            self._toolbar_layout.addWidget(self._refresh_button, 1, 1)
+            self._toolbar_layout.addWidget(self._sources_button, 2, 0, 1, 2)
             self._toolbar_layout.addWidget(
-                self._live_status_button, 2, 0, 1, 2)
+                self._live_status_button, 3, 0, 1, 2)
         self._toolbar_layout.setColumnStretch(0, 1)
 
         if width >= 820:
@@ -3050,7 +3113,8 @@ class GreenMarket(ParserWindow):
 
     def mobile_snapshot(self):
         return {
-            "source": "PigParse API · Green",
+            "server": self._server,
+            "source": f"PigParse API · {self._server}",
             "metadata_source": self._gear_source,
             "revision": self._mobile_revision,
             "items": self._mobile_items,
@@ -3077,7 +3141,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.20")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.21")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -3099,7 +3163,7 @@ class GreenMarket(ParserWindow):
                     return
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.20")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.21")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -3353,6 +3417,42 @@ class GreenMarket(ParserWindow):
         self._local_proxy.set_query(query)
         self._update_gear_summary()
 
+    def _set_server_labels(self):
+        server = self._server
+        self.setWindowTitle(f"{server} Market · PigParse")
+        self._title.setText(f"Market · {server}")
+        self.search.setAccessibleName(f"Search the {server} market")
+        self.search.setAccessibleDescription(
+            f"Filters PigParse {server} prices and the shared P99 item metadata "
+            "while you type")
+        self._refresh_button.setToolTip(
+            f"Refresh prices from PigParse {server}")
+        self._detail_button.setToolTip(
+            f"Open the selected item's full PigParse {server} history")
+        self._wiki_button.setToolTip(
+            f"Show the item card and P99 Wiki {server} price inside Vantage")
+        self.tabs.setTabToolTip(
+            0, f"Search cached PigParse {server} listings and prices")
+
+    def _server_changed(self, value):
+        server = normalize_market_server(value)
+        if server == self._server:
+            return
+        self._server = server
+        config.data["market"]["server"] = server
+        config.save()
+        self._set_server_labels()
+        if not self._load_cache(server):
+            self._model.set_items([])
+            self._gear_model.set_prices([])
+            self.auction_composer.refresh_prices()
+            self._rebuild_mobile_items()
+            self.status.setText(
+                f"PigParse {server} · no local cache · refreshing…")
+        self.refresh()
+        _announce_accessible(
+            self, f"PigParse {server} selected; loading isolated prices")
+
     def _scheduled_refresh(self):
         if self.isVisible():
             self.refresh()
@@ -3362,18 +3462,24 @@ class GreenMarket(ParserWindow):
         if minutes != self._refresh_minutes:
             self._refresh_minutes = minutes
             self._refresh_timer.setInterval(minutes * 60 * 1000)
+        server = normalize_market_server(
+            config.data["market"].get("server", self._server))
+        if server != self._server:
+            self.server_selector.setCurrentText(server)
 
     def refresh(self):
-        if self._request_in_flight:
+        server = self._server
+        if server in self._requests_in_flight:
             return
         self._loaded_online = True
-        self._request_in_flight = True
+        self._requests_in_flight.add(server)
         self._refresh_button.setEnabled(False)
         self._refresh_button.setText("Refreshing…")
-        self.status.setText("Refreshing PigParse Green…")
-        request = QNetworkRequest(QUrl(MARKET_ENDPOINT))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.20")
+        self.status.setText(f"Refreshing PigParse {server}…")
+        request = QNetworkRequest(QUrl(market_endpoint(server)))
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.21")
         reply = self._network.get(request)
+        reply.setProperty("market_server", server)
         reply.finished.connect(lambda: self._finished(reply))
 
     def toggle(self):
@@ -3382,38 +3488,66 @@ class GreenMarket(ParserWindow):
             self.refresh()
 
     def _finished(self, reply):
-        self._request_in_flight = False
+        server = normalize_market_server(
+            reply.property("market_server") or self._server)
+        self._requests_in_flight.discard(server)
         try:
             if reply.error() != QNetworkReply.NetworkError.NoError:
-                self.status.setText(f"Offline · using cache · {reply.errorString()}")
+                if server == self._server:
+                    self.status.setText(
+                        f"PigParse {server} offline · using its cache · "
+                        f"{reply.errorString()}")
                 return
             items = json.loads(bytes(reply.readAll()).decode("utf-8"))
             if not isinstance(items, list):
                 raise ValueError("The response does not contain a list")
             references = market_price_references(items)
+            payload = {
+                "updated_at": datetime.datetime.now().astimezone().isoformat(),
+                "source": market_endpoint(server),
+                "server": server,
+                "items": items,
+            }
+            _cache_file(server).write_text(
+                json.dumps(payload), encoding="utf-8")
+            # A reply for a server the user already left may warm that
+            # server's cache, but it must never replace the visible model.
+            if server != self._server:
+                return
             self._model.set_items(references)
             self._gear_model.set_prices(references)
             self.auction_composer.refresh_prices()
             self._rebuild_mobile_items()
-            payload = {
-                "updated_at": datetime.datetime.now().astimezone().isoformat(),
-                "source": MARKET_ENDPOINT,
-                "items": items,
-            }
-            _cache_file().write_text(json.dumps(payload), encoding="utf-8")
             self.status.setText(
-                f"PigParse API · {len(references):,} price references · updated now · "
+                f"PigParse API · {server} · {len(references):,} price references · updated now · "
                 "10 min cycle")
         except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
-            self.status.setText(f"Refresh failed · using cache · {error}")
+            if server == self._server:
+                self.status.setText(
+                    f"PigParse {server} refresh failed · using its cache · {error}")
         finally:
-            self._refresh_button.setEnabled(True)
-            self._refresh_button.setText("Refresh")
+            if server == self._server:
+                self._refresh_button.setEnabled(
+                    server not in self._requests_in_flight)
+                self._refresh_button.setText(
+                    "Refreshing…" if server in self._requests_in_flight else
+                    "Refresh")
             reply.deleteLater()
 
-    def _load_cache(self):
+    def _load_cache(self, server=None):
+        server = normalize_market_server(server or self._server)
+        # Cache loads are allowed to affect only the server currently shown.
+        # This keeps future background/preload callers from accidentally
+        # mixing one server's observations into the other server's model.
+        if server != self._server:
+            return False
         try:
-            payload = json.loads(_cache_file().read_text(encoding="utf-8"))
+            payload = json.loads(
+                _cache_file(server).read_text(encoding="utf-8"))
+            cached_server = payload.get("server")
+            if (cached_server is not None
+                    and normalize_market_server(cached_server) != server):
+                raise ValueError("Cache belongs to another PigParse server")
             self._model.set_items(market_price_references(
                 payload.get("items", [])))
             self._gear_model.set_prices(self._model.items)
@@ -3421,10 +3555,11 @@ class GreenMarket(ParserWindow):
             self._rebuild_mobile_items()
             stamp = datetime.datetime.fromisoformat(payload.get("updated_at", ""))
             self.status.setText(
-                f"PigParse API · {len(self._model.items):,} cached price references · "
+                f"PigParse API · {server} · {len(self._model.items):,} cached price references · "
                 f"{stamp.astimezone():%Y-%m-%d %H:%M}")
+            return True
         except (OSError, ValueError, json.JSONDecodeError):
-            pass
+            return False
 
     def _selected_item(self, index=None):
         gear_index = (
@@ -3464,16 +3599,25 @@ class GreenMarket(ParserWindow):
             self.status.setText("Select an item to evaluate its history")
             return
         name = str(item.get("n", ""))
-        self.status.setText(f"Evaluating PigParse history · {name}…")
-        request = QNetworkRequest(QUrl(DETAIL_API.format(item_name=quote(name, safe=""))))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.20")
+        server = self._server
+        self.status.setText(
+            f"Evaluating PigParse {server} history · {name}…")
+        request = QNetworkRequest(QUrl(market_detail_api(server).format(
+            item_name=quote(name, safe=""))))
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.21")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
+        reply.setProperty("market_server", server)
         reply.finished.connect(lambda: self._analysis_finished(reply))
 
     def _analysis_finished(self, reply):
         name = reply.property("market_item_name")
+        server = normalize_market_server(reply.property("market_server"))
         try:
+            # A late detail response belongs to the market it was requested
+            # from; do not display it over a newly selected server.
+            if server != self._server:
+                return
             if reply.error() != QNetworkReply.NetworkError.NoError:
                 raise ValueError(reply.errorString())
             payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
@@ -3520,11 +3664,15 @@ class GreenMarket(ParserWindow):
                 f"Values marked as outliers: {outliers}\n\n"
                 "Method: robust median; repeats from the same seller/price/day "
                 "count only once. Nothing is removed or changed in PigParse.\n\n"
-                "Primary source: PigParse API · Green\n"
+                f"Primary source: PigParse API · {server}\n"
                 "Secondary reference available: Project 1999 Wiki.")
-            self.status.setText(f"Evaluated · {name} · estimate {robust:,.0f} pp")
+            if server == self._server:
+                self.status.setText(
+                    f"Evaluated · {server} · {name} · estimate {robust:,.0f} pp")
         except (UnicodeError, ValueError, json.JSONDecodeError) as error:
-            self.status.setText(f"Could not evaluate {name} · {error}")
+            if server == self._server:
+                self.status.setText(
+                    f"Could not evaluate {server} · {name} · {error}")
         finally:
             reply.deleteLater()
 
@@ -3546,16 +3694,17 @@ class GreenMarket(ParserWindow):
             webbrowser.open(P99_WIKI_URL.format(slug=quote(name.replace(" ", "_"))))
 
     def _show_sources(self):
+        server = self._server
         box = QMessageBox(self)
         box.setWindowTitle("Market Sources")
         box.setTextFormat(Qt.TextFormat.RichText)
         box.setText(
             "<b>Primary source and source of truth:</b><br>"
-            f"<a href='{PIGPARSE_URL}'>PigParse · Green</a> — catalog, averages, and history. "
+            f"<a href='{pigparse_server_url(server)}'>PigParse · {server}</a> — catalog, averages, and history. "
             "The API reports a 10-minute rebuild cycle.<br><br>"
             "<b>Secondary reference:</b><br>"
             "<a href='https://wiki.project1999.com/Special:AuctionTracker'>"
-            "Project 1999 Wiki Auction Tracker</a> — secondary Green price. "
+            f"Project 1999 Wiki Auction Tracker</a> — secondary {server} price. "
             "Vantage creates a 50/50 average only when both recent references "
             "differ by 30% or less; otherwise it preserves and displays each value separately.<br><br>"
             "<b>Equipment stats, effects, and filters:</b><br>"
@@ -3570,5 +3719,6 @@ class GreenMarket(ParserWindow):
             "<b>Live Log and Notification Service:</b><br>"
             "EverQuest log — monitors /auction listings received by your own "
             "client in places such as the EC tunnel and creates Vantage overlay "
-            "alerts for watched items. It is not a permanent global feed.")
+            "alerts for watched items. This local history is independent of "
+            "the selected PigParse server and is not a permanent global feed.")
         box.exec()

@@ -99,7 +99,7 @@ def load_mobile_spell_detail(name):
     request = Request(
         P99_SPELL_DETAIL_API.format(
             slug=quote(str(name).strip().replace(" ", "_"), safe="")),
-        headers={"User-Agent": "Vantage/1.44.20"})
+        headers={"User-Agent": "Vantage/1.44.21"})
     with urlopen(request, timeout=8) as response:
         payload_bytes = response.read(2_000_001)
     if len(payload_bytes) > 2_000_000:
@@ -120,6 +120,15 @@ def load_mobile_spell_detail(name):
     except OSError:
         pass
     return detail
+
+
+def _mobile_market_identity(market):
+    """Return a safe, internally consistent PC-selected market identity."""
+    server = str(market.get("server") or "Green").strip().title()
+    if server not in ("Green", "Blue"):
+        server = "Green"
+    return server, str(
+        market.get("source") or f"PigParse API · {server}")
 
 
 _MOBILE_PAGE = r"""<!doctype html>
@@ -150,7 +159,7 @@ dialog{width:min(92vw,620px);max-height:84vh;overflow:auto;border:1px solid #6e6
 </head>
 <body>
 <a id="skipLink" class="skip-link" href="#main-content">Skip to content</a>
-<header><div class="head"><div class="brand-row"><h1 class="brand"><span class="mark" aria-hidden="true">V</span><span>VANTAGE<span class="sr-only"> P99 Companion</span></span></h1><span id="state">Connecting…</span></div><div class="sub">P99 Green · personal companion session</div></div>
+<header><div class="head"><div class="brand-row"><h1 class="brand"><span class="mark" aria-hidden="true">V</span><span>VANTAGE<span class="sr-only"> P99 Companion</span></span></h1><span id="state">Connecting…</span></div><div class="sub">P99 companion · personal session</div></div>
 <div class="tabs" role="tablist" aria-label="Mobile companion views">
 <button id="tabTimers" class="on" type="button" role="tab" aria-selected="true" aria-controls="timers" tabindex="0">TIMERS</button>
 <button id="tabMarket" type="button" role="tab" aria-selected="false" aria-controls="marketPage" tabindex="-1">MARKET</button>
@@ -160,7 +169,7 @@ dialog{width:min(92vw,620px);max-height:84vh;overflow:auto;border:1px solid #6e6
 <div id="connectionStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div><div id="connectionAlert" class="sr-only" role="alert" aria-atomic="true"></div><div id="timerStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
 <main id="main-content" class="wrap" tabindex="-1">
 <section id="timers" class="page" role="tabpanel" aria-labelledby="tabTimers" tabindex="0"><h2 class="panel-title">Spawn timers</h2><div class="section-tools"><div class="field"><label for="timerZone">Zone shown on PC and phone</label><select id="timerZone"><option value="">All zones</option></select></div></div><p id="timerEmpty" class="empty" hidden>No saved timers in this zone.</p><ul id="timerRows" class="timer-list" aria-label="Configured timers" aria-busy="false"></ul></section>
-<section id="marketPage" class="page" role="tabpanel" aria-labelledby="tabMarket" tabindex="0" hidden><h2 id="marketHeading" class="panel-title">PIGPARSE GREEN · ITEM STATS</h2><search aria-label="Search market and item stats"><form id="marketFilters" class="filters">
+<section id="marketPage" class="page" role="tabpanel" aria-labelledby="tabMarket" tabindex="0" hidden><h2 id="marketHeading" class="panel-title">PIGPARSE MARKET · ITEM STATS</h2><search aria-label="Search market and item stats"><form id="marketFilters" class="filters">
 <div class="field field-wide"><label for="mq">Item or effect</label><input id="mq" name="q" type="search" placeholder="Search item, click, proc or worn effect…" autocomplete="off"></div>
 <div class="field"><label for="mc">Class</label><select id="mc"><option value="0">Any class</option><option value="1">Warrior</option><option value="2">Cleric</option><option value="4">Paladin</option><option value="8">Ranger</option><option value="16">Shadow Knight</option><option value="32">Druid</option><option value="64">Monk</option><option value="128">Bard</option><option value="256">Rogue</option><option value="512">Shaman</option><option value="1024">Necromancer</option><option value="2048">Wizard</option><option value="4096">Magician</option><option value="8192">Enchanter</option></select></div>
 <div class="field"><label for="mr">Race</label><select id="mr"><option value="0">Any race</option><option value="1">Human</option><option value="2">Barbarian</option><option value="4">Erudite</option><option value="8">Wood Elf</option><option value="16">High Elf</option><option value="32">Dark Elf</option><option value="64">Half Elf</option><option value="128">Dwarf</option><option value="256">Troll</option><option value="512">Ogre</option><option value="1024">Halfling</option><option value="2048">Gnome</option><option value="4096">Iksar</option></select></div>
@@ -177,7 +186,7 @@ dialog{width:min(92vw,620px);max-height:84vh;overflow:auto;border:1px solid #6e6
 <script>
 const token=location.hash.slice(1),byId=id=>document.getElementById(id);
 const mainContent=byId('main-content'),skipLink=byId('skipLink'),timersPanel=byId('timers'),timersRoot=byId('timerRows'),timerEmpty=byId('timerEmpty'),timerStatus=byId('timerStatus'),timerZone=byId('timerZone');
-const marketPanel=byId('marketPage'),marketRoot=byId('marketRows'),marketNote=byId('marketNote'),marketStatus=byId('marketStatus'),spellsPanel=byId('spellsPage'),spellRoot=byId('spellRows'),spellNote=byId('spellNote'),spellStatus=byId('spellStatus');
+const marketPanel=byId('marketPage'),marketHeading=byId('marketHeading'),marketRoot=byId('marketRows'),marketNote=byId('marketNote'),marketStatus=byId('marketStatus'),spellsPanel=byId('spellsPage'),spellRoot=byId('spellRows'),spellNote=byId('spellNote'),spellStatus=byId('spellStatus');
 const gamePanel=byId('gamePage'),gameState=byId('gameState'),gameHelp=byId('gameHelp'),gameFrame=byId('gameFrame'),gameShell=byId('gameShell'),gameSize=byId('gameSize'),zoomLock=byId('zoomLock');
 const state=byId('state'),connectionStatus=byId('connectionStatus'),connectionAlert=byId('connectionAlert'),detailDialog=byId('detailDialog'),detailTitle=byId('detailTitle'),detailBody=byId('detailBody');
 const tabTimers=byId('tabTimers'),tabMarket=byId('tabMarket'),tabSpells=byId('tabSpells'),tabGame=byId('tabGame'),tabs=[tabTimers,tabMarket,tabSpells,tabGame];
@@ -204,7 +213,7 @@ function createMarketRow(key){const row=node('li','card');row.dataset.key=key;co
 function updateMarketRow(row,item){const p=row._parts,quality=String(item.quality||'Low'),summary=statSummary(item);p.button._item=item;p.name.textContent=String(item.name||'Item');p.price.textContent=item.price?Number(item.price).toLocaleString()+' pp':'—';p.quality.className='quality '+quality;p.quality.textContent=quality;p.meta.textContent=String(Number(item.posts)||0)+' price observations · '+(item.nodrop?'NO DROP':'Droppable')+(item.era?' · '+String(item.era).toUpperCase():'');p.summary.textContent=summary;p.summary.hidden=!summary}
 function showListMessage(root,text){root.replaceChildren(node('li','empty',text))}
 function reconcileMarketRows(items){const existing=new Map(Array.from(marketRoot.children).map(row=>[row.dataset.key,row])),used=new Set();let anchor=marketRoot.firstElementChild;for(const item of items){const key='item:'+String(item.id??item.name);let row=existing.get(key);if(!row||!row._parts)row=createMarketRow(key);updateMarketRow(row,item);used.add(key);if(row!==anchor)marketRoot.insertBefore(row,anchor);anchor=row.nextElementSibling}for(const row of Array.from(marketRoot.children))if(!used.has(row.dataset.key))row.remove()}
-function drawMarket(data){const rows=Array.isArray(data.items)?data.items:[],total=Number(data.total)||0;marketNote.textContent=(data.source||'PigParse API · Green')+' · '+String(total)+' matches · tap an item for full stats';if(!rows.length){showListMessage(marketRoot,'No items match these filters.');return}reconcileMarketRows(rows)}
+function drawMarket(data){const rows=Array.isArray(data.items)?data.items:[],total=Number(data.total)||0,server=String(data.server||'Green');marketHeading.textContent='PIGPARSE '+server.toUpperCase()+' · ITEM STATS';marketNote.textContent=(data.source||('PigParse API · '+server))+' · '+String(total)+' matches · tap an item for full stats';if(!rows.length){showListMessage(marketRoot,'No items match these filters.');return}reconcileMarketRows(rows)}
 async function poll(){if(polling)return;if(!token){setConnection('INVALID QR',true,'Invalid QR code. Open a new link from Vantage.');return}polling=true;timersRoot.setAttribute('aria-busy','true');try{drawTimers(await get('/api/state'));setConnection('LIVE',false,'')}catch(_){setConnection('OFFLINE',true,'Connection lost. Timers may be out of date.')}finally{timersRoot.setAttribute('aria-busy','false');polling=false}}
 function params(ids){const p=new URLSearchParams();for(const [key,id] of Object.entries(ids))p.set(key,byId(id).value);return p}
 async function loadMarket(announceLoading=true){const request=++marketRequest,p=params({q:'mq',class:'mc',race:'mr',slot:'ms',effect:'me',drop:'md',era:'mera',sort:'mso'});marketRoot.setAttribute('aria-busy','true');if(announceLoading)announce(marketStatus,'Loading market and item stats.');try{const data=await get('/api/market?'+p);if(request!==marketRequest)return;drawMarket(data);announce(marketStatus,(Number(data.total)||0)+' matches')}catch(_){if(request!==marketRequest)return;showListMessage(marketRoot,'Market data could not be loaded.');announce(marketStatus,'Market data could not be loaded.')}finally{if(request===marketRequest)marketRoot.setAttribute('aria-busy','false')}}
@@ -240,7 +249,7 @@ class _ShareHTTPServer(ThreadingHTTPServer):
 
 
 class _ShareHandler(BaseHTTPRequestHandler):
-    server_version = "VantageMobile/1.44.20"
+    server_version = "VantageMobile/1.44.21"
 
     def log_message(self, *_):
         # Do not write access paths or the user's network details to disk.
@@ -349,6 +358,8 @@ class _ShareHandler(BaseHTTPRequestHandler):
                 return
         if path == "/api/state":
             snapshot = self.server.snapshot_provider()
+            market = snapshot.get("market", {})
+            market_server, market_source = _mobile_market_identity(market)
             state = {
                 "version": snapshot.get("version", 1),
                 "timers": snapshot.get("timers", []),
@@ -356,8 +367,9 @@ class _ShareHandler(BaseHTTPRequestHandler):
                 "timer_zones": snapshot.get("timer_zones", [""]),
                 "generated_at": snapshot.get("generated_at"),
                 "market": {
-                    "source": snapshot.get("market", {}).get("source", "PigParse API · Green"),
-                    "revision": snapshot.get("market", {}).get("revision", 0),
+                    "server": market_server,
+                    "source": market_source,
+                    "revision": market.get("revision", 0),
                 },
             }
             payload = json.dumps(
@@ -368,6 +380,7 @@ class _ShareHandler(BaseHTTPRequestHandler):
         if path == "/api/market":
             snapshot = self.server.snapshot_provider()
             market = snapshot.get("market", {})
+            market_server, market_source = _mobile_market_identity(market)
             query = parse_qs(request_url.query, keep_blank_values=True)
             text = query.get("q", [""])[0].strip().casefold()
 
@@ -422,7 +435,8 @@ class _ShareHandler(BaseHTTPRequestHandler):
             found.sort(key=lambda item: (
                 -value(item), str(item.get("name", "")).casefold()))
             response = {
-                "source": market.get("source", "PigParse API · Green"),
+                "server": market_server,
+                "source": market_source,
                 "metadata_source": market.get("metadata_source", "P99 Wiki"),
                 "total": len(found),
                 "items": found[:100],

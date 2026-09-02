@@ -128,7 +128,7 @@ def test_mobile_page_protects_state_and_filters_pigparse():
     try:
         status, page, headers = _request(base, "/")
         assert status == 200
-        assert b"PIGPARSE GREEN" in page
+        assert b"PIGPARSE MARKET" in page
         assert b"EVERQUEST LIVE" in page
         assert b"READ ONLY" in page
         assert headers["Referrer-Policy"] == "no-referrer"
@@ -154,6 +154,40 @@ def test_mobile_page_protects_state_and_filters_pigparse():
         assert market["items"][0]["name"] == "Jade Mace"
         assert market["items"][0]["stats"]["ac"] == 15
         assert market["source"] == "PigParse API · Green"
+        assert market["server"] == "Green"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_mobile_market_source_follows_pc_selected_blue_server():
+    def blue_snapshot():
+        data = _snapshot()
+        data["market"]["server"] = "Blue"
+        # The mobile endpoint must derive a matching fallback rather than
+        # retaining an old Green source label.
+        data["market"].pop("source", None)
+        return data
+
+    server = _ShareHTTPServer(
+        ("127.0.0.1", 0), "secret", blue_snapshot)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        _, state_payload, _ = _request(base, "/api/state", "secret")
+        state = json.loads(state_payload)
+        assert state["market"] == {
+            "server": "Blue", "source": "PigParse API · Blue",
+            "revision": 0}
+
+        _, market_payload, _ = _request(base, "/api/market", "secret")
+        market = json.loads(market_payload)
+        assert market["server"] == "Blue"
+        assert market["source"] == "PigParse API · Blue"
+        assert "marketHeading.textContent='PIGPARSE '+server.toUpperCase()" in (
+            _MOBILE_PAGE)
     finally:
         server.shutdown()
         server.server_close()

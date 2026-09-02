@@ -8,9 +8,10 @@ import re
 import string
 import time
 
-from PySide6.QtCore import QDateTime, QLocale, QSize, Qt, QTimer
+from PySide6.QtCore import QDateTime, QLocale, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import (
-    QAccessible, QAccessibleAnnouncementEvent, QColor, QKeySequence, QShortcut)
+    QAccessible, QAccessibleAnnouncementEvent, QColor, QFont, QKeySequence,
+    QLinearGradient, QPainter, QPainterPath, QShortcut)
 from PySide6.QtWidgets import (
     QApplication,
     QBoxLayout,
@@ -108,6 +109,171 @@ PHASE_TEXT = {
     PHASE_COMBAT: "COMBAT",
     PHASE_AVAILABLE: "AVAILABLE",
 }
+
+
+SPAWN_TIMER_WINDOW_STYLE = """
+    /* The timer panel is often kept at 60-75% scale over EverQuest.  Avoid
+       stacked one-pixel bevels here: fractional transforms make those lines
+       look doubled even when the rest of the application is sharp. */
+    QWidget#ParserWindow {
+        border: none;
+        border-radius: 9px;
+    }
+    QWidget#ParserWindowMenuReal {
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 #202A31, stop:1 #11181D);
+        border: none;
+        border-bottom: 1px solid #2B3740;
+    }
+    QLabel#ParserWindowTitle {
+        color: #ECE8DF;
+        font-family: "Segoe UI Variable", "Segoe UI";
+        font-size: 11px;
+        font-weight: 600;
+    }
+    QFrame#SpawnTimerRow {
+        background: transparent;
+        border: none;
+    }
+    QLabel#SpawnTimerName {
+        color: #F6F7F7;
+        font-family: "Segoe UI Variable", "Segoe UI";
+        font-size: 14px;
+        font-weight: 600;
+    }
+    QLabel#SpawnTimerPhase {
+        color: #C7CDD0;
+        background-color: #222C33;
+        border: none;
+        border-radius: 5px;
+        padding: 1px 6px;
+        font-family: "Segoe UI Variable", "Segoe UI";
+        font-size: 10px;
+        font-weight: 600;
+    }
+    QLabel#SpawnTimerPhase[Phase="respawn"] {
+        color: #E8DAB9;
+        background-color: #30291D;
+    }
+    QLabel#SpawnTimerPhase[Phase="combat"],
+    QLabel#SpawnTimerPhase[Phase="available"] {
+        color: #C6EDDC;
+        background-color: #17342A;
+    }
+    QLabel#SpawnTimerTime {
+        color: #F2F5F6;
+        font-family: "Cascadia Mono", "Consolas";
+        font-size: 16px;
+        font-weight: 600;
+    }
+    QLabel#SpawnTimerDetail {
+        color: #AAB2B6;
+        font-family: "Segoe UI Variable", "Segoe UI";
+        font-size: 10px;
+    }
+    QWidget#SpawnTimerActions {
+        background: transparent;
+        border: none;
+    }
+    QWidget#SpawnTimerActions QPushButton[TimerRowAction="true"] {
+        background-color: #1A242B;
+        border: none;
+        border-radius: 6px;
+        min-width: 26px;
+        max-width: 26px;
+        min-height: 26px;
+        max-height: 26px;
+        padding: 0;
+    }
+    QWidget#SpawnTimerActions QPushButton[TimerRowAction="true"]:hover {
+        background-color: #2A3740;
+        border: 1px solid #7A8992;
+    }
+    QWidget#SpawnTimerActions QPushButton[TimerRowAction="true"]:focus {
+        background-color: #253139;
+        border: 1px solid #B99A60;
+    }
+    QWidget#SpawnTimerActions QPushButton[TimerRowAction="true"]:pressed {
+        background-color: #10171C;
+        border: 1px solid #8E794E;
+    }
+    QWidget#SpawnTimerActions QPushButton[TimerKind="primary"] {
+        background-color: #302A1E;
+    }
+    QWidget#SpawnTimerActions QPushButton[TimerKind="warning"] {
+        background-color: #332A18;
+    }
+    QWidget#SpawnTimerActions QPushButton[TimerKind="danger"] {
+        background-color: #351B20;
+    }
+    QSpinBox#SpawnTimerVolume {
+        color: #E9E7E1;
+        background-color: #1A242B;
+        border: none;
+        border-radius: 6px;
+        min-height: 26px;
+        max-height: 26px;
+        padding: 0 3px;
+        font-family: "Segoe UI Variable", "Segoe UI";
+        font-size: 10px;
+    }
+    QSpinBox#SpawnTimerVolume:focus {
+        border: 1px solid #B99A60;
+    }
+"""
+
+
+class TimerProgressBar(QProgressBar):
+    """Small antialiased progress bar without fractional-scale border noise."""
+
+    def __init__(self, accent, parent=None):
+        super().__init__(parent)
+        self._accent = QColor(accent)
+        self.setObjectName("SpawnTimerProgress")
+        self.setRange(0, 100)
+        self.setTextVisible(False)
+        self.setFixedHeight(9)
+        self.setStyleSheet(
+            "QProgressBar#SpawnTimerProgress {"
+            "background: transparent; border: none; padding: 0; }")
+
+    @property
+    def accent(self):
+        return self._accent.name().upper()
+
+    def set_accent(self, accent):
+        color = QColor(accent)
+        if color.isValid() and color != self._accent:
+            self._accent = color
+            self.update()
+
+    def paintEvent(self, _event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        if rect.isEmpty():
+            return
+
+        radius = min(4.0, rect.height() / 2.0)
+        track = QPainterPath()
+        track.addRoundedRect(rect, radius, radius)
+        painter.fillPath(track, QColor("#0B1116"))
+
+        span = max(1, self.maximum() - self.minimum())
+        ratio = max(0.0, min(
+            1.0, (self.value() - self.minimum()) / span))
+        if ratio <= 0:
+            return
+        fill_rect = QRectF(rect)
+        fill_rect.setWidth(rect.width() * ratio)
+        fill = QPainterPath()
+        fill.addRoundedRect(fill_rect, radius, radius)
+        fill = fill.intersected(track)
+        gradient = QLinearGradient(fill_rect.topLeft(), fill_rect.bottomLeft())
+        gradient.setColorAt(0.0, self._accent.lighter(116))
+        gradient.setColorAt(0.38, self._accent)
+        gradient.setColorAt(1.0, self._accent.darker(116))
+        painter.fillPath(fill, gradient)
 
 
 class TimerEditDialog(UniformScaleDialog):
@@ -306,11 +472,17 @@ class TimerRow(QFrame):
         self.timer = timer
         self.owner = owner
         self.setObjectName("SpawnTimerRow")
+        crisp_font = QFont(self.font())
+        crisp_font.setFamilies(["Segoe UI Variable", "Segoe UI"])
+        crisp_font.setHintingPreference(
+            QFont.HintingPreference.PreferVerticalHinting)
+        crisp_font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+        self.setFont(crisp_font)
         self.setAccessibleName(f"Timer for {timer.name}")
         self.setToolTip(
             f"{timer.name} · right-click for window position, layer, and "
             "transparency options")
-        self.setMinimumHeight(54)
+        self.setMinimumHeight(58)
 
         root = QBoxLayout(QBoxLayout.Direction.TopToBottom, self)
         self._root_layout = root
@@ -341,17 +513,10 @@ class TimerRow(QFrame):
         headline.addWidget(self.time_label)
         info.addLayout(headline)
 
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 100)
-        self.progress.setTextVisible(False)
+        self.progress = TimerProgressBar(timer.color)
         self.progress.setAccessibleName(f"Progress for {timer.name}")
         self.progress.setToolTip(
             "Visual progress through the current timer phase")
-        self.progress.setStyleSheet(
-            "QProgressBar::chunk {"
-            f"background-color:{timer.color}; border-radius:3px;"
-            "}"
-        )
         self._visual_state = None
         self._pulse_on = False
         info.addWidget(self.progress)
@@ -362,8 +527,10 @@ class TimerRow(QFrame):
         info.addWidget(self.detail_label)
         root.addWidget(info_widget, 1)
 
-        controls = ResponsiveActionBar(29, spacing=2)
+        controls = ResponsiveActionBar(28, spacing=2)
+        controls.setObjectName("SpawnTimerActions")
         self.play_button = QPushButton()
+        self._polish_action(self.play_button)
         self.play_button.setIcon(game_icon("play"))
         self.play_button.setAccessibleName(f"Start or pause {timer.name}")
         self.play_button.setToolTip(
@@ -372,6 +539,7 @@ class TimerRow(QFrame):
         controls.addWidget(self.play_button)
 
         self.restart_button = QPushButton()
+        self._polish_action(self.restart_button)
         self.restart_button.setIcon(game_icon("refresh"))
         self.restart_button.setAccessibleName(f"Restart {timer.name}")
         self.restart_button.setToolTip(
@@ -380,6 +548,7 @@ class TimerRow(QFrame):
         controls.addWidget(self.restart_button)
 
         self.clear_button = QPushButton()
+        self._polish_action(self.clear_button)
         self.clear_button.setIcon(game_icon("stop"))
         self.clear_button.setAccessibleName(f"Clear {timer.name}")
         self.clear_button.setToolTip(
@@ -388,6 +557,7 @@ class TimerRow(QFrame):
         controls.addWidget(self.clear_button)
 
         killed = QPushButton()
+        self._polish_action(killed, "warning")
         killed.setIcon(game_icon("kill"))
         killed.setObjectName("WarningAction")
         killed.setAccessibleName(f"Confirm death of {timer.name}")
@@ -396,6 +566,7 @@ class TimerRow(QFrame):
         controls.addWidget(killed)
 
         spawned = QPushButton()
+        self._polish_action(spawned, "primary")
         spawned.setIcon(game_icon("spawn"))
         spawned.setObjectName("PrimaryAction")
         spawned.setAccessibleName(f"Confirm spawn of {timer.name}")
@@ -404,17 +575,19 @@ class TimerRow(QFrame):
         controls.addWidget(spawned)
 
         self.volume = QSpinBox()
+        self.volume.setObjectName("SpawnTimerVolume")
         self.volume.setRange(0, 100)
         self.volume.setSuffix("%")
         self.volume.setValue(timer.volume)
         self.volume.setAccessibleName(f"Volume for {timer.name}")
         self.volume.setToolTip(
             f"Individual alarm volume for {timer.name}")
-        self.volume.setFixedWidth(64)
+        self.volume.setFixedWidth(58)
         self.volume.editingFinished.connect(self._volume_changed)
         controls.addWidget(self.volume)
 
         edit = QPushButton()
+        self._polish_action(edit)
         edit.setIcon(game_icon("edit"))
         edit.setAccessibleName(f"Edit {timer.name}")
         edit.setToolTip(
@@ -423,6 +596,7 @@ class TimerRow(QFrame):
         controls.addWidget(edit)
 
         delete = QPushButton()
+        self._polish_action(delete, "danger")
         delete.setIcon(game_icon("delete"))
         delete.setObjectName("DangerAction")
         delete.setAccessibleName(f"Delete {timer.name}")
@@ -431,10 +605,16 @@ class TimerRow(QFrame):
         controls.addWidget(delete)
         # Keep every action in one dense logical row. The outer window scales
         # this whole row with the rest of the timer canvas.
-        controls.setFixedWidth(276)
+        controls.setFixedWidth(266)
         root.addWidget(controls, 0, Qt.AlignmentFlag.AlignRight)
 
         self.refresh()
+
+    @staticmethod
+    def _polish_action(button, kind="normal"):
+        button.setProperty("TimerRowAction", True)
+        button.setProperty("TimerKind", kind)
+        button.setIconSize(QSize(16, 16))
 
     def _toggle(self):
         if self.timer.running:
@@ -535,18 +715,53 @@ class TimerRow(QFrame):
                 "#FFD166" if warning and pulse else
                 "#6EE7B7" if spawn_window and pulse else
                 "#3FA77D" if spawn_window else timer.color)
-            self.progress.setStyleSheet(
-                "QProgressBar::chunk {"
-                f"background-color:{accent}; border-radius:3px;"
-                "}")
-            self.style().unpolish(self)
-            self.style().polish(self)
+            self.progress.set_accent(accent)
+            self.update()
+
+    def paintEvent(self, _event):
+        """Paint one soft card, avoiding doubled one-pixel QSS outlines."""
+        state = self.property("AlertState") or "normal"
+        pulse = bool(self.property("Pulse"))
+        if state == "warning":
+            top, bottom = (
+                ("#3A2B15", "#211A10") if pulse else
+                ("#252018", "#151719"))
+        elif state == "spawn":
+            top, bottom = (
+                ("#17352C", "#10241F") if pulse else
+                ("#1B2928", "#12191C"))
+        elif self.underMouse():
+            top, bottom = "#253039", "#151C21"
+        else:
+            top, bottom = "#1D272E", "#11171C"
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        shape = QPainterPath()
+        shape.addRoundedRect(rect, 7.0, 7.0)
+        gradient = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+        gradient.setColorAt(0.0, QColor(top))
+        gradient.setColorAt(1.0, QColor(bottom))
+        painter.fillPath(shape, gradient)
+
+    def enterEvent(self, event):
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.update()
+        super().leaveEvent(event)
 
 
 class SpawnTimers(ParserWindow):
     def __init__(self):
         self.name = "timers"
         super().__init__()
+        # This panel is commonly downscaled over the game.  Its local style
+        # deliberately replaces bevel stacks with antialiased, border-light
+        # geometry without changing any other Vantage window.
+        self.setStyleSheet(SPAWN_TIMER_WINDOW_STYLE)
         self.setWindowTitle("Smart Spawn Timers")
         self._current_zone = config.data['maps'].get('last_zone', '')
         self._selected_zone = str(
@@ -591,11 +806,23 @@ class SpawnTimers(ParserWindow):
 
         self.share_button = QPushButton()
         self.share_button.setIcon(game_icon("export"))
-        self.share_button.setAccessibleName("Share visible timers")
+        self.share_button.setAccessibleName("Share visible zone timers by code")
+        self.share_button.setAccessibleDescription(
+            "Copies the currently visible zone timers as compact codes. Send "
+            "every code to another player. With Vantage running and EverQuest "
+            "logging enabled, their app detects the codes in the log, adjusts "
+            "for elapsed time, and automatically adds or refreshes the timers "
+            "in the correct zone without an import dialog. Codes expire after "
+            "24 hours.")
         self.share_button.setToolTip(
-            "Copy the timers visible in this zone view as time-adjusting "
-            "Vantage chat codes (Ctrl+Shift+S); includes timer names, zones, "
-            "and timing only")
+            "Copy this zone's visible timers as one or more compact codes "
+            "(Ctrl+Shift+S).\n"
+            "Send every code by /tell, /say, Discord, or another message. The "
+            "receiver only needs Vantage and /log on.\n"
+            "Their Vantage detects the codes in the log—no import dialog—then "
+            "uses the creation time to adjust elapsed time and automatically "
+            "adds or refreshes the timers in the correct zone. Codes expire "
+            "after 24 hours.")
         self.share_button.clicked.connect(self.share_visible_timers)
         self.menu_area.addWidget(self.share_button)
         self._share_shortcut = QShortcut(
@@ -845,9 +1072,7 @@ class SpawnTimers(ParserWindow):
         dialog = TimerEditDialog(timer, self)
         if dialog.exec():
             dialog.apply(timer)
-            self._rows[timer_id].progress.setStyleSheet(
-                f"QProgressBar::chunk {{ background-color:{timer.color}; border-radius:3px; }}"
-            )
+            self._rows[timer_id].progress.set_accent(timer.color)
             self._refresh_zone_filter(timer.zone)
             self.state_changed()
 

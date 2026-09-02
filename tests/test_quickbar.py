@@ -64,7 +64,7 @@ online_log = {
     'status': bar._buttons['log_status'].property('Status'),
     'online': bar._buttons['log_status'].property('LogOnline'),
     'green_icon': bar._buttons['log_status'].icon().cacheKey() ==
-        game_icon('ph-pulse-online').cacheKey(),
+        game_icon('ph-pulse-online-rest').cacheKey(),
     'tooltip': bar._buttons['log_status'].toolTip(),
     'description': bar._buttons['log_status'].accessibleDescription(),
 }
@@ -332,6 +332,134 @@ app.quit()
 """
 
 
+MOTION_LIFECYCLE_SCRIPT = r"""
+import json
+from PySide6.QtTest import QTest
+from vantage.helpers import config
+from vantage.helpers.application import VantageApp
+from vantage.helpers.icons import game_icon
+
+config.data['general']['startup_window_state'] = 'normal'
+config.data['general']['reduce_motion'] = False
+config.data['quickbar']['show_support'] = True
+config.data['quickbar']['show_log_status'] = True
+app = VantageApp([])
+bar = app._parsers_dict['quickbar']
+bar.show()
+app.processEvents()
+
+geometry_before = [bar.width(), bar.height(),
+                   bar._design_size.width(), bar._design_size.height()]
+support = bar._buttons['support']
+support_first = {
+    'icon': support.icon().cacheKey(),
+    'icon_size': [support.iconSize().width(), support.iconSize().height()],
+    'timer': bar._support_pulse_timer.isActive(),
+}
+bar._advance_support_pulse()
+support_second = {
+    'icon': support.icon().cacheKey(),
+    'icon_size': [support.iconSize().width(), support.iconSize().height()],
+    'timer': bar._support_pulse_timer.isActive(),
+}
+
+app._log_status = 'ONLINE'
+bar.refresh_state()
+app.processEvents()
+online_immediate = {
+    'debouncing': bar._log_online_debounce.isActive(),
+    'animating': bar._log_pulse_timer.isActive(),
+    'live_pulse': bool(bar._buttons['log_status'].property('LivePulse')),
+    'static_green': bar._buttons['log_status'].icon().cacheKey() ==
+        game_icon('ph-pulse-online-rest').cacheKey(),
+    'tooltip': bar._buttons['log_status'].toolTip(),
+    'description': bar._buttons['log_status'].accessibleDescription(),
+}
+QTest.qWait(bar._LOG_ONLINE_DEBOUNCE_MS + 250)
+app.processEvents()
+online_stable = {
+    'debouncing': bar._log_online_debounce.isActive(),
+    'animating': bar._log_pulse_timer.isActive(),
+    'live_pulse': bool(bar._buttons['log_status'].property('LivePulse')),
+    'bright_icon': bar._buttons['log_status'].icon().cacheKey() ==
+        game_icon('ph-pulse-online-bright').cacheKey(),
+}
+stable_icon = bar._buttons['log_status'].icon().cacheKey()
+bar._advance_log_pulse()
+online_variant_changed = (
+    bar._buttons['log_status'].icon().cacheKey() != stable_icon)
+
+app._log_status = 'QUIET'
+bar.refresh_state()
+app.processEvents()
+quiet = {
+    'debouncing': bar._log_online_debounce.isActive(),
+    'animating': bar._log_pulse_timer.isActive(),
+    'live_pulse': bool(bar._buttons['log_status'].property('LivePulse')),
+    'offline_icon': bar._buttons['log_status'].icon().cacheKey() ==
+        game_icon('ph-pulse').cacheKey(),
+}
+
+app._log_status = 'ONLINE'
+bar.refresh_state()
+config.data['quickbar']['show_log_status'] = False
+app._signals['settings'].config_updated.emit()
+app.processEvents()
+button_hidden = {
+    'button': bar._buttons['log_status'].isVisible(),
+    'debouncing': bar._log_online_debounce.isActive(),
+    'animating': bar._log_pulse_timer.isActive(),
+    'live_pulse': bool(bar._buttons['log_status'].property('LivePulse')),
+}
+
+config.data['quickbar']['show_log_status'] = True
+app._signals['settings'].config_updated.emit()
+app.processEvents()
+bar.hide()
+app.processEvents()
+window_hidden = {
+    'debouncing': bar._log_online_debounce.isActive(),
+    'animating': bar._log_pulse_timer.isActive(),
+    'live_pulse': bool(bar._buttons['log_status'].property('LivePulse')),
+}
+
+bar.show()
+config.data['general']['reduce_motion'] = True
+app._signals['settings'].config_updated.emit()
+app.processEvents()
+reduced_motion = {
+    'support_timer': bar._support_pulse_timer.isActive(),
+    'support_pulse': bool(support.property('Pulse')),
+    'log_debouncing': bar._log_online_debounce.isActive(),
+    'log_animating': bar._log_pulse_timer.isActive(),
+    'live_pulse': bool(bar._buttons['log_status'].property('LivePulse')),
+    'static_green': bar._buttons['log_status'].icon().cacheKey() ==
+        game_icon('ph-pulse-online-rest').cacheKey(),
+}
+geometry_after = [bar.width(), bar.height(),
+                  bar._design_size.width(), bar._design_size.height()]
+
+print(json.dumps({
+    'geometry_before': geometry_before,
+    'geometry_after': geometry_after,
+    'support_first': support_first,
+    'support_second': support_second,
+    'support_expected': [
+        game_icon('ph-coffee-bright').cacheKey(),
+        game_icon('ph-coffee-rest').cacheKey(),
+    ],
+    'online_immediate': online_immediate,
+    'online_stable': online_stable,
+    'online_variant_changed': online_variant_changed,
+    'quiet': quiet,
+    'button_hidden': button_hidden,
+    'window_hidden': window_hidden,
+    'reduced_motion': reduced_motion,
+}))
+app.quit()
+"""
+
+
 def test_quickbar_config_defaults_are_safe_and_complete(tmp_path, monkeypatch):
     monkeypatch.setattr(config, '_filename', str(tmp_path / 'config.json'))
     original = config.data
@@ -412,6 +540,7 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
     assert result['online_log']['online'] is True
     assert result['online_log']['green_icon'] is True
     assert 'ONLINE' in result['online_log']['tooltip']
+    assert 'live log activity' in result['online_log']['tooltip']
     assert 'activity detected' in result['online_log']['description']
     assert result['quiet_log'] == {
         'online': False,
@@ -526,3 +655,64 @@ def test_vertical_quickbar_shrinkwrap_logo_tooltips_and_pulse_lifecycle(
     assert horizontal['title_visible'] is True
     assert horizontal['frame_visible'] is True
     assert horizontal['minimize_visible'] is True
+
+
+def test_quickbar_animation_variants_debounce_visibility_and_reduced_motion(
+        tmp_path):
+    env = os.environ.copy()
+    env['QT_QPA_PLATFORM'] = 'offscreen'
+    env['PYTHONPATH'] = str(ROOT / 'src')
+    env['VANTAGE_DATA_DIR'] = str(tmp_path / 'profile')
+    completed = subprocess.run(
+        [sys.executable, '-c', MOTION_LIFECYCLE_SCRIPT], cwd=ROOT, env=env,
+        check=True, capture_output=True, text=True, timeout=30)
+    result = json.loads(completed.stdout.strip().splitlines()[-1])
+
+    assert result['geometry_after'] == result['geometry_before']
+    assert result['support_first']['timer'] is True
+    assert result['support_second']['timer'] is True
+    assert result['support_first']['icon_size'] == [16, 16]
+    assert result['support_second']['icon_size'] == [16, 16]
+    assert [result['support_first']['icon'], result['support_second']['icon']] == \
+        result['support_expected']
+
+    assert result['online_immediate']['debouncing'] is True
+    assert result['online_immediate']['animating'] is False
+    assert result['online_immediate']['live_pulse'] is False
+    assert result['online_immediate']['static_green'] is True
+    assert 'verifying stability' in \
+        result['online_immediate']['tooltip']
+    assert 'Live log activity' in \
+        result['online_immediate']['description']
+    assert result['online_stable'] == {
+        'debouncing': False,
+        'animating': True,
+        'live_pulse': True,
+        'bright_icon': True,
+    }
+    assert result['online_variant_changed'] is True
+    assert result['quiet'] == {
+        'debouncing': False,
+        'animating': False,
+        'live_pulse': False,
+        'offline_icon': True,
+    }
+    assert result['button_hidden'] == {
+        'button': False,
+        'debouncing': False,
+        'animating': False,
+        'live_pulse': False,
+    }
+    assert result['window_hidden'] == {
+        'debouncing': False,
+        'animating': False,
+        'live_pulse': False,
+    }
+    assert result['reduced_motion'] == {
+        'support_timer': False,
+        'support_pulse': False,
+        'log_debouncing': False,
+        'log_animating': False,
+        'live_pulse': False,
+        'static_green': True,
+    }

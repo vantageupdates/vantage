@@ -9,7 +9,7 @@
 
 La bandeja muestra **WAITING** cuando la carpeta está vinculada pero todavía no ha llegado una línea nueva, **ONLINE** con actividad reciente, **QUIET** tras 90 segundos sin líneas y **NO LOGS** cuando falta la ruta. **Log Profiles…** enseña cada personaje y servidor por separado. Deja el cursor sobre las acciones de logs para ver la ayuda rápida, o abre la guía de vinculación para consultar los pasos completos.
 
-Las ventanas son independientes. En la barra superior puedes fijarlas encima, cambiar opacidad, activar click-through en los overlays, enrollarlas, minimizarlas a la bandeja o redimensionarlas desde la esquina. Mercado siempre conserva mouse y teclado para que puedas escribir en la búsqueda. Cada ventana recuerda su posición y tamaño. Por defecto Vantage arranca con las ventanas enrolladas; en **Ajustes → General → Al iniciar Vantage** puedes elegir **Enrolladas**, **Minimizadas a la bandeja** o **Normales / desplegadas**. Al enrollarse, la cabecera se encoge al ancho exacto de sus controles. Todos los paneles se redibujan como controles Qt nativos para conservar líneas, texto y entrada nítidos en cualquier tamaño. Deja el puntero sobre cualquier control para ver su función.
+Las ventanas son independientes. En la barra superior puedes fijarlas encima, cambiar opacidad, activar click-through en los overlays, enrollarlas, minimizarlas a la bandeja o redimensionarlas desde la esquina. Mercado siempre conserva mouse y teclado para que puedas escribir en la búsqueda. Cada ventana recuerda su posición y tamaño. Por defecto Vantage arranca con las ventanas enrolladas; en **Ajustes → General → Al iniciar Vantage** puedes elegir **Enrolladas**, **Minimizadas a la bandeja** o **Normales / desplegadas**. Al enrollarse, la cabecera se encoge al ancho exacto de sus controles. El título y los controles esenciales siempre conservan su espacio; si la cabecera queda estrecha, las acciones secundarias pasan a **More window actions** antes de solaparse. Todos los paneles se redibujan como controles Qt nativos para conservar líneas, texto y entrada nítidos en cualquier tamaño. La navegación lateral de Ajustes usa filas compactas, foco visible y una marca dorada discreta en la sección actual. En Quick Bar, el café y el rayo verde de una conexión `ONLINE` estable se animan sin cambiar de tamaño; **Reduce motion and flashes** los deja estáticos pero identificables. Deja el puntero sobre cualquier control para ver su función.
 
 Haz clic derecho sobre el fondo o la cabecera de cualquier panel para moverlo a nueve posiciones de la pantalla, traerlo al frente, dejarlo en capa normal, enviarlo detrás, cambiar su opacidad, enrollarlo, cambiar el marco, restaurar su tamaño o enviarlo a la bandeja. Los campos de texto conservan su menú de copiar/pegar; buffs y mapa conservan sus acciones especiales.
 
@@ -26,9 +26,10 @@ Haz clic derecho sobre el fondo o la cabecera de cualquier panel para moverlo a 
 - En los campos de tiempo, `3` significa 3 minutos; también puedes escribir `3:50` o `1:03:50`.
 - Cada fila muestra su propio volumen y tiene un botón de reinicio directo que vuelve a **LISTO**.
 - Cada timer puede usar uno de los seis sonidos incluidos o un WAV propio. Su volumen individual se ajusta en la misma fila o al editarlo.
+- Las tarjetas conservan bordes y separadores nítidos en tamaños compactos y escalas fraccionarias.
 - La barra pulsa en ámbar durante el aviso previo y en verde durante la ventana de spawn.
 - Para entregar un camp, selecciona su zona y pulsa **Share visible timers** en el encabezado, o usa `Ctrl+Shift+S`. Vantage copia uno o varios códigos: envía cada línea por `/tell`, `/say` o un mensaje externo.
-- El receptor no tiene que importar nada: con `/log on`, Vantage reconoce el código en el log, descuenta los segundos transcurridos desde su creación y añade o actualiza los timers en la zona correcta. Los pausados no pierden tiempo y los inteligentes avanzan las fases que hayan transcurrido.
+- El tooltip de **Share visible timers** explica el flujo completo. El receptor no tiene que importar nada: sólo necesita Vantage y `/log on`; su app reconoce el código en el log, descuenta los segundos transcurridos desde su creación y añade o actualiza los timers en la zona correcta. Los pausados no pierden tiempo y los inteligentes avanzan las fases que hayan transcurrido.
 - El eco propio y los códigos repetidos se ignoran. Los códigos caducan a las 24 horas y sólo transportan nombre, zona y tiempos; los sonidos, colores y volúmenes del receptor no se sobrescriben.
 
 ## Buffs, triggers y combate
@@ -36,8 +37,9 @@ Haz clic derecho sobre el fondo o la cabecera de cualquier panel para moverlo a 
 - Ajusta el aviso de fading, la galería de sonido y el volumen desde **Ajustes → Buffs y triggers**.
 - Los seis sonidos cortos incluidos fueron rediseñados para Vantage y se distribuyen bajo CC0; también puedes importar WAV propios.
 - Haz clic derecho sobre un buff para escoger un sonido incluido, importar un WAV, probarlo o silenciarlo.
-- La barra y el borde del buff pulsan cuando entra en fading.
-- El nombre y el tiempo del buff aparecen fuera de la barra, por lo que siguen legibles incluso en ventanas pequeñas.
+- El nombre y el tiempo se pintan dentro de la barra compacta. Su color dominante conserva el matiz del icono con una saturación un poco más marcada y contraste seguro para el texto; una profundidad vertical suave mejora la separación sin volverla pesada. Warning, crítico y `FADED` siguen siendo claros.
+- Si vuelves a lanzar un buff propio, Vantage refresca y revive la misma fila, cancela el retiro pendiente e ignora el fade inmediato de la copia que acabas de reemplazar.
+- En una ventana estrecha, las acciones secundarias pasan a **More spell tools** para conservar el título y los controles principales sin solaparse.
 - La biblioteca incluye avisos editables para invis por caer, charm/root/fear roto, fizzle, resist, mez resistido, cast interrumpido, notas fallidas y mobs enraged.
 - Al crear un trigger, el selector muestra los tokens disponibles y su significado.
 - **Import Trigger Pack…** acepta `.gtp`, `ShareData.xml`, XML o `.gtt`. Todo entra apagado; revisa y activa sólo lo necesario. Las rutas de audio externas se descartan y se sustituyen por sonidos incluidos.
@@ -52,11 +54,13 @@ Haz clic derecho sobre el fondo o la cabecera de cualquier panel para moverlo a 
 - Escribe tu orden —por ejemplo `AAA`— o deja el campo vacío para aprenderlo de una llamada propia; Vantage puede avisarte cuando quedas próximo.
 - Todo se procesa localmente desde el log vinculado. El módulo no envía la rotación ni datos de raid a ningún servidor externo.
 
-Cada vez que Vantage reproduce audio, un overlay oscuro independiente muestra qué timer, buff, trigger o prueba lo originó, el nombre del sonido y el volumen. No es un globo de Windows ni vive dentro de otra ventana. En **Ajustes → General → Notification overlays → Arrange** aparecen dos superficies independientes, **Alerts** y **Timer Alerts**: arrastra la cabecera, cambia el tamaño desde la esquina y pulsa **Lock** en cada una. **Options** permite apilar avisos, agrupar títulos repetidos, invertir el orden, escoger cuántos se ven y ajustar fuente/fondo. Los timers muestran countdown y barra real. Al bloquearse vuelven a ser transparentes a los clics y no toman foco. El menú de la bandeja conserva **LAST SOUND** y ofrece silenciar todo el audio. En **Ajustes → General** también puedes activar **Reduce motion and flashes**.
+Cada vez que Vantage reproduce audio, un overlay oscuro independiente muestra qué timer, buff, trigger o prueba lo originó, el nombre del sonido y el volumen. No es un globo de Windows ni vive dentro de otra ventana. En **Ajustes → General → Notification overlays → Arrange** aparecen dos superficies independientes, **Alerts** y **Timer Alerts**: arrastra la cabecera, cambia el tamaño desde la esquina y pulsa **Lock** en cada una. **Options** permite apilar avisos, agrupar títulos repetidos, invertir el orden, escoger cuántos se ven y ajustar fuente/fondo. Los timers muestran countdown y barra real. Al bloquearse vuelven a ser transparentes a los clics y no toman foco. El mute maestro de Quick Bar es el corte final del backend: detiene WAV y TTS activos o pendientes y bloquea pruebas y repeticiones hasta desactivarlo. El menú de la bandeja conserva **LAST SOUND**. En **Ajustes → General** también puedes activar **Reduce motion and flashes**.
 
-## PigParse Green
+## Market: Green y Blue
 
-PigParse es la fuente de verdad para precios. La pantalla conserva los anuncios y muestra estimaciones locales por separado. Puedes filtrar por WTS/WTB, clase, raza y slot. Clase/raza/slot provienen del índice comunitario P99 Wiki. Al abrir el nombre dorado o **Ficha + precio Wiki**, Vantage extrae también el precio Green del Wiki: hace un promedio 50/50 sólo si las referencias recientes difieren 30% o menos; de lo contrario muestra ambas sin combinarlas.
+PigParse es la fuente de verdad para precios. El selector Green/Blue tiene nombre accesible y recuerda tu elección. La lista, el historial de PigParse, la comparación con Wiki Auction Tracker y sus cachés se guardan por separado para cada servidor. Puedes filtrar por WTS/WTB, clase, raza y slot; clase/raza/slot provienen del índice comunitario P99 Wiki. Al abrir el nombre dorado o **Ficha + precio Wiki**, Vantage consulta el servidor seleccionado: hace un promedio 50/50 sólo si las referencias recientes difieren 30% o menos; de lo contrario muestra ambas sin combinarlas.
+
+**Live local** y las alertas de venta leen únicamente los mensajes `/auction` del log EQ vinculado. Ese historial local no se borra al cambiar Green/Blue y nunca se cambia de nombre ni se presenta como un feed de Internet.
 
 Market usa controles Qt nativos sin una superficie gráfica escalada: un clic real en **Buscar item o vendedor…** entrega el foco directamente al campo. En tamaños estrechos, búsqueda, filtros y botones se apilan y sólo aparece scroll vertical.
 
@@ -75,7 +79,7 @@ Pulsa el nombre dorado de un item para abrir su ficha clásica dentro de Vantage
 1. En **Timers**, pulsa el icono de teléfono.
 2. Para usar la misma red Wi-Fi, abre o copia el enlace local.
 3. Para usar Internet, crea el enlace efímero y escanea el QR.
-4. En el teléfono tendrás **Spawn Timers**, **PigParse Green** y **EverQuest Live**.
+4. En el teléfono tendrás **Spawn Timers**, **Market** y **EverQuest Live**. Market sigue el servidor Green/Blue elegido en la PC.
 5. Para la vista del juego, abre **Configurar EverQuest Live…**. La ventana separada intenta detectar `eqgame.exe`; si tu instalación usa otra carpeta, elige el ejecutable manualmente.
 6. Elige 2, 5 o 10 FPS. Sólo captura mientras esa pestaña está visible en el teléfono y nunca acepta mouse o teclado.
 7. EverQuest Live funciona únicamente con el QR Wi-Fi local; no se publica por el túnel de Internet. Con WinEQ2, Vantage reconoce la superficie del juego aunque el wrapper use un handle hijo. Deja EverQuest al frente: la imagen se pausa al cambiar a otra aplicación para no capturarla por accidente. Usa modo ventana o ventana sin bordes.

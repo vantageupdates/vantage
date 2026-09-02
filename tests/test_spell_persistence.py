@@ -137,6 +137,58 @@ def test_self_buff_recast_claims_and_collapses_legacy_duplicate_rows():
     assert widgets[0].runtime_server == "Green"
 
 
+def test_self_buff_recast_revives_faded_row_and_rejects_stale_worn_off():
+    _app()
+    now = datetime.datetime.now()
+    container = SpellContainer()
+    clarity = _spell(
+        "Clarity II", runtime_key="spell:clarity-ii",
+        effect_text_other=" feels a clarity of mind.",
+        effect_text_worn_off="Your mind fogs.", type=1)
+    container.add_spell(
+        clarity, now, "__you__", "Mindflux", "Green")
+    target = container.get_spell_target_by_name("__you__")
+    original = target.spell_widgets()[0]
+    original.mark_faded(
+        now + datetime.timedelta(seconds=10), play_sound=False)
+
+    assert original._faded is True
+    assert original._fade_remove_timer.isActive() is True
+    assert original.progress._time_text == "FADED"
+
+    refreshed_at = now + datetime.timedelta(seconds=12)
+    container.add_spell(
+        clarity, refreshed_at, "__you__", "Mindflux", "Green")
+    widgets = target.spell_widgets()
+
+    assert widgets == [original]
+    assert original._faded is False
+    assert original._active is True
+    assert original._fade_remove_timer.isActive() is False
+    assert original.progress._time_text != "FADED"
+    assert original.progress.property("Faded") is False
+    assert original.progress.property("Warning") is False
+    assert original.progress.property("Critical") is False
+    assert original.progress.property("Pulse") is False
+    assert original.end_time == refreshed_at + datetime.timedelta(seconds=420)
+
+    # EQ may emit the replaced copy's worn-off line just after the landing.
+    # It must not fade the refreshed generation or let the old grace callback
+    # remove it.
+    assert container.mark_worn_off(
+        "Your mind fogs.", refreshed_at + datetime.timedelta(seconds=1),
+        play_sound=False) is None
+    original._remove_if_still_faded()
+    assert original._removed is False
+
+    # Outside the short replacement window, the same line is authoritative.
+    faded = container.mark_worn_off(
+        "Your mind fogs.", refreshed_at + datetime.timedelta(seconds=4),
+        play_sound=False)
+    assert faded is original
+    assert original._faded is True
+
+
 def test_runtime_character_level_controls_duration():
     _app()
     previous_level = config.data['spells']['level']

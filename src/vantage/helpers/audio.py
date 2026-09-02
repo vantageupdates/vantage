@@ -96,18 +96,31 @@ def add_custom_sound_to_combo(combo, value):
 
 
 def audio_muted():
-    # Read both the live kill switch and the persisted preference.  Keeping
-    # these two sources in the gate makes every call site fail closed even if
-    # a settings signal and the Quick Bar are processed in adjacent Qt turns.
-    return bool(
-        _MUTED or
+    """Return the authoritative mute state and reconcile config reloads.
+
+    A freshly reloaded configuration can become muted without passing through
+    the Quick Bar callback.  Promote that persisted state into the live kill
+    switch and silence anything already playing.  A live mute deliberately
+    remains fail-closed until :func:`set_audio_muted(False)` is called.
+    """
+    global _MUTED
+    configured = bool(
         config.data.get("general", {}).get("audio_muted", False))
+    if configured and not _MUTED:
+        _MUTED = True
+        if _ACTIVE_EFFECTS or _SPEECH is not None:
+            stop_all_audio()
+    return bool(_MUTED or configured)
 
 
 def set_audio_muted(muted):
     """Globally mute new alerts and immediately stop active Vantage audio."""
     global _MUTED
     _MUTED = bool(muted)
+    # Update the in-memory preference in the same operation.  Previously the
+    # application wrote config on the following line, leaving two mute states
+    # that could temporarily disagree during signals or a UI reload.
+    config.data.setdefault("general", {})["audio_muted"] = _MUTED
     if _MUTED:
         stop_all_audio()
 
@@ -238,19 +251,65 @@ def _apply_speech_profile(speech, settings):
 
 
 def stop_all_audio():
+    """Immediately silence and dispose every Vantage playback backend."""
     global _SPEECH
     for effect in tuple(_ACTIVE_EFFECTS):
+        # Muting volume before stop prevents a multimedia backend's already
+        # buffered tail from remaining audible for another scheduler turn.
+        try:
+            effect.setMuted(True)
+        except (AttributeError, RuntimeError):
+            pass
+        try:
+            effect.setVolume(0.0)
+        except (AttributeError, RuntimeError):
+            pass
         try:
             effect.stop()
+        except (AttributeError, RuntimeError):
+            pass
+        try:
             effect.deleteLater()
-        except RuntimeError:
+        except (AttributeError, RuntimeError):
             pass
         _ACTIVE_EFFECTS.discard(effect)
-    if _SPEECH is not None:
+    # Discarding the speech engine as well as stopping it flushes any queued
+    # utterances.  Unmuting lazily creates a fresh engine and voice queue.
+    speech, _SPEECH = _SPEECH, None
+    if speech is not None:
         try:
-            _SPEECH.stop()
-        except RuntimeError:
-            _SPEECH = None
+            speech.setVolume(0.0)
+        except (AttributeError, RuntimeError):
+            pass
+        try:
+            speech.stop()
+        except (AttributeError, RuntimeError):
+            pass
+        try:
+            speech.deleteLater()
+        except (AttributeError, RuntimeError):
+            pass
+
+
+def _silence_effect(effect):
+    """Dispose a not-yet-started effect when the final mute gate closes."""
+    try:
+        effect.setMuted(True)
+    except (AttributeError, RuntimeError):
+        pass
+    try:
+        effect.setVolume(0.0)
+    except (AttributeError, RuntimeError):
+        pass
+    try:
+        effect.stop()
+    except (AttributeError, RuntimeError):
+        pass
+    try:
+        effect.deleteLater()
+    except (AttributeError, RuntimeError):
+        pass
+    _ACTIVE_EFFECTS.discard(effect)
 
 
 def play_alert(
@@ -276,6 +335,15 @@ def play_alert(
     effect.setVolume(volume / 100.0)
     effect.setLoopCount(max(1, min(int(repeat), 3)))
     _ACTIVE_EFFECTS.add(effect)
+
+    # Keep a final gate adjacent to the real backend call.  It closes the
+    # narrow re-entrant window where a signal/config reload can mute Vantage
+    # while the sound object is being prepared.
+    blocked = _playback_block_reason(app, channel, allow_hidden)
+    if blocked:
+        _silence_effect(effect)
+        _report_blocked(app, source, blocked, channel)
+        return False
 
     def release_if_finished():
         try:
@@ -322,6 +390,15 @@ def speak_text(
         speech.stop()
     _apply_speech_profile(speech, profile)
     speech.setVolume(volume / 100.0)
+    blocked = _playback_block_reason(app, channel, allow_hidden)
+    if blocked:
+        try:
+            speech.setVolume(0.0)
+            speech.stop()
+        except (AttributeError, RuntimeError):
+            pass
+        _report_blocked(app, source, blocked, channel)
+        return False
     speech.say(message)
     notifier = getattr(app, "audio_started", None)
     if callable(notifier):

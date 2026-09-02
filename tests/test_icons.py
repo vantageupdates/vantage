@@ -15,7 +15,12 @@ def test_shared_svg_icons_are_valid_attributed_vector_assets():
         assert "var(--ci-" not in source
         if icon.name.startswith("ph-"):
             assert root.attrib["viewBox"] == "0 0 256 256"
-            assert "#D0B675" in source
+            if icon.name.startswith("ph-coffee-"):
+                assert any(color in source for color in ("#D0B675", "#FFE09A"))
+            elif icon.name.startswith("ph-pulse-online-"):
+                assert any(color in source for color in ("#55C785", "#8EF0B8"))
+            else:
+                assert "#D0B675" in source
         else:
             assert root.attrib["data-icon-source"] == "CoreUI Icons Free"
 

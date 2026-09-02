@@ -8,7 +8,8 @@ from PySide6.QtWidgets import QApplication
 from vantage.helpers.spell_catalog import p99_spell_entries
 from vantage.helpers.spell_library import (
     SpellLibraryDialog, SpellLibraryFilter, SpellLibraryModel,
-    _wiki_title_from_url, extract_acquisition_text, sanitize_wiki_html)
+    _cache_path, _wiki_title_from_url, extract_acquisition_text,
+    sanitize_wiki_html)
 from vantage.parsers.market import GreenMarket
 
 
@@ -161,5 +162,28 @@ def test_spell_library_is_complete_but_lazy(monkeypatch):
         dialog._open_detail_link(QUrl(
             "https://wiki.project1999.com/Emperor_Chottal"))
         assert opened == ["Emperor Chottal"]
+    finally:
+        dialog.close()
+
+
+def test_spell_library_prices_and_wiki_cache_follow_market_server():
+    _app()
+
+    class Market:
+        _server = "Blue"
+
+        @staticmethod
+        def price_for_spell(name):
+            return {"n": f"Spell: {name}", "t": 0, "a30": 900,
+                    "t30": 4}
+
+    dialog = SpellLibraryDialog(Market())
+    try:
+        entry = next(item for item in dialog._entries if item.name == "Clarity")
+        prices = dialog._price_html(entry, {"reference": 1000})
+        assert "PigParse Blue" in prices
+        assert "P99 Wiki Blue" in prices
+        assert _cache_path("Clarity", "Green") != _cache_path(
+            "Clarity", "Blue")
     finally:
         dialog.close()

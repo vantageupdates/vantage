@@ -50,6 +50,10 @@ ITEM_GLOW_RX = re.compile(
     r"(?:begin(?:s)? to glow(?:[^.]*)?|glows?(?:[^.]*))\.$")
 ITEM_CLICK_WINDOW_SECONDS = 15.0
 CHARM_TARGET_WINDOW_SECONDS = 45.0
+# EQ can report the replaced copy's worn-off line just after the refreshed
+# landing line. Only an actual recast receives this short guard; first casts
+# and later fades remain authoritative.
+RECAST_WORN_OFF_GRACE_SECONDS = 3.0
 CHARMED_PET_ACTIVITY_RX = re.compile(
     r"^(?P<pet>[\w`' -]+) tells you, 'Attacking .+? Master\.'$",
     re.IGNORECASE)
@@ -314,6 +318,46 @@ class Spells(ParserWindow):
         self._library_button.clicked.connect(
             QApplication.instance().show_spell_library)
         self.menu_area.addWidget(self._library_button)
+        # At small physical widths the full logical surface is scaled down,
+        # but three adjacent spell tools still starve the title. Collapse the
+        # two lower-frequency tools into one accessible menu while preserving
+        # every action and tooltip.
+        self._header_tools_button = QToolButton()
+        self._header_tools_button.setObjectName('CompactMenuButton')
+        self._header_tools_button.setIcon(game_icon('ph-stack'))
+        self._header_tools_button.setPopupMode(
+            QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._header_tools_button.setAccessibleName('More spell tools')
+        self._header_tools_button.setToolTip(
+            'Boat schedules, source details, and the P99 Spell Library')
+        spell_tools_menu = QMenu(self._header_tools_button)
+        spell_tools_menu.setToolTipsVisible(True)
+        self._compact_boat_action = spell_tools_menu.addAction(
+            'Show P99 boat schedules')
+        self._compact_boat_action.setCheckable(True)
+        self._compact_boat_action.setChecked(self._boat_toggle.isChecked())
+        self._compact_boat_action.setToolTip(
+            'Show or hide compact P99 boat arrivals from PigParse')
+        self._compact_boat_action.triggered.connect(
+            self._set_compact_boat_schedules)
+        compact_refresh = spell_tools_menu.addAction('Refresh boat data')
+        compact_refresh.setToolTip(
+            'Fetch the latest boat observation from PigParse')
+        compact_refresh.triggered.connect(self._manual_refresh_boats)
+        compact_source = spell_tools_menu.addAction('Open PigParse source')
+        compact_source.setToolTip(
+            'Open the public source used for boat observations')
+        compact_source.triggered.connect(lambda: QDesktopServices.openUrl(
+            QUrl('https://pigparse.azurewebsites.net/')))
+        spell_tools_menu.addSeparator()
+        compact_library = spell_tools_menu.addAction('Open P99 Spell Library')
+        compact_library.setToolTip(
+            'Search spells by class and level, including acquisition details')
+        compact_library.triggered.connect(
+            QApplication.instance().show_spell_library)
+        self._header_tools_button.setMenu(spell_tools_menu)
+        self.menu_area.addWidget(self._header_tools_button)
+        self._header_tools_button.hide()
         self._character_widget = QComboBox()
         self._character_widget.setObjectName('SpellCharacterProfile')
         self._character_widget.setMinimumContentsLength(8)
@@ -374,6 +418,18 @@ class Spells(ParserWindow):
         self._level_widget.setPrefix('Lv ' if compact else 'lvl. ')
         self._character_widget.setMinimumWidth(44 if compact else 72)
         self._level_widget.setMinimumWidth(48 if compact else 64)
+        compact_header = self.width() < 215
+        self._boat_toggle.setVisible(not compact_header)
+        self._library_button.setVisible(not compact_header)
+        self._header_tools_button.setVisible(compact_header)
+        # Keep the actual title legible instead of allowing a dense run of
+        # header actions to collapse it to a few clipped pixels.
+        self._title.setMinimumWidth(34 if compact_header else 0)
+
+    def _set_compact_boat_schedules(self, checked):
+        """Mirror the narrow-header menu action to the canonical toggle."""
+        self._boat_toggle.setChecked(bool(checked))
+        self._toggle_boat_schedules(bool(checked))
 
     def _dismiss_spell_event(self, pill):
         try:
@@ -1560,6 +1616,8 @@ class Spells(ParserWindow):
         return 'Green'
 
     def _toggle_boat_schedules(self, checked):
+        if hasattr(self, '_compact_boat_action'):
+            self._compact_boat_action.setChecked(bool(checked))
         config.data['spells']['show_boat_schedules'] = bool(checked)
         config.save()
         self._boat_group.set_enabled(bool(checked))
@@ -1586,7 +1644,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.20')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.21')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -2202,7 +2260,8 @@ class SpellContainer(QFrame):
                 exact_match = worn_off and worn_text == worn_off
                 if ((exact_match or
                      (charm_break and _is_charm_spell(widget.spell))) and
-                        not widget._faded):
+                        not widget._faded and
+                        not widget.ignores_replaced_worn_off(timestamp)):
                     matches.append(widget)
         if not matches:
             return None
@@ -2657,8 +2716,13 @@ class SpellWidget(QFrame):
         self._removed = False
         self._faded = False
         self._faded_until = 0.0
+        self._ignore_worn_off_until = None
         self._warning_played = bool(getattr(
             self.spell, 'saved_warning_played', False))
+
+        self._fade_remove_timer = QTimer(self)
+        self._fade_remove_timer.setSingleShot(True)
+        self._fade_remove_timer.timeout.connect(self._remove_if_still_faded)
 
         self._setup_ui()
         # Child construction can cause some Qt platform styles to restore a
@@ -2744,9 +2808,15 @@ class SpellWidget(QFrame):
     def recast(self, timestamp):
         self._calculate(timestamp)
         self.progress.setStyleSheet(spell_progress_stylesheet(self.spell))
+        self._fade_remove_timer.stop()
         self._active = True
         self._faded = False
         self._faded_until = 0.0
+        try:
+            self._ignore_worn_off_until = timestamp + datetime.timedelta(
+                seconds=RECAST_WORN_OFF_GRACE_SECONDS)
+        except TypeError:
+            self._ignore_worn_off_until = None
         self._warning_played = False
         self.setProperty('Warning', False)
         self.setProperty('Critical', False)
@@ -2766,8 +2836,28 @@ class SpellWidget(QFrame):
             f'{source_text}{school} · double-click to remove; right-click, '
             'Enter, Space, Shift+F10, or Menu for mob assignment, sound, and '
             'remove actions')
+        # Clear a visible FADED label immediately. Calling _update() here
+        # would create another recurring callback chain, so refresh only the
+        # active display while the existing chain continues normally.
+        remaining = self.end_time - datetime.datetime.now()
+        self.progress.setValue(max(0, int(remaining.total_seconds())))
+        self.progress.set_time_text(format_time(remaining))
+        self.progress.update()
         self._request_resort()
         self._notify_state_changed()
+
+    def ignores_replaced_worn_off(self, timestamp):
+        """Ignore only the stale wear-off emitted by a just-replaced buff."""
+        if self._ignore_worn_off_until is None or timestamp is None:
+            return False
+        try:
+            return timestamp <= self._ignore_worn_off_until
+        except TypeError:
+            return False
+
+    def _remove_if_still_faded(self):
+        if self._faded and not self._removed:
+            self._remove()
 
     def _update(self):
         if self._removed:
@@ -2833,6 +2923,7 @@ class SpellWidget(QFrame):
         self._faded = True
         self._active = False
         self._faded_until = time.monotonic() + 6.0
+        self._fade_remove_timer.start(6000)
         if timestamp is not None:
             self.end_time = timestamp
         target = self.parentWidget()
@@ -2874,6 +2965,7 @@ class SpellWidget(QFrame):
     def _remove(self):
         if self._removed:
             return
+        self._fade_remove_timer.stop()
         target, owner = self._owner_container()
         focus_target = None
         if target:
@@ -3115,40 +3207,76 @@ def _spell_icon_accent(icon_index):
                 green + color.green() * weight,
                 blue + color.blue() * weight)
     if not hue_bins:
-        return QColor('#477B91')
-    total, red, green, blue = max(
-        hue_bins.values(), key=lambda values: values[0])
-    accent = QColor(
-        round(red / total), round(green / total), round(blue / total))
+        # Empty/unused icon cells get the same blue fallback treatment and
+        # bounds as real art; never bypass the readable palette pipeline.
+        accent = QColor('#477B91')
+    else:
+        total, red, green, blue = max(
+            hue_bins.values(), key=lambda values: values[0])
+        accent = QColor(
+            round(red / total), round(green / total), round(blue / total))
     hue, saturation, value, alpha = accent.getHsv()
     if hue < 0:
         hue = 198
     # Retain the icon's hue while putting every fill in the same restrained
-    # value range. This is a category color, not a decorative highlight.
+    # value range. Give the native pixel-art chroma a small, bounded lift so
+    # distinct gems remain recognizable on the dark overlay without turning
+    # the bars into neon category colors.
+    boosted_saturation = saturation + max(10, round(saturation * 0.06))
     return QColor.fromHsv(
-        hue, max(88, min(210, saturation)),
+        hue, max(104, min(220, boosted_saturation)),
         # The label crosses both the filled and empty portions of the bar,
         # so every art-derived fill must remain dark enough for the same
         # off-white text to stay readable across the whole countdown.
         max(102, min(122, value)), alpha)
 
 
+def _spell_bar_contrast(foreground, background):
+    """Return the measured sRGB contrast of a painted label and bar stop."""
+    def luminance(color):
+        channels = []
+        for channel in (color.redF(), color.greenF(), color.blueF()):
+            channels.append(
+                channel / 12.92 if channel <= 0.04045 else
+                ((channel + 0.055) / 1.055) ** 2.4)
+        return (0.2126 * channels[0] + 0.7152 * channels[1] +
+                0.0722 * channels[2])
+
+    foreground_luminance = luminance(foreground)
+    background_luminance = luminance(background)
+    lighter = max(foreground_luminance, background_luminance)
+    darker = min(foreground_luminance, background_luminance)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def _readable_spell_bar_color(color, minimum_contrast=4.5):
+    """Darken only value until off-white timer text meets normal-text AA."""
+    foreground = QColor('#F7F8F8')
+    hue, saturation, value, alpha = color.getHsv()
+    while (value > 0 and
+           _spell_bar_contrast(foreground, color) < minimum_contrast):
+        value -= 1
+        color = QColor.fromHsv(hue, saturation, value, alpha)
+    return color
+
+
 def spell_progress_palette(spell):
-    """Build a restrained flat palette from the spell icon's dominant color."""
+    """Build a moderately chromatic, readable palette from the spell icon."""
     body = _spell_icon_accent(int(getattr(spell, 'spell_icon', 0) or 0))
     hue, saturation, value, alpha = body.getHsv()
-    highlight = QColor.fromHsv(
-        hue, max(58, saturation - 10), min(170, value + 18), alpha)
-    depth = QColor.fromHsv(
-        hue, min(220, saturation + 8), max(62, value - 16), alpha)
+    highlight = _readable_spell_bar_color(QColor.fromHsv(
+        hue, max(96, saturation - 8), min(170, value + 18), alpha))
+    body = _readable_spell_bar_color(body)
+    depth = _readable_spell_bar_color(QColor.fromHsv(
+        hue, min(228, saturation + 10), max(62, value - 16), alpha))
     border = QColor.fromHsv(
-        hue, max(48, saturation - 20), min(162, value + 10), alpha)
+        hue, max(84, saturation - 18), min(162, value + 10), alpha)
     return tuple(color.name(QColor.NameFormat.HexRgb).upper() for color in (
         highlight, body, depth, border))
 
 
 def spell_progress_stylesheet(spell):
-    """A compact flat bar keyed to the real icon artwork."""
+    """A compact, gently dimensional bar keyed to the real icon artwork."""
     highlight, body, depth, border = spell_progress_palette(spell)
     return f"""
         QProgressBar {{
@@ -3157,38 +3285,47 @@ def spell_progress_stylesheet(spell):
             border: 1px solid {border};
             border-radius: 5px;
             padding: 0px;
-            background-color: #0B1015;
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 #111820, stop:0.22 #0C1218, stop:1 #080C10);
         }}
         QProgressBar::chunk {{
             border-radius: 4px;
-            background-color: {body};
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 {highlight}, stop:0.20 {body},
+                stop:0.78 {body}, stop:1 {depth});
         }}
         QProgressBar[Warning="true"] {{
             border-color: #E7B85D;
         }}
         QProgressBar[Warning="true"]::chunk {{
-            background-color: #855312;
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 #A76D1D, stop:0.22 #855312, stop:1 #593509);
         }}
         QProgressBar[Warning="true"][Pulse="true"]::chunk {{
-            background-color: #9A6515;
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 #BC812D, stop:0.22 #9A6515, stop:1 #68410B);
         }}
         QProgressBar[Critical="true"] {{
             border-color: #E35B5B;
         }}
         QProgressBar[Critical="true"]::chunk {{
-            background-color: #B3363C;
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 #D05258, stop:0.22 #B3363C, stop:1 #772329);
         }}
         QProgressBar[Critical="true"][Pulse="true"]::chunk {{
-            background-color: #BC353C;
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 #E25A62, stop:0.22 #BC353C, stop:1 #812229);
         }}
         QProgressBar[Faded="true"] {{
             border-color: #B54149;
         }}
         QProgressBar[Faded="true"]::chunk {{
-            background-color: #9B2831;
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 #BF414A, stop:0.22 #9B2831, stop:1 #671A22);
         }}
         QProgressBar[Faded="true"][Pulse="true"]::chunk {{
-            background-color: #D13E48;
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 #EC626B, stop:0.22 #D13E48, stop:1 #8D232C);
         }}
     """
 

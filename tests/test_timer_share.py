@@ -209,6 +209,7 @@ invalid_rejected = (
 
 print(json.dumps({
     "accessible_name": panel.share_button.accessibleName(),
+    "accessible_description": panel.share_button.accessibleDescription(),
     "tooltip": panel.share_button.toolTip(),
     "strong_focus": focus_policy,
     "shortcut_while_header_hidden": shortcut_while_header_hidden,
@@ -243,9 +244,20 @@ def test_timer_panel_share_button_and_automatic_log_import(tmp_path):
         timeout=40)
     result = json.loads(completed.stdout.strip().splitlines()[-1])
 
-    assert result["accessible_name"] == "Share visible timers"
-    assert "zone view" in result["tooltip"]
+    assert result["accessible_name"] == "Share visible zone timers by code"
+    assert "currently visible zone timers" in result["accessible_description"]
+    assert "correct zone" in result["accessible_description"]
+    assert "without an import dialog" in result["accessible_description"]
+    assert "expire after 24 hours" in result["accessible_description"]
+    assert "this zone's visible timers" in result["tooltip"]
     assert "Ctrl+Shift+S" in result["tooltip"]
+    assert "/tell, /say, Discord" in result["tooltip"]
+    assert "Vantage and /log on" in result["tooltip"]
+    assert "no import dialog" in result["tooltip"]
+    assert "creation time to adjust elapsed time" in result["tooltip"]
+    assert "adds or refreshes" in result["tooltip"]
+    assert "correct zone" in result["tooltip"]
+    assert "expire after 24 hours" in result["tooltip"]
     assert result["strong_focus"] is True
     assert result["shortcut_while_header_hidden"] is True
     assert result["button_activated"] is True

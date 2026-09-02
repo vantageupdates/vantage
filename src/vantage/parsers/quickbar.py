@@ -21,6 +21,7 @@ class QuickBar(ParserWindow):
 
     name = "quickbar"
     _allow_clickthrough = False
+    _LOG_ONLINE_DEBOUNCE_MS = 2000
 
     def __init__(self, application, window_targets):
         self._application = application
@@ -34,6 +35,8 @@ class QuickBar(ParserWindow):
         self._tick_snapshot = None
         self._snapping_height = False
         self._last_orientation_toggle = 0.0
+        self._log_online = False
+        self._log_pulse_on = False
         super().__init__()
         # Qt normally suppresses tooltips while EverQuest owns focus. This
         # attribute keeps hover help available without activating Vantage.
@@ -127,14 +130,27 @@ class QuickBar(ParserWindow):
             "Like this project? Support it — Buy Me a Coffee")
         support.setAccessibleDescription(
             "Opens the Vantage support page in your default browser")
-        # Animate the real vector-icon button. A nested opacity effect inside
-        # QGraphicsProxyWidget could disappear and obscure click feedback on
-        # some Windows GPUs; a lightweight style pulse remains crisp.
+        # Alternate fixed-size vector artwork instead of resizing or applying
+        # a graphics effect. Effects and animated icon geometry can disappear
+        # inside QGraphicsProxyWidget on some Windows graphics drivers.
         self._support_pulse_on = False
         self._support_pulse_timer = QTimer(self)
         self._support_pulse_timer.setInterval(520)
+        self._support_pulse_timer.setTimerType(Qt.TimerType.CoarseTimer)
         self._support_pulse_timer.timeout.connect(
             self._advance_support_pulse)
+
+        self._log_pulse_timer = QTimer(self)
+        self._log_pulse_timer.setInterval(620)
+        self._log_pulse_timer.setTimerType(Qt.TimerType.CoarseTimer)
+        self._log_pulse_timer.timeout.connect(self._advance_log_pulse)
+        self._log_online_debounce = QTimer(self)
+        self._log_online_debounce.setSingleShot(True)
+        self._log_online_debounce.setInterval(
+            self._LOG_ONLINE_DEBOUNCE_MS)
+        self._log_online_debounce.setTimerType(Qt.TimerType.CoarseTimer)
+        self._log_online_debounce.timeout.connect(
+            self._start_log_animation_if_stable)
 
         self.action_frame.setLayout(self.action_layout)
         self.content.addWidget(
@@ -241,6 +257,7 @@ class QuickBar(ParserWindow):
     def hideEvent(self, event):
         super().hideEvent(event)
         self._sync_support_animation()
+        self._sync_log_animation()
 
     def _parser_settings_config_update_watcher(self):
         super()._parser_settings_config_update_watcher()
@@ -339,6 +356,7 @@ class QuickBar(ParserWindow):
             button.setVisible(visible)
             visible_count += int(visible)
         self._sync_support_animation()
+        self._sync_log_animation()
 
         tick_visible = bool(settings.get("show_server_tick", True))
         self.tick_readout.setVisible(tick_visible)
@@ -457,20 +475,15 @@ class QuickBar(ParserWindow):
             "All sounds are muted" if muted else "Sounds are active")
 
         status = str(getattr(
-            self._application, "_log_status", "NO LOGS"))
+            self._application, "_log_status", "NO LOGS")).strip().upper()
         logs_button = self._buttons["log_status"]
-        online = status.strip().upper() == "ONLINE"
+        online = status == "ONLINE"
+        self._log_online = online
         logs_button.setProperty("Status", status.casefold().replace(" ", "_"))
         logs_button.setProperty("LogOnline", online)
-        logs_button.setIcon(game_icon(
-            "ph-pulse-online" if online else "ph-pulse"))
-        logs_button.setStyle(logs_button.style())
-        logs_button.setToolTip(
-            f"Logs: {status} · click to inspect every log profile")
         logs_button.setAccessibleName(f"Log Status: {status}")
-        logs_button.setAccessibleDescription(
-            "Live log activity detected; monitoring is online" if online else
-            f"Log monitoring status is {status}")
+        self._apply_log_status_copy(status)
+        self._sync_log_animation()
 
         update_ready = self._application.new_version_available()
         update_button = self._buttons["updates"]
@@ -515,20 +528,118 @@ class QuickBar(ParserWindow):
             self._apply_support_pulse()
 
     def _advance_support_pulse(self):
+        if not self._support_animation_enabled():
+            self._sync_support_animation()
+            return
         self._support_pulse_on = not self._support_pulse_on
         self._apply_support_pulse()
+
+    def _support_animation_enabled(self):
+        support = self._buttons.get("support")
+        return bool(
+            support is not None and self.isVisible() and support.isVisible() and
+            not config.data["general"].get("reduce_motion", False))
 
     def _apply_support_pulse(self):
         support = self._buttons.get("support")
         if support is None:
             return
         support.setProperty("Pulse", self._support_pulse_on)
-        # Pulse the actual vector mug, not only its surrounding button. The
-        # two sizes are rasterized from SVG and stay sharp at high DPI.
-        support.setIconSize(QSize(
-            18 if self._support_pulse_on else 13,
-            18 if self._support_pulse_on else 13))
-        support.setStyle(support.style())
+        support.setIcon(game_icon(
+            "ph-coffee-bright" if self._support_pulse_on else
+            "ph-coffee-rest"))
+        support.setIconSize(QSize(16, 16))
+        self._repolish_animation_button(support)
+
+    def _sync_log_animation(self):
+        logs_button = self._buttons.get("log_status")
+        if logs_button is None or not hasattr(self, "_log_pulse_timer"):
+            return
+        if self._log_animation_enabled():
+            if (not self._log_pulse_timer.isActive() and
+                    not self._log_online_debounce.isActive()):
+                self._log_pulse_on = False
+                self._apply_log_pulse()
+                self._log_online_debounce.start()
+        else:
+            self._log_online_debounce.stop()
+            self._log_pulse_timer.stop()
+            self._log_pulse_on = False
+            self._apply_log_pulse()
+            if self._log_online:
+                self._apply_log_status_copy("ONLINE")
+
+    def _start_log_animation_if_stable(self):
+        if not self._log_animation_enabled():
+            self._sync_log_animation()
+            return
+        self._log_pulse_on = True
+        self._apply_log_pulse()
+        self._log_pulse_timer.start()
+        self._apply_log_status_copy("ONLINE", stable=True)
+
+    def _log_animation_enabled(self):
+        logs_button = self._buttons.get("log_status")
+        return bool(
+            logs_button is not None and self._log_online and
+            self.isVisible() and logs_button.isVisible() and
+            not config.data["general"].get("reduce_motion", False))
+
+    def _advance_log_pulse(self):
+        if not self._log_animation_enabled():
+            self._sync_log_animation()
+            return
+        self._log_pulse_on = not self._log_pulse_on
+        self._apply_log_pulse()
+
+    def _apply_log_pulse(self):
+        logs_button = self._buttons.get("log_status")
+        if logs_button is None:
+            return
+        logs_button.setProperty(
+            "LivePulse", self._log_online and self._log_pulse_on)
+        if self._log_online:
+            icon_name = (
+                "ph-pulse-online-bright" if self._log_pulse_on else
+                "ph-pulse-online-rest")
+        else:
+            icon_name = "ph-pulse"
+        logs_button.setIcon(game_icon(icon_name))
+        logs_button.setIconSize(QSize(16, 16))
+        self._repolish_animation_button(logs_button)
+
+    def _apply_log_status_copy(self, status, stable=False):
+        logs_button = self._buttons.get("log_status")
+        if logs_button is None:
+            return
+        if self._log_online:
+            motion_off = config.data["general"].get(
+                "reduce_motion", False)
+            if stable:
+                state = "stable live log activity detected"
+            elif motion_off:
+                state = "live log activity detected; animation is disabled"
+            else:
+                state = "live log activity detected; verifying stability"
+            logs_button.setToolTip(
+                f"Logs: ONLINE · {state} · "
+                "click to inspect every log profile")
+            logs_button.setAccessibleDescription(
+                state.capitalize() + "; monitoring is ONLINE")
+            return
+        logs_button.setToolTip(
+            f"Logs: {status} · click to inspect every log profile")
+        logs_button.setAccessibleDescription(
+            f"Log monitoring status is {status}")
+
+    def _repolish_animation_button(self, button):
+        """Refresh proxy-hosted button state without changing its geometry."""
+        style = button.style()
+        style.unpolish(button)
+        style.polish(button)
+        button.update()
+        self.action_frame.update()
+        self._scale_view.viewport().update()
 
     def _trigger(self, key):
         if key in self._window_targets:

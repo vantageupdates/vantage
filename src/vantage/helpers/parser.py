@@ -257,6 +257,26 @@ class ParserWindow(QWidget):
         self._menu_content.addWidget(self._title_icon, 0)
         self._menu_content.addWidget(self._title, 1)
         self._menu_content.addWidget(self._parser_menu_area, 0)
+        self._header_overflow_button = QToolButton()
+        # Reuse the established chrome-button metrics without introducing a
+        # second visual family into the tiny title strip.
+        self._header_overflow_button.setObjectName(
+            "ParserWindowSettingsButton")
+        self._header_overflow_button.setIcon(game_icon("ph-stack"))
+        self._header_overflow_button.setIconSize(QSize(13, 13))
+        self._header_overflow_button.setPopupMode(
+            QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._header_overflow_button.setAccessibleName(
+            "More window actions")
+        self._header_overflow_button.setToolTip(
+            "Open header actions that do not fit beside the window title")
+        self._header_overflow_menu = QMenu(self._header_overflow_button)
+        self._header_overflow_menu.setToolTipsVisible(True)
+        self._header_overflow_menu.aboutToShow.connect(
+            self._rebuild_header_overflow_menu)
+        self._header_overflow_button.setMenu(self._header_overflow_menu)
+        self._header_overflow_button.hide()
+        self._menu_content.addWidget(self._header_overflow_button)
         self._settings_button = QToolButton()
         self._settings_button.setObjectName("ParserWindowSettingsButton")
         self._settings_button.setIcon(game_icon("settings"))
@@ -368,6 +388,12 @@ class ParserWindow(QWidget):
         self._geometry_save_timer.setInterval(450)
         self._geometry_save_timer.timeout.connect(self._save_geometry)
 
+        self._header_pack_timer = QTimer(self)
+        self._header_pack_timer.setSingleShot(True)
+        self._header_pack_timer.timeout.connect(self._pack_header_controls)
+        self._header_overflowed = []
+        self._packing_header = False
+
         self._set_flags()
 
         QApplication.instance()._signals["settings"].config_updated.connect(
@@ -419,6 +445,184 @@ class ParserWindow(QWidget):
         for control in self._parser_menu_area.findChildren(QAbstractButton):
             if not control.icon().isNull():
                 control.setIconSize(QSize(13, 13))
+        self._schedule_header_pack()
+
+    def _schedule_header_pack(self):
+        timer = getattr(self, "_header_pack_timer", None)
+        if timer is not None and not self._packing_header:
+            timer.start(0)
+
+    def _header_menu_widgets(self):
+        widgets = []
+        for index in range(self.menu_area.count()):
+            widget = self.menu_area.itemAt(index).widget()
+            if widget is not None:
+                widgets.append(widget)
+        return widgets
+
+    @staticmethod
+    def _header_widget_width(widget):
+        hint = widget.sizeHint()
+        minimum_hint = widget.minimumSizeHint()
+        return max(
+            0, widget.minimumWidth(),
+            hint.width() if hint.isValid() else 0,
+            minimum_hint.width() if minimum_hint.isValid() else 0)
+
+    def _header_menu_required_width(self, widgets):
+        visible = [widget for widget in widgets if not widget.isHidden()]
+        margins = self.menu_area.contentsMargins()
+        width = margins.left() + margins.right()
+        width += sum(self._header_widget_width(widget) for widget in visible)
+        if len(visible) > 1:
+            width += self.menu_area.spacing() * (len(visible) - 1)
+        return width
+
+    def _header_menu_available_width(self, overflow_visible=False):
+        """Return the safe logical width left between title and chrome."""
+        logical_width = max(
+            1, getattr(self, "_logical_surface_width", 0),
+            self._design_size.width())
+        margins = self._menu_content.contentsMargins()
+        fixed = (
+            self._button, self._title_icon, self._settings_button,
+            self._roll_button, self._minimize_button)
+        fixed_width = sum(self._header_widget_width(widget) for widget in fixed)
+        title_pixels = self._title.fontMetrics().horizontalAdvance(
+            self._title.text()) + 5
+        title_reserve = max(36, min(
+            title_pixels, max(36, round(logical_width * 0.34))))
+        self._title.setMinimumWidth(title_reserve)
+        root_widgets = 7 + int(overflow_visible)
+        root_spacing = self._menu_content.spacing() * (root_widgets - 1)
+        overflow_width = (
+            self._header_widget_width(self._header_overflow_button)
+            if overflow_visible else 0)
+        return max(
+            0, logical_width - margins.left() - margins.right() -
+            fixed_width - title_reserve - root_spacing - overflow_width)
+
+    @staticmethod
+    def _header_control_label(control):
+        label = str(control.accessibleName() or "").strip()
+        if not label:
+            label = str(control.toolTip() or "").split("\n", 1)[0].strip()
+        if not label:
+            label = str(control.objectName() or "Window action").strip()
+        return label
+
+    def _header_overflow_candidates(self, widgets):
+        candidates = []
+        for index, widget in enumerate(widgets):
+            if widget.property("HeaderAlwaysVisible") is True:
+                continue
+            buttons = (
+                [widget] if isinstance(widget, QAbstractButton) else
+                widget.findChildren(QAbstractButton))
+            if not buttons:
+                # Live readouts, combo boxes and spin boxes remain in place.
+                # Hiding an input would make the current value undiscoverable.
+                continue
+            try:
+                priority = int(widget.property("HeaderPriority") or 0)
+            except (TypeError, ValueError):
+                priority = 0
+            # Right-most actions are normally least frequent (clear, share,
+            # mobile).  Explicit HeaderPriority can override that convention.
+            candidates.append((priority, index, widget))
+        return [item[2] for item in sorted(
+            candidates, key=lambda item: (item[0], item[1]), reverse=True)]
+
+    def _pack_header_controls(self):
+        """Move lower-priority actions into one menu before any collision."""
+        if self._packing_header or not hasattr(self, "_header_overflow_button"):
+            return
+        self._packing_header = True
+        try:
+            # Restore only controls hidden by this packer, then measure the
+            # complete authored header again.  Subclass-hidden controls that
+            # were never overflowed remain untouched.
+            for widget in tuple(self._header_overflowed):
+                try:
+                    widget.show()
+                except RuntimeError:
+                    pass
+            self._header_overflowed = []
+            self._header_overflow_button.hide()
+            self.menu_area.activate()
+            self._menu_content.activate()
+
+            widgets = self._header_menu_widgets()
+            required = self._header_menu_required_width(widgets)
+            if required > self._header_menu_available_width(False):
+                available = self._header_menu_available_width(True)
+                for widget in self._header_overflow_candidates(widgets):
+                    widget.hide()
+                    self._header_overflowed.append(widget)
+                    required = self._header_menu_required_width(widgets)
+                    if required <= available:
+                        break
+            self._header_overflow_button.setVisible(
+                bool(self._header_overflowed))
+            self._rebuild_header_overflow_menu()
+            self.menu_area.activate()
+            self._menu_content.activate()
+            self._menu.updateGeometry()
+        finally:
+            self._packing_header = False
+
+    def _add_header_button_to_overflow(self, menu, button):
+        label = self._header_control_label(button)
+        button_menu = button.menu() if isinstance(button, QToolButton) else None
+        if button_menu is not None:
+            submenu = menu.addMenu(button.icon(), label)
+            submenu.setToolTipsVisible(True)
+            if button.popupMode() != QToolButton.ToolButtonPopupMode.InstantPopup:
+                primary = submenu.addAction(button.icon(), label)
+                primary.setCheckable(button.isCheckable())
+                primary.setChecked(button.isChecked())
+                primary.setEnabled(button.isEnabled())
+                primary.setToolTip(button.toolTip())
+                primary.triggered.connect(
+                    lambda _checked=False, control=button: control.click())
+                submenu.addSeparator()
+            for original in button_menu.actions():
+                if original.isSeparator():
+                    submenu.addSeparator()
+                    continue
+                proxy = submenu.addAction(original.icon(), original.text())
+                proxy.setCheckable(original.isCheckable())
+                proxy.setChecked(original.isChecked())
+                proxy.setEnabled(original.isEnabled())
+                proxy.setToolTip(original.toolTip())
+                proxy.triggered.connect(
+                    lambda _checked=False, action=original: action.trigger())
+            return
+        action = menu.addAction(button.icon(), label)
+        action.setCheckable(button.isCheckable())
+        action.setChecked(button.isChecked())
+        action.setEnabled(button.isEnabled())
+        action.setToolTip(button.toolTip())
+        action.triggered.connect(
+            lambda _checked=False, control=button: control.click())
+
+    def _rebuild_header_overflow_menu(self):
+        menu = getattr(self, "_header_overflow_menu", None)
+        if menu is None:
+            return
+        menu.clear()
+        for widget in self._header_overflowed:
+            buttons = (
+                [widget] if isinstance(widget, QAbstractButton) else
+                widget.findChildren(QAbstractButton))
+            if len(buttons) > 1:
+                submenu = menu.addMenu(
+                    self._header_control_label(widget))
+                submenu.setToolTipsVisible(True)
+                for button in buttons:
+                    self._add_header_button_to_overflow(submenu, button)
+            elif buttons:
+                self._add_header_button_to_overflow(menu, buttons[0])
 
     def _parser_settings_config_update_watcher(self):
         requies_redraw = False
@@ -744,7 +948,7 @@ class ParserWindow(QWidget):
         return {
             "maps": "Maps", "spells": "Buffs & Triggers",
             "timers": "Smart Timers", "combat": "Combat",
-            "heals": "Heal Chain", "market": "Green Market",
+            "heals": "Heal Chain", "market": "Market",
             "quickbar": "Quick Bar", "tick": "Appearance",
         }.get(self.name, "Appearance")
 
@@ -900,6 +1104,7 @@ class ParserWindow(QWidget):
                     round(size.height() * scale))
                 self._fit_to_available_screen()
             self._update_uniform_scale()
+            self._schedule_header_pack()
 
     def _resize_scale_proxy(self, width, height):
         """Synchronize proxy constraints after its embedded canvas changes."""
@@ -1010,6 +1215,7 @@ class ParserWindow(QWidget):
     def _set_collapsed(self, collapsed):
         collapsed = bool(collapsed)
         if collapsed:
+            self._pack_header_controls()
             self._expanded_width = max(
                 getattr(self, "_expanded_width", 0), self.width())
             self._expanded_height = max(
@@ -1074,6 +1280,7 @@ class ParserWindow(QWidget):
         if not collapsed:
             self._set_scaled_minimum_size()
         self._update_uniform_scale()
+        self._schedule_header_pack()
         config.data[self.name]["collapsed"] = collapsed
         self._save_geometry()
 
@@ -1081,8 +1288,8 @@ class ParserWindow(QWidget):
         """Return the logical width required by the visible header only."""
         widgets = (
             self._button, self._title_icon, self._title,
-            self._parser_menu_area, self._settings_button, self._roll_button,
-            self._minimize_button)
+            self._parser_menu_area, self._header_overflow_button,
+            self._settings_button, self._roll_button, self._minimize_button)
         visible = [widget for widget in widgets if widget.isVisible()]
         margins = self._menu_content.contentsMargins()
         width = margins.left() + margins.right()
@@ -1167,6 +1374,7 @@ class ParserWindow(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         QTimer.singleShot(0, self._update_uniform_scale)
+        self._schedule_header_pack()
         self._layout_resize_handles()
         self._update_window_mask()
         self._schedule_geometry_save()

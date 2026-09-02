@@ -6,7 +6,8 @@ from PySide6.QtCore import Qt
 
 from vantage.parsers.market import (
     MarketModel, combined_market_price, parse_wiki_entity_wikitext,
-    parse_wiki_green_auction_html, parse_wiki_item_wikitext)
+    parse_wiki_auction_html, parse_wiki_green_auction_html,
+    parse_wiki_item_wikitext)
 
 
 WIKI_ITEM = """
@@ -141,6 +142,21 @@ def test_green_wiki_auction_prices_are_extracted_without_all_time_pollution():
     assert auction["reference_period"] == "30d"
     assert auction["recent_median"] == 900
     assert auction["last_date"] == "2026-08-02"
+
+
+def test_blue_wiki_price_is_selected_without_reading_green_section():
+    blue_html = WIKI_AUCTION_HTML.replace(
+        '<div id="auc_Green"', '<div id="auc_Blue"').replace(
+            "933 &#177; 47", "1,733 &#177; 47")
+    combined = WIKI_AUCTION_HTML + blue_html
+
+    blue = parse_wiki_auction_html(combined, "Blue")
+    green = parse_wiki_auction_html(combined, "Green")
+
+    assert blue["avg_30"] == 1733
+    assert blue["source"].endswith("· Blue")
+    assert green["avg_30"] == 933
+    assert green["source"].endswith("· Green")
 
 
 def test_pig_and_wiki_are_averaged_only_when_close():
