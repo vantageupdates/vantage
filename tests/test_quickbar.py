@@ -302,6 +302,14 @@ def test_quickbar_config_defaults_are_safe_and_complete(tmp_path, monkeypatch):
         config.data = original
 
 
+def test_quickbar_uses_one_distinct_icon_per_action():
+    from vantage.helpers.quickbar_items import QUICKBAR_ITEMS
+
+    icons = [icon for _key, _label, icon, _group in QUICKBAR_ITEMS]
+    assert len(icons) == len(set(icons))
+    assert all(icon.startswith("ph-") for icon in icons)
+
+
 def test_quickbar_repairs_hidden_support_once_and_preserves_later_choice(
         tmp_path, monkeypatch):
     monkeypatch.setattr(config, '_filename', str(tmp_path / 'config.json'))

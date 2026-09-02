@@ -1,9 +1,12 @@
-from PySide6.QtWidgets import QApplication, QFileDialog, QTabWidget, QWidget
+import os
+
+from PySide6.QtWidgets import QApplication, QSpinBox
 
 from vantage.parsers.market import (
-    AuctionComposer, AuctionEntry, GearItem, P99_CHAT_LIMIT,
+    AuctionComposer, AuctionEntry, AuctionQuantity, GearItem, P99_CHAT_LIMIT,
     P99_ITEM_LINK_DELIMITER, compose_auction_lines,
-    normalize_auction_price, p99_item_link, parse_p99_inventory)
+    find_latest_p99_inventory, normalize_auction_price, p99_item_link,
+    parse_p99_inventory)
 from vantage.helpers.eq_clipboard import clipboard_payloads
 
 
@@ -75,7 +78,8 @@ def test_wtb_messages_are_plain_text_even_with_valid_item_ids():
     assert P99_ITEM_LINK_DELIMITER not in lines[0]
 
 
-def test_auction_composer_requires_imported_id_then_copies_real_wts_link(tmp_path):
+def test_composer_copies_plain_wts_immediately_then_upgrades_to_item_links(
+        tmp_path):
     app = _app()
     composer = AuctionComposer(lambda name: 80000 if name == "Manastone" else 0)
     composer.set_catalog([
@@ -86,8 +90,12 @@ def test_auction_composer_requires_imported_id_then_copies_real_wts_link(tmp_pat
 
     assert composer.add_search_item()
     assert composer.items.rowCount() == 1
-    assert not composer.copy_button.isEnabled()
-    assert "Import /outputfile inventory" in composer.preview_status.text()
+    assert composer.copy_button.isEnabled()
+    assert "plain text" in composer.preview_status.text()
+    assert composer.copy_next()
+    copied = app.clipboard().text()
+    assert copied == "WTS Manastone 80000p PST"
+    assert P99_ITEM_LINK_DELIMITER not in copied
 
     inventory = tmp_path / "Mindflux-Inventory.txt"
     inventory.write_text("General1 Manastone 13401 1 5\n", encoding="utf-8")
@@ -108,32 +116,23 @@ def test_auction_composer_requires_imported_id_then_copies_real_wts_link(tmp_pat
     composer.close()
 
 
-def test_inventory_picker_stays_outside_scaled_market_surface(
-        tmp_path, monkeypatch):
+def test_inventory_links_are_discovered_automatically_without_a_file_picker(
+        tmp_path):
     _app()
-    market_window = QWidget()
-    composer = AuctionComposer(parent=market_window)
-    tabs = QTabWidget()
-    tabs.addTab(composer, "WTS / WTB Builder")
+    older = tmp_path / "Old-Inventory.txt"
+    older.write_text("General1 Old Item 1 1 5\n", encoding="utf-8")
     inventory = tmp_path / "Mindflux-Inventory.txt"
     inventory.write_text("General1 Manastone 13401 1 5\n", encoding="utf-8")
-    captured = {}
+    os.utime(older, (1, 1))
+    os.utime(inventory, (2, 2))
+    composer = AuctionComposer()
+    composer._inventory_search_roots = lambda: (tmp_path,)
 
-    def choose_file(parent, caption, start, file_filter, **kwargs):
-        captured.update(
-            parent=parent, caption=caption, start=start,
-            file_filter=file_filter, options=kwargs.get("options"))
-        return str(inventory), "EverQuest inventory (*.txt)"
-
-    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(choose_file))
-
-    assert composer.import_inventory()
-    assert captured["parent"] is market_window
-    assert captured["options"] & QFileDialog.Option.DontUseNativeDialog
-    assert composer.parentWidget() is not market_window
-    assert "authentic item IDs ready" in composer.inventory_status.text()
-    tabs.close()
-    market_window.close()
+    assert find_latest_p99_inventory((tmp_path,)) == inventory
+    composer.import_button.click()
+    assert composer._verified_ids["manastone"] == 13401
+    assert "Clickable links ready" in composer.inventory_status.text()
+    composer.close()
 
 
 def test_wtb_is_simple_and_does_not_require_an_inventory_export():
@@ -166,6 +165,25 @@ def test_default_wts_quantity_is_easy_to_read_before_the_item():
     assert line.startswith("WTS 2x ")
     assert "Manastone" in line
     assert line.endswith(" 80k PST")
+
+
+def test_quantity_uses_compact_themed_minus_and_plus_buttons():
+    _app()
+    composer = AuctionComposer()
+    composer.set_catalog([GearItem("Manastone")])
+    composer.item_search.setText("Manastone")
+    assert composer.add_search_item()
+    quantity = composer.items.cellWidget(0, 2)
+
+    assert isinstance(quantity, AuctionQuantity)
+    assert not quantity.findChildren(QSpinBox)
+    quantity.plus.click()
+    assert quantity.value() == 2
+    assert composer.preview.toPlainText().startswith("1. WTS 2x ")
+    assert "Manastone" in composer.preview.toPlainText()
+    quantity.minus.click()
+    assert quantity.value() == 1
+    composer.close()
 
 
 def test_paste_help_expands_inline_without_opening_a_dialog():

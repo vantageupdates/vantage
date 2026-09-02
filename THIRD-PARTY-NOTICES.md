@@ -32,6 +32,11 @@ The Windows executable includes the following open-source runtime components:
   compact subset to native Qt controls. The upstream license is packaged as
   `data/ui/icons/COREUI-LICENSE.txt`.
   https://github.com/coreui/coreui-icons
+- Phosphor Icons — the bold SVG action icons are licensed under the MIT
+  License. Copyright Phosphor Icons. Vantage recolors and bundles a compact
+  subset; the upstream license is packaged as
+  `data/ui/icons/PHOSPHOR-LICENSE.txt`.
+  https://github.com/phosphor-icons/core
 
 The six bundled Vantage notification sounds are original procedural assets
 dedicated to the public domain under CC0 1.0. Their notice is included at

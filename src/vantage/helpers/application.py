@@ -42,7 +42,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=10,
+    patch=11,
     build=""
 )
 
@@ -675,7 +675,7 @@ class VantageApp(QApplication):
         update_action = menu.addAction(
             f"Update Available · {latest.version}…"
             if self.new_version_available() else "Check for Updates…")
-        update_action.setIcon(game_icon("refresh"))
+        update_action.setIcon(game_icon("ph-download"))
         update_action.setToolTip(
             "Check the official vantageupdates/vantage GitHub Release, then "
             "download and verify Vantage.exe")
@@ -685,12 +685,15 @@ class VantageApp(QApplication):
         log_status_action.setToolTip(
             "Type /log on in EverQuest and link the EverQuest\\Logs folder")
         get_eq_dir_action = menu.addAction('Select Logs Folder')
+        get_eq_dir_action.setIcon(game_icon('ph-folder-open'))
         get_eq_dir_action.setToolTip(
             "First type /log on in EverQuest, then select the EverQuest\\Logs folder")
         log_help_action = menu.addAction('How Do I Link Logs?')
+        log_help_action.setIcon(game_icon('ph-file-search'))
         log_help_action.setToolTip(
             "Show how to enable /log on and select the correct folder")
         log_profiles_action = menu.addAction('Log Profiles…')
+        log_profiles_action.setIcon(game_icon('ph-stack'))
         log_profiles_action.setToolTip(
             'Show ACTIVE, QUIET, or STALE state for every character log')
         menu.addSeparator()
@@ -700,6 +703,7 @@ class VantageApp(QApplication):
         last_audio_action.setToolTip(
             "Shows exactly which alert produced the most recent sound")
         mute_audio_action = menu.addAction('Mute All Sounds')
+        mute_audio_action.setIcon(game_icon('ph-mute'))
         mute_audio_action.setCheckable(True)
         mute_audio_action.setChecked(audio_muted())
         mute_audio_action.setToolTip(
@@ -723,32 +727,33 @@ class VantageApp(QApplication):
             parser_toggles[toggle] = parser
 
         spell_library_action = menu.addAction('Spell Library…')
-        spell_library_action.setIcon(game_icon('spells'))
+        spell_library_action.setIcon(game_icon('ph-spellbook'))
         spell_library_action.setToolTip(
             'Search P99 spells by class and level, including Wiki acquisition and prices')
 
         menu.addSeparator()
         settings_action = menu.addAction('Settings')
-        settings_action.setIcon(game_icon('settings'))
+        settings_action.setIcon(game_icon('ph-settings'))
         mobile_action = menu.addAction('Vantage on Your Phone')
-        mobile_action.setIcon(game_icon('mobile'))
+        mobile_action.setIcon(game_icon('ph-mobile'))
         reload_ui_action = menu.addAction('Reload Vantage UI')
-        reload_ui_action.setIcon(game_icon('refresh'))
+        reload_ui_action.setIcon(game_icon('ph-reload'))
         reload_ui_action.setToolTip(
             'Reload the theme, layouts and visible data without closing EverQuest')
         support_action = menu.addAction('Buy me a coffee')
-        support_action.setIcon(game_icon('support'))
+        support_action.setIcon(game_icon('ph-coffee'))
         support_action.setToolTip(
             'Open Vantage Buy Me a Coffee in your default browser')
         support_font = support_action.font()
         support_font.setBold(True)
         support_action.setFont(support_font)
         about_action = menu.addAction('About Vantage…')
-        about_action.setIcon(game_icon('compact'))
+        about_action.setIcon(game_icon('ph-info'))
         about_action.setToolTip(
             'View the Vantage version, source code, and open-source licenses')
         menu.addSeparator()
         quit_action = menu.addAction('Quit')
+        quit_action.setIcon(game_icon('ph-power'))
 
         action = menu.exec(QCursor.pos())
 

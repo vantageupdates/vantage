@@ -1,4 +1,4 @@
-"""Small, original icon set shared by every Vantage surface."""
+"""Crisp bundled vector icons shared by every Vantage surface."""
 
 from functools import lru_cache
 
@@ -10,13 +10,13 @@ from vantage.helpers import resource_path
 
 WINDOW_ICONS = {
     "quickbar": "compact",
-    "maps": "map",
-    "spells": "bolt",
-    "tick": "tick",
-    "timers": "timer",
-    "combat": "combat",
-    "heals": "heal",
-    "market": "market",
+    "maps": "ph-map",
+    "spells": "ph-wand",
+    "tick": "ph-gauge",
+    "timers": "ph-countdown",
+    "combat": "ph-sword",
+    "heals": "ph-heal",
+    "market": "ph-storefront",
 }
 
 

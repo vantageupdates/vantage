@@ -360,6 +360,38 @@ QListWidget:focus { border: 1px solid #A88B57; }
 QLineEdit:disabled, QTextEdit:disabled, QPlainTextEdit:disabled,
 QSpinBox:disabled, QComboBox:disabled { color: #6B7076; background-color: #0E1114; border-color: #292E34; }
 
+#AuctionQuantity {
+    background-color: #101317;
+    border: 1px solid #393F46;
+    border-radius: 6px;
+}
+QToolButton#AuctionQuantityButton {
+    color: #D8D4CC;
+    background-color: transparent;
+    border: none;
+    border-radius: 4px;
+    min-width: 20px;
+    max-width: 20px;
+    min-height: 20px;
+    max-height: 20px;
+    padding: 0;
+    font-size: 13px;
+    font-weight: bold;
+}
+QToolButton#AuctionQuantityButton:hover {
+    color: #FFF6DD;
+    background-color: #2B3036;
+}
+QToolButton#AuctionQuantityButton:pressed { background-color: #403721; }
+QToolButton#AuctionQuantityButton:disabled { color: #545A60; }
+#AuctionQuantityValue {
+    color: #F0ECE3;
+    background-color: transparent;
+    border: none;
+    min-width: 19px;
+    font-weight: bold;
+}
+
 QComboBox::drop-down { border: none; width: 20px; }
 QComboBox QAbstractItemView {
     background-color: #15181C;

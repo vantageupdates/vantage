@@ -9,6 +9,7 @@ import hashlib
 import hmac
 import html
 import json
+import os
 from pathlib import Path
 import re
 import sqlite3
@@ -23,8 +24,8 @@ from PySide6.QtGui import QColor, QFont, QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QComboBox, QCompleter, QDialog, QFrame,
-    QFileDialog, QGridLayout, QHBoxLayout, QHeaderView, QLayout, QLabel, QLineEdit,
-    QMessageBox, QPlainTextEdit, QPushButton, QSpinBox, QTabWidget,
+    QGridLayout, QHBoxLayout, QHeaderView, QLayout, QLabel, QLineEdit,
+    QMessageBox, QPlainTextEdit, QPushButton, QTabWidget,
     QTableView, QTableWidget, QTableWidgetItem, QSizePolicy, QToolButton,
     QVBoxLayout, QWidget)
 
@@ -322,6 +323,30 @@ def parse_p99_inventory(text):
     return tuple(parsed)
 
 
+def find_latest_p99_inventory(directories):
+    """Find the newest direct-child Titanium inventory export safely."""
+    found = {}
+    for raw_path in directories or ():
+        if not raw_path:
+            continue
+        try:
+            candidate = Path(raw_path).expanduser()
+            if candidate.is_file():
+                if candidate.name.casefold().endswith("-inventory.txt"):
+                    found[str(candidate.resolve()).casefold()] = candidate.resolve()
+                continue
+            if not candidate.is_dir():
+                continue
+            for exported in candidate.glob("*-Inventory.txt"):
+                if exported.is_file():
+                    found[str(exported.resolve()).casefold()] = exported.resolve()
+        except (OSError, RuntimeError, ValueError):
+            continue
+    if not found:
+        return None
+    return max(found.values(), key=lambda item: item.stat().st_mtime)
+
+
 def p99_item_link(item_id, display_name):
     """Build the 45-character Titanium item payload used by P99 links."""
     try:
@@ -385,10 +410,12 @@ def compose_auction_lines(
     for entry in entries or ():
         if not isinstance(entry, AuctionEntry):
             entry = AuctionEntry(*entry)
+        plain_name = " ".join(
+            str(entry.name or "").replace("\n", " ").split())
         item_text = (
             p99_item_link(entry.id, entry.name)
-            if trade_type == "WTS" else
-            " ".join(str(entry.name or "").replace("\n", " ").split()))
+            if trade_type == "WTS" and int(entry.id or 0) > 0 else
+            plain_name)
         values = {
             "{item}": item_text,
             "{price}": normalize_auction_price(entry.price),
@@ -1410,16 +1437,68 @@ class WikiEntityCard(UniformScaleDialog):
         self.summary.setText(str(message))
 
 
+class AuctionQuantity(QFrame):
+    """Compact themed quantity stepper without native Windows rockers."""
+
+    valueChanged = Signal(int)
+
+    def __init__(self, item_name="", parent=None):
+        super().__init__(parent)
+        self.setObjectName("AuctionQuantity")
+        self._value = 1
+        self.setAccessibleName(f"Quantity of {item_name}".strip())
+        self.setToolTip(
+            "Choose how many copies; 2 becomes ‘2x Item’ in the message")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(1, 1, 1, 1)
+        layout.setSpacing(1)
+        self.minus = QToolButton()
+        self.minus.setObjectName("AuctionQuantityButton")
+        self.minus.setText("−")
+        self.minus.setAutoRaise(True)
+        self.minus.setAccessibleName(f"Decrease quantity of {item_name}".strip())
+        self.minus.setToolTip("Decrease quantity")
+        self.minus.clicked.connect(lambda: self.setValue(self._value - 1))
+        layout.addWidget(self.minus)
+        self.label = QLabel("1")
+        self.label.setObjectName("AuctionQuantityValue")
+        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label.setAccessibleName(f"Current quantity of {item_name}".strip())
+        layout.addWidget(self.label, 1)
+        self.plus = QToolButton()
+        self.plus.setObjectName("AuctionQuantityButton")
+        self.plus.setText("+")
+        self.plus.setAutoRaise(True)
+        self.plus.setAccessibleName(f"Increase quantity of {item_name}".strip())
+        self.plus.setToolTip("Increase quantity")
+        self.plus.clicked.connect(lambda: self.setValue(self._value + 1))
+        layout.addWidget(self.plus)
+        self._sync()
+
+    def value(self):
+        return self._value
+
+    def setValue(self, value):
+        value = max(1, min(99, int(value)))
+        if value == self._value:
+            return
+        self._value = value
+        self._sync()
+        self.valueChanged.emit(value)
+
+    def _sync(self):
+        self.label.setText(str(self._value))
+        self.label.setAccessibleDescription(
+            f"{self._value} item{'s' if self._value != 1 else ''}")
+        self.minus.setEnabled(self._value > 1)
+        self.plus.setEnabled(self._value < 99)
+
+
 class AuctionComposer(QWidget):
     """Compact WTS/WTB message builder backed by the local P99 item index."""
 
     def __init__(self, price_resolver=None, parent=None):
         super().__init__(parent)
-        # Keep the real top-level parser window as the file-dialog owner.  Once
-        # this widget is inserted into QTabWidget it is reparented inside the
-        # QGraphicsProxyWidget canvas; using that embedded widget as a native
-        # Windows dialog parent can detach/collapse the Market surface.
-        self._dialog_parent = parent
         self._catalog = []
         self._by_name = {}
         self._price_resolver = price_resolver or (lambda _name: 0)
@@ -1434,28 +1513,32 @@ class AuctionComposer(QWidget):
         root.setSpacing(4)
 
         self.guide = QLabel(
-            "SELL: load your EQ inventory once, add items, enter prices, "
-            "then press Copy WTS.")
+            "Search item → Add → set price and quantity → Copy WTS. "
+            "Clickable item links are optional.")
         self.guide.setObjectName("MarketStatSummary")
         self.guide.setWordWrap(True)
         self.guide.setToolTip(
-            "EverQuest writes Character-Inventory.txt in its main folder. "
-            "Vantage reads that text file to obtain authentic item-link IDs.")
+            "Copy works immediately with item names. Optional clickable links "
+            "come from EverQuest's /outputfile inventory command.")
         root.addWidget(self.guide)
 
         source_row = QHBoxLayout()
         source_row.setSpacing(4)
-        self.import_button = QPushButton("Load EQ inventory")
+        self.import_button = QPushButton("Enable item links")
         self.import_button.setIcon(game_icon("import"))
-        self.import_button.setAccessibleName("Import EverQuest inventory output")
+        self.import_button.setAccessibleName(
+            "Automatically find EverQuest inventory item links")
         self.import_button.setToolTip(
-            "Choose the text file created in game by /outputfile inventory")
+            "Optional: type /outputfile inventory in EverQuest, then click here. "
+            "Vantage finds the newest export automatically; no file picker opens.")
         self.import_button.clicked.connect(self.import_inventory)
         source_row.addWidget(self.import_button)
-        self.inventory_status = QLabel("WTS links need an EQ inventory export")
+        self.inventory_status = QLabel(
+            "Optional · first type /outputfile inventory in EQ")
         self.inventory_status.setObjectName("MarketGearSource")
         self.inventory_status.setToolTip(
-            "Vantage never guesses item IDs. WTB messages do not require this file.")
+            "Copy already works as plain text. This optional step adds authentic "
+            "clickable item links to items found in your EQ inventory.")
         source_row.addWidget(self.inventory_status, 1)
         self.paste_help_button = QPushButton("How to paste")
         self.paste_help_button.setIcon(game_icon("help"))
@@ -1510,6 +1593,14 @@ class AuctionComposer(QWidget):
         self.add_button.setToolTip("Add this item to the message builder")
         self.add_button.clicked.connect(self.add_search_item)
         picker.addWidget(self.add_button)
+        self.copy_button = QPushButton("Copy WTS")
+        self.copy_button.setIcon(game_icon("copy"))
+        self.copy_button.setAccessibleName("Copy the EverQuest WTS message")
+        self.copy_button.setToolTip(
+            "Copy the generated message; then use EverQuest's Paste from Clipboard key")
+        self.copy_button.setEnabled(False)
+        self.copy_button.clicked.connect(self.copy_next)
+        picker.addWidget(self.copy_button)
         root.addLayout(picker)
 
         self.advanced_toggle = QToolButton()
@@ -1584,7 +1675,7 @@ class AuctionComposer(QWidget):
         root.addWidget(self.advanced_panel)
 
         self.items = QTableWidget(0, 4)
-        self.items.setHorizontalHeaderLabels(("Item", "Price", "How many", ""))
+        self.items.setHorizontalHeaderLabels(("Item", "Price", "Quantity", ""))
         for column, tooltip in enumerate((
                 "Selected P99 item name",
                 "Editable asking or buying price",
@@ -1605,7 +1696,7 @@ class AuctionComposer(QWidget):
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
         self.items.setColumnWidth(1, 92)
-        self.items.setColumnWidth(2, 70)
+        self.items.setColumnWidth(2, 82)
         self.items.setColumnWidth(3, 34)
         corner = self.items.findChild(QToolButton)
         if corner:
@@ -1625,13 +1716,6 @@ class AuctionComposer(QWidget):
         self.clear_button.setToolTip("Remove all selected items")
         self.clear_button.clicked.connect(self.clear_items)
         preview_header.addWidget(self.clear_button)
-        self.copy_button = QPushButton("Copy WTS")
-        self.copy_button.setIcon(game_icon("copy"))
-        self.copy_button.setAccessibleName("Copy next EverQuest auction message")
-        self.copy_button.setToolTip(
-            "Copy one complete message at a time in Titanium-compatible clipboard formats")
-        self.copy_button.clicked.connect(self.copy_next)
-        preview_header.addWidget(self.copy_button)
         root.addLayout(preview_header)
 
         self.preview = QPlainTextEdit()
@@ -1674,9 +1758,9 @@ class AuctionComposer(QWidget):
     def _trade_type_changed(self, *_args):
         selling = self.trade_type.currentIndex() == 0
         self.guide.setText(
-            "SELL: load your EQ inventory once, add items, enter prices, "
-            "then press Copy WTS." if selling else
-            "BUY: search the item, enter your offer and quantity, then press Copy WTB.")
+            "Search item → Add → set price and quantity → Copy WTS. "
+            "Clickable item links are optional." if selling else
+            "Search item → Add → set your offer and quantity → Copy WTB.")
         self.import_button.setVisible(selling)
         self.inventory_status.setVisible(selling)
         self.copy_button.setText("Copy WTS" if selling else "Copy WTB")
@@ -1714,15 +1798,12 @@ class AuctionComposer(QWidget):
         self._refresh_catalog_model()
 
     def _refresh_catalog_model(self):
-        wts_mode = self.trade_type.currentIndex() == 0
-        if wts_mode and self._inventory_names:
-            names = sorted(self._inventory_names.values(), key=str.casefold)
-            placeholder = f"Search {len(names):,} imported items to sell…"
-        else:
-            names = [item.name for item in self._catalog]
-            placeholder = (
-                f"Find among {len(names):,} P99 items…" if names else
-                "Search item name…")
+        names = sorted({
+            *[item.name for item in self._catalog],
+            *self._inventory_names.values()}, key=str.casefold)
+        placeholder = (
+            f"Find among {len(names):,} P99 items…" if names else
+            "Search item name…")
         self._catalog_model.setStringList(names)
         self.item_search.setPlaceholderText(placeholder)
 
@@ -1767,7 +1848,7 @@ class AuctionComposer(QWidget):
         name_cell.setToolTip(
             (f"Verified EQ item ID {verified_id} from your inventory export"
              if verified_id else
-             "No verified EQ ID yet · import /outputfile inventory for a WTS link"))
+             "Plain-text item · Copy works now; Enable item links is optional"))
         self.items.setItem(row, 0, name_cell)
 
         price = QLineEdit()
@@ -1783,12 +1864,7 @@ class AuctionComposer(QWidget):
         price.textChanged.connect(self._rebuild)
         self.items.setCellWidget(row, 1, price)
 
-        quantity = QSpinBox()
-        quantity.setRange(1, 99)
-        quantity.setValue(1)
-        quantity.setAccessibleName(f"Quantity of {item.name}")
-        quantity.setToolTip(
-            "How many copies; 2 becomes ‘2x Item’, 3 becomes ‘3x Item’")
+        quantity = AuctionQuantity(item.name)
         quantity.valueChanged.connect(self._rebuild)
         self.items.setCellWidget(row, 2, quantity)
 
@@ -1814,13 +1890,11 @@ class AuctionComposer(QWidget):
         if isinstance(path, bool):
             path = None
         if not path:
-            start = str(
-                config.data.get("market", {}).get("inventory_file", "") or "")
-            path, _ = QFileDialog.getOpenFileName(
-                self._dialog_parent, "Import EverQuest inventory", start,
-                "EverQuest inventory (*.txt);;Text files (*.txt);;All files (*)",
-                options=QFileDialog.Option.DontUseNativeDialog)
+            path = find_latest_p99_inventory(self._inventory_search_roots())
         if not path:
+            if not quiet:
+                self.inventory_status.setText(
+                    "Not found · type /outputfile inventory in EQ, then click again")
             return False
         try:
             raw = Path(path).read_bytes()
@@ -1854,7 +1928,7 @@ class AuctionComposer(QWidget):
                 if verified_id else
                 "This item was not found in the imported inventory")
         self.inventory_status.setText(
-            f"{len(self._inventory_names):,} authentic item IDs ready")
+            f"Clickable links ready · {len(self._inventory_names):,} inventory items")
         self.inventory_status.setToolTip(str(Path(path)))
         self._refresh_catalog_model()
         self._rebuild()
@@ -1864,6 +1938,31 @@ class AuctionComposer(QWidget):
         except OSError:
             pass
         return True
+
+    def _inventory_search_roots(self):
+        """Return a small bounded set of likely EQ folders; never scan the PC."""
+        general = config.data.get("general", {})
+        mobile = config.data.get("mobile", {})
+        stored = str(
+            config.data.get("market", {}).get("inventory_file", "") or "")
+        log_dir = str(general.get("eq_log_dir", "") or "")
+        executable = str(mobile.get("eq_executable", "") or "")
+        roots = []
+        if stored:
+            roots.extend((stored, str(Path(stored).parent)))
+        if log_dir:
+            logs = Path(log_dir)
+            roots.extend((str(logs), str(logs.parent)))
+        if executable:
+            roots.append(str(Path(executable).parent))
+        for variable in ("PROGRAMFILES(X86)", "PROGRAMFILES"):
+            base = str(os.environ.get(variable, "") or "")
+            if base:
+                roots.extend((
+                    str(Path(base) / "Sony" / "EverQuest"),
+                    str(Path(base) / "Daybreak Game Company" /
+                        "Installed Games" / "EverQuest")))
+        return tuple(dict.fromkeys(roots))
 
     def show_paste_help(self, shown=False):
         """Keep help inline so an embedded scaled surface is never detached."""
@@ -1897,22 +1996,12 @@ class AuctionComposer(QWidget):
                 int(name_cell.data(Qt.ItemDataRole.UserRole) or 0),
                 name_cell.text(),
                 price.text() if isinstance(price, QLineEdit) else "",
-                quantity.value() if isinstance(quantity, QSpinBox) else 1))
+                quantity.value() if isinstance(quantity, AuctionQuantity) else 1))
         return entries
 
     def _rebuild(self, *_args):
         trade_type = "WTB" if self.trade_type.currentIndex() == 1 else "WTS"
         selected = self.selected_entries()
-        if trade_type == "WTS":
-            missing = [entry.name for entry in selected if not entry.id]
-            if missing:
-                self._raw_lines = []
-                self.preview.setPlainText("")
-                self.preview_status.setText(
-                    "Import /outputfile inventory to create real WTS links")
-                self.copy_button.setText("Copy WTS")
-                self.copy_button.setEnabled(False)
-                return
         try:
             self._raw_lines = compose_auction_lines(
                 selected, trade_type,
@@ -1937,10 +2026,15 @@ class AuctionComposer(QWidget):
         self._copy_index %= len(self._raw_lines)
         lengths = [len(line) for line in self._raw_lines]
         too_long = any(length > P99_CHAT_LIMIT for length in lengths)
+        linked = sum(1 for entry in selected if entry.id) \
+            if trade_type == "WTS" else 0
+        link_state = (
+            f" · {linked} clickable link{'s' if linked != 1 else ''}"
+            if linked else " · plain text")
         self.preview_status.setText(
             f"{len(self._raw_lines)} message{'s' if len(self._raw_lines) != 1 else ''} · "
-            f"longest {max(lengths)}/{P99_CHAT_LIMIT} characters" +
-            (" · shorten the template" if too_long else " · ready for EQ"))
+            f"{max(lengths)}/{P99_CHAT_LIMIT} characters" + link_state +
+            (" · shorten it" if too_long else " · ready"))
         self.copy_button.setText(
             f"Copy {trade_type} {self._copy_index + 1}/{len(self._raw_lines)}")
         self.copy_button.setEnabled(not too_long)
@@ -1968,7 +2062,8 @@ class AuctionComposer(QWidget):
         self.preview_status.setText(
             f"Copied {copied + 1}/{len(self._raw_lines)} · use EQ's Paste from Clipboard key")
         self.copy_button.setText(
-            f"3  Copy {self._copy_index + 1}/{len(self._raw_lines)}")
+            f"Copy {'WTB' if self.trade_type.currentIndex() == 1 else 'WTS'} "
+            f"{self._copy_index + 1}/{len(self._raw_lines)}")
         return True
 
 
@@ -2379,7 +2474,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.10")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.11")
         reply = self._network.get(request)
         reply.finished.connect(
             lambda: self._wiki_item_finished(reply, card, json_path, icon_path))
@@ -2398,7 +2493,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.10")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.11")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._wiki_entity_finished(
             reply, card, cache_path, target, kind))
@@ -2482,7 +2577,7 @@ class GreenMarket(ParserWindow):
                     filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.10")
+                    "Vantage/1.44.11")
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
                     lambda: self._wiki_icon_finished(
@@ -2709,7 +2804,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.10")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.11")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -2731,7 +2826,7 @@ class GreenMarket(ParserWindow):
                     return
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.10")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.11")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -2819,7 +2914,7 @@ class GreenMarket(ParserWindow):
         self._refresh_button.setText("Refreshing…")
         self.status.setText("Refreshing PigParse Green…")
         request = QNetworkRequest(QUrl(MARKET_ENDPOINT))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.10")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.11")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._finished(reply))
 
@@ -2913,7 +3008,7 @@ class GreenMarket(ParserWindow):
         name = str(item.get("n", ""))
         self.status.setText(f"Evaluating PigParse history · {name}…")
         request = QNetworkRequest(QUrl(DETAIL_API.format(item_name=quote(name, safe=""))))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.10")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.11")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.finished.connect(lambda: self._analysis_finished(reply))

@@ -108,7 +108,7 @@ class AboutDialog(UniformScaleDialog):
 
         support = QPushButton("Buy me a coffee")
         support.setObjectName("SupportAction")
-        support.setIcon(game_icon("support"))
+        support.setIcon(game_icon("ph-coffee"))
         support.setAccessibleName("Buy me a coffee to support Vantage")
         support.setToolTip(
             "Open the Vantage Buy Me a Coffee page in your default browser")
