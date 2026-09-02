@@ -2,11 +2,12 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication, QGraphicsItem, QGraphicsView
+from PySide6.QtWidgets import (
+    QApplication, QGraphicsItem, QGraphicsPathItem, QGraphicsView)
 
 from vantage.helpers import config
 from vantage.parsers.maps.mapcanvas import MapCanvas
-from vantage.parsers.maps.mapclasses import MapPoint, SpawnPoint
+from vantage.parsers.maps.mapclasses import MapPoint, Player, SpawnPoint
 from vantage.parsers.maps.mapdata import MapData
 from vantage.parsers.maps.window import detect_log_zone
 
@@ -43,6 +44,20 @@ def test_map_uses_direct_pointer_drag_and_explains_controls():
     assert canvas.dragMode() == QGraphicsView.DragMode.ScrollHandDrag
     assert "Drag" in canvas.toolTip()
     assert "wheel" in canvas.toolTip()
+
+
+def test_player_heading_uses_crisp_vantage_direction_arrow():
+    _app()
+    player = Player(
+        name='__you__', previous_location=MapPoint(x=0, y=0),
+        location=MapPoint(x=10, y=0))
+    player.update_(1.0)
+
+    assert isinstance(player.directional, QGraphicsPathItem)
+    assert not player.directional.path().isEmpty()
+    assert player.directional.isVisible()
+    assert player.directional.brush().color().name() == '#e0c66e'
+    assert player.directional.toolTip() == 'Your direction of travel'
 
 
 def test_map_timers_are_draggable_restartable_and_expire_cleanly():

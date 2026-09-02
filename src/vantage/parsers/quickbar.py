@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from PySide6.QtCore import QEvent, QSize, Qt, QTimer
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QFrame, QLabel, QProgressBar, QSizePolicy,
@@ -31,6 +33,7 @@ class QuickBar(ParserWindow):
         self._header_visible = True
         self._tick_snapshot = None
         self._snapping_height = False
+        self._last_orientation_toggle = 0.0
         super().__init__()
         # Qt normally suppresses tooltips while EverQuest owns focus. This
         # attribute keeps hover help available without activating Vantage.
@@ -197,13 +200,20 @@ class QuickBar(ParserWindow):
         """Keep a command strip tight instead of creating an empty viewport."""
         if (not self._collapsed and not self._snapping_height
                 and getattr(self, "_design_size", None)):
-            scale = max(
+            # The Quick Bar is a shrink-wrapped launcher, not a content
+            # window. Never magnify it beyond its authored one-row/one-column
+            # size; an accidental drag or double-click must not leave a giant
+            # empty strip over EverQuest.
+            scale = min(1.0, max(
                 self._effective_minimum_scale(),
-                self.width() / max(1, self._design_size.width()))
+                self.width() / max(1, self._design_size.width())))
+            target_width = max(1, round(
+                self._design_size.width() * scale))
             target_height = max(1, round(self._design_size.height() * scale))
-            if abs(self.height() - target_height) > 1:
+            if (abs(self.width() - target_width) > 1 or
+                    abs(self.height() - target_height) > 1):
                 self._snapping_height = True
-                self.resize(self.width(), target_height)
+                self.resize(target_width, target_height)
                 self._snapping_height = False
         super()._update_uniform_scale()
 
@@ -230,6 +240,15 @@ class QuickBar(ParserWindow):
         self.refresh_state()
 
     def toggle_orientation(self):
+        # A rapid double-click delivers two clicked signals even though the
+        # first one has already rebuilt and moved the entire bar. Treat that
+        # gesture as one orientation change instead of letting the second
+        # release act on the freshly rearranged surface.
+        now = time.monotonic()
+        interval = max(0.25, QApplication.doubleClickInterval() / 1000)
+        if now - self._last_orientation_toggle < interval:
+            return
+        self._last_orientation_toggle = now
         orientation = (
             "vertical" if self._orientation == "horizontal" else
             "horizontal")

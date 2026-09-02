@@ -1,0 +1,66 @@
+name: Refresh Vantage Companion
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 * * * *"
+  push:
+    branches: [main]
+    paths:
+      - "companion-web/**"
+      - "data/market/item_eras.json"
+      - "data/spells/spells_us.txt"
+      - "data/ui/icon.png"
+      - "data/ui/icon-master.png"
+      - ".github/workflows/refresh-companion.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vantage-companion-pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Vantage source
+        uses: actions/checkout@v4
+        with:
+          path: source
+
+      - name: Build the current P99 Green snapshot
+        run: python source/companion-web/build_data.py --output build/data
+
+      - name: Check out the existing website
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: site
+
+      - name: Update only the Companion subdirectory
+        run: |
+          mkdir -p site/companion
+          find site/companion -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          cp source/companion-web/index.html site/companion/
+          cp source/companion-web/app.css site/companion/
+          cp source/companion-web/app.js site/companion/
+          cp source/companion-web/sw.js site/companion/
+          cp source/companion-web/manifest.webmanifest site/companion/
+          cp source/data/ui/icon.png site/companion/icon-256.png
+          cp source/data/ui/icon-master.png site/companion/icon-1254.png
+          cp -R build/data site/companion/data
+
+      - name: Publish if the snapshot changed
+        working-directory: site
+        run: |
+          git config user.name "Vantage Updates"
+          git config user.email "vantageupdates@users.noreply.github.com"
+          git add companion
+          if git diff --cached --quiet; then
+            echo "Companion is already current."
+            exit 0
+          fi
+          git commit -m "Refresh Vantage Companion"
+          git push origin HEAD:gh-pages

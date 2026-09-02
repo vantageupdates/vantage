@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="theme-color" content="#10171b">
+  <meta name="description" content="Offline P99 Green item prices and spell reference for Vantage Companion.">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon-256.png">
+  <link rel="apple-touch-icon" href="icon-1254.png">
+  <link rel="stylesheet" href="app.css">
+  <title>Vantage Companion</title>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="app-header">
+    <div class="brand">
+      <img src="icon-256.png" alt="" width="42" height="42">
+      <div>
+        <strong>Vantage Companion</strong>
+        <span>P99 Green · Market & Spells</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <span id="connection" class="status" role="status">Checking…</span>
+      <button id="install" class="primary" type="button">Install App</button>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Companion sections">
+    <button id="market-tab" class="tab active" role="tab" type="button" data-page="market" aria-controls="market" aria-selected="true">Market</button>
+    <button id="spells-tab" class="tab" role="tab" type="button" data-page="spells" aria-controls="spells" aria-selected="false" tabindex="-1">Spells</button>
+    <button id="offline-tab" class="tab" role="tab" type="button" data-page="offline" aria-controls="offline" aria-selected="false" tabindex="-1">Offline Help</button>
+  </nav>
+
+  <main id="main">
+    <section id="market" class="page" role="tabpanel" aria-labelledby="market-tab">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">PIGPARSE GREEN SNAPSHOT</p>
+          <h1 id="market-title" tabindex="-1">Item Market</h1>
+        </div>
+        <button id="refresh" type="button">Refresh Data</button>
+      </div>
+      <p id="market-meta" class="meta" aria-live="polite">Loading item catalog…</p>
+      <div class="filters" role="search">
+        <label class="search-field">Search item, effect, or stat
+          <input id="market-search" type="search" autocomplete="off" placeholder="e.g. Fungi Tunic, haste, AC">
+        </label>
+        <label>Class<select id="market-class"></select></label>
+        <label>Slot<select id="market-slot"></select></label>
+        <label>Binding<select id="market-binding">
+          <option value="">Any binding</option><option value="drop">Droppable</option><option value="nodrop">No Drop</option>
+        </select></label>
+        <label>Sort<select id="market-sort">
+          <option value="name">Item name</option><option value="price">30d price</option><option value="posts">Price observations</option>
+          <option value="ac">Best AC</option><option value="hp">Best HP</option><option value="mana">Best Mana</option>
+          <option value="haste">Best Haste</option><option value="astr">Best STR</option><option value="aint">Best INT</option><option value="awis">Best WIS</option>
+        </select></label>
+      </div>
+      <p id="market-count" class="result-count" aria-live="polite"></p>
+      <div id="market-results" class="results" aria-busy="true"></div>
+    </section>
+
+    <section id="spells" class="page" role="tabpanel" hidden aria-labelledby="spells-tab">
+      <div class="section-heading">
+        <div><p class="eyebrow">BUNDLED P99 CLASSIC DATA</p><h1 id="spells-title" tabindex="-1">Spell Library</h1></div>
+      </div>
+      <p id="spell-meta" class="meta">Loading spell catalog…</p>
+      <div class="filters spell-filters" role="search">
+        <label class="search-field">Search spell or description
+          <input id="spell-search" type="search" autocomplete="off" placeholder="e.g. Clarity, invisibility">
+        </label>
+        <label>Class<select id="spell-class"></select></label>
+        <label>Available level<select id="spell-level"><option value="">Any available level</option></select></label>
+      </div>
+      <p id="spell-count" class="result-count" aria-live="polite"></p>
+      <div id="spell-results" class="results" aria-busy="true"></div>
+    </section>
+
+    <section id="offline" class="page help" role="tabpanel" hidden aria-labelledby="offline-tab">
+      <p class="eyebrow">NO QR REQUIRED AFTER INSTALL</p>
+      <h1 id="offline-title" tabindex="-1">Keep Market & Spells on your phone</h1>
+      <div class="help-grid">
+        <article>
+          <h2>iPhone or iPad</h2>
+          <ol><li>Open this page in Safari.</li><li>Tap Share.</li><li>Choose <b>Add to Home Screen</b>.</li><li>Enable <b>Open as Web App</b>, then tap Add.</li></ol>
+        </article>
+        <article>
+          <h2>Android or desktop Chrome</h2>
+          <ol><li>Tap <b>Install App</b> above.</li><li>If the prompt is unavailable, open the browser menu.</li><li>Choose <b>Install app</b> or <b>Add to Home screen</b>.</li></ol>
+        </article>
+      </div>
+      <article class="limits">
+        <h2>What remains available</h2>
+        <ul>
+          <li><b>Offline:</b> item stats, effects, filters, spell class/level data, and the last Market price snapshot successfully loaded on this phone.</li>
+          <li><b>Needs internet:</b> refreshing PigParse prices and opening Project 1999 Wiki pages.</li>
+          <li><b>Needs the PC QR session:</b> live timers, timer controls, zone sync, and the read-only EverQuest view.</li>
+        </ul>
+        <p>Your cached catalogs remain on this device. Vantage does not upload your EverQuest logs to this website.</p>
+      </article>
+      <button id="open-market" class="primary" type="button">Open Offline Market</button>
+    </section>
+  </main>
+
+  <dialog id="detail" aria-labelledby="detail-title">
+    <form method="dialog"><button class="dialog-close" aria-label="Close details">×</button></form>
+    <div id="detail-body"></div>
+  </dialog>
+  <dialog id="install-help" aria-labelledby="install-title">
+    <form method="dialog"><button class="dialog-close" aria-label="Close installation help">×</button></form>
+    <div class="dialog-content"><p class="eyebrow">INSTALL VANTAGE COMPANION</p><h2 id="install-title">Add this app to your Home Screen</h2><p id="install-copy"></p></div>
+  </dialog>
+
+  <footer>
+    <span>Free log-reading companion · Created by Mindflux/Harmflux · P99 Green</span>
+    <a href="https://buymeacoffee.com/vantagecompanion" rel="noreferrer">Buy Me a Coffee</a>
+  </footer>
+  <script src="app.js" defer></script>
+</body>
+</html>

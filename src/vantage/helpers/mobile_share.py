@@ -42,6 +42,7 @@ CLOUDFLARED_DOWNLOAD = (
 CLOUDFLARE_QUICK_TUNNEL_DOCS = (
     "https://developers.cloudflare.com/cloudflare-one/networks/connectors/"
     "cloudflare-tunnel/do-more-with-tunnels/trycloudflare/")
+COMPANION_URL = "https://vantageupdates.github.io/vantage/companion/"
 TUNNEL_URL_RX = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com", re.I)
 P99_SPELL_DETAIL_API = (
     "https://wiki.project1999.com/api.php?action=parse&page={slug}"
@@ -98,7 +99,7 @@ def load_mobile_spell_detail(name):
     request = Request(
         P99_SPELL_DETAIL_API.format(
             slug=quote(str(name).strip().replace(" ", "_"), safe="")),
-        headers={"User-Agent": "Vantage/1.44.12"})
+        headers={"User-Agent": "Vantage/1.44.13"})
     with urlopen(request, timeout=8) as response:
         payload_bytes = response.read(2_000_001)
     if len(payload_bytes) > 2_000_000:
@@ -239,7 +240,7 @@ class _ShareHTTPServer(ThreadingHTTPServer):
 
 
 class _ShareHandler(BaseHTTPRequestHandler):
-    server_version = "VantageMobile/1.44.12"
+    server_version = "VantageMobile/1.44.13"
 
     def log_message(self, *_):
         # Do not write access paths or the user's network details to disk.
@@ -1005,6 +1006,55 @@ class MobileShareDialog(UniformScaleDialog):
         note.setWordWrap(True)
         layout.addWidget(note)
 
+        permanent_box = QWidget()
+        permanent_box.setObjectName("MobileSharePermanent")
+        permanent_layout = QVBoxLayout(permanent_box)
+        permanent_layout.setContentsMargins(8, 8, 8, 8)
+        permanent_title = QLabel("MARKET & SPELLS · PERMANENT")
+        permanent_title.setObjectName("SettingsHeader")
+        permanent_layout.addWidget(permanent_title)
+        permanent_note = QLabel(
+            "Open this address without a QR. Install it on the phone Home Screen "
+            "and, after the first successful load, item stats, spells, filters, "
+            "and the last PigParse price snapshot remain available offline. "
+            "Live timers, zone sync, and EverQuest Live still require a current "
+            "PC session.")
+        permanent_note.setWordWrap(True)
+        permanent_note.setAccessibleName(
+            "Permanent mobile companion availability and limitations")
+        permanent_layout.addWidget(permanent_note)
+        self.permanent_link = QLineEdit(COMPANION_URL)
+        self.permanent_link.setReadOnly(True)
+        self.permanent_link.setAccessibleName(
+            "Permanent Market and Spells companion address")
+        self.permanent_link.setToolTip(
+            "This public app address works without creating a temporary QR session")
+        permanent_layout.addWidget(self.permanent_link)
+        permanent_actions = ResponsiveActionBar(180)
+        open_permanent = QPushButton("Open Permanent Companion")
+        open_permanent.setObjectName("PrimaryAction")
+        open_permanent.setIcon(game_icon("mobile"))
+        open_permanent.setToolTip(
+            "Open the permanent installable Market and Spells app in your browser")
+        open_permanent.clicked.connect(self._open_permanent)
+        permanent_actions.addWidget(open_permanent)
+        copy_permanent = QPushButton("Copy Permanent Address")
+        copy_permanent.setIcon(game_icon("copy"))
+        copy_permanent.setToolTip(
+            "Copy the permanent address so it can be opened on your phone")
+        copy_permanent.clicked.connect(self._copy_permanent)
+        permanent_actions.addWidget(copy_permanent)
+        permanent_layout.addWidget(permanent_actions)
+        install_note = QLabel(
+            "iPhone/iPad · Safari › Share › Add to Home Screen › Open as Web App.  "
+            "Android/Chrome · tap Install App on the Companion page.")
+        install_note.setWordWrap(True)
+        install_note.setObjectName("MobileShareTerms")
+        install_note.setToolTip(
+            "The Companion page also contains full installation and offline instructions")
+        permanent_layout.addWidget(install_note)
+        layout.addWidget(permanent_box)
+
         live_box = QWidget()
         live_layout = QVBoxLayout(live_box)
         live_layout.setContentsMargins(8, 8, 8, 8)
@@ -1140,6 +1190,16 @@ class MobileShareDialog(UniformScaleDialog):
         self._live_setup.show()
         self._live_setup.raise_()
         self._live_setup.activateWindow()
+
+    def _open_permanent(self):
+        opened = QDesktopServices.openUrl(QUrl(COMPANION_URL))
+        self.status.setText(
+            "Permanent Companion opened in your browser." if opened else
+            "The browser could not be opened. Copy the permanent address instead.")
+
+    def _copy_permanent(self):
+        QApplication.clipboard().setText(COMPANION_URL)
+        self.status.setText("Permanent Companion address copied.")
 
     def _set_link(self, link, public):
         self._current_link = link

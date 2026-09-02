@@ -2,10 +2,10 @@ import datetime
 
 import colorhash
 from PySide6.QtCore import Qt, QTimer, QPointF
-from PySide6.QtGui import QPixmap, QPen
+from PySide6.QtGui import QBrush, QColor, QPainterPath, QPixmap, QPen
 from PySide6.QtWidgets import (QGraphicsItemGroup, QGraphicsLineItem,
-                             QGraphicsItem, QGraphicsPixmapItem,
-                             QGraphicsTextItem)
+                             QGraphicsItem, QGraphicsPathItem,
+                             QGraphicsPixmapItem, QGraphicsTextItem)
 
 from vantage.helpers import format_time, get_degrees_from_line, resource_path, to_eq_xy
 
@@ -65,6 +65,28 @@ class PointOfInterest:
         )
 
 
+class DirectionArrow(QGraphicsPathItem):
+    """Crisp Vantage player-heading arrow that remains sharp at any zoom."""
+
+    def __init__(self):
+        path = QPainterPath(QPointF(0, -16))
+        path.lineTo(9, -1)
+        path.lineTo(4, -3)
+        path.lineTo(4, 10)
+        path.lineTo(-4, 10)
+        path.lineTo(-4, -3)
+        path.lineTo(-9, -1)
+        path.closeSubpath()
+        super().__init__(path)
+        self.setPen(QPen(
+            QColor('#071014'), 2.2, Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        self.setBrush(QBrush(QColor('#e0c66e')))
+        self.setTransformOriginPoint(0, 0)
+        self.setToolTip('Your direction of travel')
+        self.setVisible(False)
+
+
 class Player(QGraphicsItemGroup):
 
     def __init__(self, **kwargs):
@@ -85,11 +107,7 @@ class Player(QGraphicsItemGroup):
             )
             self.setZValue(10)
         self.icon.setOffset(-10, -10)
-        self.directional = QGraphicsPixmapItem(
-            QPixmap(resource_path('data/maps/directional.png'))
-        )
-        self.directional.setOffset(-15, -15)
-        self.directional.setVisible(False)
+        self.directional = DirectionArrow()
         self.nametag = QGraphicsTextItem()
         self.nametag.setPos(10, -15)
         self.addToGroup(self.icon)

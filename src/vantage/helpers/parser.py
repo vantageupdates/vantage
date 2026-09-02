@@ -8,7 +8,7 @@ from PySide6.QtCore import QEvent, QObject, QPoint, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import QCursor, QPainter, QPainterPath, QRegion
 from PySide6.QtWidgets import (
     QAbstractButton, QApplication, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton,
-    QFrame, QGraphicsItem, QGraphicsOpacityEffect, QGraphicsScene, QGraphicsView, QSizeGrip,
+    QFrame, QGraphicsItem, QGraphicsOpacityEffect, QGraphicsScene, QGraphicsView,
     QSizePolicy, QVBoxLayout, QWidget)
 
 from vantage.helpers import config
@@ -106,6 +106,58 @@ class ParserContextMenuRouter(QObject):
                 window._show_window_context_menu(event.globalPos())
                 return True
         return False
+
+
+class ParserResizeHandle(QWidget):
+    """Invisible resize affordance for one frameless panel edge or corner."""
+
+    CURSORS = {
+        "top": Qt.CursorShape.SizeVerCursor,
+        "bottom": Qt.CursorShape.SizeVerCursor,
+        "left": Qt.CursorShape.SizeHorCursor,
+        "right": Qt.CursorShape.SizeHorCursor,
+        "top_left": Qt.CursorShape.SizeFDiagCursor,
+        "bottom_right": Qt.CursorShape.SizeFDiagCursor,
+        "top_right": Qt.CursorShape.SizeBDiagCursor,
+        "bottom_left": Qt.CursorShape.SizeBDiagCursor,
+    }
+
+    def __init__(self, direction, panel):
+        super().__init__(panel)
+        self.direction = str(direction)
+        self.panel = panel
+        label = self.direction.replace("_", " ")
+        self.setObjectName(f"ParserWindowResize_{self.direction}")
+        self.setCursor(self.CURSORS[self.direction])
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setAccessibleName(f"Resize window from {label}")
+        self.setToolTip(f"Drag the {label} edge to resize this window")
+
+    def mousePressEvent(self, event):
+        if (event.button() == Qt.MouseButton.LeftButton
+                and self.panel._resize_handles_enabled()):
+            self.panel._start_panel_resize(
+                self.direction, event.globalPosition().toPoint())
+            self.grabMouse()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() & Qt.MouseButton.LeftButton:
+            self.panel._drag_panel_resize(event.globalPosition().toPoint())
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self.mouseGrabber() is self:
+                self.releaseMouse()
+            self.panel._stop_panel_resize()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
 
 class ParserWindow(QWidget):
@@ -284,6 +336,16 @@ class ParserWindow(QWidget):
         self._logical_surface_width = self._design_size.width()
         self._logical_surface_height = self._design_size.height()
         self._native_resize_session = False
+        self._panel_resize_state = None
+        self._resize_handles = {
+            direction: ParserResizeHandle(direction, self)
+            for direction in ParserResizeHandle.CURSORS
+        }
+        # Compatibility alias for older callers. The lower-right handle is now
+        # one of eight resize affordances instead of the only one.
+        self._size_grip = self._resize_handles["bottom_right"]
+        for handle in self._resize_handles.values():
+            handle.hide()
 
         self.setGeometry(
             self._geometry[0], self._geometry[1],
@@ -291,11 +353,6 @@ class ParserWindow(QWidget):
         self.setObjectName("ParserWindow")
         self.setWindowOpacity(self._window_opacity / 100)
         self.setWindowTitle(self.name.title())
-
-        self._size_grip = QSizeGrip(self)
-        self._size_grip.setAccessibleName("Resize window")
-        self._size_grip.setToolTip("Drag to resize")
-        self._size_grip.resize(18, 18)
 
         self._geometry_save_timer = QTimer(self)
         self._geometry_save_timer.setSingleShot(True)
@@ -420,6 +477,7 @@ class ParserWindow(QWidget):
         # taskbar button each while the application is starting.
         flags |= Qt.WindowType.Tool
         self.setWindowFlags(flags)
+        self._sync_resize_handles()
         QTimer.singleShot(0, self._update_window_mask)
 
     def _set_header_revealed(self, revealed):
@@ -460,6 +518,8 @@ class ParserWindow(QWidget):
         was_visible = self.isVisible()
         self._frameless = not self._frameless
         self._set_flags()
+        self._layout_resize_handles()
+        self._sync_resize_handles()
         self.resize(client_size)
         self.move(anchor)
         if was_visible:
@@ -766,6 +826,94 @@ class ParserWindow(QWidget):
         if event.button() == Qt.MouseButton.LeftButton and self.windowHandle():
             self.windowHandle().startSystemMove()
 
+    def _resize_handles_enabled(self):
+        """Full/normal frameless panels resize directly from every edge."""
+        return bool(
+            self._frameless and not self._collapsed and
+            not self._clickthrough)
+
+    def _sync_resize_handles(self):
+        handles = getattr(self, "_resize_handles", {})
+        enabled = self._resize_handles_enabled()
+        for handle in handles.values():
+            handle.setVisible(enabled)
+            if enabled:
+                handle.raise_()
+
+    def _layout_resize_handles(self):
+        handles = getattr(self, "_resize_handles", {})
+        if not handles:
+            return
+        thickness = 5
+        corner = 11
+        width, height = self.width(), self.height()
+        handles["top"].setGeometry(
+            corner, 0, max(1, width - 2 * corner), thickness)
+        handles["bottom"].setGeometry(
+            corner, max(0, height - thickness),
+            max(1, width - 2 * corner), thickness)
+        handles["left"].setGeometry(
+            0, corner, thickness, max(1, height - 2 * corner))
+        handles["right"].setGeometry(
+            max(0, width - thickness), corner, thickness,
+            max(1, height - 2 * corner))
+        handles["top_left"].setGeometry(0, 0, corner, corner)
+        handles["top_right"].setGeometry(
+            max(0, width - corner), 0, corner, corner)
+        handles["bottom_left"].setGeometry(
+            0, max(0, height - corner), corner, corner)
+        handles["bottom_right"].setGeometry(
+            max(0, width - corner), max(0, height - corner),
+            corner, corner)
+        self._sync_resize_handles()
+
+    def _start_panel_resize(self, direction, global_position):
+        if not self._resize_handles_enabled():
+            return
+        rect = self.geometry()
+        self._panel_resize_state = (
+            str(direction), QPoint(global_position),
+            (rect.x(), rect.y(), rect.width(), rect.height()))
+
+    def _drag_panel_resize(self, global_position):
+        if self._panel_resize_state is None:
+            return
+        direction, origin, geometry = self._panel_resize_state
+        start_x, start_y, start_width, start_height = geometry
+        delta = QPoint(global_position) - origin
+        minimum_width, minimum_height = (
+            self.minimumWidth(), self.minimumHeight())
+        maximum_width, maximum_height = (
+            self.maximumWidth(), self.maximumHeight())
+        left, top = start_x, start_y
+        width, height = start_width, start_height
+        if "left" in direction:
+            width = max(
+                minimum_width,
+                min(maximum_width, start_width - delta.x()))
+            left = start_x + start_width - width
+        elif "right" in direction:
+            width = max(
+                minimum_width,
+                min(maximum_width, start_width + delta.x()))
+        if "top" in direction:
+            height = max(
+                minimum_height,
+                min(maximum_height, start_height - delta.y()))
+            top = start_y + start_height - height
+        elif "bottom" in direction:
+            height = max(
+                minimum_height,
+                min(maximum_height, start_height + delta.y()))
+        self.setGeometry(left, top, width, height)
+
+    def _stop_panel_resize(self):
+        if self._panel_resize_state is None:
+            return
+        self._panel_resize_state = None
+        self._fit_to_available_screen()
+        self._schedule_geometry_save()
+
     def _toggle_rollup(self):
         self._set_collapsed(not self._collapsed)
 
@@ -801,7 +949,6 @@ class ParserWindow(QWidget):
             self.setMinimumHeight(scaled_height)
             self.setMaximumHeight(scaled_height)
             self.resize(scaled_width, scaled_height)
-            self._size_grip.hide()
             self._roll_button.setIcon(game_icon("expand"))
             self._roll_button.setAccessibleName("Expand panel")
             self._roll_button.setToolTip("Expand panel content")
@@ -826,13 +973,14 @@ class ParserWindow(QWidget):
             self.resize(max(
                 getattr(self, "_expanded_width", 0), self.minimumWidth()), max(
                 getattr(self, "_expanded_height", 0), self.minimumHeight()))
-            self._size_grip.show()
             self._roll_button.setIcon(game_icon("roll"))
             self._roll_button.setAccessibleName("Roll up panel")
             self._roll_button.setToolTip(
                 "Roll up the panel and keep only its header")
             self._set_header_revealed(not self._auto_hide_menu)
         self._collapsed = collapsed
+        self._panel_resize_state = None
+        self._sync_resize_handles()
         if not collapsed:
             self._set_scaled_minimum_size()
         self._update_uniform_scale()
@@ -929,6 +1077,7 @@ class ParserWindow(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         QTimer.singleShot(0, self._update_uniform_scale)
+        self._layout_resize_handles()
         self._update_window_mask()
         self._schedule_geometry_save()
 
@@ -949,12 +1098,7 @@ class ParserWindow(QWidget):
                 0, 0, logical_width, logical_height))
             self._scale_view.resetTransform()
             self._scale_view.scale(scale, scale)
-        grip_size = max(8, round(14 * (
-            1 if self._collapsed else self.width() /
-            max(1, self._design_size.width()))))
-        self._size_grip.resize(grip_size, grip_size)
-        self._size_grip.move(
-            self.width() - grip_size, self.height() - grip_size)
+        self._layout_resize_handles()
 
     def _set_scaled_minimum_size(self):
         if self._collapsed:

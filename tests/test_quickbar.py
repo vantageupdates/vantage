@@ -254,6 +254,20 @@ pulse_reduced_motion = {
     'pulse_property': bool(support.property('Pulse')),
 }
 
+# A rapid orientation double-click is one gesture. It must not toggle twice
+# or let the compact strip retain an accidentally oversized geometry.
+bar.toggle_orientation()
+bar.toggle_orientation()
+app.processEvents()
+double_click_orientation = bar._orientation
+bar.resize(bar._design_size.width() * 4, bar._design_size.height() * 4)
+bar._update_uniform_scale()
+app.processEvents()
+compact_after_oversize = {
+    'window': [bar.width(), bar.height()],
+    'design': [bar._design_size.width(), bar._design_size.height()],
+}
+
 config.data['quickbar']['orientation'] = 'horizontal'
 app._signals['settings'].config_updated.emit()
 app.processEvents()
@@ -277,6 +291,8 @@ print(json.dumps({
     'pulse_bar_hidden': pulse_bar_hidden,
     'pulse_bar_restored': pulse_bar_restored,
     'pulse_reduced_motion': pulse_reduced_motion,
+    'double_click_orientation': double_click_orientation,
+    'compact_after_oversize': compact_after_oversize,
     'horizontal_restored': horizontal_restored,
 }))
 app.quit()
@@ -451,6 +467,9 @@ def test_vertical_quickbar_shrinkwrap_logo_tooltips_and_pulse_lifecycle(
         'running': False,
         'pulse_property': False,
     }
+    assert result['double_click_orientation'] == 'horizontal'
+    assert result['compact_after_oversize']['window'] == \
+        result['compact_after_oversize']['design']
     horizontal = result['horizontal_restored']
     assert horizontal['orientation'] == 'horizontal'
     assert horizontal['design'][0] > horizontal['design'][1]
