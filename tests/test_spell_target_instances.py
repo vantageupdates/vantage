@@ -43,7 +43,7 @@ def _fetter():
     )
 
 
-def test_fresh_same_name_pacify_landings_create_numbered_instances():
+def test_fresh_same_name_pacify_landings_create_stable_lettered_instances():
     app = _app()
     container = SpellContainer()
     now = datetime.datetime.now()
@@ -55,7 +55,7 @@ def test_fresh_same_name_pacify_landings_create_numbered_instances():
     targets = container.get_spell_targets_by_name("A FROST GIANT")
     assert app is not None
     assert [target.target_label.text() for target in targets] == [
-        "A Frost Giant #1", "A Frost Giant #2"]
+        "A Frost Giant · A", "A Frost Giant · B"]
     assert all("mob IDs" in target.target_label.toolTip() for target in targets)
 
 
@@ -72,7 +72,9 @@ def test_death_removes_one_duplicate_then_renumbers_the_survivor():
 
     targets = container.get_spell_targets_by_name("a frost giant")
     assert len(targets) == 1
-    assert targets[0].target_label.text() == "A Frost Giant"
+    # The surviving marker stays stable so a player's location alias does not
+    # silently change identity when another mob dies.
+    assert targets[0].target_label.text() == "A Frost Giant · B"
 
 
 def test_target_header_can_be_focused_and_removed_with_delete():
@@ -116,6 +118,42 @@ def test_named_target_never_gets_numbered_or_duplicated():
     assert len(targets) == 1
     assert targets[0].target_label.text() == "Crystal Fang"
     assert "Named NPC" in targets[0].target_label.toolTip()
+
+
+def test_effect_can_move_to_new_same_named_mob_without_restarting():
+    _app()
+    container = SpellContainer()
+    now = datetime.datetime.now()
+    container.add_spell(_pacify(), now, "a crystalline devourer")
+    container.add_spell(_fetter(), now, "a crystalline devourer")
+
+    first = container.get_spell_target_by_name("a crystalline devourer")
+    fetter = first.spell_widget("Fetter")
+    original_end = fetter.end_time
+    destination = container.move_spell_widget(fetter)
+
+    targets = container.get_spell_targets_by_name("a crystalline devourer")
+    assert [target.instance_marker for target in targets] == ["A", "B"]
+    assert [widget.spell.name for widget in targets[0].spell_widgets()] == [
+        "Pacify"]
+    assert [widget.spell.name for widget in targets[1].spell_widgets()] == [
+        "Fetter"]
+    assert destination is targets[1]
+    assert fetter.end_time == original_end
+
+
+def test_mob_alias_is_displayed_and_kept_with_its_marker():
+    _app()
+    container = SpellContainer()
+    container.add_spell(
+        _pacify(), datetime.datetime.now(), "a crystalline devourer")
+    target = container.get_spell_target_by_name("a crystalline devourer")
+
+    target.alias = "Ramp"
+    target.set_instance_number(1)
+
+    assert target.target_label.text() == "A Crystalline Devourer · Ramp"
+    assert "Pacify" in target.target_label.toolTip()
 
 
 def test_current_zone_catalog_recognizes_named_but_not_trash():

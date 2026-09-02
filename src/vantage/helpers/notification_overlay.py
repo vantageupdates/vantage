@@ -339,7 +339,7 @@ class NotificationOverlay(QWidget):
             "faded_background_opacity" if faded else "background_opacity")
         background = _rgba(
             settings.get(color_key),
-            settings.get(opacity_key, 35 if faded else 92))
+            settings.get(opacity_key, 65 if faded else 92))
         font_color = str(settings.get("font_color") or "#F2EAD8")
         font_name = str(settings.get("font_name") or "Noto Sans").replace(
             '"', '')

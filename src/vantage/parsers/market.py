@@ -21,11 +21,12 @@ import webbrowser
 from PySide6.QtCore import (
     QAbstractTableModel, QEvent, QModelIndex, QSize, QSortFilterProxyModel,
     QStringListModel, Signal, Qt, QTimer, QUrl)
-from PySide6.QtGui import QColor, QFont, QPixmap
+from PySide6.QtGui import (
+    QAccessible, QAccessibleAnnouncementEvent, QColor, QFont, QPixmap)
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QComboBox, QCompleter, QDialog, QFrame,
-    QFileDialog, QGridLayout, QHBoxLayout, QHeaderView, QLayout, QLabel, QLineEdit,
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QCompleter, QDialog,
+    QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLayout, QLabel, QLineEdit,
     QMessageBox, QPlainTextEdit, QPushButton, QTabWidget,
     QTableView, QTableWidget, QTableWidgetItem, QSizePolicy, QToolButton,
     QVBoxLayout, QWidget)
@@ -67,6 +68,18 @@ CON_MESSAGES = (
     "glares at you threateningly",
     "scowls at you, ready to attack",
 )
+
+
+def _announce_accessible(widget, text, assertive=False):
+    """Announce meaningful dynamic UI changes without stealing keyboard focus."""
+    if not isinstance(widget, QWidget) or not QApplication.instance() or not text:
+        return False
+    event = QAccessibleAnnouncementEvent(widget, str(text))
+    event.setPoliteness(
+        QAccessible.AnnouncementPoliteness.Assertive if assertive else
+        QAccessible.AnnouncementPoliteness.Polite)
+    QAccessible.updateAccessibility(event)
+    return True
 
 CLASS_BITS = (
     ("Any class", 0), ("Warrior", 1), ("Cleric", 2),
@@ -267,6 +280,26 @@ def _gear_cache_file():
 
 def _item_key(name):
     return re.sub(r"['’`]", "", str(name or "").strip().casefold())
+
+
+def live_auction_watch_matches(message, watch_items):
+    """Return watched item names found in a local sale auction message."""
+    source = str(message or "").strip()
+    folded = source.casefold()
+    # A pure WTB line is a request, not an item appearing for sale. Mixed
+    # WTS/WTB tunnel macros still contain sale inventory and remain eligible.
+    if (re.search(r"\bwtb\b", folded) and
+            not re.search(r"\b(?:wts|selling|sell)\b", folded)):
+        return []
+    haystack = _item_key(source)
+    matches = []
+    for raw_watch in watch_items or ():
+        watch = str(raw_watch or "").strip()
+        key = _item_key(watch)
+        if key and key in haystack and watch.casefold() not in {
+                item.casefold() for item in matches}:
+            matches.append(watch)
+    return matches
 
 
 def considered_name(text):
@@ -1587,6 +1620,24 @@ class AuctionComposer(QWidget):
             "Titanium strips generated link bytes from normal chat paste. "
             "Vantage can install the same message into a character social button.")
         source_row.addWidget(self.link_status, 1)
+        self.character_ini = QComboBox()
+        self.character_ini.setObjectName("AuctionCharacterIni")
+        self.character_ini.setMinimumContentsLength(12)
+        self.character_ini.setAccessibleName(
+            "EverQuest character for clickable auction links")
+        self.character_ini.setToolTip(
+            "Characters detected beside the linked EverQuest Logs folder")
+        self.character_ini.currentIndexChanged.connect(
+            self._sync_hotbutton_enabled)
+        source_row.addWidget(self.character_ini)
+        self.camped_out = QCheckBox("Fully camped out")
+        self.camped_out.setAccessibleName(
+            "Confirm the selected character is fully camped out")
+        self.camped_out.setToolTip(
+            "Required because EverQuest overwrites character INI files while "
+            "the character is logged in")
+        self.camped_out.toggled.connect(self._sync_hotbutton_enabled)
+        source_row.addWidget(self.camped_out)
         self.paste_help_button = QPushButton("How to paste")
         self.paste_help_button.setIcon(game_icon("help"))
         self.paste_help_button.setCheckable(True)
@@ -1652,7 +1703,7 @@ class AuctionComposer(QWidget):
         self.hotbutton_button = QPushButton("EQ Hotbutton…")
         self.hotbutton_button.setIcon(game_icon("export"))
         self.hotbutton_button.setAccessibleName(
-            "Install clickable WTS as an EverQuest hotbutton")
+            "EQ Hotbutton — install clickable WTS links")
         self.hotbutton_button.setToolTip(
             "Install real clickable item links into a free character social button; "
             "fully camp out first")
@@ -1667,7 +1718,9 @@ class AuctionComposer(QWidget):
         self.advanced_toggle.setArrowType(Qt.ArrowType.RightArrow)
         self.advanced_toggle.setToolButtonStyle(
             Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.advanced_toggle.setAccessibleName("Show advanced message customization")
+        self.advanced_toggle.setAccessibleName("Advanced wording (optional)")
+        self.advanced_toggle.setAccessibleDescription(
+            "Collapsed optional auction message customization")
         self.advanced_toggle.setToolTip(
             "Optional: change separators, ending text, templates, and tokens")
         root.addWidget(self.advanced_toggle)
@@ -1804,12 +1857,16 @@ class AuctionComposer(QWidget):
             field.installEventFilter(self)
             field.textChanged.connect(self._rebuild)
         self._token_target = self.message_template
+        self._refresh_character_ini_choices()
         self._rebuild()
 
     def _toggle_advanced(self, shown):
         self.advanced_panel.setVisible(bool(shown))
         self.advanced_toggle.setArrowType(
             Qt.ArrowType.DownArrow if shown else Qt.ArrowType.RightArrow)
+        self.advanced_toggle.setAccessibleDescription(
+            f"{'Expanded' if shown else 'Collapsed'} optional auction message "
+            "customization")
 
     def _trade_type_changed(self, *_args):
         selling = self.trade_type.currentIndex() == 0
@@ -1818,6 +1875,8 @@ class AuctionComposer(QWidget):
             "Use EQ Hotbutton for clickable links." if selling else
             "Search item → Add → set your offer and quantity → Copy WTB.")
         self.link_status.setVisible(selling)
+        self.character_ini.setVisible(selling)
+        self.camped_out.setVisible(selling)
         self.hotbutton_button.setVisible(selling)
         self.copy_button.setText("Copy WTS" if selling else "Copy WTB")
         self._sync_copy_button_accessibility()
@@ -1827,11 +1886,65 @@ class AuctionComposer(QWidget):
         self._refresh_catalog_model()
         self._rebuild()
 
+    @staticmethod
+    def _character_ini_label(path):
+        match = re.match(
+            r"^(?P<character>.+?)_(?P<server>project1999|p1999green|"
+            r"p1999blue|p1999pvp|p1999red)\.ini$",
+            path.name, re.IGNORECASE)
+        if not match:
+            return path.stem
+        server = {
+            "p1999green": "Green", "p1999blue": "Blue",
+            "p1999pvp": "Red", "p1999red": "Red",
+            "project1999": "P99",
+        }.get(match.group("server").casefold(), match.group("server"))
+        return f"{match.group('character')} · {server}"
+
+    def _refresh_character_ini_choices(self):
+        previous = str(self.character_ini.currentData() or "")
+        logs = config.data.get("general", {}).get("eq_log_dir", "")
+        root = everquest_root_from_logs(logs)
+        candidates = []
+        if root:
+            try:
+                candidates = sorted((
+                    path for path in root.glob("*.ini")
+                    if path.is_file() and not path.name.casefold().startswith("ui_")
+                    and re.search(
+                        r"_(?:project1999|p1999(?:green|blue|pvp|red))\.ini$",
+                        path.name, re.IGNORECASE)
+                ), key=lambda path: path.name.casefold())
+            except OSError:
+                candidates = []
+        self.character_ini.blockSignals(True)
+        self.character_ini.clear()
+        if candidates:
+            for path in candidates:
+                self.character_ini.addItem(
+                    self._character_ini_label(path), str(path))
+            index = self.character_ini.findData(previous)
+            self.character_ini.setCurrentIndex(max(0, index))
+            self.character_ini.setEnabled(True)
+        else:
+            self.character_ini.addItem("No P99 character found", "")
+            self.character_ini.setEnabled(False)
+        self.character_ini.blockSignals(False)
+        self._sync_hotbutton_enabled()
+        return candidates
+
+    def _sync_hotbutton_enabled(self, *_args):
+        selling = self.trade_type.currentIndex() == 0
+        self.hotbutton_button.setEnabled(bool(
+            selling and self._linked_lines and
+            self.character_ini.currentData() and
+            self.camped_out.isChecked()))
+
     def _sync_copy_button_accessibility(self):
         trade_type = "WTB" if self.trade_type.currentIndex() == 1 else "WTS"
         action = "buy" if trade_type == "WTB" else "sale"
         self.copy_button.setAccessibleName(
-            f"Copy the EverQuest {trade_type} message")
+            f"{self.copy_button.text()} auction message")
         self.copy_button.setAccessibleDescription(
             f"Copies the next plain-text {action} message to the clipboard")
         self.copy_button.setToolTip(
@@ -1886,14 +1999,16 @@ class AuctionComposer(QWidget):
     def add_search_item(self):
         item = self._matching_item(self.item_search.text())
         if not item:
-            self.preview_status.setText("Choose an item from the suggestions")
+            self._set_preview_status(
+                "Choose an item from the suggestions", announce=True)
             self.item_search.setFocus(Qt.FocusReason.OtherFocusReason)
             return False
         for row in range(self.items.rowCount()):
             existing = self.items.item(row, 0)
             if existing and _item_key(existing.text()) == _item_key(item.name):
                 self.items.selectRow(row)
-                self.preview_status.setText(f"{item.name} is already selected")
+                self._set_preview_status(
+                    f"{item.name} is already selected", announce=True)
                 return False
 
         row = self.items.rowCount()
@@ -1936,7 +2051,13 @@ class AuctionComposer(QWidget):
         self._copy_index = 0
         self._resize_item_table()
         self._rebuild()
+        _announce_accessible(self, f"Added {item.name} to the auction message")
         return True
+
+    def _set_preview_status(self, text, announce=False, assertive=False):
+        self.preview_status.setText(str(text))
+        if announce:
+            _announce_accessible(self, text, assertive=assertive)
 
     def _resize_item_table(self):
         visible_rows = max(1, min(7, self.items.rowCount()))
@@ -1948,6 +2069,10 @@ class AuctionComposer(QWidget):
         self.paste_help.setVisible(bool(shown))
         self.paste_help_button.setText(
             "Hide paste help" if shown else "How to paste")
+        self.paste_help_button.setAccessibleName(
+            self.paste_help_button.text())
+        self.paste_help_button.setAccessibleDescription(
+            f"{'Expanded' if shown else 'Collapsed'} EverQuest paste instructions")
 
     def _remove_cell(self, name_cell):
         row = self.items.row(name_cell)
@@ -1994,7 +2119,7 @@ class AuctionComposer(QWidget):
             self._raw_lines = []
             self._linked_lines = []
             self.preview.setPlainText("")
-            self.preview_status.setText(str(error))
+            self._set_preview_status(str(error))
             self.copy_button.setEnabled(False)
             self.hotbutton_button.setEnabled(False)
             return
@@ -2003,11 +2128,9 @@ class AuctionComposer(QWidget):
             for index, line in enumerate(self._raw_lines)]
         self.preview.setPlainText("\n".join(previews))
         self.copy_button.setEnabled(bool(self._raw_lines))
-        self.hotbutton_button.setEnabled(
-            bool(self._linked_lines) and trade_type == "WTS" and
-            any(entry.id for entry in selected))
+        self._sync_hotbutton_enabled()
         if not self._raw_lines:
-            self.preview_status.setText("Choose one or more items")
+            self._set_preview_status("Choose one or more items")
             self.copy_button.setText(
                 "Copy WTB" if trade_type == "WTB" else "Copy WTS")
             self._sync_copy_button_accessibility()
@@ -2020,7 +2143,7 @@ class AuctionComposer(QWidget):
         link_state = (
             f" · {linked} link{'s' if linked != 1 else ''} ready for EQ Hotbutton"
             if linked else " · plain text only")
-        self.preview_status.setText(
+        self._set_preview_status(
             f"{len(self._raw_lines)} message{'s' if len(self._raw_lines) != 1 else ''} · "
             f"{max(lengths)}/{P99_CHAT_LIMIT} characters" + link_state +
             (" · shorten it" if too_long else " · ready"))
@@ -2044,13 +2167,15 @@ class AuctionComposer(QWidget):
             return False
         line = self._raw_lines[self._copy_index]
         if not set_eq_clipboard(line):
-            self.preview_status.setText(
-                "Clipboard is busy · close another clipboard tool and try again")
+            self._set_preview_status(
+                "Clipboard is busy · close another clipboard tool and try again",
+                announce=True)
             return False
         copied = self._copy_index
         self._copy_index = (self._copy_index + 1) % len(self._raw_lines)
-        self.preview_status.setText(
-            f"Copied {copied + 1}/{len(self._raw_lines)} · plain text ready for EQ")
+        self._set_preview_status(
+            f"Copied {copied + 1}/{len(self._raw_lines)} · plain text ready for EQ",
+            announce=True)
         self.copy_button.setText(
             f"Copy {'WTB' if self.trade_type.currentIndex() == 1 else 'WTS'} "
             f"{self._copy_index + 1}/{len(self._raw_lines)}")
@@ -2058,41 +2183,36 @@ class AuctionComposer(QWidget):
         return True
 
     def install_hotbuttons(self):
-        if not self._linked_lines or not self.hotbutton_button.isEnabled():
+        if not self._linked_lines:
+            self._set_preview_status(
+                "Add at least one linked item before installing", announce=True)
             return False
-        answer = QMessageBox.question(
-            self, "Install clickable EQ hotbutton",
-            "Fully camp this character out before continuing so EverQuest does "
-            "not overwrite the INI. Vantage will make a backup, replace any "
-            "existing social buttons named VantageWTS, and otherwise use only "
-            "empty social slots on pages 2–10.\n\nContinue?")
-        if answer != QMessageBox.StandardButton.Yes:
-            return False
-
-        logs = config.data.get("general", {}).get("eq_log_dir", "")
-        root = everquest_root_from_logs(logs)
-        start = str(root or Path.home())
-        selected, _filter = QFileDialog.getOpenFileName(
-            self, "Choose your Project 1999 character INI", start,
-            "P99 character INI (*_P1999Green.ini *_P1999Blue.ini "
-            "*_P1999PVP.ini *_project1999.ini);;INI files (*.ini)")
+        self._refresh_character_ini_choices()
+        selected = str(self.character_ini.currentData() or "")
         if not selected:
+            self._set_preview_status(
+                "No P99 character found · link the EverQuest Logs folder in Settings",
+                announce=True)
+            return False
+        if not self.camped_out.isChecked():
+            self._set_preview_status(
+                "Fully camp the selected character out, then check the confirmation",
+                announce=True)
             return False
         try:
             slots, backup = install_auction_hotbuttons(
                 selected, self._linked_lines)
         except (OSError, UnicodeError, ValueError) as error:
-            QMessageBox.warning(self, "Hotbutton was not installed", str(error))
+            self._set_preview_status(
+                f"Hotbutton not installed · {error}", announce=True)
             return False
         slot_names = ", ".join(
             re.sub(r"^Page(\d+)Button(\d+)$", r"page \1, button \2", slot)
             for slot in slots)
-        QMessageBox.information(
-            self, "Clickable WTS ready",
-            f"Installed VantageWTS in {slot_names}. Log the character back in, "
-            f"open Socials, and use that button.\n\nBackup: {backup.name}")
-        self.preview_status.setText(
-            f"Clickable WTS installed · {slot_names} · relog the character")
+        self._set_preview_status(
+            f"Installed · {slot_names} · backup {backup.name} · relog and open Socials",
+            announce=True)
+        self.camped_out.setChecked(False)
         return True
 
 
@@ -2115,6 +2235,7 @@ class GreenMarket(ParserWindow):
         self._mobile_revision = 0
         self._last_consider_name = ""
         self._consider_card = None
+        self._live_alerted_at = {}
 
         self._network = QNetworkAccessManager(self)
         self._model = MarketModel()
@@ -2284,12 +2405,79 @@ class GreenMarket(ParserWindow):
         live_layout = QVBoxLayout(live_page)
         live_layout.setContentsMargins(5, 5, 5, 5)
         self.live_note = QLabel(
-            "Local feed: /auction listings visible in your client. "
-            "It updates in real time when your EverQuest log receives them.")
+            "Live Log and Notification Service · monitors the local EverQuest "
+            "log for /auction lines visible to your client in the EC tunnel. "
+            "It is not an Internet-wide auction feed.")
         self.live_note.setWordWrap(True)
+        self.live_note.setAccessibleName(self.live_note.text())
+        self.live_note.setToolTip(
+            "Only listings written to your own EQ log can appear here; keep logs "
+            "enabled and remain where you can receive /auction chat")
         live_layout.addWidget(self.live_note)
+        watch_tools = QWidget()
+        watch_layout = QGridLayout(watch_tools)
+        watch_layout.setContentsMargins(0, 0, 0, 0)
+        watch_layout.setSpacing(4)
+        self.live_watch_input = QLineEdit()
+        self.live_watch_input.setPlaceholderText("Item to watch…")
+        self.live_watch_input.setClearButtonEnabled(True)
+        self.live_watch_input.setAccessibleName(
+            "Item name for live auction notification")
+        self.live_watch_input.setToolTip(
+            "Enter a full item name or distinctive phrase from an auction message")
+        clear_live_watch = self.live_watch_input.findChild(QToolButton)
+        if clear_live_watch:
+            clear_live_watch.setAccessibleName("Clear auction watch item")
+            clear_live_watch.setToolTip("Clear the item alert field")
+        self._live_watch_model = QStringListModel(self)
+        self._live_watch_completer = QCompleter(
+            self._live_watch_model, self.live_watch_input)
+        self._live_watch_completer.setCaseSensitivity(
+            Qt.CaseSensitivity.CaseInsensitive)
+        self._live_watch_completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        self.live_watch_input.setCompleter(self._live_watch_completer)
+        self.live_watch_input.returnPressed.connect(self._add_live_watch)
+        watch_layout.addWidget(self.live_watch_input, 0, 0)
+        self.live_watch_add = QPushButton("Add alert")
+        self.live_watch_add.setIcon(game_icon("add"))
+        self.live_watch_add.setAccessibleName(
+            "Add alert — create live auction notification")
+        self.live_watch_add.setToolTip(
+            "Notify on the Vantage overlay when this item appears for sale")
+        self.live_watch_add.clicked.connect(self._add_live_watch)
+        watch_layout.addWidget(self.live_watch_add, 0, 1)
+        self.live_watch_items = QComboBox()
+        self.live_watch_items.setMinimumContentsLength(14)
+        self.live_watch_items.setAccessibleName("Watched auction items")
+        self.live_watch_items.setToolTip(
+            "Items currently monitored by the Live Log and Notification Service")
+        watch_layout.addWidget(self.live_watch_items, 0, 2)
+        self.live_watch_remove = QPushButton("Remove")
+        self.live_watch_remove.setIcon(game_icon("delete"))
+        self.live_watch_remove.setAccessibleName(
+            "Remove — selected auction alert")
+        self.live_watch_remove.setToolTip("Stop watching the selected item")
+        self.live_watch_remove.clicked.connect(self._remove_live_watch)
+        watch_layout.addWidget(self.live_watch_remove, 0, 3)
+        self.live_alerts_enabled = QCheckBox("Alerts on")
+        self.live_alerts_enabled.setChecked(bool(
+            config.data["market"].get("live_alerts_enabled", True)))
+        self.live_alerts_enabled.setAccessibleName(
+            "Alerts on — enable live auction overlay notifications")
+        self.live_alerts_enabled.setToolTip(
+            "Show a themed Vantage overlay when a watched sale reaches your log")
+        self.live_alerts_enabled.toggled.connect(
+            self._set_live_alerts_enabled)
+        watch_layout.addWidget(self.live_alerts_enabled, 0, 4)
+        watch_layout.setColumnStretch(0, 2)
+        watch_layout.setColumnStretch(2, 1)
+        live_layout.addWidget(watch_tools)
+        self._refresh_live_watch_items()
         self.live_table = QTableView()
         self.live_table.setModel(self._local_proxy)
+        self.live_table.setAccessibleName("Live EC auction log")
+        self.live_table.setAccessibleDescription(
+            "Auction messages received by this EverQuest client, newest first")
         self.live_table.setWordWrap(False)
         self.live_table.verticalHeader().setVisible(False)
         live_header = self.live_table.horizontalHeader()
@@ -2297,7 +2485,8 @@ class GreenMarket(ParserWindow):
         live_header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         live_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         live_layout.addWidget(self.live_table, 1)
-        self._live_tab_index = self.tabs.addTab(live_page, "Live local · 0")
+        self._live_tab_index = self.tabs.addTab(
+            live_page, "Live Log & Alerts · 0")
         ensure_tab_tooltips(self.tabs, {
             "PigParse · prices": "Search cached PigParse Green listings and prices",
             "Gear · stats": (
@@ -2305,7 +2494,9 @@ class GreenMarket(ParserWindow):
             "WTS / WTB Builder": (
                 "Build customized auction messages; WTS uses real item links and "
                 "WTB uses plain text"),
-            "Live local · 0": "Show /auction messages received by your own EQ log",
+            "Live Log & Alerts · 0": (
+                "Monitor EC tunnel /auction lines from your own EQ log and alert "
+                "when watched items appear for sale"),
         })
         self._body_layout.addWidget(self.tabs, 1)
 
@@ -2471,7 +2662,8 @@ class GreenMarket(ParserWindow):
         config.data["market"]["gear_column_widths"] = {
             key: self.gear_table.columnWidth(column)
             for column, (_, key) in enumerate(self._gear_model.COLUMNS)}
-        config.save()
+        if getattr(config, "_filename", ""):
+            config.save()
 
     def _market_item_clicked(self, index):
         if index.isValid() and index.column() == 1:
@@ -2503,7 +2695,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.14")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.15")
         reply = self._network.get(request)
         reply.finished.connect(
             lambda: self._wiki_item_finished(reply, card, json_path, icon_path))
@@ -2522,7 +2714,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.14")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.15")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._wiki_entity_finished(
             reply, card, cache_path, target, kind))
@@ -2606,7 +2798,7 @@ class GreenMarket(ParserWindow):
                     filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.14")
+                    "Vantage/1.44.15")
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
                     lambda: self._wiki_icon_finished(
@@ -2740,6 +2932,8 @@ class GreenMarket(ParserWindow):
             self._gear_model.set_prices(self._model.items)
             self.auction_composer.set_catalog(items)
             self.auction_composer.refresh_prices()
+            self._live_watch_model.setStringList(
+                [item.name for item in items])
             self._set_stat_sort(self.stat_sort.currentData())
             self._rebuild_mobile_items()
             self.gear_status.setText(
@@ -2833,7 +3027,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.14")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.15")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -2855,7 +3049,7 @@ class GreenMarket(ParserWindow):
                     return
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.14")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.15")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -2898,9 +3092,12 @@ class GreenMarket(ParserWindow):
         zone = ZONE_RX.match(text)
         if zone:
             self._zone = zone.group("zone")
-            self.live_note.setText(
-                f"Local feed · detected zone: {self._zone}. "
-                "Shows the /auction messages received by your client.")
+            self._set_live_note(
+                "Live Log and Notification Service · "
+                f"detected zone: {self._zone}. Monitoring /auction lines "
+                "written to this client's local EQ log; EC tunnel coverage "
+                "requires your character to receive auction chat there.",
+                announce=True)
             return
         con_target = considered_name(text)
         if con_target:
@@ -2916,7 +3113,107 @@ class GreenMarket(ParserWindow):
         })
         self.tabs.setTabText(
             self._live_tab_index,
-            f"Live local · {len(self._local_model.items)}")
+            f"Live Log & Alerts · {len(self._local_model.items)}")
+        self._notify_live_watches(
+            timestamp, match.group("seller"), match.group("message"))
+
+    def _set_live_note(self, text, announce=False):
+        self.live_note.setText(str(text))
+        self.live_note.setAccessibleName(str(text))
+        if announce:
+            _announce_accessible(self, text)
+
+    def _refresh_live_watch_items(self, selected=""):
+        watches = list(config.data["market"].get("live_watch_items", []))
+        selected = str(selected or self.live_watch_items.currentText())
+        self.live_watch_items.blockSignals(True)
+        self.live_watch_items.clear()
+        if watches:
+            self.live_watch_items.addItems(watches)
+            index = self.live_watch_items.findText(
+                selected, Qt.MatchFlag.MatchFixedString)
+            self.live_watch_items.setCurrentIndex(max(0, index))
+            self.live_watch_items.setEnabled(True)
+            self.live_watch_remove.setEnabled(True)
+        else:
+            self.live_watch_items.addItem("No watched items")
+            self.live_watch_items.setEnabled(False)
+            self.live_watch_remove.setEnabled(False)
+        self.live_watch_items.blockSignals(False)
+
+    def _add_live_watch(self):
+        watch = str(self.live_watch_input.text() or "").strip()[:96]
+        if not watch:
+            self.live_watch_input.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        watches = config.data["market"].setdefault("live_watch_items", [])
+        catalog_match = next((
+            item.name for item in self._gear_model.items
+            if _item_key(item.name) == _item_key(watch)), watch)
+        if catalog_match.casefold() not in {
+                item.casefold() for item in watches}:
+            watches.append(catalog_match)
+            del watches[64:]
+        config.data["market"]["live_alerts_enabled"] = True
+        self.live_alerts_enabled.blockSignals(True)
+        self.live_alerts_enabled.setChecked(True)
+        self.live_alerts_enabled.blockSignals(False)
+        if getattr(config, "_filename", ""):
+            config.save()
+        self.live_watch_input.clear()
+        self._refresh_live_watch_items(catalog_match)
+        _announce_accessible(
+            self, f"Alert added for {catalog_match}; auction alerts are on")
+        return True
+
+    def _remove_live_watch(self):
+        selected = str(self.live_watch_items.currentText() or "")
+        watches = config.data["market"].get("live_watch_items", [])
+        updated = [
+            item for item in watches if item.casefold() != selected.casefold()]
+        if len(updated) == len(watches):
+            return False
+        config.data["market"]["live_watch_items"] = updated
+        if getattr(config, "_filename", ""):
+            config.save()
+        self._refresh_live_watch_items()
+        _announce_accessible(self, f"Alert removed for {selected}")
+        return True
+
+    def _set_live_alerts_enabled(self, enabled):
+        config.data["market"]["live_alerts_enabled"] = bool(enabled)
+        if getattr(config, "_filename", ""):
+            config.save()
+        _announce_accessible(
+            self, "Live auction alerts on" if enabled else
+            "Live auction alerts off")
+
+    def _notify_live_watches(self, timestamp, seller, message):
+        settings = config.data["market"]
+        if not settings.get("live_alerts_enabled", True):
+            return []
+        matches = live_auction_watch_matches(
+            message, settings.get("live_watch_items", []))
+        now = (
+            timestamp.timestamp() if hasattr(timestamp, "timestamp") else
+            datetime.datetime.now().timestamp())
+        app = QApplication.instance()
+        notified = []
+        for item in matches:
+            key = (str(seller).casefold(), item.casefold())
+            if now - float(self._live_alerted_at.get(key, 0)) < 60:
+                continue
+            self._live_alerted_at[key] = now
+            if app and hasattr(app, "show_overlay_notification"):
+                app.show_overlay_notification(
+                    f"For sale · {item}",
+                    f"{seller} · {message}", msecs=8500,
+                    overlay_id="alerts", color="#7A3F2D",
+                    text_color="#FFE6C2")
+            _announce_accessible(
+                self, f"For sale: {item}, seller {seller}", assertive=True)
+            notified.append(item)
+        return notified
 
     def _set_query(self, query):
         self._proxy.set_query(query)
@@ -2943,7 +3240,7 @@ class GreenMarket(ParserWindow):
         self._refresh_button.setText("Refreshing…")
         self.status.setText("Refreshing PigParse Green…")
         request = QNetworkRequest(QUrl(MARKET_ENDPOINT))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.14")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.15")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._finished(reply))
 
@@ -3037,7 +3334,7 @@ class GreenMarket(ParserWindow):
         name = str(item.get("n", ""))
         self.status.setText(f"Evaluating PigParse history · {name}…")
         request = QNetworkRequest(QUrl(DETAIL_API.format(item_name=quote(name, safe=""))))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.14")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.15")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.finished.connect(lambda: self._analysis_finished(reply))
@@ -3138,5 +3435,8 @@ class GreenMarket(ParserWindow):
             "<b>Item era:</b><br>Project 1999 Wiki categories — "
             "Classic Era, Kunark Era, and Velious Era. The compact matched index "
             "is bundled for fast offline filtering.<br><br>"
-            "<b>Local live feed:</b><br>EverQuest log — /auction listings seen by your client.")
+            "<b>Live Log and Notification Service:</b><br>"
+            "EverQuest log — monitors /auction listings received by your own "
+            "client in places such as the EC tunnel and creates Vantage overlay "
+            "alerts for watched items. It is not a permanent global feed.")
         box.exec()

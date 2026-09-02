@@ -15,6 +15,18 @@ def _app():
     return QApplication.instance() or QApplication([])
 
 
+def test_old_default_faded_opacity_migrates_once_but_user_choice_is_kept():
+    migrated = config.normalize_notification_overlays({
+        "alerts": {"type": "text", "faded_background_opacity": 35}})
+    customized = config.normalize_notification_overlays({
+        "alerts": {"type": "text", "faded_background_opacity": 35,
+                   "contrast_opacity_version": 1}})
+
+    assert migrated["alerts"]["faded_background_opacity"] == 65
+    assert migrated["alerts"]["contrast_opacity_version"] == 1
+    assert customized["alerts"]["faded_background_opacity"] == 35
+
+
 def test_alert_and_timer_overlays_move_resize_lock_and_route(monkeypatch):
     app = _app()
     previous = config.data

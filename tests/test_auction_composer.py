@@ -4,6 +4,7 @@ from vantage.parsers.market import (
     AuctionComposer, AuctionEntry, AuctionQuantity, GearItem, P99_CHAT_LIMIT,
     P99_ITEM_LINK_DELIMITER, compose_auction_lines, normalize_auction_price,
     install_auction_hotbuttons, p99_item_link)
+from vantage.helpers import config
 from vantage.helpers.eq_clipboard import clipboard_payloads
 
 
@@ -125,6 +126,37 @@ def test_linked_wts_installs_into_free_p99_social_with_backup(tmp_path):
     assert "[ChatManager]" in installed
 
 
+def test_clickable_install_uses_inline_detected_character_without_dialog(tmp_path):
+    _app()
+    eq_root = tmp_path / "EverQuest"
+    logs = eq_root / "Logs"
+    logs.mkdir(parents=True)
+    ini = eq_root / "Mindflux_P1999Green.ini"
+    ini.write_text("[Socials]\n", encoding="cp1252")
+    general = config.data.setdefault("general", {})
+    previous_logs = general.get("eq_log_dir", "")
+    try:
+        config.data["general"]["eq_log_dir"] = str(logs)
+        composer = AuctionComposer()
+        composer.set_catalog([GearItem(
+            "Manastone", id=6040, peqId=13401)])
+        composer.item_search.setText("Manastone")
+        assert composer.add_search_item()
+        assert composer.character_ini.currentText() == "Mindflux · Green"
+        assert not composer.hotbutton_button.isEnabled()
+
+        composer.camped_out.setChecked(True)
+        assert composer.hotbutton_button.isEnabled()
+        assert composer.install_hotbuttons() is True
+        assert "Installed" in composer.preview_status.text()
+        assert "Page2Button1Line1=/auction WTS" in ini.read_text(
+            encoding="cp1252")
+        assert not composer.camped_out.isChecked()
+        composer.close()
+    finally:
+        config.data["general"]["eq_log_dir"] = previous_logs
+
+
 def test_composer_has_no_inventory_import_step():
     _app()
     composer = AuctionComposer()
@@ -143,13 +175,13 @@ def test_wtb_is_simple_and_does_not_require_an_inventory_export():
     composer.item_search.setText("Manastone")
 
     assert composer.copy_button.accessibleName() == \
-        "Copy the EverQuest WTB message"
+        "Copy WTB auction message"
     assert "WTB" in composer.copy_button.toolTip()
     assert composer.add_search_item()
     assert composer.copy_next()
     assert app.clipboard().text() == "WTB Manastone PST"
     assert composer.copy_button.accessibleName() == \
-        "Copy the EverQuest WTB message"
+        "Copy WTB 1/1 auction message"
     composer.close()
 
 

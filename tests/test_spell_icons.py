@@ -156,6 +156,17 @@ def test_spell_progress_palette_is_stable_colorful_and_glassy():
         beneficial)
     assert spell_progress_palette(beneficial) != spell_progress_palette(
         evocation)
+    for palette in (
+            spell_progress_palette(beneficial),
+            spell_progress_palette(evocation)):
+        for color in palette[:3]:
+            red, green, blue = (
+                int(color[index:index + 2], 16) for index in (1, 3, 5))
+            assert not (green > red and green > blue)
+    hostile = spell_progress_palette(evocation)
+    assert all(
+        int(color[1:3], 16) > int(color[5:7], 16)
+        for color in hostile[:3])
     assert all(
         max(int(color[index:index + 2], 16) for index in (1, 3, 5)) < 180
         for color in spell_progress_palette(beneficial)[:3])

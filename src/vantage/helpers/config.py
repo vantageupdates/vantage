@@ -68,7 +68,8 @@ DEFAULT_NOTIFICATION_OVERLAYS = {
         "background_color": "#0B0D10",
         "background_opacity": 92,
         "faded_background_color": "#0B0D10",
-        "faded_background_opacity": 35,
+        "faded_background_opacity": 65,
+        "contrast_opacity_version": 1,
         "text_fade_seconds": 8,
         "show_timer_bar": False,
         "standardize_timer_bars": False,
@@ -93,7 +94,8 @@ DEFAULT_NOTIFICATION_OVERLAYS = {
         "background_color": "#0B0D10",
         "background_opacity": 92,
         "faded_background_color": "#0B0D10",
-        "faded_background_opacity": 35,
+        "faded_background_opacity": 65,
+        "contrast_opacity_version": 1,
         "text_fade_seconds": 8,
         "show_timer_bar": True,
         "standardize_timer_bars": False,
@@ -135,6 +137,20 @@ def normalize_notification_overlays(value, seed_defaults=True):
         overlay_type = "timer" if inferred_type == "timer" else "text"
         settings = notification_overlay_defaults(overlay_id, overlay_type)
         settings.update(raw_settings)
+        # Migrate only the former shipped default. Once versioned, a user may
+        # deliberately choose any fading opacity in the editor and keep it.
+        try:
+            contrast_version = int(
+                raw_settings.get("contrast_opacity_version", 0))
+        except (TypeError, ValueError):
+            contrast_version = 0
+        if contrast_version < 1:
+            try:
+                if int(settings.get("faded_background_opacity", 35)) == 35:
+                    settings["faded_background_opacity"] = 65
+            except (TypeError, ValueError):
+                settings["faded_background_opacity"] = 65
+        settings["contrast_opacity_version"] = 1
         settings["label"] = str(
             settings.get("label") or
             overlay_id.replace("_", " ").title())[:80]
@@ -162,7 +178,7 @@ def normalize_notification_overlays(value, seed_defaults=True):
                 ("font_size", 7, 32, 10),
                 ("shadow_depth", 0, 5, 1),
                 ("background_opacity", 0, 100, 92),
-                ("faded_background_opacity", 0, 100, 35),
+                ("faded_background_opacity", 0, 100, 65),
                 ("text_fade_seconds", 0, 300, 8)):
             try:
                 settings[key] = max(
@@ -589,6 +605,12 @@ def verify_settings():
                 raw_profile.get('volume', 100), 100, 0, 100),
         }
     data['spells']['audio_profiles'] = audio_profiles
+    data['spells']['active_timer_state'] = get_setting(
+        data['spells'].get('active_timer_state', []), [],
+        lambda value: isinstance(value, list))[:512]
+    data['spells']['active_character_key'] = get_setting(
+        data['spells'].get('active_character_key', ''), '',
+        lambda value: isinstance(value, str))[:160]
 
     # Compact player or target server-tick overlay. Tick anchoring uses only
     # visible EQ log events or an explicit manual synchronization.
@@ -850,6 +872,18 @@ def verify_settings():
         lambda x: 10 <= x <= 120)
     data['market']['auto_consider_lookup'] = get_setting(
         data['market'].get('auto_consider_lookup', False), False)
+    data['market']['live_alerts_enabled'] = get_setting(
+        data['market'].get('live_alerts_enabled', True), True)
+    raw_live_watches = get_setting(
+        data['market'].get('live_watch_items', []), [],
+        lambda value: isinstance(value, list))
+    live_watches = []
+    for raw_watch in raw_live_watches:
+        watch = str(raw_watch or '').strip()[:96]
+        if watch and watch.casefold() not in {
+                item.casefold() for item in live_watches}:
+            live_watches.append(watch)
+    data['market']['live_watch_items'] = live_watches[:64]
     data['market']['inventory_file'] = get_setting(
         data['market'].get('inventory_file', ''), '',
         lambda x: isinstance(x, str))

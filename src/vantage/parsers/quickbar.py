@@ -124,7 +124,7 @@ class QuickBar(ParserWindow):
         support.setProperty("Support", True)
         support.setStyle(support.style())
         support.setToolTip(
-            "Open the Vantage Buy Me a Coffee page in your default browser")
+            "Like this project? Support it — Buy Me a Coffee")
         support.setAccessibleDescription(
             "Opens the Vantage support page in your default browser")
         # Animate the real vector-icon button. A nested opacity effect inside
@@ -483,7 +483,7 @@ class QuickBar(ParserWindow):
             else "No verified update is currently waiting")
 
         self._buttons["support"].setToolTip(
-            "Open the Vantage Buy Me a Coffee page in your default browser")
+            "Like this project? Support it — Buy Me a Coffee")
         self._buttons["support"].setAccessibleDescription(
             "Opens the Vantage support page in your default browser")
         self._sync_support_animation()

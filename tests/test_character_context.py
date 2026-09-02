@@ -75,8 +75,19 @@ line("Gabtik says 'At your service Master.'")
 line("Gabtik tells you, 'Attacking a frost giant Master.'")
 
 profile = next(iter(config.data['general']['character_profiles'].values()))
+app.update_character_level('Harmflux', 'Green', 55)
+spells._refresh_character_profiles()
+harmflux_index = next(
+    index for index in range(spells._character_widget.count())
+    if (spells._character_widget.itemData(index) or {}).get('character') ==
+    'Harmflux')
+spells._character_widget.setCurrentIndex(harmflux_index)
 print(json.dumps({
-    'level': spells._level_widget.value(),
+    'detected_level': profile['level'],
+    'selected_level': spells._level_widget.value(),
+    'character_choices': [
+        spells._character_widget.itemText(index)
+        for index in range(spells._character_widget.count())],
     'level_tooltip': spells._level_widget.toolTip(),
     'pet_status': combat.pet_context.text(),
     'pet_tooltip': combat.pet_context.toolTip(),
@@ -97,7 +108,10 @@ def test_character_context_updates_spells_combat_and_persistent_profile(tmp_path
         check=True, capture_output=True, text=True, timeout=30)
     result = json.loads(completed.stdout.strip().splitlines()[-1])
 
-    assert result["level"] == 60
+    assert result["detected_level"] == 60
+    assert result["selected_level"] == 55
+    assert result["character_choices"] == [
+        "All", "Harmflux · Green", "Mindflux · Green"]
     assert "Enchanter" in result["level_tooltip"]
     assert "LEADER Kelder" in result["pet_status"]
     assert "PET Gabtik (Attacking)" in result["pet_status"]

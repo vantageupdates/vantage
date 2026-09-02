@@ -22,42 +22,15 @@ def zone_timer_visible(timer_zone, selected_zone):
 
 
 def reset_stale_persisted_timers(settings, now=None):
-    """Reset saved countdowns after a long clean shutdown, keeping rows.
+    """Preserve every saved countdown regardless of how long Vantage was off.
 
-    A zero close timestamp means the previous session did not report a clean
-    shutdown (or predates this feature), so its timers are preserved.
+    Older releases cleared live countdown state after a configurable clean
+    shutdown gap. Absolute deadlines already make that unnecessary: on startup
+    ``tick()`` advances each timer through the time that elapsed offline.  Keep
+    this compatibility hook so old configs migrate without losing a timer.
     """
-    now = time.time() if now is None else float(now)
-    try:
-        hours = max(1, min(48, int(settings.get("clear_after_hours", 4))))
-    except (TypeError, ValueError):
-        hours = 4
-    try:
-        closed_at = max(0.0, float(settings.get(
-            "last_session_closed_at", 0.0)))
-    except (TypeError, ValueError):
-        closed_at = 0.0
-    items = settings.get("items", [])
-    expired = bool(
-        isinstance(items, list) and items and closed_at > 0 and
-        max(0.0, now - closed_at) >= hours * 3600)
-    if expired:
-        for values in items:
-            if not isinstance(values, dict):
-                continue
-            values.update({
-                "phase": PHASE_IDLE,
-                "running": False,
-                "phase_started_at": None,
-                "deadline": None,
-                "paused_remaining": None,
-                "cycles": 0,
-                "warning_sent": False,
-            })
-    # Zero while running prevents a crash from being mistaken for a long,
-    # clean shutdown on the next start.
     settings["last_session_closed_at"] = 0.0
-    return expired
+    return False
 
 
 @dataclass

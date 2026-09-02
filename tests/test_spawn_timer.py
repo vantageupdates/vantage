@@ -73,7 +73,7 @@ def test_friendly_duration_input_uses_minutes_for_bare_numbers():
     assert parse_duration_input("bad input") == 0
 
 
-def test_saved_countdowns_reset_only_after_configured_clean_shutdown_gap():
+def test_saved_countdowns_are_preserved_after_any_clean_shutdown_gap():
     recent = {
         "items": [{"name": "Keep me", "phase": "respawn", "running": True}],
         "clear_after_hours": 4,
@@ -91,14 +91,13 @@ def test_saved_countdowns_reset_only_after_configured_clean_shutdown_gap():
         "clear_after_hours": 4,
         "last_session_closed_at": 10_000,
     }
-    assert reset_stale_persisted_timers(stale, 10_000 + 4 * 3600) is True
+    assert reset_stale_persisted_timers(stale, 10_000 + 4 * 3600) is False
     assert len(stale["items"]) == 1
     assert stale["items"][0]["name"] == "Keep this row"
     assert stale["items"][0]["zone"] == "Velketor's Labyrinth"
-    assert stale["items"][0]["phase"] == "idle"
-    assert stale["items"][0]["running"] is False
-    assert stale["items"][0]["deadline"] is None
-    assert stale["items"][0]["cycles"] == 0
+    assert stale["items"][0]["phase"] == "respawn"
+    assert stale["items"][0]["running"] is True
+    assert stale["items"][0]["deadline"] == 99_000
     assert stale["last_session_closed_at"] == 0.0
 
 

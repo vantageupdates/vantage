@@ -696,7 +696,7 @@ class SpawnTimers(ParserWindow):
         self.state_changed()
 
     def _load(self):
-        reset = reset_stale_persisted_timers(config.data['timers'])
+        reset_stale_persisted_timers(config.data['timers'])
         migrated = False
         for values in config.data['timers']['items']:
             try:
@@ -715,10 +715,6 @@ class SpawnTimers(ParserWindow):
                     migrated = True
             self._states[timer.timer_id] = timer
             self._add_row(timer)
-        if reset:
-            hours = config.data['timers']['clear_after_hours']
-            self.status.setText(
-                f"Old countdowns reset after {hours} hours closed · saved zone timers kept")
         # Persist the live-session marker even when no countdown changed. A
         # crash then preserves rows instead of reusing an older clean-close
         # timestamp and resetting them by mistake.

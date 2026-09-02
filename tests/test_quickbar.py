@@ -401,7 +401,8 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
     assert initial['tick_readout_visible'] is True
     assert initial['support_highlight'] is True
     assert initial['support_pulsing'] is True
-    assert 'default browser' in initial['support_tooltip']
+    assert initial['support_tooltip'] == \
+        'Like this project? Support it — Buy Me a Coffee'
     assert initial['support_icon_visible'] is True
     assert initial['sharp_surface'] is True
     assert initial['full_font_hinting'] is True

@@ -14,10 +14,10 @@ from PySide6.QtCore import QEvent, QObject, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QPainter
 from PySide6.QtNetwork import (
     QNetworkAccessManager, QNetworkReply, QNetworkRequest)
-from PySide6.QtWidgets import (QApplication, QFileDialog, QFrame, QHBoxLayout,
-                             QLabel, QMenu, QProgressBar, QScrollArea, QSpinBox,
-                             QSizePolicy, QToolButton, QVBoxLayout, QPushButton,
-                             QWidget)
+from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog, QFrame,
+                             QHBoxLayout, QInputDialog, QLabel, QMenu,
+                             QProgressBar, QScrollArea, QSpinBox, QSizePolicy,
+                             QToolButton, QVBoxLayout, QPushButton, QWidget)
 
 from vantage.helpers.parser import ParserWindow
 from vantage.helpers import config, format_time, resource_path, text_time_to_seconds
@@ -212,6 +212,17 @@ class Spells(ParserWindow):
         self._bard_runtime_timer.setInterval(250)
         self._bard_runtime_timer.timeout.connect(self._flush_bard_counts)
         self._bard_runtime_timer.start()
+        self._runtime_state_save_timer = QTimer(self)
+        self._runtime_state_save_timer.setSingleShot(True)
+        self._runtime_state_save_timer.setInterval(200)
+        self._runtime_state_save_timer.timeout.connect(
+            self._persist_runtime_timer_state)
+        self._spell_container.state_changed.connect(
+            self._schedule_runtime_timer_state_save)
+        self._refresh_character_profiles()
+        self._restore_runtime_timer_state()
+        QApplication.instance().aboutToQuit.connect(
+            self._persist_runtime_timer_state)
 
     def _setup_ui(self):
         self._spell_container = SpellContainer()
@@ -270,6 +281,24 @@ class Spells(ParserWindow):
         self._library_button.clicked.connect(
             QApplication.instance().show_spell_library)
         self.menu_area.addWidget(self._library_button)
+        self._character_widget = QComboBox()
+        self._character_widget.setObjectName('SpellCharacterProfile')
+        self._character_widget.setMinimumContentsLength(8)
+        self._character_widget.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self._character_widget.setAccessibleName('Spell timer character')
+        self._character_widget.setToolTip(
+            'Choose which character timers are shown; each character remembers '
+            'its own level')
+        self._character_widget.currentIndexChanged.connect(
+            self._character_profile_changed)
+        self._add_character_button = QToolButton()
+        self._add_character_button.setObjectName('CompactMenuButton')
+        self._add_character_button.setIcon(game_icon('add'))
+        self._add_character_button.setAccessibleName('Add spell timer character')
+        self._add_character_button.setToolTip(
+            'Add a character profile and remember a separate spell level')
+        self._add_character_button.clicked.connect(self._add_character_profile)
         self._level_widget = QSpinBox()
         self._level_widget.setRange(1, 65)
         self._level_widget.setValue(config.data['spells']['level'])
@@ -277,17 +306,179 @@ class Spells(ParserWindow):
         self._level_widget.setAccessibleName('Character level')
         self._level_widget.setToolTip(
             'Level used to calculate the correct buff duration')
-        self.menu_area.addWidget(self._level_widget, 0)
         self._level_widget.valueChanged.connect(self._level_change)
+        # Profiles live in a slim content strip, not the title header. This
+        # preserves the fixed 22 px window chrome and prevents controls from
+        # overlapping when the complete panel replica is scaled down.
+        self._profile_bar = QWidget()
+        self._profile_bar.setObjectName('SpellProfileBar')
+        profile_layout = QHBoxLayout(self._profile_bar)
+        profile_layout.setContentsMargins(3, 1, 3, 1)
+        profile_layout.setSpacing(2)
+        profile_label = QLabel('Character')
+        profile_label.setToolTip(
+            'Timers can be filtered by character and each profile keeps its level')
+        profile_layout.addWidget(profile_label, 0)
+        profile_layout.addWidget(self._character_widget, 1)
+        profile_layout.addWidget(self._add_character_button, 0)
+        profile_layout.addWidget(self._level_widget, 0)
+        self.content.insertWidget(1, self._profile_bar, 0)
         self._camp_state = ''
+
+    @staticmethod
+    def _profile_key(character='', server=''):
+        return (
+            f'{str(server or "").strip().casefold()}|'
+            f'{str(character or "").strip().casefold()}')
+
+    def _refresh_character_profiles(self, preferred_key=None):
+        profiles = config.data.get('general', {}).get(
+            'character_profiles', {})
+        selected_key = str(
+            preferred_key if preferred_key is not None else
+            config.data['spells'].get('active_character_key', ''))
+        self._character_widget.blockSignals(True)
+        self._character_widget.clear()
+        self._character_widget.addItem(
+            'All', {'key': '', 'character': '', 'server': '',
+                    'level': config.data['spells']['level']})
+        for raw_key, values in sorted(
+                profiles.items(), key=lambda pair: (
+                    str(pair[1].get('character', '')).casefold(),
+                    str(pair[1].get('server', '')).casefold())):
+            if not isinstance(values, dict):
+                continue
+            character = str(values.get('character') or '').strip()[:64]
+            server = str(values.get('server') or '').strip()[:64]
+            if not character:
+                continue
+            try:
+                level = max(1, min(65, int(
+                    values.get('level') or config.data['spells']['level'])))
+            except (TypeError, ValueError):
+                level = max(1, min(65, int(config.data['spells']['level'])))
+            key = self._profile_key(character, server)
+            label = character + (f' · {server}' if server else '')
+            self._character_widget.addItem(label, {
+                'key': key or str(raw_key), 'character': character,
+                'server': server, 'level': level})
+        index = self._character_widget.findData(
+            selected_key, role=Qt.ItemDataRole.UserRole)
+        if index < 0:
+            for candidate in range(self._character_widget.count()):
+                values = self._character_widget.itemData(candidate) or {}
+                if values.get('key') == selected_key:
+                    index = candidate
+                    break
+        self._character_widget.setCurrentIndex(max(0, index))
+        self._character_widget.blockSignals(False)
+        self._character_profile_changed(
+            self._character_widget.currentIndex(), persist=False)
+
+    def _selected_character_profile(self):
+        values = self._character_widget.currentData()
+        return values if isinstance(values, dict) else {
+            'key': '', 'character': '', 'server': '',
+            'level': config.data['spells']['level']}
+
+    def _character_profile_changed(self, _index, persist=True):
+        profile = self._selected_character_profile()
+        character = str(profile.get('character') or '')
+        server = str(profile.get('server') or '')
+        level = max(1, min(65, int(
+            profile.get('level') or config.data['spells']['level'])))
+        self._level_widget.blockSignals(True)
+        self._level_widget.setValue(level)
+        self._level_widget.blockSignals(False)
+        self._level_widget.setAccessibleName(
+            f'Level for {character}' if character else 'Default spell level')
+        self._spell_container.set_profile_filter(character, server)
+        if persist:
+            config.data['spells']['active_character_key'] = str(
+                profile.get('key') or '')
+            config.data['spells']['level'] = level
+            config.save()
+
+    def _add_character_profile(self):
+        name, accepted = QInputDialog.getText(
+            self, 'Add spell character', 'Character name:')
+        character = str(name or '').strip()[:64]
+        if not accepted or not character:
+            return False
+        server = str(getattr(self, '_active_server', '') or '').strip()[:64]
+        level = self._level_widget.value()
+        app = QApplication.instance()
+        updater = getattr(app, 'update_character_level', None)
+        if updater:
+            updater(character, server, level)
+        else:
+            key = self._profile_key(character, server)
+            profiles = config.data['general'].setdefault(
+                'character_profiles', {})
+            profiles[key] = {
+                'character': character, 'server': server, 'level': level,
+                'player_class': '', 'group_leader': '', 'pet_name': '',
+                'pet_state': '', 'pet_spell': '', 'zone': '',
+                'saved_you_spells': [], 'source': 'Manual profile',
+                'revision': 1}
+            config.save()
+        key = self._profile_key(character, server)
+        self._refresh_character_profiles(key)
+        config.data['spells']['active_character_key'] = key
+        config.save()
+        return True
+
+    def _active_cast_level(self):
+        context = getattr(self, '_character_context', None)
+        if context and int(getattr(context, 'level', 0) or 0) > 0:
+            return max(1, min(65, int(context.level)))
+        key = self._profile_key(
+            getattr(self, '_active_character', ''),
+            getattr(self, '_active_server', ''))
+        values = config.data.get('general', {}).get(
+            'character_profiles', {}).get(key, {})
+        try:
+            return max(1, min(65, int(
+                values.get('level') or config.data['spells']['level'])))
+        except (TypeError, ValueError):
+            return max(1, min(65, int(config.data['spells']['level'])))
+
+    def _spell_for_active_profile(self, source):
+        spell = copy.copy(source)
+        spell.runtime_level = self._active_cast_level()
+        return spell
+
+    def _schedule_runtime_timer_state_save(self):
+        self._runtime_state_save_timer.start()
+
+    def _persist_runtime_timer_state(self):
+        config.data['spells']['active_timer_state'] = \
+            self._spell_container.snapshot_runtime_state()
+        if getattr(config, '_filename', ''):
+            config.save()
+
+    def _restore_runtime_timer_state(self):
+        saved = config.data['spells'].get('active_timer_state', [])
+        restored = self._spell_container.restore_runtime_state(
+            saved, self.spell_book)
+        # Drop expired or malformed rows immediately. Absolute deadlines mean
+        # the remaining values are already current after any offline interval.
+        cleaned = self._spell_container.snapshot_runtime_state()
+        if cleaned != saved:
+            config.data['spells']['active_timer_state'] = cleaned
+            if getattr(config, '_filename', ''):
+                config.save()
+        return restored
 
     def _spell_triggered(self):
         """SpellTrigger spell_triggered event handler. """
         if self._spell_trigger:
             if self._spell_trigger.activated:
                 for target in self._spell_trigger.targets:
+                    spell = self._spell_for_active_profile(
+                        self._spell_trigger.spell)
                     self._spell_container.add_spell(
-                        self._spell_trigger.spell, target[0], target[1],
+                        spell, target[0], target[1],
                         getattr(self, '_active_character', ''),
                         getattr(self, '_active_server', ''),
                         named=self._is_named_target(target[1]))
@@ -443,7 +634,8 @@ class Spells(ParserWindow):
                                     duration=max(1, int(math.ceil(duration / 6))),
                                     duration_seconds=duration,
                                     duration_formula=11,
-                                    spell_icon=14)
+                                    spell_icon=14,
+                                    runtime_level=self._active_cast_level())
                                 self._spell_container.add_spell(
                                     spell, timestamp, '__custom__',
                                     active_character,
@@ -608,6 +800,7 @@ class Spells(ParserWindow):
         self._pending_item_click = None
         detected = copy.copy(spell)
         detected.source_item = item_name or 'Item-only effect'
+        detected.runtime_level = self._active_cast_level()
         self._spell_container.add_spell(
             detected, timestamp, target,
             getattr(self, '_active_character', ''),
@@ -652,7 +845,8 @@ class Spells(ParserWindow):
             duration_seconds=seconds,
             duration_formula=11,
             spell_icon=(source.spell_icon if source else 14),
-            type=1)
+            type=1,
+            runtime_level=self._active_cast_level())
         self._spell_container.add_spell(
             spell, timestamp, '__utility__',
             getattr(self, '_active_character', ''),
@@ -994,7 +1188,29 @@ class Spells(ParserWindow):
         if identity == self._context_revision:
             return
         self._context_revision = identity
-        if context.level:
+        key = self._profile_key(context.character, context.server)
+        profile_index = next((
+            index for index in range(self._character_widget.count())
+            if (self._character_widget.itemData(index) or {}).get('key') == key
+        ), -1)
+        if context.character and profile_index < 0:
+            label = context.character + (
+                f' · {context.server}' if context.server else '')
+            self._character_widget.addItem(label, {
+                'key': key, 'character': context.character,
+                'server': context.server,
+                'level': max(1, int(context.level or
+                                    config.data['spells']['level']))})
+            profile_index = self._character_widget.count() - 1
+        elif context.level and profile_index >= 0:
+            profile = dict(self._character_widget.itemData(profile_index) or {})
+            profile['level'] = max(1, min(65, int(context.level)))
+            self._character_widget.setItemData(profile_index, profile)
+        selected = self._selected_character_profile()
+        selected_matches = bool(
+            context.character and (
+                not selected.get('key') or selected.get('key') == key))
+        if context.level and selected_matches:
             self._level_widget.blockSignals(True)
             self._level_widget.setValue(context.level)
             self._level_widget.blockSignals(False)
@@ -1016,12 +1232,16 @@ class Spells(ParserWindow):
     def _level_change(self, _):
         level = self._level_widget.value()
         config.data['spells']['level'] = level
+        profile = self._selected_character_profile()
+        character = str(profile.get('character') or '')
+        server = str(profile.get('server') or '')
+        profile['level'] = level
+        self._character_widget.setItemData(
+            self._character_widget.currentIndex(), profile)
         app = QApplication.instance()
         updater = getattr(app, 'update_character_level', None)
-        if updater and getattr(self, '_active_character', ''):
-            updater(
-                self._active_character,
-                getattr(self, '_active_server', ''), level)
+        if updater and character:
+            updater(character, server, level)
         else:
             config.save()
 
@@ -1180,7 +1400,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.14')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.15')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -1457,6 +1677,8 @@ class BardCountGroup(QFrame):
 
 class SpellContainer(QFrame):
 
+    state_changed = Signal()
+
     def __init__(self):
         super().__init__()
         self._layout = QVBoxLayout()
@@ -1466,6 +1688,8 @@ class SpellContainer(QFrame):
         self._layout.addStretch(1)
         self._activity_sequence = 0
         self._target_sequence = 0
+        self._filter_character = ''
+        self._filter_server = ''
         self._empty_state = QLabel(
             "NO ACTIVE BUFFS\nWaiting for casts from the log…", self)
         self._empty_state.setObjectName("SpellEmptyState")
@@ -1493,7 +1717,8 @@ class SpellContainer(QFrame):
             getattr(self, '_bard_group', None) and
             not self._bard_group.isHidden())
         empty = (
-            not bool(self.findChildren(SpellTarget)) and
+            not any(not target.isHidden()
+                    for target in self.findChildren(SpellTarget)) and
             not boats_visible and not bard_visible)
         self._empty_state.setVisible(empty)
         if empty:
@@ -1532,6 +1757,150 @@ class SpellContainer(QFrame):
         self._layout.insertWidget(1, group)
         self._sync_empty_state()
 
+    def set_profile_filter(self, character='', server=''):
+        self._filter_character = str(character or '').strip().casefold()
+        self._filter_server = str(server or '').strip().casefold()
+        self._apply_profile_filter()
+
+    def _apply_profile_filter(self):
+        for target in self.findChildren(SpellTarget):
+            visible = False
+            for widget in target.spell_widgets():
+                widget_character = str(
+                    getattr(widget, 'runtime_character', '') or '').strip().casefold()
+                widget_server = str(
+                    getattr(widget, 'runtime_server', '') or '').strip().casefold()
+                matches = (
+                    not self._filter_character or not widget_character or
+                    (widget_character == self._filter_character and
+                     (not self._filter_server or not widget_server or
+                      widget_server == self._filter_server)))
+                widget.setVisible(matches)
+                visible = visible or matches
+            target.setVisible(visible)
+        self._sync_empty_state()
+
+    @staticmethod
+    def _spell_runtime_payload(spell):
+        fields = (
+            'id', 'name', 'runtime_key', 'duration_seconds', 'duration',
+            'duration_formula', 'pvp_duration', 'pvp_duration_formula', 'type',
+            'spell_icon', 'skill', 'resist_type', 'effect_text_you',
+            'effect_text_other', 'effect_text_worn_off', 'source_item',
+            'item_only', 'runtime_level')
+        payload = {}
+        for field_name in fields:
+            value = getattr(spell, field_name, None)
+            if isinstance(value, (str, int, float, bool)) or value is None:
+                payload[field_name] = value
+        return payload
+
+    def snapshot_runtime_state(self, now_epoch=None, now_datetime=None):
+        """Serialize active rows with absolute deadlines for offline aging."""
+        now_epoch = time.time() if now_epoch is None else float(now_epoch)
+        now_datetime = now_datetime or datetime.datetime.now()
+        saved = []
+        for target in sorted(
+                self.findChildren(SpellTarget),
+                key=lambda item: item.created_order):
+            for widget in target.spell_widgets():
+                if widget._removed or widget._faded:
+                    continue
+                remaining = (widget.end_time - now_datetime).total_seconds()
+                if remaining <= 0:
+                    continue
+                saved.append({
+                    'deadline': now_epoch + remaining,
+                    'target': target.name,
+                    'target_created_order': target.created_order,
+                    'target_activity_order': target.last_activity_order,
+                    'target_named': target.is_named,
+                    'target_marker': target.instance_marker,
+                    'target_alias': target.alias,
+                    'character': widget.runtime_character,
+                    'server': widget.runtime_server,
+                    'warning_played': widget._warning_played,
+                    'spell': self._spell_runtime_payload(widget.spell),
+                })
+                if len(saved) >= 512:
+                    return saved
+        return saved
+
+    def restore_runtime_state(
+            self, saved, spell_book, now_epoch=None, now_datetime=None):
+        """Restore unexpired rows and subtract all time elapsed while offline."""
+        if not isinstance(saved, list):
+            return 0
+        now_epoch = time.time() if now_epoch is None else float(now_epoch)
+        now_datetime = now_datetime or datetime.datetime.now()
+        lookup = {
+            str(name).casefold(): spell for name, spell in spell_book.items()}
+        targets = {}
+        restored = 0
+        for item in saved[:512]:
+            if not isinstance(item, dict) or not isinstance(item.get('spell'), dict):
+                continue
+            try:
+                deadline = float(item.get('deadline', 0))
+                remaining = int(math.ceil(deadline - now_epoch))
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if remaining <= 0:
+                continue
+            payload = dict(item['spell'])
+            name = str(payload.get('name') or '').strip()
+            if not name:
+                continue
+            source = lookup.get(name.casefold())
+            spell = copy.copy(source) if source else Spell()
+            for key, value in payload.items():
+                if key in {
+                        'id', 'name', 'runtime_key', 'duration_seconds',
+                        'duration', 'duration_formula', 'pvp_duration',
+                        'pvp_duration_formula', 'type', 'spell_icon', 'skill',
+                        'resist_type', 'effect_text_you', 'effect_text_other',
+                        'effect_text_worn_off', 'source_item', 'item_only',
+                        'runtime_level'}:
+                    setattr(spell, key, value)
+            spell.saved_remaining_seconds = min(
+                remaining, 365 * 24 * 60 * 60)
+            spell.saved_warning_played = bool(item.get('warning_played', False))
+            target_name = str(item.get('target') or '__you__')[:128]
+            try:
+                created_order = max(1, int(
+                    item.get('target_created_order', restored + 1)))
+            except (TypeError, ValueError):
+                created_order = restored + 1
+            target_key = (target_name.casefold(), created_order)
+            target = targets.get(target_key)
+            if target is None:
+                target = SpellTarget(
+                    target=target_name, created_order=created_order,
+                    named=bool(item.get('target_named', False)),
+                    marker=str(item.get('target_marker') or '')[:8],
+                    alias=str(item.get('target_alias') or '')[:32])
+                try:
+                    target.last_activity_order = max(
+                        0, int(item.get('target_activity_order', 0)))
+                except (TypeError, ValueError):
+                    target.last_activity_order = 0
+                self._layout.addWidget(target, 0)
+                targets[target_key] = target
+                self._target_sequence = max(
+                    self._target_sequence, target.created_order)
+                self._activity_sequence = max(
+                    self._activity_sequence, target.last_activity_order)
+            target.add_spell(
+                spell, now_datetime,
+                str(item.get('character') or '')[:80],
+                str(item.get('server') or '')[:80])
+            restored += 1
+        for target_name in {target.name for target in targets.values()}:
+            self._renumber_target_instances(target_name)
+        self._reorder_targets()
+        self._apply_profile_filter()
+        return restored
+
     def add_spell(
             self, spell, timestamp, target='__you__', character='', server='',
             named=False):
@@ -1551,7 +1920,10 @@ class SpellContainer(QFrame):
             self._target_sequence += 1
             spell_target = SpellTarget(
                 target=target, created_order=self._target_sequence,
-                named=named)
+                named=named,
+                marker=(
+                    '' if named or str(target).startswith('__') else
+                    self._allocate_target_marker(target)))
             self._layout.addWidget(spell_target, 0)
 
         spell_target.add_spell(spell, timestamp, character, server)
@@ -1559,7 +1931,9 @@ class SpellContainer(QFrame):
         spell_target.last_activity_order = self._activity_sequence
         self._renumber_target_instances(target)
         self._reorder_targets()
+        self._apply_profile_filter()
         self._sync_empty_state()
+        self.state_changed.emit()
 
     @staticmethod
     def _choose_target_instance(instances, spell, timestamp, target,
@@ -1649,15 +2023,81 @@ class SpellContainer(QFrame):
     def _renumber_target_instances(self, name):
         instances = self.get_spell_targets_by_name(name)
         total = len(instances)
+        for target in instances:
+            if (not target.is_named and not target.name.startswith('__') and
+                    not target.instance_marker):
+                target.instance_marker = self._allocate_target_marker(
+                    target.name, exclude=target)
         for number, target in enumerate(instances, 1):
             target.set_instance_number(
                 number, 1 if target.is_named else total)
 
+    def _allocate_target_marker(self, name, exclude=None):
+        used = {
+            target.instance_marker for target in
+            self.get_spell_targets_by_name(name)
+            if target is not exclude and target.instance_marker}
+        index = 0
+        while True:
+            marker = (
+                chr(ord('A') + index) if index < 26 else f'A{index + 1}')
+            if marker not in used:
+                return marker
+            index += 1
+
+    def _spell_widget_removed(self, target):
+        if target and not target._removed:
+            self._renumber_target_instances(target.name)
+        self._apply_profile_filter()
+        self.state_changed.emit()
+
+    def _create_duplicate_target(self, source):
+        """Create a stable manual instance for logs that expose no mob ID."""
+        self._target_sequence += 1
+        target = SpellTarget(
+            target=source.name, created_order=self._target_sequence,
+            named=False, marker=self._allocate_target_marker(source.name))
+        self._layout.addWidget(target, 0)
+        return target
+
+    def move_spell_widget(self, widget, destination=None):
+        """Move a live effect without restarting its countdown."""
+        source = widget.parentWidget()
+        if not isinstance(source, SpellTarget) or source.is_named:
+            return None
+        if destination is None:
+            destination = self._create_duplicate_target(source)
+        if (destination is source or
+                destination.name.casefold() != source.name.casefold()):
+            return destination
+        spell_key = str(getattr(
+            widget.spell, 'runtime_key', widget.spell.name))
+        existing = destination.spell_widget(spell_key)
+        if existing and existing is not widget:
+            return destination
+        destination._layout.insertWidget(
+            max(1, destination._layout.count() - 1), widget)
+        destination._initialized = True
+        destination.last_activity_order = max(
+            destination.last_activity_order, source.last_activity_order)
+        destination._sort_spell_widgets()
+        destination.set_instance_number(destination.instance_number)
+        if not source._removed:
+            source.set_instance_number(source.instance_number)
+        self._renumber_target_instances(source.name)
+        self._reorder_targets()
+        self._apply_profile_filter()
+        self.state_changed.emit()
+        return destination
+
     def _target_removed(self, target):
         name = target.name
-        QTimer.singleShot(0, lambda: (
-            self._renumber_target_instances(name),
-            self._sync_empty_state()))
+        QTimer.singleShot(0, lambda: self._finish_target_removed(name))
+
+    def _finish_target_removed(self, name):
+        self._renumber_target_instances(name)
+        self._apply_profile_filter()
+        self.state_changed.emit()
 
     def has_custom_timer(self, name):
         target = self.get_spell_target_by_name('__custom__')
@@ -1685,7 +2125,8 @@ class SpellContainer(QFrame):
 
 class SpellTarget(QFrame):
 
-    def __init__(self, target='__you__', created_order=0, named=False):
+    def __init__(self, target='__you__', created_order=0, named=False,
+                 marker='', alias=''):
         super().__init__()
         self.name = target
         if target == '__you__':
@@ -1701,6 +2142,9 @@ class SpellTarget(QFrame):
         self.created_order = int(created_order)
         self.instance_number = 1
         self.is_named = bool(named)
+        self.instance_marker = str(marker or '')[:8]
+        self.alias = str(alias or '').strip()[:32]
+        self._removed = False
         self.setObjectName('SpellContainer')
 
         self._setup_ui()
@@ -1710,24 +2154,49 @@ class SpellTarget(QFrame):
         self.setLayout(self._layout)
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(0)
-        self.target_label = QLabel(self.title.title())
+        self.target_label = QToolButton()
+        self.target_label.setText(self.title.title())
         self.target_label.setObjectName('SpellTargetLabel')
+        self.target_label.setAutoRaise(True)
+        self.target_label.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.target_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.target_label.setMinimumHeight(20)
-        self.target_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.target_label.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.target_label.installEventFilter(self)
-        self.target_label.mouseDoubleClickEvent = self._remove
+        self.target_label.clicked.connect(
+            lambda: self._target_menu(self.target_label.rect().center()))
+        self.target_label.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu)
+        self.target_label.customContextMenuRequested.connect(self._target_menu)
         self._layout.addWidget(self.target_label, 0)
         self._layout.addStretch()
 
     def _remove(self, event=None):
+        if self._removed:
+            return
+        self._removed = True
         owner = self.parentWidget()
+        focus_target = None
+        if owner:
+            siblings = [
+                target for target in owner.spell_targets()
+                if target is not self and not target._removed]
+            if siblings:
+                focus_target = siblings[0].target_label
+            else:
+                window = self.window()
+                focus_target = getattr(window, '_character_widget', None)
         self.setParent(None)
         self.deleteLater()
         if owner and hasattr(owner, '_target_removed'):
             owner._target_removed(self)
         elif owner and hasattr(owner, '_sync_empty_state'):
             QTimer.singleShot(0, owner._sync_empty_state)
+        if focus_target is not None:
+            QTimer.singleShot(0, lambda: focus_target.setFocus(
+                Qt.FocusReason.OtherFocusReason))
 
     def spell_widgets(self):
         """Returns a list of all SpellWidgets."""
@@ -1759,35 +2228,81 @@ class SpellTarget(QFrame):
         if self.name.startswith('__'):
             return
         base = self.title.title()
+        marker = self.alias or self.instance_marker
         display = (
-            f'{base} #{self.instance_number}'
-            if int(total) > 1 and not self.is_named else base)
+            f'{base} · {marker}' if marker and not self.is_named else base)
         self.target_label.setText(display)
+        effects = [
+            string.capwords(str(widget.spell.name))
+            for widget in self.spell_widgets() if not widget._removed]
+        effect_text = (
+            ' Active effects: ' + ', '.join(effects) + '.' if effects else '')
         if self.is_named:
             tooltip = (
                 'Named NPC · Vantage keeps one spell target instance in this zone. '
-                'Double-click, or focus and press Delete, to remove its timers.')
+                'Click, Enter, Space, or right-click for actions; press Delete '
+                'to remove its timers.' +
+                effect_text)
         elif int(total) > 1:
             tooltip = (
-                'EverQuest logs do not expose mob IDs. Vantage separated '
-                f'{total} active mobs with this name; a death line removes '
-                'the oldest matching instance. Double-click, or focus and press '
-                'Delete, to remove this one.')
+                'Tracked hostile mobs · EverQuest logs do not expose mob IDs. '
+                'Vantage separated '
+                f'{total} active mobs with stable markers; right-click to name '
+                'this one by location. A death line removes the oldest matching '
+                'instance. Click, Enter, or Space for actions; press Delete to '
+                'remove this one.' + effect_text)
         else:
             tooltip = (
-                'Double-click, or focus and press Delete, to remove this target '
-                'and its spell timers')
+                'Tracked hostile mob · click, Enter, Space, or right-click for '
+                'actions such as naming it by location. Press Delete to remove '
+                'this target and its spell timers.' +
+                effect_text)
         self.target_label.setToolTip(tooltip)
         self.target_label.setAccessibleName(display)
         self.target_label.setAccessibleDescription(tooltip)
+
+    def _target_menu(self, position):
+        menu = QMenu(self)
+        rename = menu.addAction('Name this mob…')
+        rename.setToolTip(
+            'Give this tracked instance a location label such as Entrance or Ramp')
+        clear = menu.addAction('Clear mob name')
+        clear.setEnabled(bool(self.alias))
+        menu.addSeparator()
+        remove = menu.addAction('Remove this mob and its spell timers')
+        action = menu.exec(self.target_label.mapToGlobal(position))
+        if action == rename:
+            value, accepted = QInputDialog.getText(
+                self, 'Name tracked mob', 'Short location or marker:',
+                text=self.alias)
+            if accepted:
+                self.alias = str(value or '').strip()[:32]
+                self.set_instance_number(self.instance_number)
+                owner = self.parentWidget()
+                if owner and hasattr(owner, 'state_changed'):
+                    owner.state_changed.emit()
+        elif action == clear:
+            self.alias = ''
+            self.set_instance_number(self.instance_number)
+            owner = self.parentWidget()
+            if owner and hasattr(owner, 'state_changed'):
+                owner.state_changed.emit()
+        elif action == remove:
+            self._remove()
 
     def eventFilter(self, watched, event):
         if (watched is self.target_label and
                 event.type() == QEvent.Type.KeyPress and
                 event.key() in {
-                    Qt.Key.Key_Delete, Qt.Key.Key_Backspace,
-                    Qt.Key.Key_Return, Qt.Key.Key_Enter}):
+                    Qt.Key.Key_Delete, Qt.Key.Key_Backspace}):
             self._remove()
+            return True
+        if (watched is self.target_label and
+                event.type() == QEvent.Type.KeyPress and
+                (event.key() == Qt.Key.Key_Menu or
+                 (event.key() == Qt.Key.Key_F10 and
+                  event.modifiers() & Qt.KeyboardModifier.ShiftModifier))):
+            self._target_menu(self.target_label.rect().center())
             return True
         return super().eventFilter(watched, event)
 
@@ -1806,7 +2321,16 @@ class SpellTarget(QFrame):
             target_type *= 0 if _spell_targets_enemy(sw.spell) else 1
             widget_key = str(getattr(
                 sw.spell, 'runtime_key', sw.spell.name))
-            if widget_key == spell_key:
+            same_profile = (
+                not self.name.startswith('__') or
+                not str(character or '').strip() or
+                (sw.runtime_character.casefold() ==
+                 str(character or '').strip().casefold() and
+                 (not str(server or '').strip() or
+                  not sw.runtime_server.strip() or
+                  sw.runtime_server.casefold() ==
+                  str(server or '').strip().casefold())))
+            if widget_key == spell_key and same_profile:
                 recast = True
                 # The log may supply a different authoritative duration on a
                 # later cooldown line; replace the timer model before recast.
@@ -1826,6 +2350,7 @@ class SpellTarget(QFrame):
         self.target_label.setStyle(self.target_label.style())
 
         self._sort_spell_widgets()
+        self.set_instance_number(self.instance_number)
 
     def _sort_spell_widgets(self):
         """Place the next spell to expire first, including after a recast."""
@@ -1902,12 +2427,13 @@ class SpellProgressBar(QProgressBar):
         painter.end()
 
 
-class SpellWidget(QFrame):
+class SpellWidget(QToolButton):
 
     def __init__(self, spell, timestamp, character='', server=''):
         super().__init__()
         self.setObjectName('SpellWidget')
         self.spell = spell
+        self.setAutoRaise(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAccessibleName(f'{self.spell.name} spell timer')
         self.runtime_character = str(character or '')
@@ -1916,18 +2442,32 @@ class SpellWidget(QFrame):
         self._removed = False
         self._faded = False
         self._faded_until = 0.0
-        self._warning_played = False
+        self._warning_played = bool(getattr(
+            self.spell, 'saved_warning_played', False))
 
         self._setup_ui()
+        self.clicked.connect(lambda: self._sound_menu(self.rect().center()))
         self._calculate(timestamp)
         self.setProperty('Warning', False)
         self._update()
 
     def _calculate(self, timestamp):
+        try:
+            runtime_level = max(1, min(65, int(getattr(
+                self.spell, 'runtime_level',
+                config.data['spells']['level']))))
+        except (TypeError, ValueError):
+            runtime_level = max(1, min(
+                65, int(config.data['spells']['level'])))
         self._ticks = get_spell_duration(
-            self.spell, config.data['spells']['level'])
-        calculated = int(getattr(
-            self.spell, 'duration_seconds', self._ticks * 6))
+            self.spell, runtime_level)
+        explicit_seconds = getattr(self.spell, 'duration_seconds', None)
+        try:
+            calculated = int(explicit_seconds)
+        except (TypeError, ValueError):
+            calculated = 0
+        if calculated <= 0:
+            calculated = self._ticks * 6
         restored = int(getattr(
             self.spell, 'saved_remaining_seconds', calculated))
         self._seconds = max(calculated, restored)
@@ -1943,8 +2483,11 @@ class SpellWidget(QFrame):
         layout = QHBoxLayout()
         layout.setContentsMargins(1, 2, 2, 2)
         self.setLayout(layout)
-        layout.addWidget(get_spell_icon(
-            self.spell.spell_icon, self.spell.name), 0)
+        icon_label = get_spell_icon(
+            self.spell.spell_icon, self.spell.name)
+        icon_label.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        layout.addWidget(icon_label, 0)
         layout.setSpacing(2)
 
         self.progress = SpellProgressBar(self.spell.name)
@@ -1960,6 +2503,8 @@ class SpellWidget(QFrame):
         # Apply the real widget metric after QSS so border-box arithmetic in
         # Qt cannot silently grow the 22 px bar back to 24 px.
         self.progress.setFixedHeight(22)
+        self.progress.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
         layout.addWidget(self.progress, 1)
         school = spell_school_name(self.spell)
@@ -1968,12 +2513,12 @@ class SpellWidget(QFrame):
         self.progress.setToolTip(
             f'{source_text}{school} · visual progress of the spell time remaining')
         self.setToolTip(
-            f'{source_text}{school} · double-click to remove · '
-            'right-click to customize the fading sound')
+            f'{source_text}{school} · click, Enter, Space, or right-click for '
+            'mob assignment, sound, and remove actions · Delete removes directly')
         target_kind = 'beneficial or personal' if self.spell.type else 'hostile'
         self.setAccessibleDescription(
-            f'{target_kind} {school} timer; press Delete to remove; press '
-            'Shift+F10 or the Menu key to customize the fading sound')
+            f'{target_kind} {school} timer; press Enter or Space for actions; '
+            'Shift+F10 or Menu also opens actions; press Delete to remove')
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._sound_menu)
 
@@ -1999,9 +2544,10 @@ class SpellWidget(QFrame):
         self.progress.setToolTip(
             f'{source_text}{school} · visual progress of the spell time remaining')
         self.setToolTip(
-            f'{source_text}{school} · double-click to remove · '
-            'right-click to customize the fading sound')
+            f'{source_text}{school} · click, Enter, Space, or right-click for '
+            'mob assignment, sound, and remove actions · Delete removes directly')
         self._request_resort()
+        self._notify_state_changed()
 
     def _update(self):
         if self._removed:
@@ -2051,12 +2597,14 @@ class SpellWidget(QFrame):
 
     def pause(self):
         self._active = False
+        self._notify_state_changed()
 
     def resume(self):
         if self._faded:
             return
         self._active = True
         self._request_resort()
+        self._notify_state_changed()
 
     def mark_faded(self, timestamp=None):
         """Keep an early worn-off effect visible as a red blinking FADED row."""
@@ -2080,23 +2628,57 @@ class SpellWidget(QFrame):
             self._warning_played = True
             self._play_fade_alert()
         self._request_resort()
+        self._notify_state_changed()
         self._update()
 
     def elongate(self, seconds):
         self.end_time += datetime.timedelta(seconds=seconds)
         self._request_resort()
+        self._notify_state_changed()
 
     def _request_resort(self):
         target = self.parentWidget()
         if target and hasattr(target, '_sort_spell_widgets'):
             target._sort_spell_widgets()
 
+    def _owner_container(self):
+        target = self.parentWidget()
+        owner = target.parentWidget() if isinstance(target, SpellTarget) else None
+        return target, owner
+
+    def _notify_state_changed(self):
+        _target, owner = self._owner_container()
+        if owner and hasattr(owner, 'state_changed'):
+            owner.state_changed.emit()
+
     def _remove(self):
         if self._removed:
             return
+        target, owner = self._owner_container()
+        focus_target = None
+        if target:
+            siblings = [
+                widget for widget in target.spell_widgets()
+                if widget is not self and not widget._removed]
+            if siblings:
+                focus_target = siblings[0]
+            elif owner:
+                other_targets = [
+                    candidate for candidate in owner.spell_targets()
+                    if candidate is not target and not candidate._removed]
+                if other_targets:
+                    focus_target = other_targets[0].target_label
+                else:
+                    focus_target = getattr(
+                        self.window(), '_character_widget', None)
         self._removed = True
         self.setParent(None)
         self.deleteLater()
+        if owner and hasattr(owner, '_spell_widget_removed'):
+            owner._spell_widget_removed(target)
+        if focus_target is not None:
+            QTimer.singleShot(0, lambda: focus_target.setFocus(
+                Qt.FocusReason.OtherFocusReason))
 
     def _play_fade_alert(self, force=False):
         settings = config.data['spells']
@@ -2118,6 +2700,31 @@ class SpellWidget(QFrame):
         settings = config.data['spells']
         key = self.spell.name
         menu = QMenu(self)
+        target, owner = self._owner_container()
+        move_actions = {}
+        new_target_action = None
+        if (isinstance(target, SpellTarget) and owner and
+                not target.is_named and not target.name.startswith('__')):
+            assign_menu = menu.addMenu('Assign effect to tracked mob')
+            assign_menu.setToolTipsVisible(True)
+            for candidate in owner.get_spell_targets_by_name(target.name):
+                label = candidate.alias or candidate.instance_marker
+                candidate_has_effect = bool(candidate.spell_widget(str(getattr(
+                    self.spell, 'runtime_key', self.spell.name))))
+                action = assign_menu.addAction(
+                    f'{candidate.title.title()} · {label}' +
+                    (' · current' if candidate is target else ''))
+                action.setEnabled(
+                    candidate is not target and not candidate_has_effect)
+                action.setToolTip(
+                    'This mob already has this effect' if candidate_has_effect else
+                    'Move this effect without restarting its countdown')
+                move_actions[action] = candidate
+            new_target_action = assign_menu.addAction(
+                f'New {target.title.title()} mob')
+            new_target_action.setToolTip(
+                'Create another stable mob marker and move this effect there')
+            menu.addSeparator()
         gallery = menu.addMenu('Sound gallery')
         gallery_actions = {}
         for label, uri, description in sound_choices():
@@ -2129,8 +2736,15 @@ class SpellWidget(QFrame):
         mute = menu.addAction('Unmute this buff' if muted else 'Mute this buff')
         menu.addSeparator()
         test = menu.addAction('Test fade alert')
+        menu.addSeparator()
+        remove = menu.addAction('Remove this spell timer')
         action = menu.exec(self.mapToGlobal(position))
-        if action in gallery_actions:
+        if action in move_actions:
+            owner.move_spell_widget(self, move_actions[action])
+        elif (new_target_action is not None and
+              action is new_target_action and owner):
+            owner.move_spell_widget(self)
+        elif action in gallery_actions:
             settings['fade_sound_overrides'][key] = gallery_actions[action]
             if key in settings['fade_sound_muted']:
                 settings['fade_sound_muted'].remove(key)
@@ -2154,9 +2768,8 @@ class SpellWidget(QFrame):
             config.save()
         elif action == test:
             self._play_fade_alert(force=True)
-
-    def mouseDoubleClickEvent(self, _):
-        self._remove()
+        elif action == remove:
+            self._remove()
 
     def keyPressEvent(self, event):
         if event.key() in {Qt.Key.Key_Delete, Qt.Key.Key_Backspace}:
@@ -2227,21 +2840,21 @@ SPELL_SCHOOLS = {
     18: 'Divination',
     24: 'Evocation',
 }
-_SPELL_SCHOOL_PROGRESS_PALETTES = {
+_SELF_SCHOOL_PROGRESS_PALETTES = {
     4: ('#4D83A8', '#2A628F', '#123753', '#355E7D'),   # Abjuration
-    5: ('#4C956B', '#28734E', '#123D2B', '#315F4B'),   # Alteration
+    5: ('#6576A8', '#46598C', '#263455', '#4B5878'),   # Alteration
     14: ('#76559A', '#5D3B84', '#2E1C48', '#574177'),  # Conjuration
     18: ('#9A7834', '#7B5B1F', '#45310F', '#665936'),  # Divination
-    24: ('#A8543D', '#873725', '#4E2018', '#6F4034'),  # Evocation
+    24: ('#8D5B78', '#70425F', '#3F2436', '#624354'),  # Evocation
 }
-_DETRIMENTAL_PROGRESS_PALETTES = {
-    1: ('#76559A', '#5D3B84', '#2E1C48', '#503762'),  # magic
-    2: ('#A85A2D', '#873D1D', '#4B2414', '#62402A'),  # fire
-    3: ('#397F99', '#28667F', '#143C4C', '#345362'),  # cold
-    4: ('#56823E', '#3D692C', '#263F1C', '#475B35'),  # poison
-    5: ('#9A465E', '#7C3048', '#481D2B', '#613441'),  # disease
+_MOB_PROGRESS_PALETTES = {
+    1: ('#A84D5A', '#873340', '#4B1C25', '#6A3540'),  # magic
+    2: ('#B0642F', '#91461F', '#522616', '#70452C'),  # fire
+    3: ('#A97432', '#865521', '#4B3014', '#685035'),  # cold
+    4: ('#9D5A35', '#7D3F25', '#482419', '#633D2E'),  # poison
+    5: ('#A44747', '#842E34', '#49191F', '#65343A'),  # disease
 }
-_DEFAULT_DETRIMENTAL_PALETTE = (
+_DEFAULT_MOB_PALETTE = (
     '#A64D3E', '#85362D', '#4B211D', '#60372F')
 
 
@@ -2252,20 +2865,19 @@ def spell_school_name(spell):
 
 
 def spell_progress_palette(spell):
-    """Return a stable glass palette keyed to the spell's casting school."""
+    """Use calm non-green self colors and warm hostile mob colors."""
+    if _spell_targets_enemy(spell):
+        return _MOB_PROGRESS_PALETTES.get(
+            int(getattr(spell, 'resist_type', 0)), _DEFAULT_MOB_PALETTE)
     skill = int(getattr(spell, 'skill', 0) or 0)
-    if skill in _SPELL_SCHOOL_PROGRESS_PALETTES:
-        return _SPELL_SCHOOL_PROGRESS_PALETTES[skill]
-    if not int(getattr(spell, 'type', 0)):
-        return _DETRIMENTAL_PROGRESS_PALETTES.get(
-            int(getattr(spell, 'resist_type', 0)),
-            _DEFAULT_DETRIMENTAL_PALETTE)
+    if skill in _SELF_SCHOOL_PROGRESS_PALETTES:
+        return _SELF_SCHOOL_PROGRESS_PALETTES[skill]
     identity = (
         f"{getattr(spell, 'name', '')}|{getattr(spell, 'spell_icon', 0)}"
         .encode('utf-8', errors='replace'))
     index = int.from_bytes(
         hashlib.blake2s(identity, digest_size=2).digest(), 'big')
-    fallback_palettes = tuple(_SPELL_SCHOOL_PROGRESS_PALETTES.values())
+    fallback_palettes = tuple(_SELF_SCHOOL_PROGRESS_PALETTES.values())
     return fallback_palettes[index % len(fallback_palettes)]
 
 

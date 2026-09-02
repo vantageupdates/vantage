@@ -326,7 +326,7 @@ class OverlayManagerDialog(UniformScaleDialog):
         self.faded_background_color.set_value(
             settings.get("faded_background_color", "#0B0D10"))
         self.faded_background_opacity.setValue(
-            int(settings.get("faded_background_opacity", 35)))
+            int(settings.get("faded_background_opacity", 65)))
         self.fade_seconds.setValue(int(settings.get("text_fade_seconds", 8)))
         self._loading = False
         self._type_changed()

@@ -686,14 +686,6 @@ class SettingsWindow(UniformScaleDialog):
             'zone. EverQuest does not identify whether a mob is named or normal, '
             'so this mode listens for both to avoid missing a named mob.')
         tsl.addRow('Automatic timers on mob death', timer_auto_log)
-        timer_clear_after = QSpinBox()
-        timer_clear_after.setRange(1, 48)
-        timer_clear_after.setSuffix(' h')
-        timer_clear_after.setObjectName('timers:clear_after_hours')
-        timer_clear_after.setToolTip(
-            'Reset active countdowns when Vantage has remained closed for '
-            'this many hours; saved timer rows and their zones remain')
-        tsl.addRow('Reset countdowns after closed', timer_clear_after)
         encounter_events = QCheckBox()
         encounter_events.setObjectName('timers:encounter_events_enabled')
         encounter_events.setToolTip(
