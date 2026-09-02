@@ -71,6 +71,8 @@ def test_every_timer_button_has_an_authored_tooltip():
 
 def test_timer_row_uses_border_light_crisp_controls():
     app = _app()
+    previous = config.data['timers']['compact']
+    config.data['timers']['compact'] = False
     row = TimerRow(SpawnTimerState("Crystal Fang", 1970), _Owner())
     row.resize(510, row.sizeHint().height())
     row.show()
@@ -90,12 +92,44 @@ def test_timer_row_uses_border_light_crisp_controls():
         button.iconSize() == QSize(16, 16)
         for button in row.findChildren(QPushButton))
     assert row.controls.layout().spacing() == 0
-    assert row.controls.width() == 242
+    assert row.controls.size() == TimerRow.CONTROLS_SIZE
+    assert row.minimumHeight() == TimerRow.DETAILED_MINIMUM_HEIGHT
     assert row.volume.property("IntegratedRocker") is True
     assert row.volume.parentWidget() is row.controls
     row.close()
     row.deleteLater()
     app.processEvents()
+    config.data['timers']['compact'] = previous
+
+
+def test_compact_timer_controls_cannot_be_compressed_below_their_buttons():
+    app = _app()
+    previous = config.data['timers']['compact']
+    config.data['timers']['compact'] = True
+    try:
+        row = TimerRow(SpawnTimerState("Crystal Eyes", 1970), _Owner())
+        # Reproduce a panel trying to squeeze its timer rows while being
+        # shortened. The row must enforce enough space for the full segmented
+        # control instead of painting it under the following card.
+        row.resize(510, 30)
+        row.show()
+        app.processEvents()
+
+        assert row.height() >= TimerRow.COMPACT_MINIMUM_HEIGHT
+        assert row.controls.height() == TimerRow.CONTROLS_SIZE.height()
+        previous_right = -1
+        for index in range(row.controls.layout().count()):
+            control = row.controls.layout().itemAt(index).widget()
+            assert control.geometry().bottom() < row.controls.height()
+            assert control.geometry().left() > previous_right
+            previous_right = control.geometry().right()
+        assert previous_right < row.controls.width()
+        assert row.controls.geometry().bottom() < row.height()
+        row.close()
+        row.deleteLater()
+        app.processEvents()
+    finally:
+        config.data['timers']['compact'] = previous
 
 
 def test_timer_row_and_progress_render_at_fractional_scale():

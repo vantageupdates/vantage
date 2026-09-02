@@ -24,8 +24,13 @@ app = VantageApp([])
 panel = app._parsers_dict['spells']
 panel._set_collapsed(False)
 panel._set_header_revealed(True)
-panel.resize(184, 390)
+panel.resize(260, 400)
 panel.show()
+app.processEvents()
+panel._library_button.setFocus()
+app.processEvents()
+focus_started_on_library = panel._library_button.hasFocus()
+panel.resize(184, 390)
 app.processEvents()
 
 visible_controls = []
@@ -48,14 +53,16 @@ result = {
     'title_width': panel._title.width(),
     'boat_visible': panel._boat_toggle.isVisible(),
     'library_visible': panel._library_button.isVisible(),
-    'overflow_visible': panel._header_tools_button.isVisible(),
-    'overflow_name': panel._header_tools_button.accessibleName(),
-    'overflow_tooltip': panel._header_tools_button.toolTip(),
+    'overflow_visible': panel._header_overflow_button.isVisible(),
+    'overflow_name': panel._header_overflow_button.accessibleName(),
+    'overflow_tooltip': panel._header_overflow_button.toolTip(),
     'overflow_actions': [
         {'text': action.text(), 'tooltip': action.toolTip()}
-        for action in panel._header_tools_button.menu().actions()
+        for action in panel._header_overflow_menu.actions()
         if not action.isSeparator()],
     'overlaps': overlaps,
+    'focus_started_on_library': focus_started_on_library,
+    'focus_moved_to_overflow': panel._header_overflow_button.hasFocus(),
 }
 
 level = panel._level_widget
@@ -98,7 +105,7 @@ panel.resize(260, 400)
 app.processEvents()
 result['wide_boat_visible'] = panel._boat_toggle.isVisible()
 result['wide_library_visible'] = panel._library_button.isVisible()
-result['wide_overflow_visible'] = panel._header_tools_button.isVisible()
+result['wide_overflow_visible'] = panel._header_overflow_button.isVisible()
 
 print(json.dumps(result))
 app.quit()
@@ -121,10 +128,12 @@ def test_narrow_spell_header_collapses_low_priority_tools_without_overlap(
     assert result['boat_visible'] is False
     assert result['library_visible'] is False
     assert result['overflow_visible'] is True
-    assert result['overflow_name'] == 'More spell tools'
+    assert result['overflow_name'] == 'More window actions'
     assert result['overflow_tooltip']
     assert result['overlaps'] == []
-    assert len(result['overflow_actions']) == 4
+    assert result['focus_started_on_library'] is True
+    assert result['focus_moved_to_overflow'] is True
+    assert len(result['overflow_actions']) == 2
     assert all(action['text'] and action['tooltip']
                for action in result['overflow_actions'])
     level = result['level']

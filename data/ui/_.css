@@ -1610,3 +1610,39 @@ QSpinBox#SpellLevelRocker::down-arrow {
     width: 7px;
     height: 5px;
 }
+
+/* Timer-row controls are a single compact segmented control. Keep these
+   metrics after the generic button/input rules so application-level padding
+   cannot make the children taller than their frame. */
+QWidget#SpawnTimerActions QPushButton[TimerRowAction="true"] {
+    min-width: 25px;
+    max-width: 25px;
+    min-height: 26px;
+    max-height: 26px;
+    padding: 0;
+    border: none;
+    border-right: 1px solid #334049;
+    border-top: none;
+    border-bottom: none;
+}
+QWidget#SpawnTimerActions QPushButton[TimerRowAction="true"]:focus,
+QWidget#SpawnTimerActions QPushButton[TimerRowAction="true"]:pressed {
+    min-width: 24px;
+    max-width: 24px;
+    min-height: 24px;
+    max-height: 24px;
+    border: 1px solid #B99A60;
+}
+QWidget#SpawnTimerActions QPushButton[TimerRowAction="true"][SegmentEnd="true"] {
+    min-width: 26px;
+    max-width: 26px;
+    border-right: none;
+}
+QSpinBox#SpawnTimerVolume {
+    min-height: 26px;
+    max-height: 26px;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-top: none;
+    border-bottom: none;
+}

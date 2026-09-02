@@ -220,6 +220,8 @@ def test_camp_cycle_preserves_restores_and_clears_only_the_active_profile(
     assert result["welcome_status_cleared"] is True
     assert result["after_abandon_names"] == ["shielding", "spirit of wolf"]
     assert result["location_after_abandon"] is True
-    assert result["minimum"] == [72, 111]
+    assert result["minimum"] == [210, 111]
     assert result["logical_surface"][0] == 260
-    assert 399 <= result["logical_surface"][1] <= 401
+    # The horizontal readability floor is independent of the vertical floor:
+    # the shortest window clips the list instead of shrinking its header.
+    assert 136 <= result["logical_surface"][1] <= 138

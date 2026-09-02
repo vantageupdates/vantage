@@ -241,6 +241,10 @@ def test_spell_row_is_two_pixels_shorter_without_clipping_the_progress_bar():
         assert isinstance(widget, QFrame)
         assert widget.height() == 26
         assert widget.progress.height() == 22
+        icon = widget.layout().itemAt(0).widget()
+        assert icon.height() == widget.progress.height()
+        assert icon.geometry().top() == widget.progress.geometry().top()
+        assert icon.geometry().bottom() == widget.progress.geometry().bottom()
         assert widget.progress.height() <= widget.height()
         assert widget.focusPolicy() == Qt.FocusPolicy.StrongFocus
         assert "Shift+F10" in widget.accessibleDescription()

@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -182,8 +183,8 @@ SPAWN_TIMER_WINDOW_STYLE = """
         border: none;
         border-right: 1px solid #334049;
         border-radius: 0;
-        min-width: 26px;
-        max-width: 26px;
+        min-width: 25px;
+        max-width: 25px;
         min-height: 26px;
         max-height: 26px;
         padding: 0;
@@ -490,6 +491,10 @@ class TimerEditDialog(UniformScaleDialog):
 
 
 class TimerRow(QFrame):
+    COMPACT_MINIMUM_HEIGHT = 40
+    DETAILED_MINIMUM_HEIGHT = 82
+    CONTROLS_SIZE = QSize(242, 28)
+
     def __init__(self, timer, owner):
         super().__init__()
         self.timer = timer
@@ -505,7 +510,7 @@ class TimerRow(QFrame):
         self.setToolTip(
             f"{timer.name} · right-click for window position, layer, and "
             "transparency options")
-        self.setMinimumHeight(58)
+        self.setMinimumHeight(self.COMPACT_MINIMUM_HEIGHT)
 
         root = QBoxLayout(QBoxLayout.Direction.TopToBottom, self)
         self._root_layout = root
@@ -513,6 +518,10 @@ class TimerRow(QFrame):
         root.setSpacing(4)
 
         info_widget = QWidget()
+        self.info_widget = info_widget
+        info_widget.setMinimumWidth(0)
+        info_widget.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         info = QVBoxLayout()
         info_widget.setLayout(info)
         info.setContentsMargins(0, 0, 0, 0)
@@ -520,6 +529,9 @@ class TimerRow(QFrame):
         headline = QHBoxLayout()
         self.name_label = QLabel(timer.name)
         self.name_label.setObjectName("SpawnTimerName")
+        self.name_label.setMinimumWidth(0)
+        self.name_label.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.name_label.setToolTip(
             "Timer name; edit the timer to change it")
         self.phase_label = QLabel()
@@ -634,7 +646,11 @@ class TimerRow(QFrame):
         controls_layout.addWidget(delete)
         # Keep every action in one dense logical row. The outer window scales
         # this whole row with the rest of the timer canvas.
-        controls.setFixedWidth(242)
+        # The segmented controls contain 26 px buttons plus one logical pixel
+        # of frame inset on every side.  A width-only constraint lets Qt
+        # compress this wrapper below 28 px when the outer panel is shortened,
+        # clipping the buttons behind the next timer card.
+        controls.setFixedSize(self.CONTROLS_SIZE)
         root.addWidget(controls, 0, Qt.AlignmentFlag.AlignRight)
 
         self.refresh()
@@ -724,7 +740,19 @@ class TimerRow(QFrame):
             f"Start {timer.name} from READY"
             if timer.phase == PHASE_IDLE else
             f"Resume {timer.name} from its preserved remaining time")
-        self.detail_label.setVisible(not config.data['timers']['compact'])
+        compact = bool(config.data['timers']['compact'])
+        self.detail_label.setVisible(not compact)
+        self._root_layout.setDirection(
+            QBoxLayout.Direction.LeftToRight
+            if compact else QBoxLayout.Direction.TopToBottom)
+        self._root_layout.setAlignment(
+            self.controls,
+            Qt.AlignmentFlag.AlignRight |
+            (Qt.AlignmentFlag.AlignVCenter if compact else
+             Qt.AlignmentFlag.AlignBottom))
+        self.setMinimumHeight(
+            self.COMPACT_MINIMUM_HEIGHT
+            if compact else self.DETAILED_MINIMUM_HEIGHT)
 
         warning = bool(
             timer.running and timer.phase == PHASE_RESPAWN and
@@ -785,6 +813,9 @@ class TimerRow(QFrame):
 
 
 class SpawnTimers(ParserWindow):
+    _keep_header_readable = True
+    _minimum_readable_width = 300
+
     def __init__(self):
         self.name = "timers"
         super().__init__()
@@ -893,6 +924,10 @@ class SpawnTimers(ParserWindow):
         self._canvas_update_timer = QTimer(self)
         self._canvas_update_timer.setSingleShot(True)
         self._canvas_update_timer.timeout.connect(self._sync_timer_canvas)
+        self._viewport_rows_timer = QTimer(self)
+        self._viewport_rows_timer.setSingleShot(True)
+        self._viewport_rows_timer.timeout.connect(
+            self._apply_viewport_capacity)
 
         self._load()
         self._refresh_zone_filter(self._selected_zone)
@@ -1044,7 +1079,9 @@ class SpawnTimers(ParserWindow):
         config.data['timers']['view_zone'] = self._selected_zone
         config.save()
         self._apply_zone_filter()
-        visible = sum(not row.isHidden() for row in self._rows.values())
+        visible = sum(
+            self._row_matches_zone(timer)
+            for timer in self._states.values())
         self.status.setText(
             f"ZONE VIEW · {self._selected_zone or 'All zones'} · "
             f"{visible} saved timer{'s' if visible != 1 else ''}")
@@ -1052,16 +1089,19 @@ class SpawnTimers(ParserWindow):
     def _apply_zone_filter(self):
         for timer_id, row in self._rows.items():
             timer = self._states.get(timer_id)
-            row.setVisible(bool(
-                timer and zone_timer_visible(
-                    timer.zone, self._selected_zone)))
+            row.setVisible(self._row_matches_zone(timer))
         self._schedule_timer_canvas()
+
+    def _row_matches_zone(self, timer):
+        return bool(
+            timer and zone_timer_visible(
+                timer.zone, self._selected_zone))
 
     def _add_row(self, timer):
         row = TimerRow(timer, self)
         self._rows[timer.timer_id] = row
         self._layout.insertWidget(self._layout.count() - 1, row)
-        row.setVisible(zone_timer_visible(timer.zone, self._selected_zone))
+        row.setVisible(self._row_matches_zone(timer))
         self._schedule_timer_canvas()
 
     def _schedule_timer_canvas(self):
@@ -1071,7 +1111,9 @@ class SpawnTimers(ParserWindow):
     def _sync_timer_canvas(self):
         """Fit every logical timer row on one surface, never in a scroller."""
         margins = self._layout.contentsMargins()
-        rows = tuple(row for row in self._rows.values() if not row.isHidden())
+        rows = tuple(
+            row for timer_id, row in self._rows.items()
+            if self._row_matches_zone(self._states.get(timer_id)))
         rows_height = sum(max(
             row.minimumHeight(), row.minimumSizeHint().height(),
             row.sizeHint().height()) for row in rows)
@@ -1085,6 +1127,66 @@ class SpawnTimers(ParserWindow):
         logical_height = max(
             360, header_height + list_height + status_height)
         self._set_design_size(QSize(520, logical_height))
+        self._schedule_viewport_rows()
+
+    def _minimum_logical_surface_height(self):
+        """Clip a short viewport; never squeeze timer cards into each other."""
+        # A rolled panel contains only its header. Re-expanding the protected
+        # timer canvas here would vertically center the header inside a hidden
+        # 360 px surface and make the 24 px strip appear broken.
+        return 1 if self._collapsed else self._design_size.height()
+
+    def _update_uniform_scale(self):
+        super()._update_uniform_scale()
+        self._schedule_viewport_rows()
+
+    def _schedule_viewport_rows(self):
+        timer = getattr(self, '_viewport_rows_timer', None)
+        if timer is not None:
+            timer.start(0)
+
+    def _apply_viewport_capacity(self):
+        """Show only complete rows in a short, scroll-free timer viewport."""
+        if not self._scale_view or not self._scale_proxy:
+            return
+        scale = float(self._scale_view.transform().m11())
+        if scale <= 0:
+            return
+
+        zone_rows = []
+        for timer_id, row in self._rows.items():
+            matches = self._row_matches_zone(self._states.get(timer_id))
+            row.setVisible(matches)
+            if matches:
+                zone_rows.append(row)
+
+        # First lay out the complete zone list on its protected logical canvas.
+        # Then hide the suffix that would be physically clipped by this viewport.
+        self._surface.layout().activate()
+        self._layout.activate()
+        logical_bottom = int(
+            self._scale_view.viewport().height() / scale) - 1
+        suffix_started = False
+        focus = QApplication.focusWidget()
+        focus_was_hidden = False
+        visible_rows = []
+        for row in zone_rows:
+            top = row.mapTo(self._surface, row.rect().topLeft()).y()
+            fits = not suffix_started and top + row.height() - 1 <= logical_bottom
+            suffix_started = suffix_started or not fits
+            if (not fits and focus is not None and
+                    (focus is row or row.isAncestorOf(focus))):
+                focus_was_hidden = True
+            row.setVisible(fits)
+            if fits:
+                visible_rows.append(row)
+        if focus_was_hidden:
+            # Never strand keyboard focus inside a suffix row that just became
+            # invisible. Keep the user in the timer list when possible.
+            destination = (
+                visible_rows[-1].play_button if visible_rows else
+                self.zone_filter)
+            destination.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def add_timer(self):
         dialog = TimerEditDialog(parent=self)
@@ -1157,7 +1259,7 @@ class SpawnTimers(ParserWindow):
         """Copy this zone view as codes safe for EQ Titanium chat."""
         timers = [
             timer for timer_id, timer in self._states.items()
-            if timer_id in self._rows and not self._rows[timer_id].isHidden()]
+            if timer_id in self._rows and self._row_matches_zone(timer)]
         try:
             exported = build_timer_share_codes(timers)
         except TimerShareError as error:

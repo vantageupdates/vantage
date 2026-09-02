@@ -221,6 +221,8 @@ class Spells(ParserWindow):
     """Tracks spell casting, duration, and targets by name."""
 
     spell_faded = Signal(str, str)
+    _keep_header_readable = True
+    _minimum_readable_width = 210
 
     def __init__(self):
         self.name = "spells"
@@ -308,6 +310,7 @@ class Spells(ParserWindow):
             'Enable or disable custom triggers and timers')
         self._custom_timer_toggle.setAccessibleName(
             'Enable or disable custom triggers')
+        self._custom_timer_toggle.setProperty('HeaderAlwaysVisible', True)
         self._custom_timer_toggle.setChecked(config.data['spells']['use_custom_triggers'])
         self._custom_timer_toggle.clicked.connect(self._toggle_custom_timers)
         self.menu_area.addWidget(self._custom_timer_toggle)
@@ -318,6 +321,7 @@ class Spells(ParserWindow):
         self._boat_toggle.setChecked(
             config.data['spells'].get('show_boat_schedules', False))
         self._boat_toggle.setAccessibleName('Show P99 boat schedules')
+        self._boat_toggle.setProperty('HeaderPriority', 1)
         self._boat_toggle.setToolTip(
             'Show or hide compact P99 boat arrivals; use the arrow to refresh or inspect the PigParse source')
         self._boat_toggle.setPopupMode(
@@ -340,51 +344,12 @@ class Spells(ParserWindow):
         self._library_button = QPushButton()
         self._library_button.setIcon(game_icon('search'))
         self._library_button.setAccessibleName('Open P99 Spell Library')
+        self._library_button.setProperty('HeaderPriority', 2)
         self._library_button.setToolTip(
             'Search P99 spells by class and level, with Wiki acquisition and prices')
         self._library_button.clicked.connect(
             QApplication.instance().show_spell_library)
         self.menu_area.addWidget(self._library_button)
-        # At small physical widths the full logical surface is scaled down,
-        # but three adjacent spell tools still starve the title. Collapse the
-        # two lower-frequency tools into one accessible menu while preserving
-        # every action and tooltip.
-        self._header_tools_button = QToolButton()
-        self._header_tools_button.setObjectName('CompactMenuButton')
-        self._header_tools_button.setIcon(game_icon('ph-stack'))
-        self._header_tools_button.setPopupMode(
-            QToolButton.ToolButtonPopupMode.InstantPopup)
-        self._header_tools_button.setAccessibleName('More spell tools')
-        self._header_tools_button.setToolTip(
-            'Boat schedules, source details, and the P99 Spell Library')
-        spell_tools_menu = QMenu(self._header_tools_button)
-        spell_tools_menu.setToolTipsVisible(True)
-        self._compact_boat_action = spell_tools_menu.addAction(
-            'Show P99 boat schedules')
-        self._compact_boat_action.setCheckable(True)
-        self._compact_boat_action.setChecked(self._boat_toggle.isChecked())
-        self._compact_boat_action.setToolTip(
-            'Show or hide compact P99 boat arrivals from PigParse')
-        self._compact_boat_action.triggered.connect(
-            self._set_compact_boat_schedules)
-        compact_refresh = spell_tools_menu.addAction('Refresh boat data')
-        compact_refresh.setToolTip(
-            'Fetch the latest boat observation from PigParse')
-        compact_refresh.triggered.connect(self._manual_refresh_boats)
-        compact_source = spell_tools_menu.addAction('Open PigParse source')
-        compact_source.setToolTip(
-            'Open the public source used for boat observations')
-        compact_source.triggered.connect(lambda: QDesktopServices.openUrl(
-            QUrl('https://pigparse.azurewebsites.net/')))
-        spell_tools_menu.addSeparator()
-        compact_library = spell_tools_menu.addAction('Open P99 Spell Library')
-        compact_library.setToolTip(
-            'Search spells by class and level, including acquisition details')
-        compact_library.triggered.connect(
-            QApplication.instance().show_spell_library)
-        self._header_tools_button.setMenu(spell_tools_menu)
-        self.menu_area.addWidget(self._header_tools_button)
-        self._header_tools_button.hide()
         self._character_widget = QComboBox()
         self._character_widget.setObjectName('SpellCharacterProfile')
         self._character_widget.setMinimumContentsLength(8)
@@ -461,18 +426,13 @@ class Spells(ParserWindow):
         # native edit margins cover the leading ``L`` in ``Lv 60``.
         level_width = max(82, level_text_width + 56)
         self._level_widget.setFixedWidth(level_width)
-        compact_header = self.width() < 215
-        self._boat_toggle.setVisible(not compact_header)
-        self._library_button.setVisible(not compact_header)
-        self._header_tools_button.setVisible(compact_header)
-        # Keep the actual title legible instead of allowing a dense run of
-        # header actions to collapse it to a few clipped pixels.
-        self._title.setMinimumWidth(34 if compact_header else 0)
-
-    def _set_compact_boat_schedules(self, checked):
-        """Mirror the narrow-header menu action to the canonical toggle."""
-        self._boat_toggle.setChecked(bool(checked))
-        self._toggle_boat_schedules(bool(checked))
+        # One shared packer owns header density. The older second overflow
+        # button could switch after roll-up measured its width, leaving two
+        # different control sets competing for the same pixels.
+        self._boat_toggle.show()
+        self._library_button.show()
+        self._title.setMinimumWidth(0)
+        self._schedule_header_pack()
 
     def _dismiss_spell_event(self, pill):
         try:
@@ -1701,8 +1661,6 @@ class Spells(ParserWindow):
         return 'Green'
 
     def _toggle_boat_schedules(self, checked):
-        if hasattr(self, '_compact_boat_action'):
-            self._compact_boat_action.setChecked(bool(checked))
         config.data['spells']['show_boat_schedules'] = bool(checked)
         config.save()
         self._boat_group.set_enabled(bool(checked))
@@ -1729,7 +1687,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.25')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.26')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -3425,10 +3383,12 @@ def spell_progress_stylesheet(spell):
 
 def get_spell_icon(icon_index, spell_name=''):
     """Return the matching zero-based square Velious spell icon."""
-    scaled_icon_image = spell_icon_pixmap(icon_index, 20)
+    # Match the complete 22 px progress-bar box so the icon and colored spell
+    # surface share one crisp top and bottom edge inside the 26 px row.
+    scaled_icon_image = spell_icon_pixmap(icon_index, 22)
     label = QLabel()
     label.setPixmap(scaled_icon_image)
-    label.setFixedSize(20, 20)
+    label.setFixedSize(22, 22)
     label.setAlignment(Qt.AlignmentFlag.AlignCenter)
     readable_name = string.capwords(spell_name) if spell_name else 'Spell'
     label.setAccessibleName(f'Icon for {readable_name}')

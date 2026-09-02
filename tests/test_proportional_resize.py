@@ -57,3 +57,10 @@ def test_minimum_size_respects_left_and_top_anchors():
         490, 100, 620, 460)
     assert constrained(WMSZ_TOP, (100, 450, 620, 460)) == (
         100, 370, 620, 460)
+
+
+def test_readable_header_width_does_not_raise_the_vertical_floor():
+    result = independent_sizing_rect(
+        WMSZ_BOTTOMRIGHT, (100, 100, 220, 180), DESIGN, .25,
+        minimum_width=300)
+    assert result == (100, 100, 400, 190)

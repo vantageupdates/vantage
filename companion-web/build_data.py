@@ -16,7 +16,7 @@ from urllib.request import Request, urlopen
 
 PIGPARSE_URL = "https://pigparse.azurewebsites.net/api/item/getall/Green"
 P99_DB_URL = "https://p99planner.com/data/p99.sqlite.gz"
-USER_AGENT = "Vantage-Companion-Data/1.44.25"
+USER_AGENT = "Vantage-Companion-Data/1.44.26"
 ROOT = Path(__file__).resolve().parents[1]
 STAT_FIELDS = (
     "ac", "hp", "mana", "astr", "asta", "adex", "aagi", "aint",
