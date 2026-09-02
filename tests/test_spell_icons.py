@@ -1,0 +1,168 @@
+import hashlib
+import os
+from pathlib import Path
+from types import SimpleNamespace
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PySide6.QtGui import QImage
+from PySide6.QtWidgets import QApplication
+
+from vantage.helpers.spell_icons import spell_icon_pixmap
+from vantage.parsers.spells import (
+    _spell_icon_coordinates, _spell_target_sort_key, _spell_widget_sort_key,
+    create_spell_book, spell_progress_palette, spell_progress_stylesheet,
+    spell_school_name, spell_warning_state)
+
+
+def test_velious_zero_based_sheet_mapping():
+    assert _spell_icon_coordinates(0) == (1, 0, 0)
+    assert _spell_icon_coordinates(35) == (1, 200, 200)
+    assert _spell_icon_coordinates(36) == (2, 0, 0)
+    assert _spell_icon_coordinates(143) == (4, 200, 200)
+    assert _spell_icon_coordinates(215) == (6, 200, 200)
+
+
+def test_velious_gem_sheet_integrity():
+    sheet = Path("data/spells/spells04.png")
+    digest = hashlib.sha256(sheet.read_bytes()).hexdigest().upper()
+
+    assert digest == "FE05B9B3132E3E8DEFB453D5B5AF164DAA75F149118F76ADEE5F85873033739B"
+
+
+def test_velious_gem_sheet_is_full_color_not_monochrome():
+    image = QImage("data/spells/spells04.png")
+    sampled = {
+        (image.pixelColor(x, y).red(), image.pixelColor(x, y).green(),
+         image.pixelColor(x, y).blue())
+        for y in range(0, image.height(), 4)
+        for x in range(0, image.width(), 4)
+    }
+
+    assert len(sampled) > 500
+    assert any(max(color) - min(color) > 80 for color in sampled)
+
+
+def test_velious_spell_icons_keep_crisp_art_with_rounded_corners():
+    app = QApplication.instance() or QApplication([])
+    image = spell_icon_pixmap(143, 20).toImage()
+
+    assert app is not None
+    assert image.pixelColor(0, 0).alpha() == 0
+    assert image.pixelColor(10, 10).alpha() == 255
+
+
+def test_spell_warning_has_yellow_and_fast_red_stages():
+    assert spell_warning_state(41, 40, False, 0.0) == (
+        False, False, False, 1000)
+    assert spell_warning_state(40, 40, False, 1.0) == (
+        True, False, True, 1000)
+    assert spell_warning_state(20, 40, False, 0.25) == (
+        True, True, True, 250)
+    assert spell_warning_state(20, 40, True, 0.25) == (
+        True, True, False, 1000)
+
+
+def test_visible_game_spells_use_the_exact_icon_ids():
+    spell_book, _, _ = create_spell_book()
+
+    assert spell_book["Clarity II"].spell_icon == 143
+    assert spell_book["Illusion: Werewolf"].spell_icon == 43
+    assert spell_book["See Invisible"].spell_icon == 138
+    assert spell_book["Visions of Grandeur"].spell_icon == 155
+
+
+def test_client_spell_skill_field_maps_the_five_casting_schools():
+    spell_book, _, _ = create_spell_book()
+
+    expected = {
+        "Cancel Magic": (4, "Abjuration"),
+        "Clarity II": (5, "Alteration"),
+        "Summon Food": (14, "Conjuration"),
+        "See Invisible": (18, "Divination"),
+        "Shock of Lightning": (24, "Evocation"),
+    }
+    for name, (skill, school) in expected.items():
+        assert spell_book[name].skill == skill
+        assert spell_school_name(spell_book[name]) == school
+    assert len({
+        spell_progress_palette(spell_book[name]) for name in expected
+    }) == 5
+
+
+def test_current_p99_spell_index_maps_spirit_of_wolf():
+    spell_book, _, _ = create_spell_book()
+
+    assert spell_book["Spirit of Wolf"].spell_icon == 155
+
+
+class _TargetType:
+
+    def __init__(self, value):
+        self.value = value
+
+    def property(self, _name):
+        return self.value
+
+
+def _target(name, target_type, activity):
+    return SimpleNamespace(
+        name=name,
+        last_activity_order=activity,
+        target_label=_TargetType(target_type))
+
+
+def test_recently_affected_mob_sorts_first_inside_enemy_section():
+    older = _target("A crystalline watcher", 2, 4)
+    latest = _target("A crystalline devourer", 2, 9)
+    you = _target("__you__", 0, 1)
+
+    assert sorted(
+        [older, latest, you], key=_spell_target_sort_key) == [
+            you, latest, older]
+
+
+def test_spell_rows_sort_by_soonest_expiry_then_name():
+    now = __import__('datetime').datetime.now()
+    later = SimpleNamespace(
+        end_time=now + __import__('datetime').timedelta(seconds=90),
+        spell=SimpleNamespace(name='Root'))
+    sooner_b = SimpleNamespace(
+        end_time=now + __import__('datetime').timedelta(seconds=20),
+        spell=SimpleNamespace(name='Tashanian'))
+    sooner_a = SimpleNamespace(
+        end_time=sooner_b.end_time,
+        spell=SimpleNamespace(name='Malo'))
+
+    assert sorted(
+        [later, sooner_b, sooner_a], key=_spell_widget_sort_key) == [
+            sooner_a, sooner_b, later]
+
+
+def test_spell_progress_palette_is_stable_colorful_and_glassy():
+    beneficial = SimpleNamespace(
+        name="Spirit of Wolf", spell_icon=155, type=1, resist_type=0,
+        skill=5)
+    evocation = SimpleNamespace(
+        name="Shock of Lightning", spell_icon=24, type=0, resist_type=3,
+        skill=24)
+
+    assert spell_progress_palette(beneficial) == spell_progress_palette(
+        beneficial)
+    assert spell_progress_palette(beneficial) != spell_progress_palette(
+        evocation)
+    assert all(
+        max(int(color[index:index + 2], 16) for index in (1, 3, 5)) < 180
+        for color in spell_progress_palette(beneficial)[:3])
+    style = spell_progress_stylesheet(beneficial)
+    assert "qlineargradient" in style
+    assert "Pulse" in style
+    assert 'QProgressBar[Faded="true"]' in style
+    assert "stop:0 #FFF0EC" in style
+    assert "min-height: 24px" in style
+    assert "max-height: 24px" in style
+    assert "padding: 0px" in style
+    assert "border-radius: 6px" in style
+    assert "stop:0 #FFFBE1" in style
+    assert "stop:0 #FFF3EF" in style
+    assert "box-shadow" not in style

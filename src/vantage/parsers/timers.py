@@ -1,0 +1,1119 @@
+"""Modern spawn timer overlay for Project 1999."""
+
+from __future__ import annotations
+
+import datetime
+import hashlib
+import re
+import string
+import time
+
+from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (
+    QApplication,
+    QBoxLayout,
+    QCheckBox,
+    QColorDialog,
+    QComboBox,
+    QDialogButtonBox,
+    QFileDialog,
+    QFormLayout,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
+
+from vantage.helpers import config
+from vantage.helpers.audio import (
+    add_custom_sound_to_combo, play_alert, set_sound_combo_value)
+from vantage.helpers.icons import game_icon
+from vantage.helpers.log_events import extract_killed_mob
+from vantage.helpers.encounter_events import (
+    RING_WAR_SCHEDULE_SOURCE, parse_encounter_event,
+    ring_war_milestones)
+from vantage.helpers.parser import ParserWindow
+from vantage.helpers.portable import store_portable_file
+from vantage.helpers.responsive import (
+    ResponsiveActionBar, polish_form)
+from vantage.helpers.respawn_catalog import (
+    CATALOG_SOURCE, CATALOG_SOURCE_URL, NAMED_CATALOG_SOURCE,
+    NAMED_CATALOG_SOURCE_URL, RESPAWN_CATALOG, named_spawn_for,
+    respawn_for_short_name)
+from vantage.helpers.safety_alerts import SafetyAlertState
+from vantage.helpers.scaled_dialog import UniformScaleDialog
+from vantage.helpers.spawn_timer import (
+    PHASE_AVAILABLE,
+    PHASE_COMBAT,
+    PHASE_IDLE,
+    PHASE_RESPAWN,
+    SpawnTimerState,
+    reset_stale_persisted_timers,
+    format_seconds,
+    parse_duration_input,
+    zone_timer_visible,
+)
+
+
+LOG_TIMER_COMMAND = re.compile(
+    r"(?:StartTimer|PigTimer)-(?P<duration>\d+(?::\d+){0,2})"
+    r"(?:-(?P<label>[A-Za-z0-9_.'`-]+))?",
+    re.IGNORECASE)
+
+AUTO_TIMER_COLORS = (
+    "#B97252", "#9A7650", "#7B8755", "#4F8378",
+    "#657A96", "#806C91", "#995E73", "#8D7048",
+)
+
+
+def extract_log_timer_command(text):
+    """Parse the established StartTimer/PigTimer chat command syntax."""
+    match = LOG_TIMER_COMMAND.search(str(text or ''))
+    if not match:
+        return None
+    duration = parse_duration_input(
+        match.group('duration'), single_unit='seconds')
+    if duration <= 0:
+        return None
+    label = (match.group('label') or 'Log timer').replace(
+        '_', ' ').strip().rstrip("'\".,! ")
+    return duration, label
+
+
+def automatic_timer_color(zone, mob):
+    digest = hashlib.sha1(
+        f"{zone.casefold()}|{mob.casefold()}".encode('utf-8')).digest()
+    return AUTO_TIMER_COLORS[digest[0] % len(AUTO_TIMER_COLORS)]
+
+PHASE_TEXT = {
+    PHASE_IDLE: "READY",
+    PHASE_RESPAWN: "RESPAWN",
+    PHASE_COMBAT: "COMBAT",
+    PHASE_AVAILABLE: "AVAILABLE",
+}
+
+
+class TimerEditDialog(UniformScaleDialog):
+    def __init__(self, timer=None, parent=None):
+        super().__init__(
+            QSize(500, 420), parent, minimum_size=QSize(200, 168))
+        self.timer = timer
+        self.color = timer.color if timer else "#B38C52"
+        self.setWindowTitle("Edit Smart Timer" if timer else "New Smart Timer")
+
+        form = polish_form(QFormLayout())
+        form.setSpacing(5)
+        self.name = QLineEdit(timer.name if timer else "")
+        self.name.setPlaceholderText("Example: Quillmane")
+        self.name.setToolTip(
+            "A short label shown on the timer row, overlays, and phone view")
+        form.addRow("Name", self.name)
+
+        self.respawn = QLineEdit(format_seconds(timer.respawn_seconds) if timer else "00:32:00")
+        self.respawn.setPlaceholderText("3 = 3 min · 3:50 · 1:03:50")
+        self.respawn.setToolTip(
+            "Time until the next spawn: 3 means 3 minutes; 3:50 and 1:03:50 are also accepted")
+        self.respawn.editingFinished.connect(
+            lambda: self._normalize_duration(self.respawn))
+        form.addRow("Respawn time", self.respawn)
+
+        self.kill = QLineEdit(format_seconds(timer.kill_seconds) if timer else "01:00")
+        self.kill.setPlaceholderText("3 = 3 min · 3:50")
+        self.kill.setToolTip(
+            "Estimated time to kill the mob: 3 means 3 minutes; 3:50 means 3 minutes 50 seconds")
+        self.kill.editingFinished.connect(
+            lambda: self._normalize_duration(self.kill))
+        form.addRow("Estimated kill time", self.kill)
+
+        self.warning = QSpinBox()
+        self.warning.setRange(0, 600)
+        self.warning.setSuffix(" s")
+        self.warning.setValue(timer.warning_seconds if timer else 30)
+        self.warning.setToolTip(
+            "Play and display the fading warning this many seconds before spawn")
+        form.addRow("Advance warning", self.warning)
+
+        self.smart = QCheckBox("Assume kill when the estimate ends")
+        self.smart.setChecked(timer.smart if timer else True)
+        self.smart.setToolTip(
+            "After the estimated kill time, automatically begin the next "
+            "respawn cycle. A manual action always overrides the estimate.")
+        form.addRow("Smart mode", self.smart)
+
+        self.zone = QLineEdit(timer.zone if timer else "")
+        self.zone.setPlaceholderText("Blank = all zones")
+        self.zone.setToolTip(
+            "Only match death lines while this zone is active; leave blank "
+            "to use the timer in every zone")
+        form.addRow("Zone", self.zone)
+
+        self.mob_pattern = QLineEdit(timer.mob_pattern if timer else "")
+        self.mob_pattern.setPlaceholderText("Regex or mob name")
+        self.mob_pattern.setToolTip(
+            "Mob name or regular expression matched against EverQuest death "
+            "lines; blank uses the timer name")
+        form.addRow("Detect death", self.mob_pattern)
+
+        color_row = QHBoxLayout()
+        self.color_preview = QPushButton(self.color)
+        self.color_preview.setAccessibleName("Choose timer color")
+        self.color_preview.setToolTip(
+            "Choose the progress-bar and timer accent color")
+        self.color_preview.clicked.connect(self._pick_color)
+        color_row.addWidget(self.color_preview)
+        form.addRow("Color", color_row)
+        self._update_color_preview()
+
+        sound_panel = QWidget()
+        sound_row = QVBoxLayout(sound_panel)
+        sound_row.setContentsMargins(0, 0, 0, 0)
+        sound_row.setSpacing(5)
+        self.sound = QComboBox()
+        self.sound.setAccessibleName("Timer sound gallery")
+        self.sound.setToolTip(
+            "Choose the alarm played for this timer from the built-in or "
+            "portable sound gallery")
+        set_sound_combo_value(
+            self.sound, timer.sound_path if timer else "builtin:spawn-horn")
+        browse = QPushButton("WAV…")
+        browse.setIcon(game_icon("copy"))
+        browse.setToolTip(
+            "Add a royalty-free WAV file to Vantage's portable sound gallery")
+        browse.clicked.connect(self._browse_sound)
+        test = QPushButton("Test")
+        test.setIcon(game_icon("play"))
+        test.setToolTip("Test this sound at the timer's individual volume")
+        sound_row.addWidget(self.sound)
+        sound_actions = ResponsiveActionBar(88)
+        sound_actions.addWidget(browse)
+        sound_actions.addWidget(test)
+        sound_row.addWidget(sound_actions)
+        form.addRow("Alarm gallery", sound_panel)
+
+        self.volume = QSpinBox()
+        self.volume.setRange(0, 100)
+        self.volume.setSuffix(" %")
+        self.volume.setValue(
+            timer.volume if timer else config.data['timers']['volume'])
+        self.volume.setAccessibleName("Individual timer volume")
+        self.volume.setToolTip(
+            "Volume for this timer only; 0 mutes its alarm")
+        test.clicked.connect(lambda: play_alert(
+            self.sound.currentData(), self.volume.value(), 2,
+            source=f"Test · timer {self.name.text().strip() or 'new'}"))
+        form.addRow("This timer's volume", self.volume)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        )
+        save_button = buttons.button(QDialogButtonBox.StandardButton.Save)
+        cancel_button = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        save_button.setText("Save")
+        save_button.setObjectName("PrimaryAction")
+        save_button.setToolTip("Save this Smart Timer and close the editor")
+        cancel_button.setText("Cancel")
+        cancel_button.setToolTip("Discard changes and close the editor")
+        buttons.accepted.connect(self._validate)
+        buttons.rejected.connect(self.reject)
+
+        layout = QVBoxLayout(self.scaled_surface)
+        layout.setContentsMargins(8, 7, 8, 7)
+        layout.setSpacing(5)
+        form_host = QWidget()
+        form_host.setLayout(form)
+        layout.addWidget(form_host, 1)
+        layout.addWidget(buttons)
+
+    def _pick_color(self):
+        selected = QColorDialog.getColor(QColor(self.color), self, "Timer Color")
+        if selected.isValid():
+            self.color = selected.name()
+            self._update_color_preview()
+
+    def _update_color_preview(self):
+        self.color_preview.setText(self.color.upper())
+        foreground = "#0C0E11" if QColor(self.color).lightness() > 145 else "#F4F0E7"
+        self.color_preview.setStyleSheet(
+            f"background:{self.color}; color:{foreground}; border:none; border-radius:7px;"
+        )
+
+    def _browse_sound(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Choose Alarm", "", "WAV Audio (*.wav)")
+        if path:
+            add_custom_sound_to_combo(self.sound, store_portable_file(path))
+
+    @staticmethod
+    def _normalize_duration(field):
+        seconds = parse_duration_input(field.text())
+        if seconds > 0:
+            field.setText(format_seconds(seconds))
+
+    def _validate(self):
+        if not self.name.text().strip():
+            QMessageBox.warning(self, "Name Required", "Enter a name for the timer.")
+            self.name.setFocus()
+            return
+        if parse_duration_input(self.respawn.text()) <= 0:
+            QMessageBox.warning(
+                self, "Invalid Respawn Time",
+                "Use 3 for three minutes, 3:50, or 1:03:50.")
+            self.respawn.setFocus()
+            return
+        if parse_duration_input(self.kill.text()) <= 0:
+            QMessageBox.warning(
+                self, "Invalid Kill Time",
+                "Use 3 for three minutes, 3:50, or 1:03:50.")
+            self.kill.setFocus()
+            return
+        self.accept()
+
+    def apply(self, timer=None):
+        timer = timer or SpawnTimerState(
+            self.name.text(), parse_duration_input(self.respawn.text()))
+        timer.name = self.name.text().strip()
+        timer.respawn_seconds = parse_duration_input(self.respawn.text())
+        timer.kill_seconds = parse_duration_input(self.kill.text())
+        timer.warning_seconds = self.warning.value()
+        timer.smart = self.smart.isChecked()
+        timer.zone = self.zone.text().strip()
+        timer.mob_pattern = self.mob_pattern.text().strip()
+        timer.color = self.color
+        timer.sound_path = str(self.sound.currentData() or "builtin:spawn-horn")
+        timer.volume = self.volume.value()
+        return timer
+
+
+class TimerRow(QFrame):
+    def __init__(self, timer, owner):
+        super().__init__()
+        self.timer = timer
+        self.owner = owner
+        self.setObjectName("SpawnTimerRow")
+        self.setAccessibleName(f"Timer for {timer.name}")
+        self.setToolTip(
+            f"{timer.name} · right-click for window position, layer, and "
+            "transparency options")
+        self.setMinimumHeight(54)
+
+        root = QBoxLayout(QBoxLayout.Direction.TopToBottom, self)
+        self._root_layout = root
+        root.setContentsMargins(5, 4, 5, 4)
+        root.setSpacing(4)
+
+        info_widget = QWidget()
+        info = QVBoxLayout()
+        info_widget.setLayout(info)
+        info.setContentsMargins(0, 0, 0, 0)
+        info.setSpacing(2)
+        headline = QHBoxLayout()
+        self.name_label = QLabel(timer.name)
+        self.name_label.setObjectName("SpawnTimerName")
+        self.name_label.setToolTip(
+            "Timer name; edit the timer to change it")
+        self.phase_label = QLabel()
+        self.phase_label.setObjectName("SpawnTimerPhase")
+        self.phase_label.setToolTip(
+            "Current Smart Timer phase: ready, respawn, combat, available, "
+            "or paused")
+        self.time_label = QLabel()
+        self.time_label.setObjectName("SpawnTimerTime")
+        self.time_label.setToolTip(
+            "Time remaining in the current phase")
+        headline.addWidget(self.name_label, 1)
+        headline.addWidget(self.phase_label)
+        headline.addWidget(self.time_label)
+        info.addLayout(headline)
+
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setTextVisible(False)
+        self.progress.setAccessibleName(f"Progress for {timer.name}")
+        self.progress.setToolTip(
+            "Visual progress through the current timer phase")
+        self.progress.setStyleSheet(
+            "QProgressBar::chunk {"
+            f"background-color:{timer.color}; border-radius:3px;"
+            "}"
+        )
+        self._visual_state = None
+        self._pulse_on = False
+        info.addWidget(self.progress)
+
+        self.detail_label = QLabel()
+        self.detail_label.setObjectName("SpawnTimerDetail")
+        self.detail_label.setWordWrap(True)
+        info.addWidget(self.detail_label)
+        root.addWidget(info_widget, 1)
+
+        controls = ResponsiveActionBar(29, spacing=2)
+        self.play_button = QPushButton()
+        self.play_button.setIcon(game_icon("play"))
+        self.play_button.setAccessibleName(f"Start or pause {timer.name}")
+        self.play_button.setToolTip(
+            f"Start, pause, or resume {timer.name} without changing its phase")
+        self.play_button.clicked.connect(self._toggle)
+        controls.addWidget(self.play_button)
+
+        self.restart_button = QPushButton()
+        self.restart_button.setIcon(game_icon("refresh"))
+        self.restart_button.setAccessibleName(f"Restart {timer.name}")
+        self.restart_button.setToolTip(
+            "Restart the complete respawn countdown immediately")
+        self.restart_button.clicked.connect(self._restart)
+        controls.addWidget(self.restart_button)
+
+        self.clear_button = QPushButton()
+        self.clear_button.setIcon(game_icon("stop"))
+        self.clear_button.setAccessibleName(f"Clear {timer.name}")
+        self.clear_button.setToolTip(
+            "Clear the countdown and return to READY without deleting it")
+        self.clear_button.clicked.connect(self._clear)
+        controls.addWidget(self.clear_button)
+
+        killed = QPushButton()
+        killed.setIcon(game_icon("kill"))
+        killed.setObjectName("WarningAction")
+        killed.setAccessibleName(f"Confirm death of {timer.name}")
+        killed.setToolTip("Mob killed: start respawn")
+        killed.clicked.connect(self._killed)
+        controls.addWidget(killed)
+
+        spawned = QPushButton()
+        spawned.setIcon(game_icon("spawn"))
+        spawned.setObjectName("PrimaryAction")
+        spawned.setAccessibleName(f"Confirm spawn of {timer.name}")
+        spawned.setToolTip("Mob spawned: start estimated kill time")
+        spawned.clicked.connect(self._spawned)
+        controls.addWidget(spawned)
+
+        self.volume = QSpinBox()
+        self.volume.setRange(0, 100)
+        self.volume.setSuffix("%")
+        self.volume.setValue(timer.volume)
+        self.volume.setAccessibleName(f"Volume for {timer.name}")
+        self.volume.setToolTip(
+            f"Individual alarm volume for {timer.name}")
+        self.volume.setFixedWidth(64)
+        self.volume.editingFinished.connect(self._volume_changed)
+        controls.addWidget(self.volume)
+
+        edit = QPushButton()
+        edit.setIcon(game_icon("edit"))
+        edit.setAccessibleName(f"Edit {timer.name}")
+        edit.setToolTip(
+            f"Edit {timer.name}: name, durations, smart reset, color, sound, and volume")
+        edit.clicked.connect(lambda: owner.edit_timer(timer.timer_id))
+        controls.addWidget(edit)
+
+        delete = QPushButton()
+        delete.setIcon(game_icon("delete"))
+        delete.setObjectName("DangerAction")
+        delete.setAccessibleName(f"Delete {timer.name}")
+        delete.setToolTip(f"Delete {timer.name} after confirmation")
+        delete.clicked.connect(lambda: owner.delete_timer(timer.timer_id))
+        controls.addWidget(delete)
+        # Keep every action in one dense logical row. The outer window scales
+        # this whole row with the rest of the timer canvas.
+        controls.setFixedWidth(276)
+        root.addWidget(controls, 0, Qt.AlignmentFlag.AlignRight)
+
+        self.refresh()
+
+    def _toggle(self):
+        if self.timer.running:
+            self.timer.pause()
+        elif self.timer.phase == PHASE_IDLE:
+            self.timer.start()
+        else:
+            self.timer.resume()
+        self.owner.state_changed()
+
+    def _killed(self):
+        self.timer.mark_killed()
+        self.owner.announce(f"{self.timer.name}: death confirmed")
+        self.owner.state_changed()
+
+    def _restart(self):
+        self.timer.restart()
+        self.owner.announce(
+            f"{self.timer.name}: respawn countdown restarted")
+        self.owner.state_changed()
+
+    def _clear(self):
+        self.timer.reset()
+        self.owner.announce(f"{self.timer.name}: countdown cleared to READY")
+        self.owner.state_changed()
+
+    def _spawned(self):
+        self.timer.mark_spawned()
+        self.owner.announce(f"{self.timer.name}: spawn confirmed")
+        self.owner.state_changed()
+
+    def _volume_changed(self):
+        self.timer.volume = self.volume.value()
+        self.owner.state_changed()
+
+    def refresh(self):
+        timer = self.timer
+        self.name_label.setText(timer.name)
+        self.phase_label.setText(PHASE_TEXT.get(timer.phase, timer.phase.upper()))
+        if timer.source == RING_WAR_SCHEDULE_SOURCE:
+            self.phase_label.setText("EVENT")
+        self.phase_label.setProperty("Phase", timer.phase)
+        self.phase_label.setStyle(self.phase_label.style())
+        remaining = timer.remaining()
+        if not timer.running and timer.phase != PHASE_IDLE:
+            self.phase_label.setText("PAUSED")
+        self.time_label.setText("--:--" if remaining is None else format_seconds(remaining))
+        self.progress.setValue(timer.progress_percent())
+        self.progress.setAccessibleDescription(
+            f"{PHASE_TEXT.get(timer.phase, timer.phase)}, {self.time_label.text()} remaining"
+        )
+        smart = "AUTO-KILL" if timer.smart else "LOG KILL"
+        zone = f" · {timer.zone}" if timer.zone else ""
+        source = f" · {timer.source}" if timer.source else ""
+        if timer.source == RING_WAR_SCHEDULE_SOURCE:
+            self.detail_label.setText(
+                f"LOCAL LOG · RING WAR · {timer.source}")
+        elif timer.automatic:
+            self.detail_label.setText(
+                f"AUTO LOG · {smart} · cycle {timer.cycles}{zone}{source}")
+        else:
+            self.detail_label.setText(
+                f"{smart} · kill {format_seconds(timer.kill_seconds)} · "
+                f"vol {timer.volume}% · cycle {timer.cycles}{zone}{source}")
+        self.detail_label.setToolTip(
+            f"Named source: {timer.source}\n{NAMED_CATALOG_SOURCE_URL}\n"
+            f"Timing source: {CATALOG_SOURCE}\n{CATALOG_SOURCE_URL}"
+            if timer.source == NAMED_CATALOG_SOURCE else
+            f"Respawn source: {timer.source}\n{CATALOG_SOURCE_URL}"
+            if timer.source == CATALOG_SOURCE else
+            f"Respawn source: {timer.source}" if timer.source else
+            "User-created timer")
+        self.play_button.setIcon(game_icon("pause" if timer.running else "play"))
+        self.play_button.setToolTip(
+            f"Pause {timer.name} and preserve its remaining time"
+            if timer.running else
+            f"Start {timer.name} from READY"
+            if timer.phase == PHASE_IDLE else
+            f"Resume {timer.name} from its preserved remaining time")
+        self.detail_label.setVisible(not config.data['timers']['compact'])
+
+        warning = bool(
+            timer.running and timer.phase == PHASE_RESPAWN and
+            remaining is not None and 0 < remaining <= timer.warning_seconds)
+        spawn_window = timer.running and timer.phase in (
+            PHASE_COMBAT, PHASE_AVAILABLE)
+        alert_state = "warning" if warning else "spawn" if spawn_window else "normal"
+        self._pulse_on = (
+            False if config.data['general'].get('reduce_motion') else
+            not self._pulse_on if alert_state != "normal" else False)
+        pulse = self._pulse_on
+        visual_state = (alert_state, pulse, timer.color)
+        if visual_state != self._visual_state:
+            self._visual_state = visual_state
+            self.setProperty("AlertState", alert_state)
+            self.setProperty("Pulse", pulse)
+            accent = (
+                "#FFD166" if warning and pulse else
+                "#51C79B" if spawn_window and pulse else timer.color)
+            self.progress.setStyleSheet(
+                "QProgressBar::chunk {"
+                f"background-color:{accent}; border-radius:3px;"
+                "}")
+            self.style().unpolish(self)
+            self.style().polish(self)
+
+
+class SpawnTimers(ParserWindow):
+    def __init__(self):
+        self.name = "timers"
+        super().__init__()
+        self.setWindowTitle("Smart Spawn Timers")
+        self._current_zone = config.data['maps'].get('last_zone', '')
+        self._selected_zone = str(
+            config.data['timers'].get('view_zone') or
+            self._current_zone or '').strip()
+        self._missing_zone_notified = None
+        self._states = {}
+        self._rows = {}
+        self._safety = SafetyAlertState(
+            config.data['timers'].get('death_loop_deaths', 4),
+            config.data['timers'].get('death_loop_seconds', 120))
+
+        add = QPushButton()
+        add.setIcon(game_icon("add"))
+        add.setObjectName("PrimaryAction")
+        add.setAccessibleName("Add timer")
+        add.setToolTip(
+            "Add a named Smart Timer with editable respawn, kill estimate, color, sound, and volume")
+        add.clicked.connect(self.add_timer)
+        self.menu_area.addWidget(add)
+
+        self.compact = QPushButton()
+        self.compact.setIcon(game_icon("compact"))
+        self.compact.setCheckable(True)
+        self.compact.setChecked(config.data['timers']['compact'])
+        self.compact.setAccessibleName("Toggle compact mode")
+        self.compact.setToolTip(
+            "Switch timer rows between detailed and minimum-space presentations")
+        self.compact.clicked.connect(self._toggle_compact)
+        self.menu_area.addWidget(self.compact)
+
+        self.zone_filter = QComboBox()
+        self.zone_filter.setObjectName('SpawnTimerZoneFilter')
+        self.zone_filter.setAccessibleName('Timer zone view')
+        self.zone_filter.setToolTip(
+            'Show the saved timer rows for one zone; global timers appear in '
+            'every zone and rows remain saved until you delete them')
+        self.zone_filter.setMinimumContentsLength(8)
+        self.zone_filter.currentIndexChanged.connect(
+            self._zone_filter_changed)
+        self.menu_area.addWidget(self.zone_filter)
+
+        mobile = QPushButton()
+        mobile.setIcon(game_icon("mobile"))
+        mobile.setAccessibleName("View Vantage on your phone")
+        mobile.setToolTip("Create a QR code for timers, market, and EverQuest Live")
+        mobile.clicked.connect(
+            lambda: QApplication.instance().show_mobile_share())
+        self.menu_area.addWidget(mobile)
+
+        host = QWidget()
+        host.setObjectName("SpawnTimerCanvas")
+        host.setAccessibleName("Complete Smart Timer list")
+        host.setToolTip(
+            "Every timer stays on this single surface and scales with the window")
+        self._timer_host = host
+        self._layout = QVBoxLayout(host)
+        self._layout.setContentsMargins(3, 3, 3, 3)
+        self._layout.setSpacing(3)
+        self._layout.addStretch(1)
+        # This is intentionally not a QScrollArea. The timer list is one fixed
+        # logical canvas; adding rows lengthens that canvas and the outer
+        # graphics view scales the complete replica without scrollbars.
+        self.content.addWidget(host, 1)
+
+        self.status = QLabel("Smart timers ready · automatic log timers: nameds only")
+        self.status.setObjectName("SpawnTimerStatus")
+        self.status.setAccessibleName("Timer status")
+        self.status.setToolTip(
+            "Latest Smart Timer action or automatic log event")
+        self.content.addWidget(self.status)
+
+        self._canvas_update_timer = QTimer(self)
+        self._canvas_update_timer.setSingleShot(True)
+        self._canvas_update_timer.timeout.connect(self._sync_timer_canvas)
+
+        self._load()
+        self._refresh_zone_filter(self._selected_zone)
+        QApplication.instance().aboutToQuit.connect(
+            self.record_session_closed)
+        QApplication.instance()._signals["maps"].new_zone.connect(
+            self._zone_changed)
+        self._ticker = QTimer(self)
+        # Second precision is enough for P99 spawns and avoids needless repaints.
+        self._ticker.setInterval(1000)
+        self._ticker.timeout.connect(self._tick)
+        self._ticker.start()
+
+    def mobile_snapshot(self):
+        """Small immutable shape consumed by the isolated mobile server."""
+        timers = []
+        for timer in self._states.values():
+            if not zone_timer_visible(timer.zone, self._selected_zone):
+                continue
+            remaining = timer.remaining()
+            timers.append({
+                "timer_id": timer.timer_id,
+                "name": timer.name,
+                "phase": timer.phase,
+                "running": timer.running,
+                "remaining": "--:--" if remaining is None else format_seconds(remaining),
+                "progress": timer.progress_percent(),
+                "color": timer.color,
+                "smart": timer.smart,
+                "kill": format_seconds(timer.kill_seconds),
+                "cycles": timer.cycles,
+                "zone": timer.zone,
+                "source": timer.source,
+                "automatic": timer.automatic,
+            })
+        zones = [
+            str(self.zone_filter.itemData(index) or "")
+            for index in range(self.zone_filter.count())]
+        return {
+            "version": 2,
+            "timers": timers,
+            "timer_zone": self._selected_zone,
+            "timer_zones": zones,
+            "generated_at": int(time.time()),
+        }
+
+    def mobile_action(self, action, target):
+        """Apply one phone-side action to Vantage, never to EverQuest."""
+        action = str(action or "").strip().casefold()
+        target = str(target or "").strip()
+        if action == "zone":
+            selected = 0
+            for index in range(self.zone_filter.count()):
+                if str(self.zone_filter.itemData(index) or "").casefold() == \
+                        target.casefold():
+                    selected = index
+                    break
+            self.zone_filter.setCurrentIndex(selected)
+            return
+
+        timer = self._states.get(target)
+        if timer is None:
+            return
+        if action == "toggle":
+            if timer.running:
+                timer.pause()
+                verb = "paused"
+            elif timer.phase == PHASE_IDLE:
+                timer.start()
+                verb = "started"
+            else:
+                timer.resume()
+                verb = "resumed"
+        elif action == "restart":
+            timer.restart()
+            verb = "restarted"
+        elif action == "clear":
+            timer.reset()
+            verb = "cleared to READY"
+        else:
+            return
+        self.announce(f"{timer.name}: {verb} from phone")
+        self.state_changed()
+
+    def _load(self):
+        reset = reset_stale_persisted_timers(config.data['timers'])
+        migrated = False
+        for values in config.data['timers']['items']:
+            try:
+                timer = SpawnTimerState.from_dict(values)
+            except (TypeError, ValueError):
+                continue
+            if timer.automatic and timer.source == CATALOG_SOURCE:
+                named, _entry = self._named_respawn_entry(
+                    timer.name, timer.zone)
+                if not named:
+                    timer.automatic = False
+                    timer.source = 'Saved zone timer'
+                    migrated = True
+                else:
+                    timer.source = NAMED_CATALOG_SOURCE
+                    migrated = True
+            self._states[timer.timer_id] = timer
+            self._add_row(timer)
+        if reset:
+            hours = config.data['timers']['clear_after_hours']
+            self.status.setText(
+                f"Old countdowns reset after {hours} hours closed · saved zone timers kept")
+        # Persist the live-session marker even when no countdown changed. A
+        # crash then preserves rows instead of reusing an older clean-close
+        # timestamp and resetting them by mistake.
+        self._save()
+
+    def record_session_closed(self):
+        """Anchor the next startup's offline-age check to a clean exit."""
+        config.data['timers']['last_session_closed_at'] = time.time()
+        config.save()
+
+    def _refresh_zone_filter(self, preferred=None):
+        preferred = str(
+            self._selected_zone if preferred is None else preferred).strip()
+        zones = {}
+        for zone in (self._current_zone, preferred):
+            zone = str(zone or '').strip()
+            if zone:
+                zones.setdefault(zone.casefold(), zone)
+        for timer in self._states.values():
+            zone = str(timer.zone or '').strip()
+            if zone:
+                zones.setdefault(zone.casefold(), zone)
+
+        self.zone_filter.blockSignals(True)
+        self.zone_filter.clear()
+        self.zone_filter.addItem('All zones', '')
+        for zone in sorted(zones.values(), key=str.casefold):
+            self.zone_filter.addItem(zone, zone)
+        selected = 0
+        for index in range(self.zone_filter.count()):
+            if str(self.zone_filter.itemData(index) or '').casefold() == \
+                    preferred.casefold():
+                selected = index
+                break
+        self.zone_filter.setCurrentIndex(selected)
+        self.zone_filter.blockSignals(False)
+        self._selected_zone = str(
+            self.zone_filter.currentData() or '').strip()
+        config.data['timers']['view_zone'] = self._selected_zone
+        self._apply_zone_filter()
+
+    def _zone_filter_changed(self, _index):
+        self._selected_zone = str(
+            self.zone_filter.currentData() or '').strip()
+        config.data['timers']['view_zone'] = self._selected_zone
+        config.save()
+        self._apply_zone_filter()
+        visible = sum(not row.isHidden() for row in self._rows.values())
+        self.status.setText(
+            f"ZONE VIEW · {self._selected_zone or 'All zones'} · "
+            f"{visible} saved timer{'s' if visible != 1 else ''}")
+
+    def _apply_zone_filter(self):
+        for timer_id, row in self._rows.items():
+            timer = self._states.get(timer_id)
+            row.setVisible(bool(
+                timer and zone_timer_visible(
+                    timer.zone, self._selected_zone)))
+        self._schedule_timer_canvas()
+
+    def _add_row(self, timer):
+        row = TimerRow(timer, self)
+        self._rows[timer.timer_id] = row
+        self._layout.insertWidget(self._layout.count() - 1, row)
+        row.setVisible(zone_timer_visible(timer.zone, self._selected_zone))
+        self._schedule_timer_canvas()
+
+    def _schedule_timer_canvas(self):
+        if hasattr(self, "_canvas_update_timer"):
+            self._canvas_update_timer.start(0)
+
+    def _sync_timer_canvas(self):
+        """Fit every logical timer row on one surface, never in a scroller."""
+        margins = self._layout.contentsMargins()
+        rows = tuple(row for row in self._rows.values() if not row.isHidden())
+        rows_height = sum(max(
+            row.minimumHeight(), row.minimumSizeHint().height(),
+            row.sizeHint().height()) for row in rows)
+        if len(rows) > 1:
+            rows_height += self._layout.spacing() * (len(rows) - 1)
+        list_height = margins.top() + margins.bottom() + rows_height
+        header_height = max(
+            self._menu.minimumSizeHint().height(), self._menu.sizeHint().height())
+        status_height = max(
+            self.status.minimumSizeHint().height(), self.status.sizeHint().height())
+        logical_height = max(
+            360, header_height + list_height + status_height)
+        self._set_design_size(QSize(520, logical_height))
+
+    def add_timer(self):
+        dialog = TimerEditDialog(parent=self)
+        dialog.zone.setText(string.capwords(
+            self._selected_zone or self._current_zone))
+        if dialog.exec():
+            timer = dialog.apply()
+            self._states[timer.timer_id] = timer
+            self._add_row(timer)
+            self._refresh_zone_filter(timer.zone)
+            self.state_changed()
+
+    def edit_timer(self, timer_id):
+        timer = self._states[timer_id]
+        dialog = TimerEditDialog(timer, self)
+        if dialog.exec():
+            dialog.apply(timer)
+            self._rows[timer_id].progress.setStyleSheet(
+                f"QProgressBar::chunk {{ background-color:{timer.color}; border-radius:3px; }}"
+            )
+            self._refresh_zone_filter(timer.zone)
+            self.state_changed()
+
+    def delete_timer(self, timer_id):
+        timer = self._states[timer_id]
+        answer = QMessageBox.question(
+            self,
+            "Delete Timer",
+            f"Delete {timer.name}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            row = self._rows.pop(timer_id)
+            row.setParent(None)
+            row.deleteLater()
+            self._states.pop(timer_id)
+            self.state_changed()
+            self._refresh_zone_filter(self._selected_zone)
+            self._schedule_timer_canvas()
+
+    def state_changed(self):
+        self._save()
+        for row in self._rows.values():
+            row.refresh()
+        self._schedule_timer_canvas()
+
+    def _save(self):
+        config.data['timers']['items'] = [timer.to_dict() for timer in self._states.values()]
+        config.save()
+
+    def _toggle_compact(self):
+        config.data['timers']['compact'] = self.compact.isChecked()
+        self.state_changed()
+
+    def _tick(self):
+        changed = False
+        completed_schedule_ids = []
+        for timer in list(self._states.values()):
+            events = timer.tick()
+            changed = changed or bool(events)
+            for event in events:
+                schedule_due = (
+                    timer.source == RING_WAR_SCHEDULE_SOURCE and
+                    event.kind == "spawn")
+                schedule_warning = (
+                    timer.source == RING_WAR_SCHEDULE_SOURCE and
+                    event.kind == "warning")
+                remaining = max(1, int(timer.remaining() or 1))
+                self.announce(
+                    f"{timer.name}: due now" if schedule_due else
+                    f"{timer.name}: due in {remaining} s"
+                    if schedule_warning else
+                    event.message)
+                if event.kind in ("spawn", "warning"):
+                    if (timer.source != RING_WAR_SCHEDULE_SOURCE or
+                            config.data['timers'].get(
+                                'encounter_sound_enabled', False)):
+                        play_alert(
+                            timer.sound_path, timer.volume,
+                            2 if event.kind == "spawn" else 1,
+                            source=(f"Timer · {timer.name} · " +
+                                    ("due" if schedule_due else
+                                     "spawn" if event.kind == "spawn" else
+                                     "advance warning")))
+                if schedule_due:
+                    completed_schedule_ids.append(timer.timer_id)
+        for timer_id in completed_schedule_ids:
+            self._remove_timer(timer_id)
+        for row in self._rows.values():
+            row.refresh()
+        if changed:
+            self._save()
+
+    def announce(self, message):
+        self.status.setText(message)
+        QApplication.instance().show_overlay_notification(
+            "Vantage", message, msecs=3500, overlay_id="timers")
+
+    def _encounter_alert(self, message, source):
+        self.announce(message)
+        if config.data['timers'].get('encounter_sound_enabled', False):
+            play_alert(
+                'builtin:warden-bell', config.data['timers']['volume'], 2,
+                source=f"Encounter · {source}")
+
+    def _safety_alert(self, alert):
+        enabled = config.data['timers'].get(
+            'afk_attacked_enabled' if alert.kind == 'afk_attacked' else
+            'death_loop_enabled', True)
+        if not enabled:
+            return
+        self.status.setText(alert.message)
+        QApplication.instance().show_overlay_notification(
+            "Vantage · Safety", alert.message, msecs=6500,
+            overlay_id="alerts", text_color="#E08372")
+        if config.data['timers'].get('safety_sound_enabled', False):
+            play_alert(
+                'builtin:danger-double', config.data['timers']['volume'], 2,
+                source=("Safety · attacked while tabbed out"
+                        if alert.kind == 'afk_attacked' else
+                        "Safety · death loop"))
+
+    def _remove_timer(self, timer_id):
+        row = self._rows.pop(timer_id, None)
+        if row is not None:
+            row.setParent(None)
+            row.deleteLater()
+        removed = self._states.pop(timer_id, None)
+        self._schedule_timer_canvas()
+        return removed
+
+    def _start_ring_war_schedule(self, event_time):
+        for timer_id, timer in list(self._states.items()):
+            if timer.source == RING_WAR_SCHEDULE_SOURCE:
+                self._remove_timer(timer_id)
+        milestones = ring_war_milestones()
+        for milestone in milestones:
+            timer = SpawnTimerState(
+                name=milestone.timer_name,
+                respawn_seconds=milestone.seconds,
+                kill_seconds=1,
+                warning_seconds=30,
+                color="#657A96" if milestone.is_break else "#4F8378",
+                smart=False,
+                zone=string.capwords(self._current_zone),
+                sound_path="builtin:warden-bell",
+                volume=config.data['timers']['volume'],
+                source=RING_WAR_SCHEDULE_SOURCE,
+                automatic=True)
+            timer.start(event_time)
+            self._states[timer.timer_id] = timer
+            self._add_row(timer)
+        self._encounter_alert(
+            f"Ring War schedule started · {len(milestones)} milestones",
+            "Ring War")
+        self.state_changed()
+
+    def _zone_changed(self, zone):
+        self._current_zone = str(zone or '').strip()
+        self._missing_zone_notified = None
+        self._refresh_zone_filter(self._current_zone)
+        config.save()
+        entry = self._respawn_entry()
+        if entry and entry.seconds:
+            self.status.setText(
+                f"AUTO NAMEDS · {string.capwords(self._current_zone)} · "
+                f"{entry.timer_text} · {len(RESPAWN_CATALOG)} zones")
+
+    def _catalog_context(self, zone=''):
+        # Local import avoids making the catalog depend on the map renderer.
+        from vantage.parsers.maps.mapdata import MapData
+
+        canonical = MapData.resolve_zone_name(zone or self._current_zone)
+        if not canonical:
+            return '', '', None
+        if not zone:
+            self._current_zone = canonical
+        short_name = MapData.get_zone_dict().get(canonical)
+        return canonical, short_name, respawn_for_short_name(short_name)
+
+    def _respawn_entry(self):
+        return self._catalog_context()[2]
+
+    def _named_respawn_entry(self, mob, zone=''):
+        _canonical, short_name, entry = self._catalog_context(zone)
+        return named_spawn_for(short_name, mob), entry
+
+    def _create_automatic_timer(self, mob, event_time):
+        named, entry = self._named_respawn_entry(mob)
+        if not named:
+            return False
+        if not entry or entry.seconds is None:
+            zone_key = self._current_zone.casefold()
+            if self._missing_zone_notified != zone_key:
+                self._missing_zone_notified = zone_key
+                self.announce(
+                    f"{string.capwords(self._current_zone) or 'Current zone'}: "
+                    "no published respawn; no timer was invented")
+            return False
+
+        respawn_seconds = named.respawn_seconds or entry.seconds
+        timer = SpawnTimerState(
+            name=mob,
+            respawn_seconds=respawn_seconds,
+            kill_seconds=60,
+            warning_seconds=30,
+            color=automatic_timer_color(self._current_zone, mob),
+            smart=False,
+            zone=string.capwords(self._current_zone),
+            mob_pattern=rf"^{re.escape(mob)}$",
+            sound_path="builtin:spawn-horn",
+            volume=config.data['timers']['volume'],
+            source=NAMED_CATALOG_SOURCE,
+            automatic=True,
+        )
+        # A death line is the anchor: the newly created timer is running from
+        # this exact log timestamp, never left idle in READY.
+        timer.mark_killed(event_time)
+        self._states[timer.timer_id] = timer
+        self._add_row(timer)
+        detail = f" · {entry.note}" if entry.note else ""
+        self.announce(
+            f"{mob}: named timer {format_seconds(respawn_seconds)} started · "
+            f"{string.capwords(self._current_zone)}{detail}")
+        return True
+
+    def _start_log_command_timer(self, duration, label, event_time):
+        timer = next((
+            state for state in self._states.values()
+            if state.source == 'Log command' and
+            state.name.casefold() == label.casefold() and
+            str(state.zone or '').strip().casefold() == string.capwords(
+                self._current_zone).casefold()), None)
+        if timer is None:
+            timer = SpawnTimerState(
+                name=label,
+                respawn_seconds=duration,
+                kill_seconds=60,
+                warning_seconds=min(30, max(1, duration // 10)),
+                color=automatic_timer_color(self._current_zone, label),
+                smart=False,
+                zone=string.capwords(self._current_zone),
+                sound_path='builtin:spawn-horn',
+                volume=config.data['timers']['volume'],
+                source='Log command')
+            self._states[timer.timer_id] = timer
+            self._add_row(timer)
+        else:
+            timer.respawn_seconds = duration
+            timer.warning_seconds = min(30, max(1, duration // 10))
+        timer.start(event_time)
+        self.announce(
+            f'{label}: log command timer started · {format_seconds(duration)}')
+        self.state_changed()
+
+    def parse(self, timestamp, text):
+        if text.startswith("You have entered "):
+            self._zone_changed(text[17:].rstrip('.'))
+        event_time = (
+            timestamp.timestamp()
+            if isinstance(timestamp, datetime.datetime) else time.time())
+        self._safety.configure(
+            config.data['timers'].get('death_loop_deaths', 4),
+            config.data['timers'].get('death_loop_seconds', 120))
+        focused = False
+        if ('You' in text or 'YOU' in text):
+            focus_probe = getattr(
+                QApplication.instance(), 'is_everquest_foreground', None)
+            focused = bool(focus_probe()) if callable(focus_probe) else False
+        for alert in self._safety.ingest(timestamp, text, focused):
+            self._safety_alert(alert)
+        if config.data['timers'].get('encounter_events_enabled', True):
+            encounter = parse_encounter_event(text)
+            if encounter:
+                if encounter.kind == 'ring_war':
+                    self._start_ring_war_schedule(event_time)
+                else:
+                    self._encounter_alert(
+                        encounter.message,
+                        'FTE' if encounter.kind == 'fte' else 'server quake')
+                return
+        command = extract_log_timer_command(text)
+        if command:
+            self._start_log_command_timer(*command, event_time)
+            return
+        mob = extract_killed_mob(text)
+        if not mob:
+            return
+        changed = False
+        matched_timer = False
+        for timer in self._states.values():
+            if timer.matches_kill(mob, self._current_zone):
+                if (timer.automatic and timer.source in (
+                        CATALOG_SOURCE, NAMED_CATALOG_SOURCE)):
+                    named, entry = self._named_respawn_entry(mob)
+                    if not named:
+                        continue
+                    if named.respawn_seconds:
+                        timer.respawn_seconds = named.respawn_seconds
+                    elif entry and entry.seconds:
+                        timer.respawn_seconds = entry.seconds
+                timer.mark_killed(event_time)
+                changed = True
+                matched_timer = True
+        if matched_timer:
+            self.announce(f"{mob}: death detected; timer restarted")
+        elif config.data['timers'].get('auto_from_log', True):
+            changed = self._create_automatic_timer(mob, event_time)
+        if changed:
+            self.state_changed()
