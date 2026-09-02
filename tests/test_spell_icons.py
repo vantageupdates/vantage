@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QImage, QKeyEvent
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QFrame
 
 from vantage.helpers import config
 from vantage.helpers.spell_icons import spell_icon_pixmap
@@ -200,18 +200,41 @@ def test_spell_row_is_two_pixels_shorter_without_clipping_the_progress_bar():
             spell_book["Clarity II"], datetime.datetime.now())
 
         assert app is not None
+        assert isinstance(widget, QFrame)
         assert widget.height() == 26
         assert widget.progress.height() == 22
         assert widget.progress.height() <= widget.height()
         assert widget.focusPolicy() == Qt.FocusPolicy.StrongFocus
         assert "Shift+F10" in widget.accessibleDescription()
 
+        # Regression guard: QToolButton cannot safely host this custom-painted
+        # bar. At the same narrow width used by the in-game overlay, the grab
+        # must contain both colored progress pixels and bright painted text.
+        widget.resize(180, 26)
+        widget.show()
+        app.processEvents()
+        image = widget.grab().toImage()
+        progress_rect = widget.progress.geometry()
+        pixels = [
+            image.pixelColor(x, y)
+            for y in range(progress_rect.top(), progress_rect.bottom() + 1)
+            for x in range(progress_rect.left(), progress_rect.right() + 1)]
+        assert progress_rect.width() >= 130
+        assert sum(color.value() >= 190 for color in pixels) >= 20
+        assert sum(
+            color.saturation() >= 35 and color.value() >= 35
+            for color in pixels) >= 100
+
         menu_calls = []
         widget._sound_menu = lambda position: menu_calls.append(position)
         widget.keyPressEvent(QKeyEvent(
+            QEvent.Type.KeyPress, Qt.Key.Key_Return,
+            Qt.KeyboardModifier.NoModifier))
+        assert len(menu_calls) == 1
+        widget.keyPressEvent(QKeyEvent(
             QEvent.Type.KeyPress, Qt.Key.Key_F10,
             Qt.KeyboardModifier.ShiftModifier))
-        assert len(menu_calls) == 1
+        assert len(menu_calls) == 2
 
         widget.keyPressEvent(QKeyEvent(
             QEvent.Type.KeyPress, Qt.Key.Key_Delete,

@@ -18,7 +18,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QPlainTextEdit, QPushButton
 from vantage.helpers.about import AboutDialog
 
 app = QApplication([])
-dialog = AboutDialog("1.44.15")
+dialog = AboutDialog("1.44.16")
 dialog.show()
 app.processEvents()
 support = dialog.scaled_surface.findChild(QPushButton, "SupportAction")

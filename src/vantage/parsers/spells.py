@@ -1400,7 +1400,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.15')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.16')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -2427,13 +2427,12 @@ class SpellProgressBar(QProgressBar):
         painter.end()
 
 
-class SpellWidget(QToolButton):
+class SpellWidget(QFrame):
 
     def __init__(self, spell, timestamp, character='', server=''):
         super().__init__()
         self.setObjectName('SpellWidget')
         self.spell = spell
-        self.setAutoRaise(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAccessibleName(f'{self.spell.name} spell timer')
         self.runtime_character = str(character or '')
@@ -2446,7 +2445,6 @@ class SpellWidget(QToolButton):
             self.spell, 'saved_warning_played', False))
 
         self._setup_ui()
-        self.clicked.connect(lambda: self._sound_menu(self.rect().center()))
         self._calculate(timestamp)
         self.setProperty('Warning', False)
         self._update()
@@ -2513,12 +2511,12 @@ class SpellWidget(QToolButton):
         self.progress.setToolTip(
             f'{source_text}{school} · visual progress of the spell time remaining')
         self.setToolTip(
-            f'{source_text}{school} · click, Enter, Space, or right-click for '
-            'mob assignment, sound, and remove actions · Delete removes directly')
+            f'{source_text}{school} · click, right-click, Enter, Space, '
+            'Shift+F10, or Menu for mob assignment, sound, and remove actions')
         target_kind = 'beneficial or personal' if self.spell.type else 'hostile'
         self.setAccessibleDescription(
-            f'{target_kind} {school} timer; press Enter or Space for actions; '
-            'Shift+F10 or Menu also opens actions; press Delete to remove')
+            f'{target_kind} {school} timer; press Enter, Space, Shift+F10, '
+            'or Menu for actions; press Delete to remove')
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._sound_menu)
 
@@ -2544,8 +2542,8 @@ class SpellWidget(QToolButton):
         self.progress.setToolTip(
             f'{source_text}{school} · visual progress of the spell time remaining')
         self.setToolTip(
-            f'{source_text}{school} · click, Enter, Space, or right-click for '
-            'mob assignment, sound, and remove actions · Delete removes directly')
+            f'{source_text}{school} · click, right-click, Enter, Space, '
+            'Shift+F10, or Menu for mob assignment, sound, and remove actions')
         self._request_resort()
         self._notify_state_changed()
 
@@ -2771,6 +2769,14 @@ class SpellWidget(QToolButton):
         elif action == remove:
             self._remove()
 
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.setFocus(Qt.FocusReason.MouseFocusReason)
+            self._sound_menu(event.position().toPoint())
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
     def keyPressEvent(self, event):
         if event.key() in {Qt.Key.Key_Delete, Qt.Key.Key_Backspace}:
             self._remove()
@@ -2779,6 +2785,11 @@ class SpellWidget(QToolButton):
         if (event.key() == Qt.Key.Key_Menu or
                 (event.key() == Qt.Key.Key_F10 and
                  event.modifiers() & Qt.KeyboardModifier.ShiftModifier)):
+            self._sound_menu(self.rect().center())
+            event.accept()
+            return
+        if event.key() in {
+                Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space}:
             self._sound_menu(self.rect().center())
             event.accept()
             return
