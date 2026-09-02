@@ -9,6 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QImage, QKeyEvent
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QFrame
 
 from vantage.helpers import config
@@ -242,5 +243,38 @@ def test_spell_row_is_two_pixels_shorter_without_clipping_the_progress_bar():
         assert widget._removed is True
 
         widget.deleteLater()
+    finally:
+        config.data = original
+
+
+def test_spell_row_single_click_focuses_and_double_click_removes():
+    app = QApplication.instance() or QApplication([])
+    config.verify_settings()
+    original = copy.deepcopy(config.data)
+    try:
+        config.data.setdefault("spells", {}).update({
+            "level": 60,
+            "use_secondary": [],
+            "use_secondary_all": False,
+            "fade_warning_seconds": 40,
+        })
+        spell_book, _, _ = create_spell_book()
+        widget = SpellWidget(
+            spell_book["Clarity II"], datetime.datetime.now())
+        menu_calls = []
+        widget._sound_menu = lambda position: menu_calls.append(position)
+        widget.resize(180, 26)
+        widget.show()
+        app.processEvents()
+
+        QTest.mouseClick(widget, Qt.MouseButton.LeftButton)
+        app.processEvents()
+        assert widget.hasFocus() is True
+        assert menu_calls == []
+        assert widget._removed is False
+
+        QTest.mouseDClick(widget, Qt.MouseButton.LeftButton)
+        app.processEvents()
+        assert widget._removed is True
     finally:
         config.data = original

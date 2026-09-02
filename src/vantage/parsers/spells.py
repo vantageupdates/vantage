@@ -50,6 +50,14 @@ ITEM_GLOW_RX = re.compile(
     r"^Your (?P<item>[A-Z][^.]*?) "
     r"(?:begin(?:s)? to glow(?:[^.]*)?|glows?(?:[^.]*))\.$")
 ITEM_CLICK_WINDOW_SECONDS = 15.0
+CHARM_TARGET_WINDOW_SECONDS = 45.0
+CHARMED_PET_ACTIVITY_RX = re.compile(
+    r"^(?P<pet>[\w`' -]+) tells you, 'Attacking .+? Master\.'$",
+    re.IGNORECASE)
+CHARM_BREAK_LINES = {
+    'your charm spell has worn off.',
+    'you are no longer charmed.',
+}
 COMMON_ITEM_CLICK_SPELLS = {
     "journeyman's boots": "JourneymanBoots",
     "elder spiritist's gauntlets": "Snare",
@@ -79,6 +87,21 @@ def item_click_spell_name(item_name):
         return str(row[0]).strip() if row else ''
     except sqlite3.Error:
         return ''
+
+
+def _is_charm_spell(spell):
+    """Return True for the classic charm family with no target landing text."""
+    return bool(
+        int(getattr(spell, 'duration_formula', 0) or 0) and
+        not str(getattr(spell, 'effect_text_other', '') or '').strip() and
+        str(getattr(spell, 'effect_text_you', '') or '').strip().casefold() ==
+        'you have been charmed.')
+
+
+def _charmed_pet_from_activity(text):
+    """Extract the controlled NPC from a player-owned pet activity line."""
+    match = CHARMED_PET_ACTIVITY_RX.match(str(text or '').strip())
+    return match.group('pet').strip() if match else ''
 
 
 def compile_trigger_pattern(text, character='', raw_regex=False):
@@ -186,8 +209,8 @@ class Spells(ParserWindow):
         self.load_custom_timers()
         self._casting = None  # holds Spell when casting
         self._zoning = None  # holds time of zone or None
-        self._spell_triggers = []  # need a queue because of landing windows
         self._spell_trigger = None
+        self._pending_charm = None
         self._pending_item_click = None
         self._item_other_effects = sorted(
             ((effect, spell) for effect, spell in self.text_other.items()
@@ -482,7 +505,40 @@ class Spells(ParserWindow):
                         getattr(self, '_active_character', ''),
                         getattr(self, '_active_server', ''),
                         named=self._is_named_target(target[1]))
+                if (not self._spell_trigger.targets and
+                        _is_charm_spell(self._spell_trigger.spell)):
+                    # Classic EQ does not print a normal target landing line
+                    # for charm. Keep a short correlation window and bind the
+                    # timer only after a player-owned pet activity line names
+                    # the newly controlled NPC.
+                    self._pending_charm = (
+                        self._spell_trigger.timestamp,
+                        self._spell_trigger.spell)
         self._remove_spell_trigger()
+
+    def _consume_charm_activity(self, timestamp, text):
+        """Create a charm timer from the first bounded pet activity proof."""
+        pending = self._pending_charm
+        if not pending:
+            return False
+        elapsed = (timestamp - pending[0]).total_seconds()
+        if elapsed < 0 or elapsed > CHARM_TARGET_WINDOW_SECONDS:
+            self._pending_charm = None
+            return False
+        target = _charmed_pet_from_activity(text)
+        if not target:
+            return False
+        spell = self._spell_for_active_profile(pending[1])
+        # Start at estimated landing, not at the later attack/guard message.
+        landed = pending[0] + datetime.timedelta(
+            milliseconds=max(0, int(getattr(spell, 'cast_time', 0) or 0)))
+        self._spell_container.add_spell(
+            spell, landed, target,
+            getattr(self, '_active_character', ''),
+            getattr(self, '_active_server', ''),
+            named=self._is_named_target(target))
+        self._pending_charm = None
+        return True
 
     def _is_named_target(self, target):
         """Return whether the target is the zone's exact catalogued named."""
@@ -500,6 +556,7 @@ class Spells(ParserWindow):
         """Parse casting triggers (casting, failure, success)."""
 
         self._sync_character_context()
+        self._consume_charm_activity(timestamp, text)
         if config.data['spells'].get('bard_count_enabled', False):
             self._handle_bard_summaries(
                 self._bard_counter.ingest(timestamp, text))
@@ -546,6 +603,8 @@ class Spells(ParserWindow):
             self.spell_faded.emit(
                 str(getattr(target, 'name', '')),
                 str(getattr(faded.spell, 'name', 'Spell')))
+        if str(text or '').strip().casefold() in CHARM_BREAK_LINES:
+            self._pending_charm = None
 
         # EQ gives same-named mobs no stable id. A death therefore retires one
         # deterministic matching instance rather than erasing every copy.
@@ -732,6 +791,8 @@ class Spells(ParserWindow):
             if spell and spell.duration_formula != 0:
                 self._spell_triggered()  # in case we cut off the cast window, force trigger
                 self._remove_spell_trigger()
+                if _is_charm_spell(spell):
+                    self._pending_charm = None
 
                 spell_trigger = SpellTrigger(
                     spell=spell,
@@ -741,12 +802,16 @@ class Spells(ParserWindow):
                 self._spell_trigger = spell_trigger
 
         # Spell Interrupted
-        elif (self._spell_triggers and
-              text[:26] == 'Your spell is interrupted.' or
-              text[:20] == 'Your target resisted' or
-              text[:29] == 'Your spell did not take hold.' or
-              text[:26] == 'You try to cast a spell on'):
+        elif (self._spell_trigger and (
+              text == 'Your spell is interrupted.' or
+              text == 'Your spell fizzles!' or
+              text.startswith('Your target resisted') or
+              text.startswith('Your spell did not take hold.') or
+              text.startswith('You try to cast a spell on'))):
+            interrupted_charm = _is_charm_spell(self._spell_trigger.spell)
             self._remove_spell_trigger()
+            if interrupted_charm:
+                self._pending_charm = None
 
         # Elongate self buff timers by time zoning
         elif text[:23] == 'LOADING, PLEASE WAIT...':
@@ -1400,7 +1465,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.16')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.17')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -2008,11 +2073,15 @@ class SpellContainer(QFrame):
         if not worn_text:
             return None
         matches = []
+        charm_break = worn_text in CHARM_BREAK_LINES
         for target in self.spell_targets():
             for widget in target.spell_widgets():
                 worn_off = str(
                     widget.spell.effect_text_worn_off or '').strip().casefold()
-                if worn_off and worn_text == worn_off and not widget._faded:
+                exact_match = worn_off and worn_text == worn_off
+                if ((exact_match or
+                     (charm_break and _is_charm_spell(widget.spell))) and
+                        not widget._faded):
                     matches.append(widget)
         if not matches:
             return None
@@ -2511,12 +2580,13 @@ class SpellWidget(QFrame):
         self.progress.setToolTip(
             f'{source_text}{school} · visual progress of the spell time remaining')
         self.setToolTip(
-            f'{source_text}{school} · click, right-click, Enter, Space, '
-            'Shift+F10, or Menu for mob assignment, sound, and remove actions')
+            f'{source_text}{school} · double-click to remove; right-click, '
+            'Enter, Space, Shift+F10, or Menu for mob assignment, sound, and '
+            'remove actions')
         target_kind = 'beneficial or personal' if self.spell.type else 'hostile'
         self.setAccessibleDescription(
-            f'{target_kind} {school} timer; press Enter, Space, Shift+F10, '
-            'or Menu for actions; press Delete to remove')
+            f'{target_kind} {school} timer; double-click or press Delete to '
+            'remove; press Enter, Space, Shift+F10, or Menu for actions')
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._sound_menu)
 
@@ -2542,8 +2612,9 @@ class SpellWidget(QFrame):
         self.progress.setToolTip(
             f'{source_text}{school} · visual progress of the spell time remaining')
         self.setToolTip(
-            f'{source_text}{school} · click, right-click, Enter, Space, '
-            'Shift+F10, or Menu for mob assignment, sound, and remove actions')
+            f'{source_text}{school} · double-click to remove; right-click, '
+            'Enter, Space, Shift+F10, or Menu for mob assignment, sound, and '
+            'remove actions')
         self._request_resort()
         self._notify_state_changed()
 
@@ -2769,13 +2840,17 @@ class SpellWidget(QFrame):
         elif action == remove:
             self._remove()
 
-    def mouseReleaseEvent(self, event):
+    def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self.setFocus(Qt.FocusReason.MouseFocusReason)
-            self._sound_menu(event.position().toPoint())
+        super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._remove()
             event.accept()
             return
-        super().mouseReleaseEvent(event)
+        super().mouseDoubleClickEvent(event)
 
     def keyPressEvent(self, event):
         if event.key() in {Qt.Key.Key_Delete, Qt.Key.Key_Backspace}:
@@ -3025,24 +3100,40 @@ class SpellTrigger(QObject):
             #  just in case user set casting window buffer super low, create offset for more accuracy.
             msec_offset = (datetime.datetime.now() -
                            self.timestamp).total_seconds() * 1000
-            self._times_up_timer.start(
-                int(self.spell.cast_time + config.data['spells']['casting_window_buffer'] - msec_offset))
-            self._activate_timer.start(
-                int(self.spell.cast_time - config.data['spells']['casting_window_buffer'] - msec_offset))
+            buffer_ms = config.data['spells']['casting_window_buffer']
+            expiry_delay = int(self.spell.cast_time + buffer_ms - msec_offset)
+            activation_delay = int(
+                self.spell.cast_time - buffer_ms - msec_offset)
+            # A live log can arrive in a burst after the cast timestamp. Qt
+            # does not reliably fire negative-interval timers, which left the
+            # trigger permanently inactive and ignored a valid landing line.
+            self._times_up_timer.start(max(1, expiry_delay))
+            if activation_delay <= 0:
+                self.activated = True
+            else:
+                self._activate_timer.start(activation_delay)
         else:
             self.activated = True
 
     def parse(self, timestamp, text):
         if self.activated:
-            if self.spell.effect_text_you and text[:len(self.spell.effect_text_you)] == self.spell.effect_text_you:
+            folded = str(text or '').casefold()
+            effect_you = str(self.spell.effect_text_you or '')
+            effect_other = str(self.spell.effect_text_other or '')
+            if effect_you and folded.startswith(effect_you.casefold()):
                 # cast self
                 self.targets.append((timestamp, '__you__'))
-            elif text[len(text) - len(self.spell.effect_text_other):] == self.spell.effect_text_other and \
-                    len(self.spell.effect_text_other) > 0:
+            elif effect_other and folded.endswith(effect_other.casefold()):
                 # cast other
-                target = text[:len(text) -
-                              len(self.spell.effect_text_other)].strip()
+                target = text[:-len(effect_other)].strip()
                 self.targets.append((timestamp, target))
+            elif _is_charm_spell(self.spell):
+                target = _charmed_pet_from_activity(text)
+                if target:
+                    landed = self.timestamp + datetime.timedelta(
+                        milliseconds=max(
+                            0, int(getattr(self.spell, 'cast_time', 0) or 0)))
+                    self.targets.append((landed, target))
             if self.targets and self.spell.max_targets == 1:
                 self.stop()  # make sure you don't get two triggers
                 self.spell_triggered.emit()

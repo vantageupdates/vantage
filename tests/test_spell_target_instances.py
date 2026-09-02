@@ -43,6 +43,18 @@ def _fetter():
     )
 
 
+def _allure():
+    return Spell(
+        name="Allure",
+        effect_text_you="You have been charmed.",
+        effect_text_worn_off="You are no longer charmed.",
+        duration=190,
+        duration_formula=10,
+        spell_icon=31,
+        type=0,
+    )
+
+
 def test_fresh_same_name_pacify_landings_create_stable_lettered_instances():
     app = _app()
     container = SpellContainer()
@@ -187,5 +199,26 @@ def test_worn_off_marks_only_oldest_matching_mob_bar_as_faded():
         assert first.progress._time_text == 'FADED'
         assert "A Frost Giant" in first.progress.toolTip()
         assert second._faded is False
+    finally:
+        config.data['spells']['fade_sound_enabled'] = previous_fade_sound
+
+
+def test_generic_charm_break_marks_the_active_charm_row_as_faded():
+    _app()
+    previous_fade_sound = config.data['spells']['fade_sound_enabled']
+    config.data['spells']['fade_sound_enabled'] = False
+    try:
+        container = SpellContainer()
+        now = datetime.datetime.now()
+        container.add_spell(_allure(), now, "a blizzard hunter")
+
+        faded = container.mark_worn_off(
+            "Your charm spell has worn off.",
+            now + datetime.timedelta(seconds=20))
+
+        assert faded is not None
+        assert faded.spell.name == "Allure"
+        assert faded._faded is True
+        assert faded.progress._time_text == "FADED"
     finally:
         config.data['spells']['fade_sound_enabled'] = previous_fade_sound
