@@ -29,6 +29,17 @@ ZONE_PATTERNS = (
         re.IGNORECASE)),
 )
 
+LOCATION_PATTERN = re.compile(
+    r'^Your\s+Location\s+is\s+'
+    r'(?P<first>[+-]?\d+(?:\.\d+)?)\s*,\s*'
+    r'(?P<second>[+-]?\d+(?:\.\d+)?)\s*,\s*'
+    r'(?P<third>[+-]?\d+(?:\.\d+)?)\s*$',
+    re.IGNORECASE)
+
+WHO_COUNT_PATTERN = re.compile(
+    r'^There\s+(?:is|are)\s+(?P<count>no|\d+)\s+players?\s+in\s+',
+    re.IGNORECASE)
+
 
 def detect_log_zone(text):
     """Extract a validated bundled-map zone from a log message."""
@@ -40,6 +51,24 @@ def detect_log_zone(text):
             if zone:
                 return zone, source
     return None, None
+
+
+def detect_log_location(text):
+    """Return a safe three-value coordinate tuple from an EQ /loc line."""
+    match = LOCATION_PATTERN.match(str(text or '').strip())
+    if not match:
+        return None
+    return tuple(float(match.group(name)) for name in (
+        'first', 'second', 'third'))
+
+
+def detect_who_player_count(text):
+    """Return the total reported by /who, including zero for 'no'."""
+    match = WHO_COUNT_PATTERN.match(str(text or '').strip())
+    if not match:
+        return None
+    value = match.group('count').lower()
+    return 0 if value == 'no' else int(value)
 
 class MapsSignals(QObject):
     zoning = Signal()
@@ -64,9 +93,9 @@ class Maps(ParserWindow):
         self.content.addWidget(self._map, 1)
         # buttons
         button_layout = ResponsiveActionBar(20, spacing=1)
-        # Five compact actions always share one logical row.  The parent
+        # Six compact actions always share one logical row.  The parent
         # window scales that row uniformly at every physical size.
-        button_layout.setFixedWidth(104)
+        button_layout.setFixedWidth(125)
         show_poi = QPushButton()
         show_poi.setIcon(game_icon('poi'))
         show_poi.setCheckable(True)
@@ -103,6 +132,19 @@ class Maps(ParserWindow):
         show_mouse_location.setToolTip('Show /loc under the pointer')
         show_mouse_location.clicked.connect(self._toggle_show_mouse_location)
         button_layout.addWidget(show_mouse_location)
+        show_location_hud = QPushButton()
+        show_location_hud.setIcon(game_icon('location'))
+        show_location_hud.setCheckable(True)
+        show_location_hud.setChecked(config.data['maps']['show_location_hud'])
+        show_location_hud.setToolTip(
+            'Show location HUD from EverQuest /loc and /who')
+        show_location_hud.setAccessibleName('Show map location HUD')
+        show_location_hud.setAccessibleDescription(
+            'Displays the current zone, slash who player count, and last '
+            'slash loc coordinates without blocking the map')
+        show_location_hud.clicked.connect(self._toggle_location_hud)
+        self._location_hud_button = show_location_hud
+        button_layout.addWidget(show_location_hud)
 
         self.menu_area.addWidget(button_layout)
 
@@ -118,17 +160,24 @@ class Maps(ParserWindow):
 
         detected_zone, source = detect_log_zone(text)
         if detected_zone:
+            if source == 'zoning':
+                self._map.clear_location_hud_position()
             current = self._map._data.zone.lower() if self._map._data else ""
             if detected_zone != current:
                 self._load_zone(detected_zone)
             elif source == "zoning":
                 QApplication.instance()._signals["maps"].new_zone.emit(
                     detected_zone)
+            visible_name = string.capwords(detected_zone)
+            self._map.update_location_hud_zone(
+                visible_name, source, detect_who_player_count(text))
             return
 
-        if text[:16] == 'Your Location is':
+        location = detect_log_location(text)
+        if location is not None:
             QApplication.instance()._signals["maps"].location.emit(timestamp.isoformat(), text[17:])
-            x, y, z = [float(value) for value in text[17:].strip().split(',')]
+            self._map.update_location_hud_position(location)
+            x, y, z = location
             x, y = to_real_xy(x, y)
             self._map.add_player('__you__', timestamp, MapPoint(x=x, y=y, z=z))
             self._map.record_path_loc((x, y, z))
@@ -155,6 +204,7 @@ class Maps(ParserWindow):
         if not canonical or not self._map.load_map(canonical):
             return False
         visible_name = string.capwords(self._map._data.zone)
+        self._map.update_location_hud_zone(visible_name)
         self._title.setText(f"Map · {visible_name}")
         self._title.setToolTip(f"Zone detected from the log: {visible_name}")
         self.setWindowTitle(f"Vantage · Map · {visible_name}")
@@ -163,6 +213,7 @@ class Maps(ParserWindow):
 
     def clear_player_location(self):
         """Remove the stale self marker after a confirmed camp/logout."""
+        self._map.clear_location_hud_position()
         if not self._map._data or '__you__' not in self._map._data.players:
             return False
         self._map.remove_player('__you__')
@@ -206,3 +257,8 @@ class Maps(ParserWindow):
     def _toggle_show_mouse_location(self, _=False):
         config.data['maps']['show_mouse_location'] = not config.data['maps']['show_mouse_location']
         config.save()
+
+    def _toggle_location_hud(self, checked):
+        config.data['maps']['show_location_hud'] = bool(checked)
+        config.save()
+        self._map.set_location_hud_visible(checked)

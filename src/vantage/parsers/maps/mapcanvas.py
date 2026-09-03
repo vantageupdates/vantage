@@ -7,13 +7,98 @@ import pathvalidate
 from PySide6.QtCore import Qt, QPoint, Signal, QTimer
 from PySide6.QtGui import QPainter, QTransform, QColor, QPen, QAction
 from PySide6.QtWidgets import (QApplication, QGraphicsScene, QGraphicsView,
-                             QInputDialog, QMenu, QLineEdit,
-                             QGraphicsPathItem)
+                             QInputDialog, QMenu, QLineEdit, QFrame, QLabel,
+                             QVBoxLayout, QGraphicsPathItem)
 
 from vantage.helpers import config, resource_path, to_range, text_time_to_seconds
 from vantage.parsers.maps.mapclasses import (MapPoint, WayPoint, Player, SpawnPoint, MouseLocation,
                          PointOfInterest, UserWaypoint)
 from vantage.parsers.maps.mapdata import MapData, MAP_RECORDINGS_PATHLIB, ICON_MAP
+
+
+class MapLocationOverlay(QFrame):
+    """Compact, click-through HUD fed by EverQuest /who and /loc lines."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setObjectName('MapLocationOverlay')
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setMaximumWidth(270)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 5, 8, 5)
+        layout.setSpacing(0)
+        self._zone_label = QLabel('Zone · waiting for /who')
+        self._zone_label.setObjectName('MapLocationZone')
+        self._location_label = QLabel('LOC · type /loc in EverQuest')
+        self._location_label.setObjectName('MapLocationCoordinates')
+        layout.addWidget(self._zone_label)
+        layout.addWidget(self._location_label)
+
+        self._zone = ''
+        self._who_count = None
+        self._location = None
+        self.setToolTip(
+            'Location HUD · use /who in EverQuest for the zone and player '
+            'count; use /loc to place your arrow and show coordinates')
+        self._update_accessible_text()
+        self.adjustSize()
+
+    @staticmethod
+    def _format_coordinate(value):
+        return f'{float(value):.2f}'.rstrip('0').rstrip('.')
+
+    def set_zone(self, zone, source='', player_count=None):
+        self._zone = str(zone or '').strip()
+        self._who_count = player_count if source == 'who' else None
+        suffix = 'WHO'
+        if source == 'who' and player_count is not None:
+            suffix = f'WHO · {player_count}'
+        elif source != 'who':
+            suffix = 'ZONE'
+        self._zone_label.setText(
+            f'{self._zone or "Unknown zone"} · {suffix}')
+        self._refresh_geometry()
+
+    def set_location(self, coordinates):
+        self._location = tuple(float(value) for value in coordinates)
+        values = ', '.join(
+            self._format_coordinate(value) for value in self._location)
+        self._location_label.setText(f'LOC · {values}')
+        self._refresh_geometry()
+
+    def clear_location(self):
+        self._location = None
+        self._location_label.setText('LOC · type /loc in EverQuest')
+        self._refresh_geometry()
+
+    def _refresh_geometry(self):
+        self._update_accessible_text()
+        self.adjustSize()
+        self.anchor_top_right()
+        self.raise_()
+
+    def _update_accessible_text(self):
+        zone = self._zone or 'unknown zone'
+        count = (
+            f', {self._who_count} players from slash who'
+            if self._who_count is not None else '')
+        location = (
+            ', slash loc coordinates ' + ', '.join(
+                self._format_coordinate(value) for value in self._location)
+            if self._location else ', no slash loc coordinates yet')
+        self.setAccessibleName(f'Map location: {zone}{count}{location}')
+        self.setAccessibleDescription(
+            'Read-only EverQuest location information. This overlay does '
+            'not intercept map controls.')
+
+    def anchor_top_right(self):
+        parent = self.parentWidget()
+        if not parent:
+            return
+        margin = 8
+        self.move(max(margin, parent.width() - self.width() - margin), margin)
 
 
 class MapCanvas(QGraphicsView):
@@ -51,6 +136,27 @@ class MapCanvas(QGraphicsView):
         self._pan_press_pos = QPoint()
         self._pan_announced = False
         self._manual_view = False
+        # Parent the HUD to the view, not its scrolling viewport. Otherwise
+        # centering or zooming the map would scroll the HUD off-screen too.
+        self.location_overlay = MapLocationOverlay(self)
+        self.location_overlay.setVisible(
+            config.data['maps'].get('show_location_hud', True))
+        self.location_overlay.anchor_top_right()
+
+    def set_location_hud_visible(self, visible):
+        self.location_overlay.setVisible(bool(visible))
+        if visible:
+            self.location_overlay.anchor_top_right()
+            self.location_overlay.raise_()
+
+    def update_location_hud_zone(self, zone, source='', player_count=None):
+        self.location_overlay.set_zone(zone, source, player_count)
+
+    def update_location_hud_position(self, coordinates):
+        self.location_overlay.set_location(coordinates)
+
+    def clear_location_hud_position(self):
+        self.location_overlay.clear_location()
 
     def load_map(self, map_name, keep_loc=False):
         old_player_data = None
@@ -383,6 +489,8 @@ class MapCanvas(QGraphicsView):
 
     def resizeEvent(self, event):
         QGraphicsView.resizeEvent(self, event)
+        if hasattr(self, 'location_overlay'):
+            self.location_overlay.anchor_top_right()
         if self._data:
             player = self._data.players.get('__you__')
             if config.data['maps']['auto_follow'] and player:

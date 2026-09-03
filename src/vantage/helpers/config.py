@@ -443,6 +443,10 @@ def verify_settings():
         data['maps'].get('show_mouse_location', True),
         True
         )
+    data['maps']['show_location_hud'] = get_setting(
+        data['maps'].get('show_location_hud', True),
+        True
+        )
     data['maps']['show_poi'] = get_setting(
         data['maps'].get('show_poi', True),
         True

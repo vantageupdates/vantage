@@ -765,6 +765,13 @@ class SettingsWindow(UniformScaleDialog):
         msl_grid_line_width.setSingleStep(1)
         msl.addRow('Grid line width', msl_grid_line_width)
 
+        msl_location_hud = QCheckBox()
+        msl_location_hud.setObjectName('maps:show_location_hud')
+        msl_location_hud.setToolTip(
+            'Show a compact, click-through map overlay updated by EverQuest '
+            '/who and /loc commands')
+        msl.addRow('Location HUD', msl_location_hud)
+
         msl.addRow(SettingsHeader('Z LEVELS'))
 
         msl_current_z_alpha = QSpinBox()

@@ -931,6 +931,18 @@ QProgressBar {
 #MobileShareStatus { color: #B9B6AF; background-color: #171A1E; border: none; border-radius: 7px; padding: 6px 8px; }
 #MobileShareTerms { color: #A8A59F; font-size: 10px; }
 #MapCanvas { background-color: #08090B; border: none; border-radius: 8px; }
+#MapLocationOverlay {
+    background-color: rgba(8, 14, 18, 220);
+    border: 1px solid #8D7A42;
+    border-radius: 5px;
+}
+#MapLocationZone { color: #F2D77F; font-size: 10px; font-weight: 700; }
+#MapLocationCoordinates {
+    color: #F3F5F5;
+    font-family: "Cascadia Mono", "Consolas";
+    font-size: 10px;
+    font-weight: 600;
+}
 #MapAreaLabel { color: #C2BFB8; font-size: 11px; }
 QSizeGrip { background-color: transparent; width: 16px; height: 16px; }
 
