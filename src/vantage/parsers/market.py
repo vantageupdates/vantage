@@ -19,8 +19,8 @@ from urllib.parse import quote, unquote
 import webbrowser
 
 from PySide6.QtCore import (
-    QAbstractTableModel, QEvent, QModelIndex, QSize, QSortFilterProxyModel,
-    QStringListModel, Signal, Qt, QTimer, QUrl)
+    QAbstractTableModel, QEvent, QModelIndex, QSignalBlocker, QSize,
+    QSortFilterProxyModel, QStringListModel, Signal, Qt, QTimer, QUrl)
 from PySide6.QtGui import (
     QAccessible, QAccessibleAnnouncementEvent, QColor, QFont, QPixmap)
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
@@ -2414,6 +2414,17 @@ class GreenMarket(ParserWindow):
         self.slot_filter = self._equipment_combo(
             SLOT_BITS, "Filter by slot",
             lambda bit: self._set_equipment_filter("slot", bit))
+        self.clear_filters_button = QPushButton("Clear filters")
+        self.clear_filters_button.setIcon(game_icon("filter-clear"))
+        self.clear_filters_button.setAccessibleName(
+            "Clear all Market search and equipment filters")
+        self.clear_filters_button.setAccessibleDescription(
+            "Restores the default item search, equipment filters, and sorting "
+            "without changing the selected server or sale-alert watchlist")
+        self.clear_filters_button.setToolTip(
+            "Clear search, class, race, slot, effect, binding, era, and stat sort · "
+            "keeps the server and watchlist")
+        self.clear_filters_button.clicked.connect(self._clear_filters)
         self.gear_status = QLabel("Loading P99 metadata…")
         self.gear_status.setObjectName("MarketGearSource")
         self.gear_status.setWordWrap(True)
@@ -2691,7 +2702,8 @@ class GreenMarket(ParserWindow):
             self.search, self.server_selector, self._refresh_button,
             self._sources_button, self._live_status_button,
             self.class_filter, self.race_filter,
-            self.slot_filter, self.gear_status, self.status,
+            self.slot_filter, self.clear_filters_button,
+            self.gear_status, self.status,
             self.stat_sort, self.effect_filter, self.tradeability_filter,
             self.era_filter,
             self._watch_selected_button, self._analyze_button,
@@ -2771,6 +2783,44 @@ class GreenMarket(ParserWindow):
         total = len(self._gear_model.items)
         self.gear_results.setText(
             f"{visible:,} / {total:,} items · highest {label} first")
+
+    def _clear_filters(self):
+        """Restore every Market result filter without touching user data."""
+        controls = (
+            self.search, self.class_filter, self.race_filter,
+            self.slot_filter, self.stat_sort, self.effect_filter,
+            self.tradeability_filter, self.era_filter)
+        blockers = [QSignalBlocker(control) for control in controls]
+        self.search.clear()
+        for combo in controls[1:]:
+            combo.setCurrentIndex(0)
+
+        self._proxy.set_query("")
+        self._gear_proxy.set_query("")
+        self._local_proxy.set_query("")
+        for kind in ("class", "race", "slot"):
+            self._proxy.set_gear_filter(kind, 0)
+            self._gear_proxy.set_gear_filter(kind, 0)
+        self._gear_proxy.set_effect_filter("")
+        self._gear_proxy.set_tradeability_filter("")
+        self._gear_proxy.set_era_filter("")
+        self._gear_model.set_active_stat("ac")
+        for column in CORE_STAT_COLUMNS.values():
+            self.gear_table.setColumnHidden(column, False)
+        self.gear_table.setColumnHidden(CORE_STAT_COLUMNS["ac"], True)
+        self.table.sortByColumn(0, Qt.SortOrder.AscendingOrder)
+        self.gear_table.sortByColumn(3, Qt.SortOrder.DescendingOrder)
+        self.table.clearSelection()
+        self.gear_table.clearSelection()
+        self.live_table.clearSelection()
+        self._update_gear_summary()
+        self.status.setText(
+            f"Filters cleared · PigParse {self._server} and watchlist unchanged")
+        _announce_accessible(
+            self, "Market filters cleared; server and watchlist unchanged")
+        # Keep blockers alive until every model receives its final state.
+        del blockers
+        return True
 
     def _market_table(self):
         table = QTableView()
@@ -2861,7 +2911,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.33")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.34")
         reply = self._network.get(request)
         reply.finished.connect(
             lambda: self._wiki_item_finished(reply, card, json_path, icon_path))
@@ -2880,7 +2930,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.33")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.34")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._wiki_entity_finished(
             reply, card, cache_path, target, kind))
@@ -2965,7 +3015,7 @@ class GreenMarket(ParserWindow):
                     filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.33")
+                    "Vantage/1.44.34")
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
                     lambda: self._wiki_icon_finished(
@@ -3059,18 +3109,22 @@ class GreenMarket(ParserWindow):
             self._filters_layout.addWidget(self.class_filter, 0, 0)
             self._filters_layout.addWidget(self.race_filter, 0, 1)
             self._filters_layout.addWidget(self.slot_filter, 0, 2)
-            self._filters_layout.addWidget(self.gear_status, 0, 3)
-            self._filters_layout.setColumnStretch(3, 1)
+            self._filters_layout.addWidget(self.clear_filters_button, 0, 3)
+            self._filters_layout.addWidget(self.gear_status, 0, 4)
+            self._filters_layout.setColumnStretch(4, 1)
         elif width >= 480:
             self._filters_layout.addWidget(self.class_filter, 0, 0)
             self._filters_layout.addWidget(self.race_filter, 0, 1)
             self._filters_layout.addWidget(self.slot_filter, 0, 2)
-            self._filters_layout.addWidget(self.gear_status, 1, 0, 1, 3)
+            self._filters_layout.addWidget(self.clear_filters_button, 1, 0)
+            self._filters_layout.addWidget(self.gear_status, 1, 1, 1, 2)
         else:
             self._filters_layout.addWidget(self.class_filter, 0, 0, 1, 2)
             self._filters_layout.addWidget(self.race_filter, 1, 0)
             self._filters_layout.addWidget(self.slot_filter, 1, 1)
-            self._filters_layout.addWidget(self.gear_status, 2, 0, 1, 2)
+            self._filters_layout.addWidget(
+                self.clear_filters_button, 2, 0, 1, 2)
+            self._filters_layout.addWidget(self.gear_status, 3, 0, 1, 2)
 
         if width >= 900:
             self._footer_layout.addWidget(self.status, 0, 0)
@@ -3213,7 +3267,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.33")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.34")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -3235,7 +3289,7 @@ class GreenMarket(ParserWindow):
                     return
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.33")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.34")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -3586,7 +3640,7 @@ class GreenMarket(ParserWindow):
         self._refresh_button.setText("Refreshing…")
         self.status.setText(f"Refreshing PigParse {server}…")
         request = QNetworkRequest(QUrl(market_endpoint(server)))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.33")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.34")
         reply = self._network.get(request)
         reply.setProperty("market_server", server)
         reply.finished.connect(lambda: self._finished(reply))
@@ -3713,7 +3767,7 @@ class GreenMarket(ParserWindow):
             f"Evaluating PigParse {server} history · {name}…")
         request = QNetworkRequest(QUrl(market_detail_api(server).format(
             item_name=quote(name, safe=""))))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.33")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.34")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.setProperty("market_server", server)
