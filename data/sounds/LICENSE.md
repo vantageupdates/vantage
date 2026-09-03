@@ -1,8 +1,9 @@
 # Vantage sound gallery
 
-These six short notification sounds were procedurally generated specifically
+These 20 short notification sounds were procedurally generated specifically
 for Vantage and redesigned in version 1.36.0 as clean, modern Windows-style
-notifications with short, soft envelopes.
+notifications with short, soft envelopes. Fourteen additional distinct tones
+were added in version 1.44.36.
 No recordings, samples, melodies, or assets from another game or project were
 used.
 

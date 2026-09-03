@@ -46,6 +46,70 @@ app.quit()
 """
 
 
+LIVE_SEARCH_SCRIPT = r"""
+import datetime
+import json
+
+from vantage.helpers.application import VantageApp
+
+app = VantageApp([])
+market = app._parsers_dict['market']
+market._refresh_timer.stop()
+market.show()
+app.processEvents()
+initial_note = market.live_note.text()
+stamp = datetime.datetime(2026, 9, 3, 20, 0, 0)
+market.parse(stamp, "Trader auctions, 'WTS Manastone 90k PST'")
+market.parse(stamp, "Mule auctions, 'WTS Flowing Black Silk Sash 10k PST'")
+
+# The main item-catalog search must not hide the dedicated heard-auction log.
+market.search.setText('item catalog query with no auction match')
+app.processEvents()
+rows_after_catalog_search = market._local_proxy.rowCount()
+
+market.live_search.setText('manastone')
+app.processEvents()
+first_count = market.live_search_count.text()
+first_rows = market._local_proxy.rowCount()
+
+# A matching message arriving later appears immediately under the active filter.
+market.parse(stamp, "Buyer auctions, 'WTB Manastone 80k PST'")
+app.processEvents()
+second_count = market.live_search_count.text()
+second_rows = market._local_proxy.rowCount()
+visible_messages = [
+    market._local_proxy.index(row, 2).data()
+    for row in range(market._local_proxy.rowCount())]
+
+market.parse(stamp, 'You have entered Butcherblock Mountains.')
+outside_note = market.live_note.text()
+market.parse(stamp, 'You have entered East Commonlands.')
+inside_note = market.live_note.text()
+market._open_live_alerts()
+app.processEvents()
+
+print(json.dumps({
+    'initial_note': initial_note,
+    'outside_note': outside_note,
+    'inside_note': inside_note,
+    'rows_after_catalog_search': rows_after_catalog_search,
+    'first_count': first_count,
+    'first_rows': first_rows,
+    'second_count': second_count,
+    'second_rows': second_rows,
+    'visible_messages': visible_messages,
+    'search_name': market.live_search.accessibleName(),
+    'search_description': market.live_search.accessibleDescription(),
+    'search_tooltip': market.live_search.toolTip(),
+    'table_description': market.live_table.accessibleDescription(),
+    'current_tab': market.tabs.currentIndex(),
+    'live_tab': market._live_tab_index,
+    'search_focusable': market.live_search.focusPolicy() != 0,
+}))
+app.quit()
+"""
+
+
 class _Tray:
     def __init__(self, visible=True):
         self.visible = visible
@@ -131,6 +195,36 @@ def test_sale_alert_watchlist_is_visible_and_removes_the_selected_row(tmp_path):
         'accessible': (
             "Visible list of every item monitored in this character's EQ log"),
     }
+
+
+def test_heard_auction_search_is_live_independent_and_explicit_about_ec(
+        tmp_path):
+    env = os.environ.copy()
+    env['QT_QPA_PLATFORM'] = 'offscreen'
+    env['PYTHONPATH'] = str(ROOT / 'src')
+    env['VANTAGE_DATA_DIR'] = str(tmp_path / 'profile')
+    completed = subprocess.run(
+        [sys.executable, '-c', LIVE_SEARCH_SCRIPT], cwd=ROOT, env=env,
+        check=True, capture_output=True, text=True, timeout=35)
+    result = json.loads(completed.stdout.strip().splitlines()[-1])
+
+    assert result['rows_after_catalog_search'] == 2
+    assert result['first_rows'] == 1
+    assert result['first_count'] == 'Showing 1 of 2 heard auctions'
+    assert result['second_rows'] == 2
+    assert result['second_count'] == 'Showing 2 of 3 heard auctions'
+    assert result['visible_messages'] == [
+        'WTB Manastone 80k PST', 'WTS Manastone 90k PST']
+    assert 'EC TUNNEL REQUIRED' in result['initial_note']
+    assert 'during this Vantage session' in result['initial_note']
+    assert 'Current zone: Butcherblock Mountains' in result['outside_note']
+    assert 'EC TUNNEL READY' in result['inside_note']
+    assert 'East Commonlands Tunnel' in result['search_name']
+    assert 'current Vantage session' in result['search_description']
+    assert 'results update as messages arrive' in result['search_tooltip']
+    assert 'current Vantage session' in result['table_description']
+    assert result['current_tab'] == result['live_tab']
+    assert result['search_focusable'] is True
 
 
 def test_live_log_alert_service_deduplicates_seller_spam_for_one_minute():

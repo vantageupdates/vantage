@@ -85,7 +85,7 @@ def test_composer_copies_plain_wts_and_builds_linked_hotbutton_without_inventory
     assert composer.add_search_item()
     assert composer.items.rowCount() == 1
     assert composer.copy_button.isEnabled()
-    assert "ready for EQ Hotbutton" in composer.preview_status.text()
+    assert "ready for WTS Social" in composer.preview_status.text()
     assert "WTS Manastone 80000p PST" in composer.preview.toPlainText()
     assert P99_ITEM_LINK_DELIMITER in composer._linked_lines[0]
     assert composer.copy_next()
@@ -124,6 +124,27 @@ def test_linked_wts_installs_into_free_p99_social_with_backup(tmp_path):
     assert P99_ITEM_LINK_DELIMITER in installed
     assert "00396D" in installed
     assert "[ChatManager]" in installed
+
+
+def test_plain_wtb_installs_separately_without_replacing_wts_buttons(tmp_path):
+    ini = tmp_path / "Mindflux_P1999Green.ini"
+    original = (
+        "[Socials]\r\n"
+        "Page2Button1Name=VantageWTS1\r\n"
+        "Page2Button1Color=0\r\n"
+        "Page2Button1Line1=/auction WTS Manastone 90k PST\r\n")
+    ini.write_bytes(original.encode("cp1252"))
+
+    slots, _backup = install_auction_hotbuttons(
+        ini, ["WTB Manastone 80k PST"], "WTB")
+
+    assert slots == ("Page2Button2",)
+    installed = ini.read_text(encoding="cp1252")
+    assert "Page2Button1Name=VantageWTS1" in installed
+    assert "Page2Button1Line1=/auction WTS Manastone 90k PST" in installed
+    assert "Page2Button2Name=VantageWTB1" in installed
+    assert "Page2Button2Line1=/auction WTB Manastone 80k PST" in installed
+    assert P99_ITEM_LINK_DELIMITER not in installed
 
 
 def test_clickable_install_uses_inline_detected_character_without_dialog(tmp_path):
@@ -177,6 +198,10 @@ def test_wtb_is_simple_and_does_not_require_an_inventory_export():
     assert composer.copy_button.accessibleName() == \
         "Copy WTB auction message"
     assert "WTB" in composer.copy_button.toolTip()
+    assert not composer.hotbutton_button.isHidden()
+    assert composer.hotbutton_button.text() == "Install WTB button…"
+    assert composer.hotbutton_button.accessibleName() == \
+        "Install WTB EQ Social button using plain text"
     assert composer.add_search_item()
     assert composer.copy_next()
     assert app.clipboard().text() == "WTB Manastone PST"

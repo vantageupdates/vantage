@@ -38,7 +38,7 @@ The Windows executable includes the following open-source runtime components:
   `data/ui/icons/PHOSPHOR-LICENSE.txt`.
   https://github.com/phosphor-icons/core
 
-The six bundled Vantage notification sounds are original procedural assets
+The 20 bundled Vantage notification sounds are original procedural assets
 dedicated to the public domain under CC0 1.0. Their notice is included at
 `data/sounds/LICENSE.md` in the source tree.
 

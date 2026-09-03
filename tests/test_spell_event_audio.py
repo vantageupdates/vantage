@@ -72,4 +72,4 @@ def test_worn_off_uses_visible_pill_and_only_one_audio_owner(tmp_path):
     assert result['tray_visible'] is True
     assert result['pill_count'] == 1
     assert result['quickbar_notice'] == (
-        'Spells · Fetter worn off · A Blizzard Hunter')
+        'Fetter worn off · A Blizzard Hunter')

@@ -42,7 +42,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=35,
+    patch=36,
     build=""
 )
 
@@ -95,6 +95,7 @@ class VantageApp(QApplication):
         self._last_audio_blocked = "None yet"
         self._quickbar_notice_id = 0
         self._quickbar_notice = ""
+        self._quickbar_notice_at = 0.0
         set_audio_muted(config.data['general'].get('audio_muted', False))
 
         # Load Signals
@@ -395,7 +396,10 @@ class VantageApp(QApplication):
             overlay_id=overlay_id, countdown_seconds=countdown_seconds,
             timer_key=timer_key, character=character, color=color,
             timer_mode=timer_mode, text_color=text_color)
-        self._queue_quickbar_notice(title, message)
+        # The Quick Bar rail is the event itself, not a diagnostic breadcrumb.
+        # Show the actionable message and omit window/module titles such as
+        # “Vantage · Market” that do not tell the player what happened.
+        self._queue_quickbar_notice(message or title)
         return shown
 
     def dismiss_overlay_timer(self, timer_key):
@@ -441,15 +445,27 @@ class VantageApp(QApplication):
             max(0, min(100, int(volume))), str(channel or ""))
         self._last_audio = (
             f"{source} · {sound_display_name(sound_path)} · {volume}%")
-        owner = str(channel or "Vantage").strip().title()
-        VantageApp._queue_quickbar_notice(self, owner, source)
+        # Preserve a richer visual event queued immediately before its sound.
+        # A sound-only custom trigger still receives a useful event label.
+        if time.monotonic() - float(getattr(
+                self, "_quickbar_notice_at", 0.0)) > .35:
+            event = str(source or "Notification").strip()
+            for prefix in ("Trigger · ", "Timer · ", "Encounter · ",
+                           "Safety · "):
+                if event.startswith(prefix):
+                    event = event[len(prefix):]
+                    break
+            VantageApp._queue_quickbar_notice(self, event)
+        else:
+            self._refresh_quickbar()
 
     def _queue_quickbar_notice(self, *parts):
-        """Send one compact, attributable event to the Quick Bar rail."""
+        """Send one compact event description to the Quick Bar rail."""
         cleaned = [" ".join(str(part).split()) for part in parts if part]
         self._quickbar_notice_id = int(getattr(
             self, "_quickbar_notice_id", 0)) + 1
         self._quickbar_notice = " · ".join(cleaned)
+        self._quickbar_notice_at = time.monotonic()
         self._refresh_quickbar()
 
     def _refresh_quickbar(self):

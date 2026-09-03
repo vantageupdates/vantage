@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QFormLayou
 from vantage.helpers import config, text_time_to_seconds
 from vantage.helpers.audio import (
     DEFAULT_SOUND, add_custom_sound_to_combo, play_alert,
-    set_sound_combo_value, speak_text)
+    set_audio_muted, set_sound_combo_value, speak_text)
 from vantage.helpers.icons import game_icon
 from vantage.helpers.friends_manager import FriendsManagerDialog
 from vantage.helpers.gina_import import GinaImportError, import_gina_package
@@ -257,7 +257,8 @@ class SettingsWindow(UniformScaleDialog):
         self._list_widget.setObjectName('SettingsList')
         self._list_widget.setAccessibleName('Settings section list')
         self._list_widget.setToolTip(
-            'Choose General, Triggers, Maps, Timers, Combat, Market, Sharing, Quick Bar, or Appearance')
+            'Choose General, Triggers, Sounds, Maps, Timers, Combat, Market, '
+            'Sharing, Quick Bar, or Appearance')
         self._list_widget.setIconSize(QSize(15, 15))
         self._list_widget.setSpacing(1)
         self._list_widget.setUniformItemSizes(True)
@@ -269,6 +270,8 @@ class SettingsWindow(UniformScaleDialog):
         top_layout.addWidget(self._list_widget, 0)
         top_layout.addWidget(self._widget_stack, 1)
         self._color_dialogs = dict()
+        self._notification_sound_combos = []
+        self._trigger_sound_routes = []
 
         settings = self._create_settings()
         if settings:
@@ -277,6 +280,7 @@ class SettingsWindow(UniformScaleDialog):
                 'Smart Timers': 'timer', 'Combat': 'combat',
                 'Heal Chain': 'heal',
                 'Market': 'market',
+                'Sounds': 'ph-pulse',
                 'Sharing': 'spawn', 'Appearance': 'compact',
                 'Quick Bar': 'compact',
             }
@@ -353,8 +357,26 @@ class SettingsWindow(UniformScaleDialog):
                 key1, key2 = widget.objectName().split(':')
                 hexcolor = hex(widget.currentColor().rgb()).replace('0xff', '#')
                 config.data[key1][key2] = hexcolor
+        trigger_sounds_changed = False
+        custom_timers = config.data.get('spells', {}).get('custom_timers', [])
+        for item_index, field_index, combo in self._trigger_sound_routes:
+            if item_index >= len(custom_timers):
+                continue
+            item = custom_timers[item_index]
+            if not isinstance(item, list):
+                continue
+            while len(item) <= field_index:
+                item.append('')
+            selected = str(combo.currentData() or '')
+            if item[field_index] != selected:
+                item[field_index] = selected
+                trigger_sounds_changed = True
         config.save()
+        set_audio_muted(config.data['general'].get('audio_muted', False))
         QApplication.instance()._signals["settings"].config_updated.emit()
+        if trigger_sounds_changed:
+            QApplication.instance()._signals[
+                "settings"].spell_triggers_updated.emit()
         self.accept()
 
     def _cancelled(self):
@@ -421,6 +443,13 @@ class SettingsWindow(UniformScaleDialog):
                 hexcolor = config.data[key1][key2]
                 intcolor = int(hexcolor.replace('#', '0xff'), 16)
                 widget.setCurrentColor(QColor(intcolor))
+        custom_timers = config.data.get('spells', {}).get('custom_timers', [])
+        for item_index, field_index, combo in self._trigger_sound_routes:
+            if (item_index < len(custom_timers) and
+                    isinstance(custom_timers[item_index], list) and
+                    field_index < len(custom_timers[item_index])):
+                set_sound_combo_value(
+                    combo, custom_timers[item_index][field_index])
 
     def _create_settings(self):
         stacked_widgets = []
@@ -574,27 +603,7 @@ class SettingsWindow(UniformScaleDialog):
             'Master volume for buff warnings and trigger actions; each log '
             'profile can lower it independently in Log Profiles')
         ssl.addRow('Master trigger volume', fade_volume)
-        fade_sound_row = QHBoxLayout()
-        self.fade_sound_path = QComboBox()
-        self.fade_sound_path.setObjectName('spells:fade_sound_path')
-        self.fade_sound_path.setAccessibleName('Fading alert sound gallery')
-        set_sound_combo_value(self.fade_sound_path, 'builtin:soft-tick')
-        fade_sound_row.addWidget(self.fade_sound_path, 1)
-        fade_browse = QPushButton('WAV…')
-        fade_browse.setIcon(game_icon('copy'))
-        fade_browse.clicked.connect(self._choose_fade_sound)
-        fade_sound_row.addWidget(fade_browse)
-        fade_test = QPushButton('Test')
-        fade_test.setIcon(game_icon('play'))
-        fade_test.clicked.connect(lambda: play_alert(
-            self.fade_sound_path.currentData(), fade_volume.value(), 2,
-            source="Test · buff sound"))
-        fade_sound_row.addWidget(fade_test)
-        ssl.addRow('Sound gallery', fade_sound_row)
-        gallery_note = QLabel(
-            '6 original CC0 sounds included · custom WAV files are also supported')
-        gallery_note.setWordWrap(True)
-        ssl.addRow('', gallery_note)
+        self._fade_volume = fade_volume
 
         ssl.addRow(SettingsHeader('ADVANCED'))
         ssl_secondary_duration = QCheckBox()
@@ -631,6 +640,114 @@ class SettingsWindow(UniformScaleDialog):
         spells_settings.setLayout(ssl)
 
         stacked_widgets.append(('Buffs & Triggers', spells_settings))
+
+        # One discoverable home for every automatic Vantage sound route.
+        sounds_settings = QFrame()
+        sound_sl = QFormLayout()
+        sound_sl.addRow(SettingsHeader('SOUND CONTROL'))
+        master_mute = QCheckBox()
+        master_mute.setObjectName('general:audio_muted')
+        master_mute.setAccessibleName('Mute every Vantage sound')
+        master_mute.setToolTip(
+            'Stops every WAV and Windows voice notification immediately; '
+            'this is the same Master Mute used by the Quick Bar')
+        sound_sl.addRow('Master Mute', master_mute)
+        sound_intro = QLabel(
+            'Choose the sound used by each automatic notification. Test uses '
+            'the route\'s real volume. Master Mute always wins.')
+        sound_intro.setObjectName('CombatDataNotice')
+        sound_intro.setWordWrap(True)
+        sound_sl.addRow('', sound_intro)
+        sound_sl.addRow(SettingsHeader('NOTIFICATION SOUNDS'))
+
+        def add_sound_route(label, object_name, default, volume, source):
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(3)
+            combo = QComboBox()
+            combo.setObjectName(object_name)
+            combo.setAccessibleName(f'{label} sound')
+            combo.setToolTip(f'Choose the sound used for {label.casefold()}')
+            set_sound_combo_value(combo, default)
+            row.addWidget(combo, 1)
+            wav = QPushButton('WAV…')
+            wav.setIcon(game_icon('copy'))
+            wav.setAccessibleName(f'Add custom WAV for {label}')
+            wav.setToolTip(
+                'Copy a WAV into Vantage portable storage and select it for '
+                'this notification')
+            wav.clicked.connect(
+                lambda _checked=False, combo=combo:
+                self._choose_notification_sound(combo))
+            row.addWidget(wav)
+            test = QPushButton('Test')
+            test.setIcon(game_icon('play'))
+            test.setAccessibleName(f'Test {label} sound')
+            test.setToolTip(f'Play the selected {label.casefold()} sound now')
+            test.clicked.connect(
+                lambda _checked=False, combo=combo, volume=volume,
+                source=source: play_alert(
+                    combo.currentData(), volume(), 1, source=source,
+                    allow_hidden=True) if combo.currentData() else None)
+            row.addWidget(test)
+            sound_sl.addRow(label, row)
+            self._notification_sound_combos.append(combo)
+            return combo
+
+        self.fade_sound_path = add_sound_route(
+            'Buff fading', 'spells:fade_sound_path', 'builtin:soft-tick',
+            lambda: self._fade_volume.value(), 'Test · buff fading')
+        add_sound_route(
+            'New Smart Timer', 'sounds:timer_default', 'builtin:spawn-horn',
+            lambda: config.data['timers']['volume'], 'Test · Smart Timer')
+        add_sound_route(
+            'Raid encounter', 'sounds:raid_encounter', 'builtin:warden-bell',
+            lambda: config.data['timers']['volume'], 'Test · raid encounter')
+        add_sound_route(
+            'Safety warning', 'sounds:safety_alert', 'builtin:danger-double',
+            lambda: config.data['timers']['volume'], 'Test · safety warning')
+        add_sound_route(
+            'Market sale alert', 'sounds:market_sale', 'builtin:crystal-ping',
+            lambda: 72, 'Test · Market sale alert')
+        gallery_note = QLabel(
+            '20 original CC0 sounds included · no recordings or third-party '
+            'samples. WAV imports are copied into Vantage portable storage.')
+        gallery_note.setObjectName('TriggerTokenLegend')
+        gallery_note.setWordWrap(True)
+        sound_sl.addRow('Built-in gallery', gallery_note)
+        trigger_routes = []
+        for item_index, item in enumerate(
+                config.data.get('spells', {}).get('custom_timers', [])):
+            if not isinstance(item, list) or not item:
+                continue
+            name = str(item[0] or f'Trigger {item_index + 1}').strip()
+            for field_index, stage in (
+                    (4, 'matched'), (19, 'ending soon'), (21, 'ended')):
+                current = (
+                    str(item[field_index] or '')
+                    if len(item) > field_index else '')
+                if current:
+                    trigger_routes.append((
+                        item_index, field_index, name, stage, current))
+        if trigger_routes:
+            sound_sl.addRow(SettingsHeader('TRIGGER SOUND ACTIONS'))
+            for item_index, field_index, name, stage, current in trigger_routes:
+                combo = add_sound_route(
+                    f'{name} · {stage}', '', current,
+                    lambda: self._fade_volume.value(),
+                    f'Test · {name} · {stage}')
+                self._trigger_sound_routes.append(
+                    (item_index, field_index, combo))
+        overrides = QLabel(
+            'Every configured trigger sound action is listed above. Saved '
+            'Smart Timers keep their own optional alarm in each timer editor.')
+        overrides.setWordWrap(True)
+        overrides.setToolTip(
+            'A timer or trigger-specific sound intentionally takes priority '
+            'over these automatic defaults')
+        sound_sl.addRow('Individual overrides', overrides)
+        sounds_settings.setLayout(sound_sl)
+        stacked_widgets.append(('Sounds', sounds_settings))
 
         # Map Settings
         map_settings = QFrame()
@@ -1055,6 +1172,12 @@ class SettingsWindow(UniformScaleDialog):
         if path:
             add_custom_sound_to_combo(
                 self.fade_sound_path, store_portable_file(path))
+
+    def _choose_notification_sound(self, combo):
+        path, _ = QFileDialog.getOpenFileName(
+            self, 'Add Notification Sound', '', 'WAV Audio (*.wav)')
+        if path:
+            add_custom_sound_to_combo(combo, store_portable_file(path))
 
     def _dynamic_field_toggle(self, toggle_field, dynamic_field, invert=False):
         if toggle_field.isChecked():

@@ -295,6 +295,18 @@ def verify_settings():
             'bottom_left', 'bottom_center', 'bottom_right')
     )
 
+    # Central notification sound routes. Individual custom triggers and saved
+    # Smart Timers may still override these defaults in their own editors.
+    data['sounds'] = data.get('sounds', {})
+    for sound_key, default_sound in (
+            ('timer_default', 'builtin:spawn-horn'),
+            ('raid_encounter', 'builtin:warden-bell'),
+            ('safety_alert', 'builtin:danger-double'),
+            ('market_sale', 'builtin:crystal-ping')):
+        data['sounds'][sound_key] = get_setting(
+            data['sounds'].get(sound_key, default_sound), default_sound,
+            lambda value: isinstance(value, str) and len(value) <= 500)
+
     # Floating, configurable launch surface for every tray command. It stays
     # interactive and never creates another normal Windows taskbar entry.
     data['quickbar'] = data.get('quickbar', {})

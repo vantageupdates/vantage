@@ -532,7 +532,7 @@ class Spells(ParserWindow):
             outcome = (
                 f"{spell_name} {outcome_labels[kind]}"
                 if spell_name and kind in outcome_labels else message)
-            queue_notice('Spells', outcome, target_name)
+            queue_notice(outcome, target_name)
         while len(self._event_pills) > 3:
             self._dismiss_spell_event(self._event_pills[-1])
         self._event_tray.show()
@@ -1757,7 +1757,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.35')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.36')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -3018,8 +3018,8 @@ class SpellWidget(QFrame):
                 if remaining_seconds > 0 and not self._warning_played:
                     self._warning_played = True
                     notice = self._fading_notice(remaining_seconds)
-                    if not self._play_fade_alert(notice=notice):
-                        self._queue_fading_notice(notice)
+                    self._queue_fading_notice(notice)
+                    self._play_fade_alert(notice=notice)
             if remaining_seconds <= 0:
                 self._remove()
                 return
@@ -3131,7 +3131,7 @@ class SpellWidget(QFrame):
         app = QApplication.instance()
         queue_notice = getattr(app, '_queue_quickbar_notice', None)
         if callable(queue_notice):
-            queue_notice('Spells', notice)
+            queue_notice(notice)
 
     def _play_fade_alert(self, force=False, notice=''):
         settings = config.data['spells']

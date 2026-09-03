@@ -22,6 +22,20 @@ SOUND_GALLERY = (
     ("Alert", "builtin:rune-pulse", "Resist or interruption"),
     ("Subtle", "builtin:soft-tick", "Low-priority notice"),
     ("Priority", "builtin:danger-double", "Two-note urgent alert"),
+    ("Amber Chime", "builtin:amber-chime", "Warm two-note bell"),
+    ("Arcane Bloom", "builtin:arcane-bloom", "Rising magical triad"),
+    ("Camp Bell", "builtin:camp-bell", "Rounded camp reminder"),
+    ("Copper Click", "builtin:copper-click", "Short crisp marker"),
+    ("Dusk Echo", "builtin:dusk-echo", "Low gentle echo"),
+    ("Emerald Step", "builtin:emerald-step", "Quick ascending steps"),
+    ("Frost Glint", "builtin:frost-glint", "Bright high sparkle"),
+    ("Gentle Knock", "builtin:gentle-knock", "Soft double knock"),
+    ("Moon Drop", "builtin:moon-drop", "Smooth descending pair"),
+    ("Portal Ping", "builtin:portal-ping", "Clear dimensional ping"),
+    ("Silver Rise", "builtin:silver-rise", "Light ascending signal"),
+    ("Soft Sonar", "builtin:sonar-soft", "Quiet spaced pulse"),
+    ("Temple Note", "builtin:temple-note", "Calm harmonic bell"),
+    ("Ward Fall", "builtin:ward-fall", "Descending warning"),
 )
 DEFAULT_SOUND = SOUND_GALLERY[0][1]
 _BUILTIN_FILES = {
@@ -31,6 +45,27 @@ _BUILTIN_FILES = {
     "builtin:rune-pulse": "rune_pulse.wav",
     "builtin:soft-tick": "soft_tick.wav",
     "builtin:danger-double": "danger_double.wav",
+    "builtin:amber-chime": "amber_chime.wav",
+    "builtin:arcane-bloom": "arcane_bloom.wav",
+    "builtin:camp-bell": "camp_bell.wav",
+    "builtin:copper-click": "copper_click.wav",
+    "builtin:dusk-echo": "dusk_echo.wav",
+    "builtin:emerald-step": "emerald_step.wav",
+    "builtin:frost-glint": "frost_glint.wav",
+    "builtin:gentle-knock": "gentle_knock.wav",
+    "builtin:moon-drop": "moon_drop.wav",
+    "builtin:portal-ping": "portal_ping.wav",
+    "builtin:silver-rise": "silver_rise.wav",
+    "builtin:sonar-soft": "sonar_soft.wav",
+    "builtin:temple-note": "temple_note.wav",
+    "builtin:ward-fall": "ward_fall.wav",
+}
+
+NOTIFICATION_SOUND_DEFAULTS = {
+    "timer_default": "builtin:spawn-horn",
+    "raid_encounter": "builtin:warden-bell",
+    "safety_alert": "builtin:danger-double",
+    "market_sale": "builtin:crystal-ping",
 }
 _ACTIVE_EFFECTS = set()
 _MUTED = False
@@ -41,6 +76,12 @@ _DEFAULT_VOICE_NAME = ""
 def sound_choices():
     """Return immutable display labels and URIs for gallery controls."""
     return SOUND_GALLERY
+
+
+def notification_sound(event_key):
+    """Return the saved sound for one global notification route."""
+    fallback = NOTIFICATION_SOUND_DEFAULTS.get(str(event_key), DEFAULT_SOUND)
+    return str(config.data.get("sounds", {}).get(event_key, fallback) or "")
 
 
 def sound_display_name(value):
@@ -317,6 +358,8 @@ def play_alert(
         character="", server="", channel="", allow_hidden=False):
     """Play an identified gallery/custom WAV with per-alert volume control."""
     app = QApplication.instance()
+    if not str(path or "").strip():
+        return False
     blocked = _playback_block_reason(app, channel, allow_hidden)
     if blocked:
         _report_blocked(app, source, blocked, channel)

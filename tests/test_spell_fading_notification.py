@@ -98,18 +98,18 @@ def test_fading_window_clicks_once_and_names_spell_target_and_time(tmp_path):
     result = json.loads(completed.stdout.strip().splitlines()[-1])
 
     first = result['first']
-    assert first['notice'].startswith('Spells · Fetter fading soon · ')
+    assert first['notice'].startswith('Fetter fading soon · ')
     assert 'Crystalline Devourer' in first['notice']
     assert first['notice'].endswith('30s')
     assert first['warning_played'] is True
     assert first['played'] == [{
         'path': 'builtin:soft-tick',
-        'source': first['notice'].removeprefix('Spells · '),
+        'source': first['notice'],
         'channel': 'spells',
     }]
     assert result['played_after_second_refresh'] == 1
     assert result['silent']['notice'].startswith(
-        'Spells · See Invisible fading soon')
+        'See Invisible fading soon')
     assert result['silent']['played_count'] == 1
     assert result['silent']['warning_played'] is True
 

@@ -1881,6 +1881,19 @@ QListWidget#MarketSaleAlertItems:focus {
     background-color: #211A13;
     border-left-color: #A57B42;
 }
+#MarketAuctionSearchBar {
+    background-color: #0D151A;
+    border: 1px solid #40515C;
+    border-radius: 6px;
+}
+QLineEdit#MarketAuctionSearchInput {
+    min-height: 24px;
+}
+#MarketAuctionSearchCount {
+    color: #B8C7CC;
+    font-weight: 600;
+    padding: 0 4px;
+}
 #MarketLiveAuctionTable {
     background-color: #091014;
     alternate-background-color: #101A20;

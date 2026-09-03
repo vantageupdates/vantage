@@ -33,6 +33,8 @@ empty = {
     'bar_width': bar._design_size.width(),
 }
 
+app.show_overlay_notification(
+    'Vantage · Spells', 'Clarity faded', msecs=1000)
 app.audio_started(
     'Clarity faded', 'builtin:crystal-ping', 82, channel='spells')
 app.processEvents()
@@ -64,7 +66,11 @@ app.processEvents()
 not_replayed = rail._label.isVisible()
 
 config.data['general']['reduce_motion'] = True
-app._queue_quickbar_notice('NOTICE', 'Market', 'Item matched')
+app.show_overlay_notification(
+    'For sale · Manastone',
+    'Manastone for sale · Trader · WTS Manastone 55k', msecs=1000)
+app.audio_started(
+    'For sale · Manastone', 'builtin:crystal-ping', 72, channel='market')
 app.processEvents()
 reduced = {
     'text': rail._label.text(),
@@ -74,7 +80,7 @@ reduced = {
 
 rail._clear()
 bar.hide()
-app._queue_quickbar_notice('NOTICE', 'Hidden panel', 'Must not replay')
+app._queue_quickbar_notice('Must not replay')
 app.processEvents()
 hidden_consumed = {
     'text_visible': rail._label.isVisible(),
@@ -124,20 +130,20 @@ def test_quickbar_notification_rail_shows_one_event_then_clears(tmp_path):
     assert result['empty']['width'] < result['empty']['bar_width']
     assert result['empty']['width'] >= result['empty']['bar_width'] - 26
 
-    assert result['sound']['text'] == 'Spells · Clarity faded'
+    assert result['sound']['text'] == 'Clarity faded'
     assert 'Soft Notify' not in result['sound']['text']
     assert 'SOUND' not in result['sound']['text']
     assert result['sound']['scrolling'] is True
     assert result['sound']['notice_id'] > 0
     assert result['sound']['text'] in result['sound']['accessible']
-    assert result['sound']['announcements'] == ['Spells · Clarity faded']
+    assert result['sound']['announcements'] == ['Clarity faded']
     assert result['duplicate_announcement_count'] == 1
 
     assert result['cleared'] == {
         'text': '', 'visible': False, 'scrolling': False}
     assert result['not_replayed'] is False
     assert result['reduced'] == {
-        'text': 'NOTICE · Market',
+        'text': 'Manastone for sale · Trader',
         'scrolling': False,
         'clear_pending': True,
     }

@@ -37,7 +37,8 @@ from PySide6.QtWidgets import (
 
 from vantage.helpers import config
 from vantage.helpers.audio import (
-    add_custom_sound_to_combo, play_alert, set_sound_combo_value)
+    add_custom_sound_to_combo, notification_sound, play_alert,
+    set_sound_combo_value)
 from vantage.helpers.icons import game_icon
 from vantage.helpers.log_events import extract_killed_mob
 from vantage.helpers.encounter_events import (
@@ -353,7 +354,8 @@ class TimerEditDialog(UniformScaleDialog):
             "Choose the alarm played for this timer from the built-in or "
             "portable sound gallery")
         set_sound_combo_value(
-            self.sound, timer.sound_path if timer else "builtin:spawn-horn")
+            self.sound, timer.sound_path if timer else
+            notification_sound("timer_default"))
         browse = QPushButton("WAV…")
         browse.setIcon(game_icon("copy"))
         browse.setToolTip(
@@ -457,7 +459,8 @@ class TimerEditDialog(UniformScaleDialog):
         timer.zone = self.zone.text().strip()
         timer.mob_pattern = self.mob_pattern.text().strip()
         timer.color = self.color
-        timer.sound_path = str(self.sound.currentData() or "builtin:spawn-horn")
+        timer.sound_path = str(
+            self.sound.currentData() or notification_sound("timer_default"))
         timer.volume = self.volume.value()
         return timer
 
@@ -1397,7 +1400,8 @@ class SpawnTimers(ParserWindow):
         self.announce(message)
         if config.data['timers'].get('encounter_sound_enabled', False):
             play_alert(
-                'builtin:warden-bell', config.data['timers']['volume'], 2,
+                notification_sound('raid_encounter'),
+                config.data['timers']['volume'], 2,
                 source=f"Encounter · {source}", channel="timers")
 
     def _safety_alert(self, alert):
@@ -1412,7 +1416,8 @@ class SpawnTimers(ParserWindow):
             overlay_id="alerts", text_color="#E08372")
         if config.data['timers'].get('safety_sound_enabled', False):
             play_alert(
-                'builtin:danger-double', config.data['timers']['volume'], 2,
+                notification_sound('safety_alert'),
+                config.data['timers']['volume'], 2,
                 source=("Safety · attacked while tabbed out"
                         if alert.kind == 'afk_attacked' else
                         "Safety · death loop"), channel="timers")
@@ -1440,7 +1445,7 @@ class SpawnTimers(ParserWindow):
                 color="#657A96" if milestone.is_break else "#4F8378",
                 smart=False,
                 zone=string.capwords(self._current_zone),
-                sound_path="builtin:warden-bell",
+                sound_path=notification_sound("raid_encounter"),
                 volume=config.data['timers']['volume'],
                 source=RING_WAR_SCHEDULE_SOURCE,
                 automatic=True)
@@ -1505,7 +1510,7 @@ class SpawnTimers(ParserWindow):
             smart=False,
             zone=string.capwords(self._current_zone),
             mob_pattern=rf"^{re.escape(mob)}$",
-            sound_path="builtin:spawn-horn",
+            sound_path=notification_sound("timer_default"),
             volume=config.data['timers']['volume'],
             source=NAMED_CATALOG_SOURCE,
             automatic=True,
@@ -1537,7 +1542,7 @@ class SpawnTimers(ParserWindow):
                 color=automatic_timer_color(self._current_zone, label),
                 smart=False,
                 zone=string.capwords(self._current_zone),
-                sound_path='builtin:spawn-horn',
+                sound_path=notification_sound('timer_default'),
                 volume=config.data['timers']['volume'],
                 source='Log command')
             self._states[timer.timer_id] = timer

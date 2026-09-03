@@ -217,5 +217,5 @@ def test_live_casts_recast_named_track_charm_and_clear_interruptions(tmp_path):
         'werewolf_did_not_refresh_clarity': True,
         'mismatched_resist_kept_cast': True,
         'mismatched_resist_event': 'RESIST · Fetter',
-        'quickbar_notice': 'Spells · Fetter resisted',
+        'quickbar_notice': 'Fetter resisted',
     }
