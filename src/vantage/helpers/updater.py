@@ -31,7 +31,7 @@ LATEST_RELEASE_API = (
     f"https://api.github.com/repos/{REPOSITORY}/releases/latest")
 RELEASES_URL = f"https://github.com/{REPOSITORY}/releases"
 ASSET_NAME = "Vantage.exe"
-USER_AGENT = "Vantage/1.44.34"
+USER_AGENT = "Vantage/1.44.35"
 
 
 def file_sha256(path):
