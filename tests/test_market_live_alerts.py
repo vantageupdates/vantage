@@ -1,10 +1,49 @@
 import datetime
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
 from types import SimpleNamespace
 
 from vantage.helpers import config
 from vantage.parsers import market as market_module
 from vantage.parsers.market import (
     GreenMarket, deliver_market_alert, live_auction_watch_matches)
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+VISIBLE_WATCHLIST_SCRIPT = r"""
+import json
+from PySide6.QtWidgets import QListWidget
+from vantage.helpers import config
+from vantage.helpers.application import VantageApp
+
+app = VantageApp([])
+market = app._parsers_dict['market']
+config.data['market']['live_watch_items'] = [
+    'Manastone', 'Flowing Black Silk Sash', 'Journeyman\'s Boots']
+market._refresh_live_watch_items('Flowing Black Silk Sash')
+before = [
+    market.live_watch_items.item(index).text()
+    for index in range(market.live_watch_items.count())]
+selected = market.live_watch_items.currentItem().text()
+market._remove_live_watch()
+after = [
+    market.live_watch_items.item(index).text()
+    for index in range(market.live_watch_items.count())]
+print(json.dumps({
+    'is_list': isinstance(market.live_watch_items, QListWidget),
+    'before': before,
+    'selected': selected,
+    'after': after,
+    'label': market.live_watch_label.text(),
+    'accessible': market.live_watch_items.accessibleDescription(),
+}))
+app.quit()
+"""
 
 
 class _Tray:
@@ -70,6 +109,28 @@ def test_sale_alert_delivery_has_one_clear_fallback_and_optional_sound(
     assert len(tray.messages) == 1
     assert len(played) == 1
     assert played[0][1]["allow_hidden"] is True
+
+
+def test_sale_alert_watchlist_is_visible_and_removes_the_selected_row(tmp_path):
+    env = os.environ.copy()
+    env['QT_QPA_PLATFORM'] = 'offscreen'
+    env['PYTHONPATH'] = str(ROOT / 'src')
+    env['VANTAGE_DATA_DIR'] = str(tmp_path / 'profile')
+    completed = subprocess.run(
+        [sys.executable, '-c', VISIBLE_WATCHLIST_SCRIPT], cwd=ROOT, env=env,
+        check=True, capture_output=True, text=True, timeout=30)
+    result = json.loads(completed.stdout.strip().splitlines()[-1])
+
+    assert result == {
+        'is_list': True,
+        'before': [
+            'Manastone', 'Flowing Black Silk Sash', "Journeyman's Boots"],
+        'selected': 'Flowing Black Silk Sash',
+        'after': ['Manastone', "Journeyman's Boots"],
+        'label': 'Watching (2)',
+        'accessible': (
+            "Visible list of every item monitored in this character's EQ log"),
+    }
 
 
 def test_live_log_alert_service_deduplicates_seller_spam_for_one_minute():

@@ -255,6 +255,20 @@ QToolButton#QuickBarTickCountdown:hover {
 #QuickBarTickProgress[Pulse="true"]::chunk {
     background-color: #E0A04A;
 }
+#QuickBarNotificationRail {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #202B33, stop:0.18 #151D23, stop:1 #0A0F13);
+    border: 1px solid #60727E;
+    border-radius: 9px;
+}
+#QuickBarNotificationText {
+    color: #F2EEE5;
+    background-color: transparent;
+    border: none;
+    padding: 0;
+    font-size: 9px;
+    font-weight: 600;
+}
 
 #NotificationOverlay { background: transparent; }
 #NotificationOverlayCard {
@@ -1805,6 +1819,28 @@ QTabWidget#HealChainTabs QTabBar::tab:focus {
 #MarketSaleAlertLabel {
     color: #AEB9BE;
     font-weight: 600;
+}
+QListWidget#MarketSaleAlertItems {
+    color: #E6EEF0;
+    background-color: #091115;
+    alternate-background-color: #101A20;
+    border: 1px solid #60727E;
+    border-radius: 5px;
+    padding: 2px;
+    outline: none;
+}
+QListWidget#MarketSaleAlertItems::item {
+    min-height: 20px;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+QListWidget#MarketSaleAlertItems::item:selected {
+    color: #FFF4D7;
+    background-color: #4B3E25;
+    border: 1px solid #B99550;
+}
+QListWidget#MarketSaleAlertItems:focus {
+    border: 2px solid #F0C778;
 }
 #MarketSaleAlertAdd {
     color: #FFF4D7;

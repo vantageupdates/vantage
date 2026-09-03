@@ -174,6 +174,9 @@ settings_page = {
     'tick_control': settings._widget_stack.findChild(
         __import__('PySide6.QtWidgets', fromlist=['QCheckBox']).QCheckBox,
         'quickbar:show_server_tick') is not None,
+    'ticker_control': settings._widget_stack.findChild(
+        __import__('PySide6.QtWidgets', fromlist=['QCheckBox']).QCheckBox,
+        'quickbar:show_notification_ticker') is not None,
     'all_item_controls': all(
         settings._widget_stack.findChild(
             __import__('PySide6.QtWidgets', fromlist=['QCheckBox']).QCheckBox,
@@ -513,6 +516,7 @@ def test_quickbar_config_defaults_are_safe_and_complete(tmp_path, monkeypatch):
         assert quickbar['opacity'] == 92
         assert quickbar['show_header'] is True
         assert quickbar['show_server_tick'] is True
+        assert quickbar['show_notification_ticker'] is True
         assert all(quickbar[f'show_{key}'] for key in QUICKBAR_ITEM_KEYS)
         assert quickbar['support_visibility_version'] == 1
     finally:
@@ -640,6 +644,7 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
         'orientation_control': True,
         'header_control': True,
         'tick_control': True,
+        'ticker_control': True,
         'all_item_controls': True,
     }
     assert result['settings_open'] == {

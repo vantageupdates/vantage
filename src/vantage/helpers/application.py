@@ -42,7 +42,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=30,
+    patch=31,
     build=""
 )
 
@@ -93,6 +93,8 @@ class VantageApp(QApplication):
         self._last_audio = "None yet"
         self._last_audio_event = None
         self._last_audio_blocked = "None yet"
+        self._quickbar_notice_id = 0
+        self._quickbar_notice = ""
         set_audio_muted(config.data['general'].get('audio_muted', False))
 
         # Load Signals
@@ -388,11 +390,13 @@ class VantageApp(QApplication):
             character="", color="", timer_mode="countdown",
             text_color=""):
         """Show an independent, click-through notice over the active screen."""
-        return self._notification_overlay.notify(
+        shown = self._notification_overlay.notify(
             title, message, msecs=msecs, position=position,
             overlay_id=overlay_id, countdown_seconds=countdown_seconds,
             timer_key=timer_key, character=character, color=color,
             timer_mode=timer_mode, text_color=text_color)
+        self._queue_quickbar_notice("NOTICE", title, message)
+        return shown
 
     def dismiss_overlay_timer(self, timer_key):
         self._notification_overlay.dismiss_timer(timer_key)
@@ -437,6 +441,17 @@ class VantageApp(QApplication):
             max(0, min(100, int(volume))), str(channel or ""))
         self._last_audio = (
             f"{source} · {sound_display_name(sound_path)} · {volume}%")
+        owner = str(channel or "Vantage").strip().title()
+        VantageApp._queue_quickbar_notice(
+            self,
+            "SOUND", owner, source, sound_display_name(sound_path))
+
+    def _queue_quickbar_notice(self, kind, *parts):
+        """Send one compact, attributable event to the Quick Bar rail."""
+        cleaned = [" ".join(str(part).split()) for part in parts if part]
+        self._quickbar_notice_id = int(getattr(
+            self, "_quickbar_notice_id", 0)) + 1
+        self._quickbar_notice = " · ".join([str(kind).upper(), *cleaned])
         self._refresh_quickbar()
 
     def _refresh_quickbar(self):
@@ -466,6 +481,16 @@ class VantageApp(QApplication):
     def reload_ui(self):
         """Re-polish every Vantage surface without touching EverQuest."""
         try:
+            # Theme/layout refreshes may emit resize events while styles are
+            # being polished. Preserve the user's exact physical rectangles
+            # and restore them after every logical surface has settled.
+            window_geometry = {
+                parser: (
+                    parser.x(), parser.y(), parser.width(), parser.height())
+                for parser in self._parsers
+            }
+            for parser in self._parsers:
+                parser._save_geometry()
             self._apply_theme()
             self._signals["settings"].config_updated.emit()
             for parser in self._parsers:
@@ -475,6 +500,8 @@ class VantageApp(QApplication):
                 parser._surface.updateGeometry()
                 parser._scale_scene.setSceneRect(
                     parser._scale_scene.itemsBoundingRect())
+                parser.setGeometry(*window_geometry[parser])
+                parser._fit_to_available_screen()
                 parser._update_uniform_scale()
                 parser._update_window_mask()
                 parser._scale_view.viewport().update()
@@ -881,6 +908,8 @@ class VantageApp(QApplication):
 
     def checkpoint_for_update(self):
         """Persist live countdown state before the updater starts another EXE."""
+        for parser in self._parsers:
+            parser._save_geometry()
         spells = self._parsers_dict.get('spells')
         timers = self._parsers_dict.get('timers')
         if spells is not None:

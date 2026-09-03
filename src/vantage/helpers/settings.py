@@ -950,6 +950,11 @@ class SettingsWindow(UniformScaleDialog):
         quickbar_tick.setToolTip(
             'Show the live six-second Server Tick countdown and progress')
         qbsl.addRow('Live Server Tick', quickbar_tick)
+        quickbar_ticker = QCheckBox()
+        quickbar_ticker.setObjectName('quickbar:show_notification_ticker')
+        quickbar_ticker.setToolTip(
+            'Show each new notification or sound source once below the Quick Bar')
+        qbsl.addRow('Notification rail', quickbar_ticker)
         quickbar_opacity = QSpinBox()
         quickbar_opacity.setRange(25, 100)
         quickbar_opacity.setSingleStep(5)

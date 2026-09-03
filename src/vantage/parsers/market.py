@@ -27,7 +27,7 @@ from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequ
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QCompleter, QDialog,
     QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLayout, QLabel, QLineEdit,
-    QMessageBox, QPlainTextEdit, QPushButton, QTabWidget,
+    QListWidget, QMessageBox, QPlainTextEdit, QPushButton, QTabWidget,
     QSystemTrayIcon, QTableView, QTableWidget, QTableWidgetItem, QSizePolicy, QToolButton,
     QVBoxLayout, QWidget)
 
@@ -2547,7 +2547,7 @@ class GreenMarket(ParserWindow):
         self._live_watch_completer.setFilterMode(Qt.MatchFlag.MatchContains)
         self.live_watch_input.setCompleter(self._live_watch_completer)
         self.live_watch_input.returnPressed.connect(self._add_live_watch)
-        watch_layout.addWidget(self.live_watch_input, 0, 0, 1, 5)
+        watch_layout.addWidget(self.live_watch_input, 0, 0, 1, 6)
         self.live_watch_add = QPushButton("Add to watchlist")
         self.live_watch_add.setObjectName("MarketSaleAlertAdd")
         self.live_watch_add.setIcon(game_icon("add"))
@@ -2556,25 +2556,31 @@ class GreenMarket(ParserWindow):
         self.live_watch_add.setToolTip(
             "Notify on the Vantage overlay when this item appears for sale")
         self.live_watch_add.clicked.connect(self._add_live_watch)
-        watch_layout.addWidget(self.live_watch_add, 0, 5)
-        watch_label = QLabel("Watching")
-        watch_label.setObjectName("MarketSaleAlertLabel")
-        self.live_watch_items = QComboBox()
+        watch_layout.addWidget(self.live_watch_add, 0, 6)
+        self.live_watch_label = QLabel("Watching")
+        self.live_watch_label.setObjectName("MarketSaleAlertLabel")
+        self.live_watch_items = QListWidget()
         self.live_watch_items.setObjectName("MarketSaleAlertItems")
-        self.live_watch_items.setMinimumContentsLength(14)
+        self.live_watch_items.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection)
+        self.live_watch_items.setAlternatingRowColors(True)
+        self.live_watch_items.setMinimumHeight(62)
+        self.live_watch_items.setMaximumHeight(118)
         self.live_watch_items.setAccessibleName("Watched auction items")
+        self.live_watch_items.setAccessibleDescription(
+            "Visible list of every item monitored in this character's EQ log")
         self.live_watch_items.setToolTip(
-            "Items currently monitored by the Live Log and Notification Service")
-        watch_label.setBuddy(self.live_watch_items)
-        watch_layout.addWidget(watch_label, 1, 0)
-        watch_layout.addWidget(self.live_watch_items, 1, 1, 1, 2)
-        self.live_watch_remove = QPushButton("Remove")
+            "Every watched item is shown here; select one to remove or test")
+        self.live_watch_label.setBuddy(self.live_watch_items)
+        watch_layout.addWidget(self.live_watch_label, 1, 0, 1, 7)
+        watch_layout.addWidget(self.live_watch_items, 2, 0, 1, 7)
+        self.live_watch_remove = QPushButton("Remove selected")
         self.live_watch_remove.setIcon(game_icon("delete"))
         self.live_watch_remove.setAccessibleName(
             "Remove — selected auction alert")
         self.live_watch_remove.setToolTip("Stop watching the selected item")
         self.live_watch_remove.clicked.connect(self._remove_live_watch)
-        watch_layout.addWidget(self.live_watch_remove, 1, 3)
+        watch_layout.addWidget(self.live_watch_remove, 3, 0, 1, 2)
         self.live_alerts_enabled = QCheckBox("Notifications")
         self.live_alerts_enabled.setChecked(bool(
             config.data["market"].get("live_alerts_enabled", True)))
@@ -2585,7 +2591,7 @@ class GreenMarket(ParserWindow):
             "uses the Vantage overlay or Windows notifications")
         self.live_alerts_enabled.toggled.connect(
             self._set_live_alerts_enabled)
-        watch_layout.addWidget(self.live_alerts_enabled, 1, 4)
+        watch_layout.addWidget(self.live_alerts_enabled, 3, 3)
         self.live_alert_sound = QCheckBox("Sound")
         self.live_alert_sound.setChecked(bool(
             config.data["market"].get("live_alert_sound_enabled", False)))
@@ -2596,7 +2602,7 @@ class GreenMarket(ParserWindow):
             "the Quick Bar always wins")
         self.live_alert_sound.toggled.connect(
             self._set_live_alert_sound_enabled)
-        watch_layout.addWidget(self.live_alert_sound, 1, 5)
+        watch_layout.addWidget(self.live_alert_sound, 3, 4)
         self.live_alert_test = QPushButton("Test")
         self.live_alert_test.setObjectName("MarketSaleAlertTest")
         self.live_alert_test.setIcon(game_icon("check"))
@@ -2605,7 +2611,7 @@ class GreenMarket(ParserWindow):
         self.live_alert_test.setToolTip(
             "Show a sample sale notification using the selected watched item")
         self.live_alert_test.clicked.connect(self._preview_live_alert)
-        watch_layout.addWidget(self.live_alert_test, 1, 6)
+        watch_layout.addWidget(self.live_alert_test, 3, 6)
         watch_layout.setColumnStretch(0, 0)
         watch_layout.setColumnStretch(1, 1)
         watch_layout.setColumnStretch(2, 1)
@@ -2855,7 +2861,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.30")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.31")
         reply = self._network.get(request)
         reply.finished.connect(
             lambda: self._wiki_item_finished(reply, card, json_path, icon_path))
@@ -2874,7 +2880,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.30")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.31")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._wiki_entity_finished(
             reply, card, cache_path, target, kind))
@@ -2959,7 +2965,7 @@ class GreenMarket(ParserWindow):
                     filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.30")
+                    "Vantage/1.44.31")
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
                     lambda: self._wiki_icon_finished(
@@ -3207,7 +3213,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.30")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.31")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -3229,7 +3235,7 @@ class GreenMarket(ParserWindow):
                     return
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.30")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.31")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -3364,21 +3370,23 @@ class GreenMarket(ParserWindow):
 
     def _refresh_live_watch_items(self, selected=""):
         watches = list(config.data["market"].get("live_watch_items", []))
-        selected = str(selected or self.live_watch_items.currentText())
+        current = self.live_watch_items.currentItem()
+        selected = str(selected or (current.text() if current else ""))
         self.live_watch_items.blockSignals(True)
         self.live_watch_items.clear()
         if watches:
             self.live_watch_items.addItems(watches)
-            index = self.live_watch_items.findText(
+            matches = self.live_watch_items.findItems(
                 selected, Qt.MatchFlag.MatchFixedString)
-            self.live_watch_items.setCurrentIndex(max(0, index))
+            self.live_watch_items.setCurrentItem(
+                matches[0] if matches else self.live_watch_items.item(0))
             self.live_watch_items.setEnabled(True)
             self.live_watch_remove.setEnabled(True)
         else:
-            self.live_watch_items.addItem("No watched items")
             self.live_watch_items.setEnabled(False)
             self.live_watch_remove.setEnabled(False)
         self.live_watch_items.blockSignals(False)
+        self.live_watch_label.setText(f"Watching ({len(watches)})")
         self._update_live_alert_status()
 
     def _add_live_watch(self):
@@ -3415,7 +3423,8 @@ class GreenMarket(ParserWindow):
         return True
 
     def _remove_live_watch(self):
-        selected = str(self.live_watch_items.currentText() or "")
+        current = self.live_watch_items.currentItem()
+        selected = str(current.text() if current else "")
         watches = config.data["market"].get("live_watch_items", [])
         updated = [
             item for item in watches if item.casefold() != selected.casefold()]
@@ -3449,7 +3458,8 @@ class GreenMarket(ParserWindow):
             "Sale alert sound off")
 
     def _preview_live_alert(self):
-        item = str(self.live_watch_items.currentText() or "").strip()
+        current = self.live_watch_items.currentItem()
+        item = str(current.text() if current else "").strip()
         if not self.live_watch_items.isEnabled() or not item:
             self._set_live_alert_status_text(
                 "Add or watch an item before testing a sale alert", "off")
@@ -3576,7 +3586,7 @@ class GreenMarket(ParserWindow):
         self._refresh_button.setText("Refreshing…")
         self.status.setText(f"Refreshing PigParse {server}…")
         request = QNetworkRequest(QUrl(market_endpoint(server)))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.30")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.31")
         reply = self._network.get(request)
         reply.setProperty("market_server", server)
         reply.finished.connect(lambda: self._finished(reply))
@@ -3703,7 +3713,7 @@ class GreenMarket(ParserWindow):
             f"Evaluating PigParse {server} history · {name}…")
         request = QNetworkRequest(QUrl(market_detail_api(server).format(
             item_name=quote(name, safe=""))))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.30")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.31")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.setProperty("market_server", server)

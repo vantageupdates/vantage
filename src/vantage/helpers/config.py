@@ -319,6 +319,8 @@ def verify_settings():
         data['quickbar'].get('show_header', True), True)
     data['quickbar']['show_server_tick'] = get_setting(
         data['quickbar'].get('show_server_tick', True), True)
+    data['quickbar']['show_notification_ticker'] = get_setting(
+        data['quickbar'].get('show_notification_ticker', True), True)
     for item_key in QUICKBAR_ITEM_KEYS:
         setting_key = f'show_{item_key}'
         data['quickbar'][setting_key] = get_setting(

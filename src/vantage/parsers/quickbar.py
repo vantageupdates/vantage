@@ -16,6 +16,127 @@ from vantage.helpers.parser import ParserWindow
 from vantage.helpers.quickbar_items import QUICKBAR_ITEMS
 
 
+class QuickBarNotificationRail(QFrame):
+    """Show one attributable notice once, then clear it from the rail."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("QuickBarNotificationRail")
+        self.setFixedHeight(19)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setAccessibleName("Quick Bar notification rail")
+        self.setAccessibleDescription(
+            "Shows the newest Vantage notification or sound source once")
+
+        self._label = QLabel(self)
+        self._label.setObjectName("QuickBarNotificationText")
+        self._label.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self._label.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._label.hide()
+        self._notice_id = 0
+        self._moving = False
+        self._reduce_motion = False
+
+        self._scroll_timer = QTimer(self)
+        self._scroll_timer.setInterval(24)
+        self._scroll_timer.setTimerType(Qt.TimerType.PreciseTimer)
+        self._scroll_timer.timeout.connect(self._advance)
+        self._clear_timer = QTimer(self)
+        self._clear_timer.setSingleShot(True)
+        self._clear_timer.setInterval(5000)
+        self._clear_timer.timeout.connect(self._clear)
+
+    def present(self, notice_id, text, reduce_motion=False, available=True):
+        """Present a new notice without replaying it during ordinary refreshes."""
+        try:
+            notice_id = int(notice_id)
+        except (TypeError, ValueError):
+            return
+        if notice_id <= self._notice_id or not str(text or "").strip():
+            return
+        self._notice_id = notice_id
+        self._reduce_motion = bool(reduce_motion)
+        clean = " ".join(str(text).split())
+        self._scroll_timer.stop()
+        self._clear_timer.stop()
+        self._label.setText(clean)
+        self._label.adjustSize()
+        self._label.setFixedHeight(self.height() - 2)
+        self._label.show()
+        self.setToolTip(clean)
+        self.setAccessibleName(f"Latest Vantage notification: {clean}")
+        # Hidden/vertical rails consume the event immediately. A notice is a
+        # live event, not history that should surprise the user hours later.
+        if not available or not self.isVisible():
+            self._clear()
+            return
+        if self._reduce_motion:
+            self._moving = False
+            # Preserve the meaningful type + source without moving or
+            # squeezing a potentially unbounded message into this compact
+            # surface. The complete notice remains in the accessible name.
+            summary = " · ".join(clean.split(" · ")[:2])
+            self._label.setText(summary)
+            self._label.setFixedWidth(max(1, self.width() - 14))
+            self._label.setGeometry(7, 1, self._label.width(), self.height() - 2)
+            self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._clear_timer.start()
+        else:
+            self._moving = True
+            self._label.setAlignment(
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            self._label.adjustSize()
+            self._label.setFixedHeight(self.height() - 2)
+            self._label.move(self.width() - 5, 1)
+            if self.isVisible():
+                self._scroll_timer.start()
+
+    def set_motion_reduced(self, reduce_motion):
+        reduce_motion = bool(reduce_motion)
+        if reduce_motion == self._reduce_motion or not self._label.isVisible():
+            self._reduce_motion = reduce_motion
+            return
+        self._reduce_motion = reduce_motion
+        if reduce_motion:
+            self._scroll_timer.stop()
+            self._moving = False
+            clean = self._label.text()
+            self._label.setText(" · ".join(clean.split(" · ")[:2]))
+            self._label.setFixedWidth(max(1, self.width() - 14))
+            self._label.setGeometry(7, 1, self._label.width(), self.height() - 2)
+            self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._clear_timer.start()
+
+    def _advance(self):
+        if not self.isVisible() or not self._label.isVisible():
+            self._scroll_timer.stop()
+            return
+        self._label.move(self._label.x() - 2, 1)
+        if self._label.x() + self._label.width() < 5:
+            self._clear()
+
+    def _clear(self):
+        self._scroll_timer.stop()
+        self._clear_timer.stop()
+        self._moving = False
+        self._label.clear()
+        self._label.hide()
+        self.setToolTip(
+            "The next Vantage notification or sound source appears here")
+        self.setAccessibleName("Quick Bar notification rail; no active notice")
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._moving and self._label.isVisible():
+            self._scroll_timer.start()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self._scroll_timer.stop()
+
+
 class QuickBar(ParserWindow):
     """One taskbar-free surface for window toggles and tray commands."""
 
@@ -75,9 +196,10 @@ class QuickBar(ParserWindow):
         tick = self._window_targets.get("tick")
         if tick is not None and hasattr(tick, "tray_state_changed"):
             tick.tray_state_changed.connect(self._server_tick_update)
-        # Preserve the saved replica scale while snapping the strip tightly
-        # around its authored content. This also removes legacy extra height.
-        self._apply_quickbar_settings(preserve_scale=True)
+        # Rebuild the authored strip first, then derive its scale from the
+        # saved physical width. Using the stale static design height here made
+        # every restart shrink a customized Quick Bar a second time.
+        self._apply_quickbar_settings(preserve_scale=False)
         self.refresh_state()
 
     def _setup_actions(self):
@@ -185,6 +307,12 @@ class QuickBar(ParserWindow):
         self.content.addWidget(
             self.action_frame, 0,
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.notification_rail = QuickBarNotificationRail()
+        self.notification_rail.setToolTip(
+            "The next Vantage notification or sound source appears here")
+        self.content.addWidget(
+            self.notification_rail, 0,
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
 
     def _setup_tick_readout(self):
         self.tick_readout = QFrame()
@@ -234,10 +362,14 @@ class QuickBar(ParserWindow):
             # The vertical bar becomes narrow by removing its empty lane, not
             # by shrinking the interactive controls below their authored size.
             return 1.0
+        interactive_height = self._design_size.height()
+        rail = getattr(self, "notification_rail", None)
+        if rail is not None and rail.isVisible():
+            interactive_height -= rail.height()
         return max(
             self._minimum_scale,
             72 / max(1, self._design_size.width()),
-            18 / max(1, self._design_size.height()))
+            18 / max(1, interactive_height))
 
     def _refresh_title_icon(self):
         title_icon = getattr(self, "_title_icon", None)
@@ -390,6 +522,11 @@ class QuickBar(ParserWindow):
 
         tick_visible = bool(settings.get("show_server_tick", True))
         self.tick_readout.setVisible(tick_visible)
+        rail_visible = bool(
+            settings.get("show_notification_ticker", True) and not vertical)
+        self.notification_rail.setVisible(rail_visible)
+        self.notification_rail.set_motion_reduced(
+            config.data["general"].get("reduce_motion", False))
         item_count = visible_count + int(tick_visible)
         margins = self.action_layout.contentsMargins()
         spacing = self.action_layout.spacing()
@@ -419,9 +556,12 @@ class QuickBar(ParserWindow):
                 (48 if tick_visible else 0) +
                 max(0, item_count - 1) * spacing)
             action_height = margins.top() + margins.bottom() + 24
+            rail_width = max(120, action_width - 24)
+            self.notification_rail.setFixedWidth(rail_width)
             design_size = QSize(
                 max(120, action_width, header_width),
-                header_height + action_height)
+                header_height + action_height +
+                (self.notification_rail.height() if rail_visible else 0))
         self._set_design_size(design_size, preserve_scale=preserve_scale)
         self._update_uniform_scale()
         self._fit_to_available_screen()
@@ -570,6 +710,12 @@ class QuickBar(ParserWindow):
         self._sync_support_animation()
         if self._tick_snapshot is not None:
             self._server_tick_update(self._tick_snapshot)
+        notice_id = getattr(self._application, "_quickbar_notice_id", 0)
+        notice = getattr(self._application, "_quickbar_notice", "")
+        self.notification_rail.present(
+            notice_id, notice,
+            config.data["general"].get("reduce_motion", False),
+            available=self.isVisible() and self.notification_rail.isVisible())
 
     def _sync_support_animation(self):
         support = self._buttons.get("support")

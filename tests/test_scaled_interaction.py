@@ -265,7 +265,7 @@ def test_scaled_panels_keep_keyboard_pointer_and_tooltips(tmp_path):
     assert result["missing_timer_tooltips"] == []
     assert result["map_manual_pan"] is True
     assert result["minimum_sizes"] == {
-        "quickbar": [217, 18],
+            "quickbar": [217, 25],
         "maps": [100, 100], "spells": [210, 111],
         "tick": [88, 48],
         "timers": [300, min(
