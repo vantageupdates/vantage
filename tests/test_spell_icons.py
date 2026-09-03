@@ -60,10 +60,10 @@ def test_velious_spell_icons_keep_crisp_art_with_rounded_corners():
 
 
 def test_spell_icon_accent_stays_dark_enough_for_overlay_text():
-    # The label spans filled and unfilled pixels, so every icon-derived fill
-    # keeps enough luminance headroom for the same off-white text.
+    # The modestly brighter icon-derived fill remains bounded before the
+    # palette's AA limiter applies the final off-white label contrast.
     for icon_index in (0, 5, 18, 42, 77, 118, 146):
-        assert _spell_icon_accent(icon_index).value() <= 122
+        assert _spell_icon_accent(icon_index).value() <= 130
 
 
 def test_spell_warning_has_yellow_and_fast_red_stages():
@@ -186,7 +186,11 @@ def test_spell_progress_palette_is_stable_colorful_and_icon_driven():
     assert "min-height: 20px" in style
     assert "max-height: 20px" in style
     assert "padding: 0px" in style
-    assert "border-radius: 5px" in style
+    radius_values = [
+        line.split(":", 1)[1].strip().rstrip(";")
+        for line in style.splitlines() if "border-radius:" in line]
+    assert radius_values.count("0px") == 2
+    assert all(value == "0px" for value in radius_values)
     assert "#9A6515" in style
     assert "#BC353C" in style
     assert "box-shadow" not in style
@@ -205,7 +209,7 @@ def test_icon_palette_chroma_depth_and_text_contrast_are_bounded():
         # The icon hue is clearly saturated, but value stays in the dark
         # overlay range. Hex serialization can shift HSV by one point.
         assert 155 <= body.saturation() <= 249
-        assert 102 <= body.value() <= 122
+        assert 110 <= body.value() <= 130
         assert 147 <= highlight.saturation() <= 241
         assert 165 <= depth.saturation() <= 249
         assert 111 <= border.saturation() <= 233

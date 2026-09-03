@@ -29,25 +29,41 @@ spells.parse(
     now + datetime.timedelta(seconds=4),
     'A hill giant has been ensnared.')
 
-# An instant, item-only self click with no You begin casting line.
+# An unrelated cast must not block an instant item-only click. JBoots emits
+# neither a casting nor a glow anchor on P99; its landing line is authoritative.
+spells.parse(
+    now + datetime.timedelta(seconds=9),
+    'You begin casting Clarity.')
 spells.parse(
     now + datetime.timedelta(seconds=10),
-    "Your Journeyman's Boots begins to glow.")
-spells.parse(
-    now + datetime.timedelta(seconds=10, milliseconds=50),
     'Your feet feel quick.')
+
+# A common ambiguous emote must not manufacture another item timer.
+spells.parse(
+    now + datetime.timedelta(seconds=11),
+    'You feel different.')
+
+pending_after_click = (
+    spells._spell_trigger.spell.name if spells._spell_trigger else '')
 
 enemy = spells._spell_container.get_spell_target_by_name('A hill giant')
 you = spells._spell_container.get_spell_target_by_name('__you__')
 enemy_spell = enemy.spell_widgets()[0]
 you_spell = you.spell_widgets()[0]
+self_tooltip_before_fade = you_spell.toolTip()
+spells.parse(
+    now + datetime.timedelta(seconds=12),
+    'Your feet slow down.')
 print(json.dumps({
     'enemy_name': enemy_spell.spell.name,
     'enemy_source': enemy_spell.spell.source_item,
     'enemy_tooltip': enemy_spell.toolTip(),
     'self_name': you_spell.spell.name,
     'self_source': you_spell.spell.source_item,
-    'self_tooltip': you_spell.toolTip(),
+    'self_tooltip': self_tooltip_before_fade,
+    'self_faded': you_spell.progress.property('Faded'),
+    'self_count': len(you.spell_widgets()),
+    'pending_after_click': pending_after_click,
 }))
 app.quit()
 """
@@ -69,6 +85,9 @@ def test_casted_and_instant_item_clicks_appear_in_spell_window(tmp_path):
     assert result["self_name"] == "journeymanboots"
     assert result["self_source"] == "Journeyman's Boots"
     assert "Item click" in result["self_tooltip"]
+    assert result["self_faded"] is True
+    assert result["self_count"] == 1
+    assert result["pending_after_click"] == "clarity"
 
 
 def test_shipped_clicky_index_uses_current_project_1999_item_names():

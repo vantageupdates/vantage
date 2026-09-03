@@ -119,6 +119,50 @@ def item_click_spell_name(item_name):
     return _p99_click_spell_names().get(item_name.casefold(), '')
 
 
+def _anchorless_self_click_effects(spell_book):
+    """Resolve safe instant self-click emotes from the shipped P99 index.
+
+    The client can omit both the cast and item-glow lines for instant clickies.
+    A landing sentence alone is only trustworthy when the P99 item index names
+    exactly one item-only spell for that sentence; ordinary ambiguous buff
+    emotes must never create speculative timers.
+    """
+    by_name = {
+        str(name).strip().casefold(): spell
+        for name, spell in spell_book.items()
+    }
+    indexed = dict(_p99_click_spell_names())
+    for item_name, spell_name in COMMON_ITEM_CLICK_SPELLS.items():
+        indexed.setdefault(item_name.casefold(), spell_name)
+
+    candidates = {}
+    for item_name, spell_name in indexed.items():
+        spell = by_name.get(str(spell_name).strip().casefold())
+        effect_you = str(
+            getattr(spell, 'effect_text_you', '') or '').strip()
+        if (spell is None or not effect_you or
+                not bool(getattr(spell, 'item_only', False)) or
+                int(getattr(spell, 'type', 0) or 0) == 0 or
+                int(getattr(spell, 'duration_formula', 0) or 0) == 0 or
+                int(getattr(spell, 'cast_time', 0) or 0) != 0):
+            continue
+        effect_key = effect_you.casefold()
+        spell_key = str(spell.name or spell_name).strip().casefold()
+        spell_entry = candidates.setdefault(effect_key, {}).setdefault(
+            spell_key, {'spell': spell, 'items': set()})
+        spell_entry['items'].add(string.capwords(str(item_name).strip()))
+
+    resolved = {}
+    for effect_key, spells in candidates.items():
+        if len(spells) != 1:
+            continue
+        entry = next(iter(spells.values()))
+        items = sorted(entry['items'], key=str.casefold)
+        source_item = items[0] if len(items) == 1 else 'Known P99 clicky'
+        resolved[effect_key] = entry['spell'], source_item
+    return resolved
+
+
 def _is_charm_spell(spell):
     """Return True for the classic charm family with no target landing text."""
     return bool(
@@ -244,6 +288,8 @@ class Spells(ParserWindow):
         self._spell_trigger = None
         self._pending_charm = None
         self._pending_item_click = None
+        self._item_self_effects = _anchorless_self_click_effects(
+            self.spell_book)
         self._item_other_effects = sorted(
             ((effect, spell) for effect, spell in self.text_other.items()
              if effect), key=lambda pair: len(pair[0]), reverse=True)
@@ -960,23 +1006,26 @@ class Spells(ParserWindow):
         # clickies may emit only the glow and landing lines. Keep a short,
         # player-owned glow anchor so these effects are tracked without opening
         # a broad window for another player's spell landing.
+        item_triggers_enabled = config.data['spells']['use_item_triggers']
         item_glow = (
             ITEM_GLOW_RX.match(text)
-            if config.data['spells']['use_item_triggers'] else None)
+            if item_triggers_enabled else None)
         if item_glow:
             item_name = item_glow.group('item').strip()
             self._pending_item_click = (
                 timestamp, item_name, item_click_spell_name(item_name))
             if self._spell_trigger:
                 self._spell_trigger.mark_item_cast(item_name, timestamp)
-        elif (config.data['spells']['use_item_triggers'] and
-              self._pending_item_click):
-            self._consume_item_effect(timestamp, text)
-        else:
+        elif not item_triggers_enabled:
             self._pending_item_click = None
 
+        spell_line_consumed = False
         if self._spell_trigger:
-            self._spell_trigger.parse(timestamp, text)
+            spell_line_consumed = bool(
+                self._spell_trigger.parse(timestamp, text))
+        if (item_triggers_enabled and not item_glow and
+                not spell_line_consumed):
+            self._consume_item_effect(timestamp, text)
 
         # Initial Spell Cast and trigger setup
         if text[:17] == 'You begin casting':
@@ -1057,8 +1106,6 @@ class Spells(ParserWindow):
 
     def _consume_item_effect(self, timestamp, text):
         """Add a confirmed or item-only landing that has no cast trigger."""
-        if self._spell_trigger:
-            return False
         pending = self._pending_item_click
         item_name = ''
         if pending:
@@ -1074,15 +1121,18 @@ class Spells(ParserWindow):
             text, include_other=bool(pending), preferred_spell=preferred)
         if not landing:
             return False
-        spell, target = landing
-        # A self landing with no glow/cast anchor is accepted only when the
-        # client marks the spell unavailable to every playable class. This is
-        # how truly item-only instant effects are represented in spells_us.
-        if not pending and not getattr(spell, 'item_only', False):
+        spell, target, indexed_item = landing
+        # Without a glow/cast anchor, accept only the dedicated P99-indexed
+        # instant-self lookup. The item-only flag alone is too broad because
+        # NPC-only spells can share otherwise ordinary landing messages.
+        if (not pending and
+                (not indexed_item or
+                 not getattr(spell, 'item_only', False))):
             return False
         self._pending_item_click = None
         detected = copy.copy(spell)
-        detected.source_item = item_name or 'Item-only effect'
+        detected.source_item = (
+            indexed_item or item_name or 'Item-only effect')
         detected.runtime_level = self._active_cast_level()
         self._spell_container.add_spell(
             detected, timestamp, target,
@@ -1096,23 +1146,27 @@ class Spells(ParserWindow):
         preferred = self.spell_book.get(str(preferred_spell or ''))
         if preferred and preferred.duration_formula != 0:
             if preferred.effect_text_you and text == preferred.effect_text_you:
-                return preferred, '__you__'
+                return preferred, '__you__', ''
             if (include_other and preferred.effect_text_other and
                     text.endswith(preferred.effect_text_other)):
                 target = text[:-len(preferred.effect_text_other)].strip()
                 if target:
-                    return preferred, target
+                    return preferred, target, ''
+        indexed = self._item_self_effects.get(
+            str(text or '').strip().casefold())
+        if indexed:
+            return indexed[0], '__you__', indexed[1]
         spell = self.text_you.get(text)
         if (spell and spell.effect_text_you and
                 spell.duration_formula != 0):
-            return spell, '__you__'
+            return spell, '__you__', ''
         if include_other:
             for effect, candidate in self._item_other_effects:
                 if (candidate.duration_formula != 0 and
                         text.endswith(effect)):
                     target = text[:-len(effect)].strip()
                     if target:
-                        return candidate, target
+                        return candidate, target, ''
         return None
 
     def _add_builtin_utility_timer(
@@ -1687,7 +1741,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.26')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.27')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -3269,16 +3323,14 @@ def _spell_icon_accent(icon_index):
     if hue < 0:
         hue = 198
     # Retain the icon's hue while putting every fill in the same restrained
-    # value range. Give the native pixel-art chroma a deliberate but bounded
-    # lift: bars should read as the icon's color at a glance while the shared
-    # dark value ceiling keeps white countdown text comfortably legible.
+    # value range. Give the native pixel-art chroma and brightness a modest,
+    # bounded lift so bars read as the icon's color at a glance; the palette's
+    # AA limiter still darkens individual stops when needed for label contrast.
     boosted_saturation = saturation + max(28, round(saturation * 0.26))
     return QColor.fromHsv(
         hue, max(156, min(248, boosted_saturation)),
-        # The label crosses both the filled and empty portions of the bar,
-        # so every art-derived fill must remain dark enough for the same
-        # off-white text to stay readable across the whole countdown.
-        max(102, min(122, value)), alpha)
+        # The label crosses both the filled and empty portions of the bar.
+        max(110, min(130, value)), alpha)
 
 
 def _spell_bar_contrast(foreground, background):
@@ -3334,13 +3386,13 @@ def spell_progress_stylesheet(spell):
             min-height: 20px;
             max-height: 20px;
             border: 1px solid {border};
-            border-radius: 5px;
+            border-radius: 0px;
             padding: 0px;
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                 stop:0 #111820, stop:0.22 #0C1218, stop:1 #080C10);
         }}
         QProgressBar::chunk {{
-            border-radius: 4px;
+            border-radius: 0px;
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                 stop:0 {highlight}, stop:0.20 {body},
                 stop:0.78 {body}, stop:1 {depth});
@@ -3456,19 +3508,20 @@ class SpellTrigger(QObject):
             self.activated = True
 
     def parse(self, timestamp, text):
+        matched = False
         if self._item_cast_timestamp is not None:
             try:
                 elapsed_ms = (
                     timestamp - self._item_cast_timestamp).total_seconds() * 1000
             except (AttributeError, TypeError):
-                return
+                return False
             in_window = 0 <= elapsed_ms <= ITEM_CLICK_WINDOW_SECONDS * 1000
         elif config.data['spells']['use_casting_window']:
             try:
                 elapsed_ms = (
                     timestamp - self.timestamp).total_seconds() * 1000
             except (AttributeError, TypeError):
-                return
+                return False
             buffer_ms = config.data['spells']['casting_window_buffer']
             earliest = max(0, int(self.spell.cast_time) - buffer_ms)
             latest = (
@@ -3484,10 +3537,12 @@ class SpellTrigger(QObject):
             if effect_you and folded.startswith(effect_you.casefold()):
                 # cast self
                 self.targets.append((timestamp, '__you__'))
+                matched = True
             elif effect_other and folded.endswith(effect_other.casefold()):
                 # cast other
                 target = text[:-len(effect_other)].strip()
                 self.targets.append((timestamp, target))
+                matched = True
             elif _is_charm_spell(self.spell):
                 target = _charmed_pet_from_activity(text)
                 if target:
@@ -3495,6 +3550,7 @@ class SpellTrigger(QObject):
                         milliseconds=max(
                             0, int(getattr(self.spell, 'cast_time', 0) or 0)))
                     self.targets.append((landed, target))
+                    matched = True
             if self.targets:
                 self.activated = True
                 # Do not hold confirmed group/AOE targets until the cleanup
@@ -3505,6 +3561,7 @@ class SpellTrigger(QObject):
                 self.stop()  # make sure you don't get two triggers
                 self.activated = True
                 self.spell_triggered.emit(self)
+        return matched
 
     def mark_item_cast(self, item_name, timestamp=None):
         """Trust a player-owned item glow and widen the item's landing window."""
