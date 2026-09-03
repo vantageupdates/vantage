@@ -1757,7 +1757,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.32')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.33')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -3017,7 +3017,9 @@ class SpellWidget(QFrame):
             if warning:
                 if remaining_seconds > 0 and not self._warning_played:
                     self._warning_played = True
-                    self._play_fade_alert()
+                    notice = self._fading_notice(remaining_seconds)
+                    if not self._play_fade_alert(notice=notice):
+                        self._queue_fading_notice(notice)
             if remaining_seconds <= 0:
                 self._remove()
                 return
@@ -3112,19 +3114,39 @@ class SpellWidget(QFrame):
             QTimer.singleShot(0, lambda: focus_target.setFocus(
                 Qt.FocusReason.OtherFocusReason))
 
-    def _play_fade_alert(self, force=False):
+    def _fading_notice(self, remaining_seconds):
+        target = self.parentWidget()
+        target_name = (
+            target.target_label.text()
+            if target and hasattr(target, 'target_label') else '')
+        seconds = max(1, int(math.ceil(float(remaining_seconds))))
+        parts = [f'{self.progress._spell_name} fading soon']
+        if target_name:
+            parts.append(target_name)
+        parts.append(f'{seconds}s')
+        return ' · '.join(parts)
+
+    @staticmethod
+    def _queue_fading_notice(notice):
+        app = QApplication.instance()
+        queue_notice = getattr(app, '_queue_quickbar_notice', None)
+        if callable(queue_notice):
+            queue_notice('Spells', notice)
+
+    def _play_fade_alert(self, force=False, notice=''):
         settings = config.data['spells']
         key = self.spell.name
         if not force and (
                 not settings['fade_sound_enabled'] or
                 key in settings['fade_sound_muted']):
-            return
+            return False
         path = settings['fade_sound_overrides'].get(
             key, settings['fade_sound_path'])
-        play_alert(
+        return play_alert(
             path, settings['fade_sound_volume'], 1,
-            source=("Test" if force else "Buff fading") +
-            f" · {self.spell.name}",
+            source=(
+                f"Test · {self.spell.name}" if force else
+                notice or f"Buff fading · {self.spell.name}"),
             character=self.runtime_character,
             server=self.runtime_server,
             channel='' if force else 'spells',

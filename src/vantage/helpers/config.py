@@ -586,9 +586,17 @@ def verify_settings():
     data['spells']['fade_sound_volume'] = get_setting(
         data['spells'].get('fade_sound_volume', 80), 80,
         lambda x: 0 <= x <= 100)
+    fade_sound_path = data['spells'].get(
+        'fade_sound_path', 'builtin:soft-tick')
+    # Move profiles that still use the former untouched default to the new
+    # short fading click. Custom WAVs and explicit gallery choices survive.
+    fade_click_version = _bounded_int(
+        data['spells'].get('fade_click_version', 0), 0, 0, 1)
+    if fade_click_version < 1 and fade_sound_path == 'builtin:crystal-ping':
+        fade_sound_path = 'builtin:soft-tick'
     data['spells']['fade_sound_path'] = get_setting(
-        data['spells'].get('fade_sound_path', 'builtin:crystal-ping'),
-        'builtin:crystal-ping')
+        fade_sound_path, 'builtin:soft-tick')
+    data['spells']['fade_click_version'] = 1
     data['spells']['fade_sound_overrides'] = get_setting(
         data['spells'].get('fade_sound_overrides', {}), {},
         lambda x: isinstance(x, dict))

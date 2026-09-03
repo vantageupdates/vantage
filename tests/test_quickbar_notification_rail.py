@@ -23,6 +23,8 @@ bar.show()
 app.processEvents()
 rail = bar.notification_rail
 rail._clear()
+announcements = []
+rail._announce_accessibly = announcements.append
 
 empty = {
     'visible': rail.isVisible(),
@@ -39,7 +41,12 @@ sound = {
     'scrolling': rail._scroll_timer.isActive(),
     'notice_id': rail._notice_id,
     'accessible': rail.accessibleName(),
+    'announcements': list(announcements),
 }
+
+# The same or older event ID is a refresh, not a new live announcement.
+rail.present(rail._notice_id, 'Spells · Duplicate must not announce')
+duplicate_announcement_count = len(announcements)
 
 for _ in range(2000):
     if not rail._label.isVisible():
@@ -73,6 +80,7 @@ hidden_consumed = {
     'text_visible': rail._label.isVisible(),
     'scrolling': rail._scroll_timer.isActive(),
     'clear_pending': rail._clear_timer.isActive(),
+    'announcement_count': len(announcements),
 }
 bar.show()
 app.processEvents()
@@ -95,6 +103,7 @@ print(json.dumps({
     'hidden_consumed': hidden_consumed,
     'hidden_replayed': hidden_replayed,
     'vertical': vertical,
+    'duplicate_announcement_count': duplicate_announcement_count,
 }))
 app.quit()
 """
@@ -121,6 +130,8 @@ def test_quickbar_notification_rail_shows_one_event_then_clears(tmp_path):
     assert result['sound']['scrolling'] is True
     assert result['sound']['notice_id'] > 0
     assert result['sound']['text'] in result['sound']['accessible']
+    assert result['sound']['announcements'] == ['Spells · Clarity faded']
+    assert result['duplicate_announcement_count'] == 1
 
     assert result['cleared'] == {
         'text': '', 'visible': False, 'scrolling': False}
@@ -134,6 +145,8 @@ def test_quickbar_notification_rail_shows_one_event_then_clears(tmp_path):
         'text_visible': False,
         'scrolling': False,
         'clear_pending': False,
+        # The reduced-motion notice announced; the hidden notice did not.
+        'announcement_count': 2,
     }
     assert result['hidden_replayed'] is False
     assert result['vertical'] == {

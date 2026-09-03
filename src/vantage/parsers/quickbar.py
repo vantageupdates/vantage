@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 
 from PySide6.QtCore import QEvent, QSize, Qt, QTimer
+from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QFrame, QLabel, QProgressBar, QSizePolicy,
     QToolButton, QVBoxLayout)
@@ -72,6 +73,7 @@ class QuickBarNotificationRail(QFrame):
         if not available or not self.isVisible():
             self._clear()
             return
+        self._announce_accessibly(clean)
         if self._reduce_motion:
             self._moving = False
             # Preserve the meaningful type + source without moving or
@@ -92,6 +94,11 @@ class QuickBarNotificationRail(QFrame):
             self._label.move(self.width() - 5, 1)
             if self.isVisible():
                 self._scroll_timer.start()
+
+    def _announce_accessibly(self, text):
+        """Announce a newly accepted, visible event exactly once."""
+        event = QAccessibleAnnouncementEvent(self, text)
+        QAccessible.updateAccessibility(event)
 
     def set_motion_reduced(self, reduce_motion):
         reduce_motion = bool(reduce_motion)

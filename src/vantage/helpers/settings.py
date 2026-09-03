@@ -549,7 +549,9 @@ class SettingsWindow(UniformScaleDialog):
         ssl.addRow(SettingsHeader('FADING ALERTS'))
         fade_enabled = QCheckBox()
         fade_enabled.setObjectName('spells:fade_sound_enabled')
-        ssl.addRow('Enable fading sound', fade_enabled)
+        fade_enabled.setToolTip(
+            'Play one short alert when a tracked spell enters its fading window')
+        ssl.addRow('Enable fading click', fade_enabled)
         spell_background_audio = QCheckBox()
         spell_background_audio.setObjectName('spells:sounds_when_hidden')
         spell_background_audio.setToolTip(
@@ -575,8 +577,8 @@ class SettingsWindow(UniformScaleDialog):
         fade_sound_row = QHBoxLayout()
         self.fade_sound_path = QComboBox()
         self.fade_sound_path.setObjectName('spells:fade_sound_path')
-        self.fade_sound_path.setAccessibleName('Buff sound gallery')
-        set_sound_combo_value(self.fade_sound_path, DEFAULT_SOUND)
+        self.fade_sound_path.setAccessibleName('Fading alert sound gallery')
+        set_sound_combo_value(self.fade_sound_path, 'builtin:soft-tick')
         fade_sound_row.addWidget(self.fade_sound_path, 1)
         fade_browse = QPushButton('WAV…')
         fade_browse.setIcon(game_icon('copy'))
