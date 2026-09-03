@@ -49,6 +49,7 @@ print(json.dumps({
     'played': played,
     'tray_visible': spells._event_tray.isVisible(),
     'pill_count': len(spells._event_pills),
+    'quickbar_notice': app._quickbar_notice,
 }))
 app.quit()
 """
@@ -70,3 +71,5 @@ def test_worn_off_uses_visible_pill_and_only_one_audio_owner(tmp_path):
         {'source': 'Trigger · Fetter worn', 'channel': 'spells'}]
     assert result['tray_visible'] is True
     assert result['pill_count'] == 1
+    assert result['quickbar_notice'] == (
+        'Spells · Fetter worn off · A Blizzard Hunter')

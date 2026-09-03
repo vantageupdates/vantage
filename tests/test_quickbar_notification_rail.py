@@ -115,8 +115,9 @@ def test_quickbar_notification_rail_shows_one_event_then_clears(tmp_path):
     assert result['empty']['width'] < result['empty']['bar_width']
     assert result['empty']['width'] >= result['empty']['bar_width'] - 26
 
-    assert result['sound']['text'].startswith('SOUND · Spells · Clarity faded')
-    assert 'Soft Notify' in result['sound']['text']
+    assert result['sound']['text'] == 'Spells · Clarity faded'
+    assert 'Soft Notify' not in result['sound']['text']
+    assert 'SOUND' not in result['sound']['text']
     assert result['sound']['scrolling'] is True
     assert result['sound']['notice_id'] > 0
     assert result['sound']['text'] in result['sound']['accessible']

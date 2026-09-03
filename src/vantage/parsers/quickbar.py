@@ -17,7 +17,7 @@ from vantage.helpers.quickbar_items import QUICKBAR_ITEMS
 
 
 class QuickBarNotificationRail(QFrame):
-    """Show one attributable notice once, then clear it from the rail."""
+    """Show one attributable event once, then clear it from the rail."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -26,7 +26,7 @@ class QuickBarNotificationRail(QFrame):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setAccessibleName("Quick Bar notification rail")
         self.setAccessibleDescription(
-            "Shows the newest Vantage notification or sound source once")
+            "Shows the newest attributable Vantage event once")
 
         self._label = QLabel(self)
         self._label.setObjectName("QuickBarNotificationText")
@@ -124,7 +124,7 @@ class QuickBarNotificationRail(QFrame):
         self._label.clear()
         self._label.hide()
         self.setToolTip(
-            "The next Vantage notification or sound source appears here")
+            "The next attributable Vantage event appears here")
         self.setAccessibleName("Quick Bar notification rail; no active notice")
 
     def showEvent(self, event):
@@ -309,7 +309,7 @@ class QuickBar(ParserWindow):
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.notification_rail = QuickBarNotificationRail()
         self.notification_rail.setToolTip(
-            "The next Vantage notification or sound source appears here")
+            "The next attributable Vantage event appears here")
         self.content.addWidget(
             self.notification_rail, 0,
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)

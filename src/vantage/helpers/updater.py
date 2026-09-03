@@ -13,7 +13,8 @@ import sys
 import tempfile
 
 from PySide6.QtCore import (
-    QByteArray, QIODevice, QObject, QSaveFile, QSize, Qt, QUrl, Signal)
+    QByteArray, QIODevice, QObject, QSaveFile, QSize, Qt, QTimer, QUrl, Signal)
+from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtNetwork import (
     QNetworkAccessManager, QNetworkReply, QNetworkRequest)
 from PySide6.QtWidgets import (
@@ -30,7 +31,7 @@ LATEST_RELEASE_API = (
     f"https://api.github.com/repos/{REPOSITORY}/releases/latest")
 RELEASES_URL = f"https://github.com/{REPOSITORY}/releases"
 ASSET_NAME = "Vantage.exe"
-USER_AGENT = "Vantage/1.44.31"
+USER_AGENT = "Vantage/1.44.32"
 
 
 def file_sha256(path):
@@ -304,6 +305,7 @@ class UpdateDialog(UniformScaleDialog):
         self.controller = controller
         self.info = None
         self.staged_path = ""
+        self._one_click_active = False
 
         layout = QVBoxLayout(self.scaled_surface)
         layout.setContentsMargins(18, 15, 18, 16)
@@ -317,7 +319,10 @@ class UpdateDialog(UniformScaleDialog):
         self.status = QLabel("Ready to check GitHub Releases.")
         self.status.setObjectName("UpdateStatus")
         self.status.setWordWrap(True)
-        self.status.setAccessibleName("Update status")
+        self.status.setAccessibleName(
+            "Update status: Ready to check GitHub Releases.")
+        self.status.setAccessibleDescription(
+            "Ready to check GitHub Releases.")
         layout.addWidget(self.status)
         self.notes = QPlainTextEdit()
         self.notes.setObjectName("UpdateNotes")
@@ -347,25 +352,22 @@ class UpdateDialog(UniformScaleDialog):
         self.check_button.clicked.connect(self.check)
         actions.addWidget(self.check_button)
         actions.addStretch(1)
-        self.download_button = QPushButton("Download")
-        self.download_button.setIcon(game_icon("export"))
+        self.download_button = QPushButton("Download and install update")
+        self.download_button.setObjectName("PrimaryAction")
+        self.download_button.setIcon(game_icon("ph-download"))
+        self.download_button.setAccessibleName(
+            "Download, verify, install, and restart Vantage")
         self.download_button.setToolTip(
-            "Download Vantage.exe to a temporary folder and verify its SHA-256")
+            "One click downloads and verifies Vantage.exe, installs it, and "
+            "restarts only Vantage; EverQuest and WinEQ remain open")
         self.download_button.setEnabled(False)
-        self.download_button.clicked.connect(self.download)
+        self.download_button.clicked.connect(self.download_and_install)
         actions.addWidget(self.download_button)
-        self.install_button = QPushButton("Install & restart")
-        self.install_button.setObjectName("PrimaryAction")
-        self.install_button.setIcon(game_icon("check"))
-        self.install_button.setToolTip(
-            "Close only Vantage, replace the executable, and reopen it; EverQuest remains open")
-        self.install_button.setEnabled(False)
-        self.install_button.clicked.connect(self.install)
-        actions.addWidget(self.install_button)
-        close = QPushButton("Later")
-        close.setToolTip("Close this dialog without changing Vantage")
-        close.clicked.connect(self.close)
-        actions.addWidget(close)
+        self.close_button = QPushButton("Later")
+        self.close_button.setToolTip(
+            "Close this dialog without changing Vantage")
+        self.close_button.clicked.connect(self.close)
+        actions.addWidget(self.close_button)
         layout.addLayout(actions)
 
         controller.check_finished.connect(self._checked)
@@ -390,14 +392,15 @@ class UpdateDialog(UniformScaleDialog):
         self.check()
 
     def check(self):
-        self.status.setText("Checking the official GitHub Release…")
+        self._set_status("Checking the official GitHub Release…", announce=True)
         self.check_button.setEnabled(False)
         if not self.controller.check():
-            self.status.setText("Another update operation is already running.")
+            self._set_status(
+                "Another update operation is already running.", announce=True)
 
     def _checked(self, info, message):
         self.check_button.setEnabled(True)
-        self.status.setText(message)
+        self._set_status(message, announce=True)
         self.info = info
         if info:
             self.version.setText(
@@ -406,53 +409,91 @@ class UpdateDialog(UniformScaleDialog):
             self.notes.setPlainText(info.notes or "No release notes provided.")
             available = info.version > self.controller.current_version
             self.download_button.setEnabled(available)
+            self.download_button.setText("Download and install update")
         else:
             self.download_button.setEnabled(False)
             self.notes.setPlainText(
                 "The repository is connected, but it does not have a published Release yet.")
 
     def _failed(self, message):
+        self._one_click_active = False
         self.check_button.setEnabled(True)
         self.download_button.setEnabled(bool(
             self.info and self.info.version > self.controller.current_version))
-        self.install_button.setEnabled(False)
-        self.status.setText(message)
+        self.download_button.setText("Try again")
+        self.close_button.setEnabled(True)
+        self._set_status(message, announce=True)
+        if self.isVisible():
+            QTimer.singleShot(0, lambda: self.download_button.setFocus(
+                Qt.FocusReason.OtherFocusReason))
 
     def download(self):
+        """Backward-compatible alias for the one-click update action."""
+        self.download_and_install()
+
+    def download_and_install(self):
         if not self.info:
             return
-        self.status.setText("Downloading Vantage.exe…")
+        if self.controller.busy:
+            self._set_status(
+                "Another update operation is already running.", announce=True)
+            return
+        self._one_click_active = True
+        self._set_status(
+            "Downloading and verifying Vantage.exe…", announce=True)
         self.progress.setValue(0)
         self.download_button.setEnabled(False)
+        self.download_button.setText("Downloading…")
         self.check_button.setEnabled(False)
-        self.controller.download(self.info)
+        self.close_button.setEnabled(False)
+        if not self.controller.download(self.info):
+            self._failed("The update could not start.")
 
     def _download_progress(self, received, total):
+        if not self._one_click_active:
+            return
         total = total if total > 0 else (self.info.size if self.info else 0)
         self.progress.setValue(
             max(0, min(100, round(received / total * 100))) if total else 0)
 
     def _download_ready(self, info, path):
+        if not self._one_click_active:
+            return
         self.info = info
         self.staged_path = path
         self.progress.setValue(100)
-        self.status.setText(
-            "Download verified · size and GitHub SHA-256 match.")
-        self.check_button.setEnabled(True)
-        self.install_button.setEnabled(True)
+        self._set_status(
+            "Verified · installing update and restarting Vantage…",
+            announce=True)
+        self.download_button.setText("Installing…")
+        QTimer.singleShot(0, self.install)
 
     def install(self):
         if not self.info or not self.staged_path:
             return
-        self.install_button.setEnabled(False)
-        self.status.setText("Closing Vantage and applying the verified update…")
+        self.download_button.setEnabled(False)
+        self._set_status(
+            "Closing Vantage and applying the verified update…", announce=True)
         try:
             self.controller.launch_installer(self.info, self.staged_path)
         except (OSError, RuntimeError, ValueError) as error:
-            self.install_button.setEnabled(True)
-            self.status.setText(f"Update could not start: {error}")
+            self._failed(f"Update could not start: {error}")
             return
+        self._one_click_active = False
         app = QApplication.instance()
         if getattr(app, "_system_tray", None):
             app._system_tray.setVisible(False)
         app.quit()
+
+    def _set_status(self, message, announce=False):
+        """Keep visible and assistive update status in one synchronized path."""
+        message = " ".join(str(message or "").split())
+        self.status.setText(message)
+        self.status.setAccessibleName(f"Update status: {message}")
+        self.status.setAccessibleDescription(message)
+        if announce and self.isVisible():
+            try:
+                QAccessible.updateAccessibility(
+                    QAccessibleAnnouncementEvent(self.status, message))
+            except (AttributeError, RuntimeError, TypeError):
+                pass

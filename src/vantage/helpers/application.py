@@ -42,7 +42,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=31,
+    patch=32,
     build=""
 )
 
@@ -395,7 +395,7 @@ class VantageApp(QApplication):
             overlay_id=overlay_id, countdown_seconds=countdown_seconds,
             timer_key=timer_key, character=character, color=color,
             timer_mode=timer_mode, text_color=text_color)
-        self._queue_quickbar_notice("NOTICE", title, message)
+        self._queue_quickbar_notice(title, message)
         return shown
 
     def dismiss_overlay_timer(self, timer_key):
@@ -442,16 +442,14 @@ class VantageApp(QApplication):
         self._last_audio = (
             f"{source} · {sound_display_name(sound_path)} · {volume}%")
         owner = str(channel or "Vantage").strip().title()
-        VantageApp._queue_quickbar_notice(
-            self,
-            "SOUND", owner, source, sound_display_name(sound_path))
+        VantageApp._queue_quickbar_notice(self, owner, source)
 
-    def _queue_quickbar_notice(self, kind, *parts):
+    def _queue_quickbar_notice(self, *parts):
         """Send one compact, attributable event to the Quick Bar rail."""
         cleaned = [" ".join(str(part).split()) for part in parts if part]
         self._quickbar_notice_id = int(getattr(
             self, "_quickbar_notice_id", 0)) + 1
-        self._quickbar_notice = " · ".join([str(kind).upper(), *cleaned])
+        self._quickbar_notice = " · ".join(cleaned)
         self._refresh_quickbar()
 
     def _refresh_quickbar(self):

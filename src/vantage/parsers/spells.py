@@ -517,6 +517,22 @@ class Spells(ParserWindow):
         pill.setFixedHeight(20)
         self._event_layout.insertWidget(0, pill)
         self._event_pills.appendleft(pill)
+        app = QApplication.instance()
+        queue_notice = getattr(app, '_queue_quickbar_notice', None)
+        if callable(queue_notice):
+            outcome_labels = {
+                'WORN OFF': 'worn off',
+                'CHARM BROKE': 'charm broke',
+                'RESIST': 'resisted',
+                'FIZZLE': 'fizzled',
+                'INTERRUPTED': 'interrupted',
+                'DID NOT HOLD': 'did not hold',
+                'CAST BLOCKED': 'cast blocked',
+            }
+            outcome = (
+                f"{spell_name} {outcome_labels[kind]}"
+                if spell_name and kind in outcome_labels else message)
+            queue_notice('Spells', outcome, target_name)
         while len(self._event_pills) > 3:
             self._dismiss_spell_event(self._event_pills[-1])
         self._event_tray.show()
@@ -1741,7 +1757,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.31')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.32')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
