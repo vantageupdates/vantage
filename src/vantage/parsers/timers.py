@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import math
 import re
 import string
 import time
 
-from PySide6.QtCore import QDateTime, QLocale, QRectF, QSize, Qt, QTimer
+from PySide6.QtCore import QDateTime, QEvent, QLocale, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import (
     QAccessible, QAccessibleAnnouncementEvent, QColor, QFont, QKeySequence,
     QLinearGradient, QPainter, QPainterPath, QShortcut)
@@ -214,35 +215,6 @@ SPAWN_TIMER_WINDOW_STYLE = """
         border-right: none;
         border-top-right-radius: 6px;
         border-bottom-right-radius: 6px;
-    }
-    QSpinBox#SpawnTimerVolume {
-        color: #E9E7E1;
-        background-color: transparent;
-        border: none;
-        border-right: 1px solid #334049;
-        border-radius: 0;
-        min-height: 26px;
-        max-height: 26px;
-        padding: 0 16px 0 3px;
-        font-family: "Segoe UI Variable", "Segoe UI";
-        font-size: 10px;
-    }
-    QSpinBox#SpawnTimerVolume:focus {
-        border: 1px solid #B99A60;
-    }
-    QSpinBox#SpawnTimerVolume::up-button,
-    QSpinBox#SpawnTimerVolume::down-button {
-        subcontrol-origin: border;
-        width: 14px;
-        border: none;
-        border-left: 1px solid #40505C;
-        background-color: transparent;
-    }
-    QSpinBox#SpawnTimerVolume::up-button {
-        subcontrol-position: top right;
-    }
-    QSpinBox#SpawnTimerVolume::down-button {
-        subcontrol-position: bottom right;
     }
 """
 
@@ -493,7 +465,7 @@ class TimerEditDialog(UniformScaleDialog):
 class TimerRow(QFrame):
     COMPACT_MINIMUM_HEIGHT = 40
     DETAILED_MINIMUM_HEIGHT = 82
-    CONTROLS_SIZE = QSize(242, 28)
+    CONTROLS_SIZE = QSize(184, 28)
 
     def __init__(self, timer, owner):
         super().__init__()
@@ -613,19 +585,6 @@ class TimerRow(QFrame):
         spawned.clicked.connect(self._spawned)
         controls_layout.addWidget(spawned)
 
-        self.volume = QSpinBox()
-        self.volume.setObjectName("SpawnTimerVolume")
-        self.volume.setRange(0, 100)
-        self.volume.setSuffix("%")
-        self.volume.setValue(timer.volume)
-        self.volume.setProperty("IntegratedRocker", True)
-        self.volume.setAccessibleName(f"Volume for {timer.name}")
-        self.volume.setToolTip(
-            f"Individual alarm volume for {timer.name}")
-        self.volume.setFixedWidth(58)
-        self.volume.editingFinished.connect(self._volume_changed)
-        controls_layout.addWidget(self.volume)
-
         edit = QPushButton()
         self._polish_action(edit)
         edit.setIcon(game_icon("edit"))
@@ -692,10 +651,6 @@ class TimerRow(QFrame):
         self.owner.announce(f"{self.timer.name}: spawn confirmed")
         self.owner.state_changed()
 
-    def _volume_changed(self):
-        self.timer.volume = self.volume.value()
-        self.owner.state_changed()
-
     def refresh(self):
         timer = self.timer
         self.name_label.setText(timer.name)
@@ -724,7 +679,7 @@ class TimerRow(QFrame):
         else:
             self.detail_label.setText(
                 f"{smart} · kill {format_seconds(timer.kill_seconds)} · "
-                f"vol {timer.volume}% · cycle {timer.cycles}{zone}{source}")
+                f"cycle {timer.cycles}{zone}{source}")
         self.detail_label.setToolTip(
             f"Named source: {timer.source}\n{NAMED_CATALOG_SOURCE_URL}\n"
             f"Timing source: {CATALOG_SOURCE}\n{CATALOG_SOURCE_URL}"
@@ -824,11 +779,17 @@ class SpawnTimers(ParserWindow):
         # geometry without changing any other Vantage window.
         self.setStyleSheet(SPAWN_TIMER_WINDOW_STYLE)
         self.setWindowTitle("Smart Spawn Timers")
+        timer_scroll = self._scale_view.verticalScrollBar()
+        timer_scroll.setAccessibleName("Scroll Smart Timer rows")
+        timer_scroll.setToolTip(
+            "Scroll saved timer rows when the complete zone list is taller "
+            "than the available screen")
         self._current_zone = config.data['maps'].get('last_zone', '')
         self._selected_zone = str(
             config.data['timers'].get('view_zone') or
             self._current_zone or '').strip()
         self._missing_zone_notified = None
+        self._required_timer_height = 360
         self._states = {}
         self._rows = {}
         self._safety = SafetyAlertState(
@@ -918,9 +879,9 @@ class SpawnTimers(ParserWindow):
         self._layout.setContentsMargins(3, 3, 3, 3)
         self._layout.setSpacing(3)
         self._layout.addStretch(1)
-        # This is intentionally not a QScrollArea. The timer list is one fixed
-        # logical canvas; adding rows lengthens that canvas and the outer
-        # graphics view scales the complete replica without scrollbars.
+        # Keep one logical timer canvas. The surrounding graphics view only
+        # scrolls when the complete zone list is physically taller than the
+        # screen; ordinary lists remain fixed and fully visible.
         self.content.addWidget(host, 1)
 
         self.status = QLabel("Smart timers ready · automatic log timers: nameds only")
@@ -1110,6 +1071,8 @@ class SpawnTimers(ParserWindow):
         row = TimerRow(timer, self)
         self._rows[timer.timer_id] = row
         self._layout.insertWidget(self._layout.count() - 1, row)
+        for button in row.findChildren(QPushButton):
+            button.installEventFilter(self)
         row.setVisible(self._row_matches_zone(timer))
         self._schedule_timer_canvas()
 
@@ -1118,7 +1081,7 @@ class SpawnTimers(ParserWindow):
             self._canvas_update_timer.start(0)
 
     def _sync_timer_canvas(self):
-        """Fit every logical timer row on one surface, never in a scroller."""
+        """Keep every zone row visible, using scroll only past screen height."""
         margins = self._layout.contentsMargins()
         rows = tuple(
             row for timer_id, row in self._rows.items()
@@ -1133,19 +1096,83 @@ class SpawnTimers(ParserWindow):
             self._menu.minimumSizeHint().height(), self._menu.sizeHint().height())
         status_height = max(
             self.status.minimumSizeHint().height(), self.status.sizeHint().height())
-        logical_height = max(
-            360, header_height + list_height + status_height)
+        self._required_timer_height = max(
+            1, header_height + list_height + status_height)
+        logical_height = max(360, self._required_timer_height)
         self._set_design_size(QSize(520, logical_height))
+        # The authored design may retain comfortable empty space, but the
+        # resize floor follows the actual rows in this zone. Recompute it even
+        # when the design size itself did not change.
+        self._set_scaled_minimum_size()
+        self._update_uniform_scale()
         self._schedule_viewport_rows()
 
     def _minimum_logical_surface_height(self):
-        """Clip a short viewport; never squeeze timer cards into each other."""
+        """Keep every row in the selected zone inside the live viewport."""
         # A rolled panel contains only its header. Re-expanding the protected
         # timer canvas here would vertically center the header inside a hidden
         # 360 px surface and make the 24 px strip appear broken.
-        return 1 if self._collapsed else self._design_size.height()
+        return 1 if self._collapsed else max(
+            1, int(getattr(
+                self, '_required_timer_height', self._design_size.height())))
+
+    def _set_scaled_minimum_size(self):
+        """Make the vertical resize floor track all visible timer rows."""
+        if self._collapsed:
+            return
+        minimum_scale = self._effective_minimum_scale()
+        minimum_width = max(
+            round(self._design_size.width() * minimum_scale),
+            int(self._minimum_readable_width))
+        # ParserWindow scales this canvas from its width. At the current width,
+        # this is the exact physical height required by the header, status, and
+        # every row in the selected zone.
+        width_scale = max(
+            minimum_scale,
+            max(self.width(), minimum_width) /
+            max(1, self._design_size.width()))
+        required_height = math.ceil(
+            self._minimum_logical_surface_height() * width_scale)
+        screen = (
+            QApplication.screenAt(self.frameGeometry().center()) or
+            QApplication.primaryScreen())
+        if screen is not None:
+            native_chrome = max(
+                0, self.frameGeometry().height() - self.height())
+            screen_limit = max(
+                96, screen.availableGeometry().height() - native_chrome)
+        else:
+            screen_limit = required_height
+        minimum_height = min(required_height, screen_limit)
+        overflow = required_height > screen_limit
+        self._scale_view.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded if overflow else
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setMinimumSize(minimum_width, minimum_height)
+
+    def eventFilter(self, watched, event):
+        if (event.type() == QEvent.Type.FocusIn
+                and isinstance(watched, QPushButton)
+                and self._timer_host.isAncestorOf(watched)):
+            QTimer.singleShot(
+                0, lambda control=watched:
+                self._ensure_timer_control_visible(control))
+        return super().eventFilter(watched, event)
+
+    def _ensure_timer_control_visible(self, control):
+        """Reveal a keyboard-focused row when the screen-height cap scrolls."""
+        if (not control or not control.isVisible()
+                or self._scale_view.verticalScrollBarPolicy() !=
+                Qt.ScrollBarPolicy.ScrollBarAsNeeded):
+            return
+        logical_rect = QRectF(
+            control.mapTo(self._surface, control.rect().topLeft()),
+            control.size())
+        scene_rect = self._scale_proxy.mapRectToScene(logical_rect)
+        self._scale_view.ensureVisible(scene_rect, 8, 8)
 
     def _update_uniform_scale(self):
+        self._set_scaled_minimum_size()
         super()._update_uniform_scale()
         self._schedule_viewport_rows()
 
@@ -1155,47 +1182,10 @@ class SpawnTimers(ParserWindow):
             timer.start(0)
 
     def _apply_viewport_capacity(self):
-        """Show only complete rows in a short, scroll-free timer viewport."""
-        if not self._scale_view or not self._scale_proxy:
-            return
-        scale = float(self._scale_view.transform().m11())
-        if scale <= 0:
-            return
-
-        zone_rows = []
+        """Apply only the zone filter; resizing never hides matching rows."""
         for timer_id, row in self._rows.items():
             matches = self._row_matches_zone(self._states.get(timer_id))
             row.setVisible(matches)
-            if matches:
-                zone_rows.append(row)
-
-        # First lay out the complete zone list on its protected logical canvas.
-        # Then hide the suffix that would be physically clipped by this viewport.
-        self._surface.layout().activate()
-        self._layout.activate()
-        logical_bottom = int(
-            self._scale_view.viewport().height() / scale) - 1
-        suffix_started = False
-        focus = QApplication.focusWidget()
-        focus_was_hidden = False
-        visible_rows = []
-        for row in zone_rows:
-            top = row.mapTo(self._surface, row.rect().topLeft()).y()
-            fits = not suffix_started and top + row.height() - 1 <= logical_bottom
-            suffix_started = suffix_started or not fits
-            if (not fits and focus is not None and
-                    (focus is row or row.isAncestorOf(focus))):
-                focus_was_hidden = True
-            row.setVisible(fits)
-            if fits:
-                visible_rows.append(row)
-        if focus_was_hidden:
-            # Never strand keyboard focus inside a suffix row that just became
-            # invisible. Keep the user in the timer list when possible.
-            destination = (
-                visible_rows[-1].play_button if visible_rows else
-                self.zone_filter)
-            destination.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def add_timer(self):
         dialog = TimerEditDialog(parent=self)

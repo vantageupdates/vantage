@@ -2,14 +2,14 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QPoint, QSize
+from PySide6.QtCore import QPoint, QSize, Qt
 from PySide6.QtGui import QColor, QImage, QPainter
-from PySide6.QtWidgets import QApplication, QPushButton
+from PySide6.QtWidgets import QApplication, QPushButton, QSpinBox
 
 from vantage.helpers import config
 from vantage.helpers.spawn_timer import PHASE_IDLE, PHASE_RESPAWN, SpawnTimerState
 from vantage.parsers.timers import (
-    SPAWN_TIMER_WINDOW_STYLE, TimerProgressBar, TimerRow)
+    SPAWN_TIMER_WINDOW_STYLE, TimerEditDialog, TimerProgressBar, TimerRow)
 
 
 class _Owner:
@@ -69,11 +69,51 @@ def test_every_timer_button_has_an_authored_tooltip():
     assert "READY" in row.clear_button.toolTip()
 
 
+def test_timer_row_actions_keep_a_direct_keyboard_order_without_volume():
+    app = _app()
+    row = TimerRow(SpawnTimerState("Crystal Fang", 1970), _Owner())
+    app.processEvents()
+    controls = [
+        row.controls.layout().itemAt(index).widget()
+        for index in range(row.controls.layout().count())]
+
+    assert len(controls) == 7
+    assert all(isinstance(control, QPushButton) for control in controls)
+    assert all(
+        control.focusPolicy() == Qt.FocusPolicy.StrongFocus
+        for control in controls)
+    assert [control.accessibleName() for control in controls] == [
+        "Start or pause Crystal Fang",
+        "Restart Crystal Fang",
+        "Clear Crystal Fang",
+        "Confirm death of Crystal Fang",
+        "Confirm spawn of Crystal Fang",
+        "Edit Crystal Fang",
+        "Delete Crystal Fang",
+    ]
+
+
+def test_individual_volume_remains_in_the_timer_edit_dialog():
+    app = _app()
+    timer = SpawnTimerState("Crystal Fang", 1970, volume=37)
+    dialog = TimerEditDialog(timer)
+    app.processEvents()
+
+    assert dialog.volume.accessibleName() == "Individual timer volume"
+    assert dialog.volume.toolTip()
+    assert dialog.volume.value() == 37
+    dialog.volume.setValue(42)
+    dialog.apply(timer)
+    assert timer.volume == 42
+    dialog.close()
+
+
 def test_timer_row_uses_border_light_crisp_controls():
     app = _app()
     previous = config.data['timers']['compact']
     config.data['timers']['compact'] = False
-    row = TimerRow(SpawnTimerState("Crystal Fang", 1970), _Owner())
+    row = TimerRow(
+        SpawnTimerState("Crystal Fang", 1970, volume=37), _Owner())
     row.resize(510, row.sizeHint().height())
     row.show()
     app.processEvents()
@@ -93,9 +133,12 @@ def test_timer_row_uses_border_light_crisp_controls():
         for button in row.findChildren(QPushButton))
     assert row.controls.layout().spacing() == 0
     assert row.controls.size() == TimerRow.CONTROLS_SIZE
+    assert TimerRow.CONTROLS_SIZE == QSize(184, 28)
     assert row.minimumHeight() == TimerRow.DETAILED_MINIMUM_HEIGHT
-    assert row.volume.property("IntegratedRocker") is True
-    assert row.volume.parentWidget() is row.controls
+    assert not hasattr(row, "volume")
+    assert row.controls.findChildren(QSpinBox) == []
+    assert "vol " not in row.detail_label.text().casefold()
+    assert row.timer.volume == 37
     row.close()
     row.deleteLater()
     app.processEvents()

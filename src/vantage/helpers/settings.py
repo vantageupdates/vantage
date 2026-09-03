@@ -681,7 +681,8 @@ class SettingsWindow(UniformScaleDialog):
         timer_volume.setSuffix('%')
         timer_volume.setObjectName('timers:volume')
         timer_volume.setToolTip(
-            'Default volume for new timers; each timer can change it in its own row')
+            'Default volume for new timers; change an individual timer from '
+            'its Edit dialog')
         tsl.addRow('Default timer volume', timer_volume)
         timer_background_audio = QCheckBox()
         timer_background_audio.setObjectName('timers:sounds_when_hidden')
@@ -692,7 +693,7 @@ class SettingsWindow(UniformScaleDialog):
         timer_compact = QCheckBox()
         timer_compact.setObjectName('timers:compact')
         timer_compact.setToolTip(
-            'Hide secondary source, cycle, kill-time, and volume text from '
+            'Hide secondary source, cycle, and kill-time text from '
             'each timer row while keeping every timer action available')
         tsl.addRow('Compact rows', timer_compact)
         timer_auto_log = QCheckBox()

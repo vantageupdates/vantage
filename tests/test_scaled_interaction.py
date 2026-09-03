@@ -1,4 +1,5 @@
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -10,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 SCRIPT = r"""
 import json
+import math
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
@@ -118,6 +120,7 @@ click_scaled(timers, row.play_button)
 QTest.qWait(30)
 single_timer_size = [timers.width(), timers.height()]
 single_timer_surface = [timers._surface.width(), timers._surface.height()]
+single_timer_required = timers._required_timer_height
 for index in range(6):
     extra = SpawnTimerState(f'No-scroll {index}', 1800, kill_seconds=90)
     timers._states[extra.timer_id] = extra
@@ -133,8 +136,9 @@ last_timer_row.play_button.setFocus()
 app.processEvents()
 timer_focus_started_on_suffix = last_timer_row.play_button.hasFocus()
 
-# Reproduce a 150%-scaled, short timer panel. A scroll-free viewport must show
-# only complete cards; dragging its bottom edge farther down reveals the rest.
+# Reproduce a 150%-scaled attempt to make the timer panel too short. Its
+# dynamic resize floor must keep every saved row visible instead of silently
+# hiding a suffix of the list.
 timers.resize(780, 438)
 QTest.qWait(80)
 short_rows = [
@@ -154,14 +158,15 @@ timer_short_controls_inside = all(
             row.controls.layout().itemAt(index).widget().geometry())
         for index in range(row.controls.layout().count()))
     for row in short_rows)
-timer_short_hides_suffix = len(short_rows) < len(timers._rows)
+timer_short_keeps_all_rows = len(short_rows) == len(timers._rows)
+timer_resize_was_clamped = timers.height() >= timers.minimumHeight() > 438
+timer_required_physical_height = math.ceil(
+    timers._required_timer_height *
+    (timers.width() / timers._design_size.width()))
+timer_screen_height = timers.screen().availableGeometry().height()
 short_focus = app.focusWidget()
 timer_short_focus_visible = bool(
     short_focus and short_focus.isVisibleTo(timers._surface))
-timers.resize(780, round(timers._design_size.height() * 1.5))
-QTest.qWait(80)
-timer_tall_reveals_all = all(
-    not timer_row.isHidden() for timer_row in timers._rows.values())
 
 maps.resize(100, 100)
 maps.show()
@@ -201,14 +206,17 @@ print(json.dumps({
     'timer_running': timer.running,
     'timer_size': single_timer_size,
     'timer_surface': single_timer_surface,
+    'timer_required_single': single_timer_required,
     'timer_design_many': timer_design_many,
     'timer_rows_inside': timer_rows_inside,
     'timer_short_rows_separate': timer_short_rows_separate,
     'timer_short_controls_inside': timer_short_controls_inside,
-    'timer_short_hides_suffix': timer_short_hides_suffix,
+    'timer_short_keeps_all_rows': timer_short_keeps_all_rows,
+    'timer_resize_was_clamped': timer_resize_was_clamped,
+    'timer_required_physical_height': timer_required_physical_height,
+    'timer_screen_height': timer_screen_height,
     'timer_focus_started_on_suffix': timer_focus_started_on_suffix,
     'timer_short_focus_visible': timer_short_focus_visible,
-    'timer_tall_reveals_all': timer_tall_reveals_all,
     'timer_scroll_areas': len(timers._surface.findChildren(QScrollArea)),
     'missing_timer_tooltips': missing,
     'map_manual_pan': maps._map._manual_view,
@@ -239,28 +247,36 @@ def test_scaled_panels_keep_keyboard_pointer_and_tooltips(tmp_path):
     assert result["search_focus"] is True
     assert result["market_layout_after"] == result["market_layout_before"]
     assert result["timer_running"] is True
-    assert result["timer_surface"] == [520, 360]
+    assert result["timer_surface"][0] == 520
+    assert result["timer_surface"][1] >= result["timer_required_single"]
     assert result["timer_scroll_areas"] == 0
     assert result["timer_design_many"][0] == 520
     assert result["timer_design_many"][1] > 360
     assert result["timer_rows_inside"] is True
     assert result["timer_short_rows_separate"] is True
     assert result["timer_short_controls_inside"] is True
-    assert result["timer_short_hides_suffix"] is True
+    assert result["timer_short_keeps_all_rows"] is True
+    assert result["timer_resize_was_clamped"] is True
     assert result["timer_focus_started_on_suffix"] is True
     assert result["timer_short_focus_visible"] is True
-    assert result["timer_tall_reveals_all"] is True
-    assert result["timer_size"] == [300, 90]
+    assert result["timer_size"][0] == 300
+    assert result["timer_size"][1] >= math.ceil(
+        result["timer_required_single"] * 300 / 520)
     assert result["missing_timer_tooltips"] == []
     assert result["map_manual_pan"] is True
-    assert result["minimum_sizes"] | {"timers": [300, 90]} == {
+    assert result["minimum_sizes"] == {
         "quickbar": [217, 18],
         "maps": [100, 100], "spells": [210, 111],
         "tick": [88, 48],
-        "timers": [300, 90], "combat": [130, 75],
+        "timers": [300, min(
+            result["timer_required_physical_height"],
+            result["timer_screen_height"])],
+        "combat": [130, 75],
         "heals": [130, 55], "market": [245, 155]}
     assert result["minimum_sizes"]["timers"] == [
-        300, round(result["timer_design_many"][1] * .25)]
+        300, min(
+            result["timer_required_physical_height"],
+            result["timer_screen_height"])]
     assert result["missing_by_panel"] == {
         "quickbar": [], "maps": [], "spells": [], "tick": [],
         "timers": [], "combat": [],

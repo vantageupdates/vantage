@@ -92,8 +92,6 @@ archive_size = settings.scaled_surface.findChild(
 print(json.dumps({
     'panel_button': panel_tooltip(timers, row.play_button),
     'panel_button_expected': row.play_button.toolTip(),
-    'panel_spinbox': panel_tooltip(timers, row.volume),
-    'panel_spinbox_expected': row.volume.toolTip(),
     'inner_timer_hover': panel_hover_tooltip(timers, row.restart_button),
     'inner_timer_hover_expected': row.restart_button.toolTip(),
     'header_hover': panel_hover_tooltip(timers, timers._roll_button),
@@ -102,6 +100,8 @@ print(json.dumps({
     'dialog_lineedit_expected': editor.respawn.toolTip(),
     'dialog_spinbox': dialog_tooltip(editor, editor.warning),
     'dialog_spinbox_expected': editor.warning.toolTip(),
+    'dialog_volume': dialog_tooltip(editor, editor.volume),
+    'dialog_volume_expected': editor.volume.toolTip(),
     'settings_checkbox': dialog_tooltip(settings, archive_enabled),
     'settings_checkbox_expected': archive_enabled.toolTip(),
     'settings_spinbox': dialog_tooltip(settings, archive_size),
@@ -126,10 +126,10 @@ def test_scaled_surfaces_forward_real_tooltip_events(tmp_path):
     result = json.loads(completed.stdout.strip().splitlines()[-1])
 
     assert result['panel_button'] == result['panel_button_expected']
-    assert result['panel_spinbox'] == result['panel_spinbox_expected']
     assert result['inner_timer_hover'] == result['inner_timer_hover_expected']
     assert result['header_hover'] == result['header_hover_expected']
     assert result['dialog_lineedit'] == result['dialog_lineedit_expected']
     assert result['dialog_spinbox'] == result['dialog_spinbox_expected']
+    assert result['dialog_volume'] == result['dialog_volume_expected']
     assert result['settings_checkbox'] == result['settings_checkbox_expected']
     assert result['settings_spinbox'] == result['settings_spinbox_expected']
