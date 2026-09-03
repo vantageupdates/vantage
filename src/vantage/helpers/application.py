@@ -42,7 +42,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=27,
+    patch=28,
     build=""
 )
 
@@ -608,11 +608,21 @@ class VantageApp(QApplication):
         self._settings.activateWindow()
         return self._settings
 
-    def quit_vantage(self, confirm=False, parent=None):
+    def quit_vantage(self, confirm=True, parent=None):
+        """Close Vantage after a safe-by-default manual confirmation.
+
+        Internal update/restart paths intentionally call ``quit()`` directly
+        after checkpointing state, so this prompt is reserved for a person's
+        Quit action in the Quick Bar or system tray.
+        """
         if confirm:
             answer = QMessageBox.question(
-                parent, "Quit Vantage",
-                "Close Vantage? EverQuest and WinEQ will remain open.",
+                parent, "Quit Vantage?",
+                "Quit Vantage?\n\n"
+                "Log monitoring, alerts, overlays, and phone sync will stop "
+                "until Vantage is opened again. Active spell and spawn timers "
+                "are saved and keep counting while the app is closed.\n\n"
+                "EverQuest and WinEQ will remain open.",
                 QMessageBox.StandardButton.Yes |
                 QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No)
@@ -834,7 +844,7 @@ class VantageApp(QApplication):
             self.show_spell_library()
 
         elif action == quit_action:
-            self.quit_vantage()
+            self.quit_vantage(confirm=True)
 
         elif action in parser_toggles:
             parser_toggles[action].toggle()

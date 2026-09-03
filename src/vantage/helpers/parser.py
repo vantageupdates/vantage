@@ -100,12 +100,23 @@ class ParserContextMenuRouter(QObject):
             self._windows.append(window)
 
     def eventFilter(self, watched, event):
-        if (event.type() != QEvent.Type.ContextMenu
-                or not isinstance(watched, QWidget)):
+        if not isinstance(watched, QWidget):
             return False
+        event_type = event.type()
         self._windows = [window for window in self._windows if window]
         for window in self._windows:
-            if (window._is_window_descendant(watched)
+            if not window._is_window_descendant(watched):
+                continue
+            # An invisible auto-hide header cannot receive Tab focus. Reveal it
+            # before Qt calculates the next focus target so every header action
+            # remains keyboard reachable without changing pointer behavior.
+            if (event_type == QEvent.Type.KeyPress
+                    and event.key() in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab)
+                    and window._auto_hide_menu
+                    and not window._collapsed
+                    and not window._menu.isEnabled()):
+                window._set_header_revealed(True)
+            if (event_type == QEvent.Type.ContextMenu
                     and not window._preserve_child_context_menu(watched)):
                 window._show_window_context_menu(event.globalPos())
                 return True
@@ -407,6 +418,7 @@ class ParserWindow(QWidget):
         self._header_pack_timer.setSingleShot(True)
         self._header_pack_timer.timeout.connect(self._pack_header_controls)
         self._header_overflowed = []
+        self._header_focus_restore = None
         self._packing_header = False
 
         self._set_flags()
@@ -684,6 +696,12 @@ class ParserWindow(QWidget):
             return
         self._packing_header = True
         try:
+            focused = self._surface.focusWidget()
+            if focused is None:
+                focused = QApplication.focusWidget()
+            restore_from_overflow = (
+                self._header_focus_restore
+                if focused is self._header_overflow_button else None)
             # Restore only controls hidden by this packer, then measure the
             # complete authored header again.  Subclass-hidden controls that
             # were never overflowed remain untouched.
@@ -700,16 +718,16 @@ class ParserWindow(QWidget):
             widgets = self._header_menu_widgets()
             required = self._header_menu_required_width(widgets)
             focus_to_overflow = False
+            newly_hidden_focus = None
             if required > self._header_menu_available_width(False):
                 available = self._header_menu_available_width(True)
                 for widget in self._header_overflow_candidates(widgets):
-                    focus = QApplication.focusWidget()
-                    focus_to_overflow = focus_to_overflow or bool(
-                        widget.hasFocus() or any(
-                            child.hasFocus()
-                            for child in widget.findChildren(QWidget)) or
-                        focus is widget or
-                        (focus is not None and widget.isAncestorOf(focus)))
+                    contains_focus = bool(
+                        focused is widget or
+                        (focused is not None and widget.isAncestorOf(focused)))
+                    if contains_focus:
+                        focus_to_overflow = True
+                        newly_hidden_focus = widget
                     widget.hide()
                     self._header_overflowed.append(widget)
                     required = self._header_menu_required_width(widgets)
@@ -718,7 +736,18 @@ class ParserWindow(QWidget):
             self._header_overflow_button.setVisible(
                 bool(self._header_overflowed))
             if focus_to_overflow and self._header_overflowed:
-                self._header_overflow_button.setFocus()
+                self._header_focus_restore = newly_hidden_focus
+                self._scale_scene.setFocusItem(self._scale_proxy)
+                self._header_overflow_button.setFocus(
+                    Qt.FocusReason.TabFocusReason)
+            elif (not self._header_overflowed and
+                    restore_from_overflow is not None and
+                    restore_from_overflow.isVisibleTo(self._surface)):
+                self._header_focus_restore = None
+                self._scale_scene.setFocusItem(self._scale_proxy)
+                restore_from_overflow.setFocus(Qt.FocusReason.TabFocusReason)
+            elif not self._header_overflowed:
+                self._header_focus_restore = None
             self._rebuild_header_overflow_menu()
             self.menu_area.activate()
             self._menu_content.activate()

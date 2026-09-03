@@ -856,6 +856,10 @@ class SpawnTimers(ParserWindow):
 
         self.zone_filter = QComboBox()
         self.zone_filter.setObjectName('SpawnTimerZoneFilter')
+        # Zone selection is core timer context, not an optional header action.
+        # Keep it directly discoverable even when the scaled overlay is at its
+        # minimum supported width; secondary actions can use header overflow.
+        self.zone_filter.setProperty('HeaderAlwaysVisible', True)
         self.zone_filter.setAccessibleName('Timer zone view')
         self.zone_filter.setToolTip(
             'Show the saved timer rows for one zone; global timers appear in '
@@ -867,6 +871,9 @@ class SpawnTimers(ParserWindow):
 
         self.share_button = QPushButton()
         self.share_button.setIcon(game_icon("export"))
+        # Sharing is a primary camp hand-off workflow.  Do not silently move it
+        # into the generic overflow menu on narrow or rolled-up timer headers.
+        self.share_button.setProperty('HeaderAlwaysVisible', True)
         self.share_button.setAccessibleName("Share visible zone timers by code")
         self.share_button.setAccessibleDescription(
             "Copies the currently visible zone timers as compact codes. Send "
@@ -891,13 +898,15 @@ class SpawnTimers(ParserWindow):
         self._share_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
         self._share_shortcut.activated.connect(self.share_visible_timers)
 
-        mobile = QPushButton()
-        mobile.setIcon(game_icon("mobile"))
-        mobile.setAccessibleName("View Vantage on your phone")
-        mobile.setToolTip("Create a QR code for timers, market, and EverQuest Live")
-        mobile.clicked.connect(
+        self.mobile_button = QPushButton()
+        self.mobile_button.setIcon(game_icon("mobile"))
+        self.mobile_button.setProperty('HeaderPriority', 100)
+        self.mobile_button.setAccessibleName("View Vantage on your phone")
+        self.mobile_button.setToolTip(
+            "Create a QR code for timers, market, and EverQuest Live")
+        self.mobile_button.clicked.connect(
             lambda: QApplication.instance().show_mobile_share())
-        self.menu_area.addWidget(mobile)
+        self.menu_area.addWidget(self.mobile_button)
 
         host = QWidget()
         host.setObjectName("SpawnTimerCanvas")
