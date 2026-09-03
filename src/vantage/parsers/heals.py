@@ -32,7 +32,8 @@ class HealChain(ParserWindow):
 
         self.header_countdown = QLabel("READY")
         self.header_countdown.setObjectName("HealChainHeaderCountdown")
-        self.header_countdown.setMinimumWidth(58)
+        self.header_countdown.setProperty("State", "ready")
+        self.header_countdown.setMinimumWidth(66)
         self.header_countdown.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.header_countdown.setAccessibleName(
             "Current Complete Heal countdown")
@@ -41,6 +42,7 @@ class HealChain(ParserWindow):
         self.menu_area.addWidget(self.header_countdown)
 
         self.interval = QSpinBox()
+        self.interval.setObjectName("HealChainInterval")
         self.interval.setRange(1, 9)
         self.interval.setSuffix("s")
         self.interval.setValue(settings["interval"])
@@ -53,6 +55,7 @@ class HealChain(ParserWindow):
         self.menu_area.addWidget(self.interval)
 
         self.pause = QPushButton()
+        self.pause.setObjectName("HealChainPause")
         self.pause.setCheckable(True)
         self.pause.setIcon(game_icon("pause"))
         self.pause.setAccessibleName("Pause Heal Chain monitoring")
@@ -60,28 +63,45 @@ class HealChain(ParserWindow):
         self.pause.toggled.connect(self._pause_changed)
         self.menu_area.addWidget(self.pause)
 
-        clear = QPushButton()
-        clear.setIcon(game_icon("delete"))
-        clear.setAccessibleName("Clear Heal Chain")
-        clear.setToolTip("Clear the live chain and its session history")
-        clear.clicked.connect(self._clear)
-        self.menu_area.addWidget(clear)
+        self.clear_button = QPushButton()
+        self.clear_button.setObjectName("HealChainClear")
+        self.clear_button.setIcon(game_icon("delete"))
+        self.clear_button.setAccessibleName("Clear Heal Chain")
+        self.clear_button.setToolTip(
+            "Clear the live chain and its session history")
+        self.clear_button.clicked.connect(self._clear)
+        self.menu_area.addWidget(self.clear_button)
 
         self.summary = QLabel("Listening for Complete Heal announcements")
         self.summary.setObjectName("HealChainSummary")
+        self.summary.setProperty("State", "ready")
+        self.summary.setAccessibleName(self.summary.text())
+        self.summary.setAccessibleDescription(
+            "Current monitoring state, spacing, call format, tank, and next "
+            "Complete Heal marker")
         self.summary.setWordWrap(True)
         self.summary.setToolTip(
             "Shows the current tank, cleric marker, next marker, and interruption state")
         self.content.addWidget(self.summary)
 
         self.tabs = QTabWidget()
+        self.tabs.setObjectName("HealChainTabs")
         self.tabs.setDocumentMode(True)
         self.tabs.setUsesScrollButtons(False)
         self.rails = HealRailWidget(self._tracker)
         self.live = self._make_table(
             ("Tank", "Order", "Cleric", "Cast", "Left", "Status"))
+        self.live.setObjectName("HealChainLiveTable")
+        self.live.setAccessibleName("Active Complete Heal casts")
+        self.live.setAccessibleDescription(
+            "Current and recently interrupted Complete Heal calls, including "
+            "tank, cleric, marker, remaining time, and next marker")
         self.history = self._make_table(
             ("Time", "Tank", "Order", "Cleric", "Next", "Result"))
+        self.history.setObjectName("HealChainHistoryTable")
+        self.history.setAccessibleName("Complete Heal session history")
+        self.history.setAccessibleDescription(
+            "Completed and interrupted Complete Heal calls from this session")
         self.tabs.addTab(self.rails, "Rails")
         self.tabs.addTab(self.live, "Live")
         self.tabs.addTab(self.history, "History")
@@ -91,6 +111,16 @@ class HealChain(ParserWindow):
             "History": "Show the bounded Complete Heal session history",
         })
         self.content.addWidget(self.tabs, 1)
+        QWidget.setTabOrder(self._button, self.interval)
+        QWidget.setTabOrder(self.interval, self.pause)
+        QWidget.setTabOrder(self.pause, self.clear_button)
+        QWidget.setTabOrder(
+            self.clear_button, self._header_overflow_button)
+        QWidget.setTabOrder(
+            self._header_overflow_button, self._settings_button)
+        QWidget.setTabOrder(self._settings_button, self._roll_button)
+        QWidget.setTabOrder(self._roll_button, self._minimize_button)
+        QWidget.setTabOrder(self._minimize_button, self.tabs)
 
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setInterval(250)
@@ -127,9 +157,20 @@ class HealChain(ParserWindow):
         self.pause.setAccessibleName(
             "Resume Heal Chain monitoring" if paused else
             "Pause Heal Chain monitoring")
-        self.summary.setText(
-            "Heal Chain monitoring paused" if paused else
-            "Listening for Complete Heal announcements")
+        self.pause.setToolTip(
+            "Resume reading new Complete Heal events" if paused else
+            "Pause reading new Complete Heal events")
+        self.refresh()
+
+    def _set_visual_state(self, state):
+        """Keep status color, text, and accessible state in sync."""
+        state = str(state)
+        for widget in (self.header_countdown, self.summary):
+            if widget.property("State") == state:
+                continue
+            widget.setProperty("State", state)
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
 
     def _clear(self):
         if not self._tracker.casts:
@@ -202,6 +243,10 @@ class HealChain(ParserWindow):
             progress.setValue(round(
                 remaining / self._tracker.cast_seconds * 1000))
             progress.setFormat("")
+            progress.setAccessibleName(
+                f"Cast remaining for {cast.marker} from {cast.cleric}")
+            progress.setAccessibleDescription(
+                f"{remaining:.1f} seconds remain on {cast.tank}")
             progress.setToolTip(
                 f"{cast.marker} from {cast.cleric} · {remaining:.1f}s remaining")
             self.live.setCellWidget(row, 3, progress)
@@ -209,7 +254,16 @@ class HealChain(ParserWindow):
             self.live.setItem(row, 5, self._item(
                 "INTERRUPTED" if cast.interrupted else f"Next {next_marker}"))
 
-        if active:
+        if self.pause.isChecked():
+            self._set_visual_state("paused")
+            self.header_countdown.setText("PAUSED")
+            self.header_countdown.setToolTip(
+                "Heal Chain monitoring is paused; resume to read new calls")
+            self.summary.setText(
+                f"Monitoring paused  ·  {self._tracker.interval}s spacing  ·  "
+                "press Play to resume")
+        elif active:
+            self._set_visual_state("active")
             latest = active[0]
             remaining = latest.remaining(now, self._tracker.cast_seconds)
             self.header_countdown.setText(
@@ -220,17 +274,17 @@ class HealChain(ParserWindow):
                 f"{self._tracker.next_marker(latest.tank, latest.marker)}")
             next_marker = self._tracker.next_marker(latest.tank, latest.marker)
             self.summary.setText(
-                f"{latest.tank} · {latest.marker} {latest.cleric} · "
-                f"NEXT {next_marker} · {self._tracker.interval}s spacing")
-        elif not self.pause.isChecked():
+                f"Tank: {latest.tank}  ·  {latest.marker}: {latest.cleric}  ·  "
+                f"Next: {next_marker}  ·  {self._tracker.interval}s spacing")
+        else:
+            self._set_visual_state("ready")
             self.header_countdown.setText("READY")
             self.header_countdown.setToolTip(
                 "No Complete Heal cast is currently active")
             self.summary.setText(
-                f"Listening · {self._tracker.interval}s spacing · "
-                f"format: {self._tracker.hotkey_format}")
-        else:
-            self.header_countdown.setText("PAUSED")
+                f"Listening for CH calls  ·  {self._tracker.interval}s spacing  ·  "
+                f"{self._tracker.hotkey_format}")
+        self.summary.setAccessibleName(self.summary.text())
 
         if self._history_revision == self._tracker.revision:
             return

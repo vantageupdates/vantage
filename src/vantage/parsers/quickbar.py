@@ -521,10 +521,14 @@ class QuickBar(ParserWindow):
             mute_dot.raise_()
         blocked = str(getattr(
             self._application, "_last_audio_blocked", "None yet"))
+        played = str(getattr(
+            self._application, "_last_audio", "None yet"))
         mute_button.setToolTip(
-            (("All Vantage audio is blocked · last prevented: " + blocked)
+            (("All Vantage audio is blocked · last played: " + played +
+              " · last prevented: " + blocked)
              if muted else
-             ("Mute all Vantage sounds · last prevented: " + blocked)))
+             ("Mute all Vantage sounds · last played: " + played +
+              " · last prevented: " + blocked)))
         mute_button.setAccessibleDescription(
             "All sounds are muted" if muted else "Sounds are active")
 

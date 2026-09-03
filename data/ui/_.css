@@ -1646,3 +1646,209 @@ QSpinBox#SpawnTimerVolume {
     border-top: none;
     border-bottom: none;
 }
+
+/* Heal Chain: compact raid HUD with explicit ready / active / paused states. */
+#HealChainSummary {
+    color: #D8E0E2;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #162128, stop:0.72 #10171C, stop:1 #0C1216);
+    border: none;
+    border-left: 3px solid #B99A60;
+    border-bottom: 1px solid #34434E;
+    padding: 5px 9px;
+    font-family: "Cascadia Mono", "Consolas";
+    font-size: 10px;
+    font-weight: 600;
+}
+#HealChainSummary[State="active"] {
+    color: #E9FBF6;
+    border-left-color: #67CDB6;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #15302D, stop:0.72 #10201F, stop:1 #0C1517);
+}
+#HealChainSummary[State="paused"] {
+    color: #F2D89F;
+    border-left-color: #E0B45F;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #2A2114, stop:0.72 #1B1813, stop:1 #111315);
+}
+#HealChainHeaderCountdown {
+    color: #E9E3D5;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #25313A, stop:1 #11181D);
+    border: 1px solid #5C6B74;
+    border-radius: 5px;
+    padding: 1px 7px;
+    font-family: "Cascadia Mono", "Consolas";
+    font-size: 9px;
+    font-weight: 700;
+}
+#HealChainHeaderCountdown[State="active"] {
+    color: #DFFFF7;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #285348, stop:1 #142B28);
+    border-color: #6BCDB8;
+}
+#HealChainHeaderCountdown[State="paused"] {
+    color: #FFE7AA;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #4A3820, stop:1 #261E13);
+    border-color: #D3A957;
+}
+QSpinBox#HealChainInterval {
+    color: #F4EFE5;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #202B32, stop:1 #10171C);
+    border: 1px solid #4B5B65;
+    border-radius: 5px;
+    min-height: 18px;
+    max-height: 18px;
+    padding-left: 5px;
+    font-family: "Cascadia Mono", "Consolas";
+    font-weight: 700;
+}
+QSpinBox#HealChainInterval:focus {
+    border: 2px solid #F0C778;
+}
+#ParserWindowMenu #HealChainPause,
+#ParserWindowMenu #HealChainClear {
+    min-width: 20px;
+    max-width: 20px;
+    min-height: 20px;
+    max-height: 20px;
+    padding: 0;
+}
+#ParserWindowMenu QSpinBox#HealChainInterval::up-button,
+#ParserWindowMenu QSpinBox#HealChainInterval::down-button {
+    width: 14px;
+}
+#HealChainPause:checked {
+    color: #FFE7AA;
+    background-color: #342817;
+    border-color: #D3A957;
+}
+QTabWidget#HealChainTabs::pane {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #111A20, stop:1 #080D11);
+    border: 1px solid #40515C;
+    border-radius: 8px;
+    top: -1px;
+}
+QTabWidget#HealChainTabs QTabBar::tab {
+    color: #AEB9BE;
+    background-color: #10171C;
+    border: 1px solid #34434E;
+    border-bottom: 2px solid #34434E;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    min-height: 23px;
+    padding: 3px 12px;
+    margin-right: 2px;
+    font-weight: 600;
+}
+QTabWidget#HealChainTabs QTabBar::tab:selected {
+    color: #FFF8E8;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #30291E, stop:1 #171714);
+    border-color: #756343;
+    border-bottom-color: #D1AB62;
+}
+QTabWidget#HealChainTabs QTabBar::tab:hover:!selected {
+    color: #F1E1B7;
+    background-color: #202A31;
+    border-color: #596A74;
+}
+QTabWidget#HealChainTabs QTabBar::tab:focus {
+    color: #FFFFFF;
+    border: 2px solid #F0C778;
+}
+#HealChainLiveTable, #HealChainHistoryTable {
+    background-color: #0A1014;
+    alternate-background-color: #111A20;
+    border: none;
+    border-radius: 6px;
+    gridline-color: #26333B;
+}
+#HealChainProgress {
+    background-color: #11191E;
+    border: 1px solid #40515C;
+    border-radius: 3px;
+    min-height: 9px;
+    max-height: 9px;
+}
+#HealChainProgress::chunk {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #438E7D, stop:1 #73D9C2);
+    border-radius: 2px;
+}
+
+/* Market Sale Alerts: one clear setup path and explicit delivery states. */
+#MarketSaleAlertsPage {
+    background-color: transparent;
+}
+#MarketSaleAlertsIntro {
+    color: #C9D5D9;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #14232A, stop:1 #0D151A);
+    border: 1px solid #40515C;
+    border-left: 3px solid #62B9A8;
+    border-radius: 6px;
+    padding: 7px 9px;
+    font-weight: 600;
+}
+#MarketSaleAlertSetup {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #172229, stop:1 #0E151A);
+    border: 1px solid #40515C;
+    border-radius: 7px;
+}
+#MarketSaleAlertLabel {
+    color: #AEB9BE;
+    font-weight: 600;
+}
+#MarketSaleAlertAdd {
+    color: #FFF4D7;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #6E5A31, stop:1 #3C321F);
+    border: 1px solid #B99550;
+    border-radius: 5px;
+    padding: 3px 9px;
+    font-weight: 700;
+}
+#MarketSaleAlertAdd:hover,
+#MarketSaleAlertAdd:focus {
+    color: #FFFFFF;
+    border-color: #F0C778;
+    background-color: #766039;
+}
+#MarketLiveAlertStatus {
+    color: #BFC9CD;
+    background-color: #10181D;
+    border: 1px solid #34434E;
+    border-left: 3px solid #68767D;
+    border-radius: 5px;
+    padding: 5px 8px;
+    font-weight: 600;
+}
+#MarketLiveAlertStatus[State="listening"] {
+    color: #DDF8F1;
+    background-color: #11231F;
+    border-left-color: #62C4AD;
+}
+#MarketLiveAlertStatus[State="matched"] {
+    color: #FFF1CF;
+    background-color: #2A2114;
+    border-left-color: #E0B45F;
+}
+#MarketLiveAlertStatus[State="off"] {
+    color: #E6C9A0;
+    background-color: #211A13;
+    border-left-color: #A57B42;
+}
+#MarketLiveAuctionTable {
+    background-color: #091014;
+    alternate-background-color: #101A20;
+    border: 1px solid #34434E;
+    border-radius: 6px;
+    gridline-color: #2A3840;
+}

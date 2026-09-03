@@ -27,6 +27,28 @@ def test_old_default_faded_opacity_migrates_once_but_user_choice_is_kept():
     assert customized["alerts"]["faded_background_opacity"] == 35
 
 
+def test_notify_reports_when_the_selected_overlay_is_disabled(monkeypatch):
+    _app()
+    previous = config.data
+    definitions = config.normalize_notification_overlays({})
+    definitions["alerts"]["enabled"] = False
+    config.data = {"general": {"notification_overlays": definitions}}
+    monkeypatch.setattr(config, "save", lambda: None)
+    manager = NotificationOverlayManager()
+    try:
+        assert manager.notify(
+            "Sale alert", "A watched item appeared",
+            overlay_id="alerts") is False
+        config.data["general"]["notification_overlays"]["alerts"][
+            "enabled"] = True
+        assert manager.notify(
+            "Sale alert", "A watched item appeared",
+            overlay_id="alerts") is True
+    finally:
+        manager.close()
+        config.data = previous
+
+
 def test_alert_and_timer_overlays_move_resize_lock_and_route(monkeypatch):
     app = _app()
     previous = config.data

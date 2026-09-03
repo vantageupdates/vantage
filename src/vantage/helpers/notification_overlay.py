@@ -466,10 +466,10 @@ class NotificationOverlay(QWidget):
             countdown_seconds=0, timer_key=None, character="", color="",
             timer_mode="countdown", text_color=""):
         if self._editing:
-            return
+            return False
         settings = self._settings()
         if not settings.get("enabled", True):
-            return
+            return False
         title = str(title or "Vantage")
         countdown_seconds = max(0, int(countdown_seconds or 0))
         timer_mode = (
@@ -523,6 +523,7 @@ class NotificationOverlay(QWidget):
         self.show()
         self.raise_()
         self._expiry_timer.start()
+        return True
 
     def _render_entries(self):
         for row in self._rows:
@@ -958,12 +959,11 @@ class NotificationOverlayManager:
             overlay = self.overlays.get(self.fallback_id(overlay_type))
         if overlay is None:
             return False
-        overlay.notify(
+        return bool(overlay.notify(
             title, message, msecs=msecs, position=position,
             countdown_seconds=countdown_seconds, timer_key=timer_key,
             character=character, color=color, timer_mode=timer_mode,
-            text_color=text_color)
-        return True
+            text_color=text_color))
 
     def dismiss_timer(self, timer_key):
         for overlay in self.overlays.values():

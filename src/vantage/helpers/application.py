@@ -42,7 +42,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=29,
+    patch=30,
     build=""
 )
 
@@ -431,14 +431,12 @@ class VantageApp(QApplication):
         self._refresh_quickbar()
 
     def audio_started(self, source, sound_path, volume, channel=""):
-        """Make every audible event attributable instead of mysterious."""
+        """Remember the audible event for diagnostics without duplicating it."""
         self._last_audio_event = (
             str(source or "Vantage alert"), str(sound_path or ""),
             max(0, min(100, int(volume))), str(channel or ""))
         self._last_audio = (
             f"{source} · {sound_display_name(sound_path)} · {volume}%")
-        self.show_overlay_notification(
-            "Vantage · sound identified", self._last_audio, msecs=4500)
         self._refresh_quickbar()
 
     def _refresh_quickbar(self):

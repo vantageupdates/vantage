@@ -906,6 +906,8 @@ def verify_settings():
         data['market'].get('auto_consider_lookup', False), False)
     data['market']['live_alerts_enabled'] = get_setting(
         data['market'].get('live_alerts_enabled', True), True)
+    data['market']['live_alert_sound_enabled'] = get_setting(
+        data['market'].get('live_alert_sound_enabled', False), False)
     raw_live_watches = get_setting(
         data['market'].get('live_watch_items', []), [],
         lambda value: isinstance(value, list))

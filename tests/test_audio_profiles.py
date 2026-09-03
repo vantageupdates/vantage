@@ -1,6 +1,8 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 from vantage.helpers import audio, config
+from vantage.helpers.application import VantageApp
 
 
 class _Signal:
@@ -99,6 +101,19 @@ class _App:
 
     def audio_blocked(self, source, reason, channel):
         self.blocked.append((source, reason, channel))
+
+
+def test_started_audio_is_recorded_without_spawning_a_second_notification():
+    refreshed = []
+    host = SimpleNamespace(_refresh_quickbar=lambda: refreshed.append(True))
+
+    VantageApp.audio_started(
+        host, "Sale alert", "builtin:crystal-ping", 72, "market")
+
+    assert host._last_audio_event == (
+        "Sale alert", "builtin:crystal-ping", 72, "market")
+    assert "Sale alert" in host._last_audio
+    assert refreshed == [True]
 
 
 def test_character_audio_profile_is_server_specific_and_persists(monkeypatch):
