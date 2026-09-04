@@ -148,6 +148,28 @@ mismatched_resist_kept_cast = (
 mismatched_resist_event = spells.recent_spell_events()[0]
 spells.parse(now + datetime.timedelta(seconds=73), 'You feel different.')
 
+# P99 does not name buffs cast by another player. ``You begin to regenerate.``
+# is shared by the Regeneration family and an item-only Aura of Battle alias.
+# Without an item glow it must use the canonical player buff, never the clicky.
+spells.parse(
+    now + datetime.timedelta(seconds=80), 'You begin to regenerate.')
+external_regen = next(
+    (widget for widget in clarity_target.spell_widgets()
+     if widget.spell.name == 'regeneration'), None)
+external_aura_before_click = any(
+    widget.spell.name == 'aura of battle'
+    for widget in clarity_target.spell_widgets())
+
+# A real item-owned anchor still identifies the clicky precisely.
+spells._pending_item_click = (
+    now + datetime.timedelta(seconds=90),
+    'Pauldrons of Ferocity', 'Aura of Battle')
+spells.parse(
+    now + datetime.timedelta(seconds=91), 'You begin to regenerate.')
+anchored_aura = next(
+    (widget for widget in clarity_target.spell_widgets()
+     if widget.spell.name == 'aura of battle'), None)
+
 print(json.dumps({
     'clarity_count': len(clarity_rows),
     'clarity_refreshed': (
@@ -175,6 +197,15 @@ print(json.dumps({
         clarity.end_time == clarity_before_werewolf),
     'mismatched_resist_kept_cast': mismatched_resist_kept_cast,
     'mismatched_resist_event': mismatched_resist_event,
+    'external_regen_name': (
+        external_regen.spell.name if external_regen else ''),
+    'external_regen_has_no_item': bool(
+        external_regen and not external_regen.spell.source_item),
+    'external_aura_before_click': external_aura_before_click,
+    'regen_not_anchorless_click': (
+        'you begin to regenerate.' not in spells._item_self_effects),
+    'anchored_aura_item': (
+        anchored_aura.spell.source_item if anchored_aura else ''),
     'quickbar_notice': app._quickbar_notice,
 }))
 backlogged.stop()
@@ -217,5 +248,10 @@ def test_live_casts_recast_named_track_charm_and_clear_interruptions(tmp_path):
         'werewolf_did_not_refresh_clarity': True,
         'mismatched_resist_kept_cast': True,
         'mismatched_resist_event': 'RESIST · Fetter',
+        'external_regen_name': 'regeneration',
+        'external_regen_has_no_item': True,
+        'external_aura_before_click': False,
+        'regen_not_anchorless_click': True,
+        'anchored_aura_item': 'Pauldrons of Ferocity',
         'quickbar_notice': 'Fetter resisted',
     }

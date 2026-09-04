@@ -77,6 +77,13 @@ COMMON_ITEM_CLICK_SPELLS = {
     "spear of fate": "Curse of the Spirits",
     "fungi covered great staff": "Fungal Regrowth",
 }
+# P99 omits the spell name when another player buffs you. A few landing lines
+# are shared by a whole spell family, so they cannot enter the normal unique
+# message index. Use the lowest common player spell as a truthful label rather
+# than allowing an unrelated item-only alias to claim the line.
+AMBIGUOUS_EXTERNAL_SELF_BUFFS = {
+    "you begin to regenerate.": "Regeneration",
+}
 
 
 @functools.lru_cache(maxsize=1)
@@ -147,6 +154,11 @@ def _anchorless_self_click_effects(spell_book):
                 int(getattr(spell, 'cast_time', 0) or 0) != 0):
             continue
         effect_key = effect_you.casefold()
+        # Regeneration, Chloroplast and Aura of Battle all say the same thing;
+        # without a glow/cast anchor the item identity is unknowable. Keep
+        # established anchorless clickies such as JBoots working, however.
+        if effect_key in AMBIGUOUS_EXTERNAL_SELF_BUFFS:
+            continue
         spell_key = str(spell.name or spell_name).strip().casefold()
         spell_entry = candidates.setdefault(effect_key, {}).setdefault(
             spell_key, {'spell': spell, 'items': set()})
@@ -160,6 +172,22 @@ def _anchorless_self_click_effects(spell_book):
         items = sorted(entry['items'], key=str.casefold)
         source_item = items[0] if len(items) == 1 else 'Known P99 clicky'
         resolved[effect_key] = entry['spell'], source_item
+    return resolved
+
+
+def _external_self_buff_effects(spell_book, unique_messages):
+    """Return safe player-buff landing messages, plus canonical families."""
+    resolved = {}
+    for message, spell in unique_messages.items():
+        class_levels = tuple(getattr(spell, 'class_levels', ()) or ())
+        if (int(getattr(spell, 'type', 0) or 0) != 0 and
+                int(getattr(spell, 'duration_formula', 0) or 0) != 0 and
+                any(0 < int(level) <= 65 for level in class_levels)):
+            resolved[str(message).strip().casefold()] = spell
+    for message, spell_name in AMBIGUOUS_EXTERNAL_SELF_BUFFS.items():
+        spell = spell_book.get(spell_name)
+        if spell is not None:
+            resolved[message.casefold()] = spell
     return resolved
 
 
@@ -290,6 +318,8 @@ class Spells(ParserWindow):
         self._pending_item_click = None
         self._item_self_effects = _anchorless_self_click_effects(
             self.spell_book)
+        self._external_self_effects = _external_self_buff_effects(
+            self.spell_book, self.text_you)
         self._item_other_effects = sorted(
             ((effect, spell) for effect, spell in self.text_other.items()
              if effect), key=lambda pair: len(pair[0]), reverse=True)
@@ -1141,14 +1171,19 @@ class Spells(ParserWindow):
         # Without a glow/cast anchor, accept only the dedicated P99-indexed
         # instant-self lookup. The item-only flag alone is too broad because
         # NPC-only spells can share otherwise ordinary landing messages.
-        if (not pending and
-                (not indexed_item or
-                 not getattr(spell, 'item_only', False))):
-            return False
+        if not pending:
+            class_levels = tuple(getattr(spell, 'class_levels', ()) or ())
+            player_buff = (
+                not indexed_item and
+                int(getattr(spell, 'type', 0) or 0) != 0 and
+                any(0 < int(level) <= 65 for level in class_levels))
+            indexed_click = bool(
+                indexed_item and getattr(spell, 'item_only', False))
+            if not player_buff and not indexed_click:
+                return False
         self._pending_item_click = None
         detected = copy.copy(spell)
-        detected.source_item = (
-            indexed_item or item_name or 'Item-only effect')
+        detected.source_item = indexed_item or item_name
         detected.runtime_level = self._active_cast_level()
         self._spell_container.add_spell(
             detected, timestamp, target,
@@ -1168,6 +1203,10 @@ class Spells(ParserWindow):
                 target = text[:-len(preferred.effect_text_other)].strip()
                 if target:
                     return preferred, target, ''
+        external = self._external_self_effects.get(
+            str(text or '').strip().casefold())
+        if external:
+            return external, '__you__', ''
         indexed = self._item_self_effects.get(
             str(text or '').strip().casefold())
         if indexed:
@@ -1757,7 +1796,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.41')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.42')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
