@@ -913,6 +913,32 @@ QProgressBar {
     font-size: 10px;
     padding-left: 4px;
 }
+#MarketZonesPage { background-color: transparent; }
+#MarketZoneControls, #MarketZoneActions {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #172229, stop:1 #0D151A);
+    border: 1px solid #40515C;
+    border-radius: 6px;
+}
+#MarketZoneSummary {
+    color: #D8E7E8;
+    background-color: #101A20;
+    border-left: 3px solid #62B9A8;
+    padding: 5px 8px;
+    font-weight: 600;
+}
+QTableWidget#MarketZoneTable {
+    color: #E6EEF0;
+    background-color: #091115;
+    alternate-background-color: #101A20;
+    border: 1px solid #40515C;
+    gridline-color: #26343C;
+    outline: none;
+}
+QTableWidget#MarketZoneTable::item:selected {
+    color: #FFF4D7;
+    background-color: #4B3E25;
+}
 #ItemComparePanel { background-color: #090C0F; }
 #ItemCompareTitle {
     color: #F2D77F;

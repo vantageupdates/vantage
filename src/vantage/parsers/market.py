@@ -39,8 +39,10 @@ from vantage.helpers.eq_clipboard import set_eq_clipboard
 from vantage.helpers.friends_manager import everquest_root_from_logs
 from vantage.helpers.parser import ParserWindow
 from vantage.helpers.portable import data_dir
-from vantage.helpers.responsive import ensure_tab_tooltips, scrollable
+from vantage.helpers.responsive import (
+    ensure_tab_tooltips, ensure_table_header_tooltips, scrollable)
 from vantage.helpers.scaled_dialog import UniformScaleDialog
+from vantage.parsers.maps.mapdata import MapData
 
 
 MARKET_SERVERS = ("Green", "Blue")
@@ -652,6 +654,12 @@ def _wiki_entity_cache_path(target, kind=""):
     return data_dir("cache", "wiki-entities") / f"{digest}.json"
 
 
+def _wiki_zone_cache_path(target):
+    digest = hashlib.sha256(
+        str(target or "").strip().casefold().encode("utf-8")).hexdigest()[:20]
+    return data_dir("cache", "wiki-zones") / f"{digest}.json"
+
+
 def _plain_wiki_text(value):
     text = re.sub(r"<br\s*/?>", "\n", str(value or ""), flags=re.IGNORECASE)
     text = re.sub(
@@ -662,6 +670,125 @@ def _plain_wiki_text(value):
     text = html.unescape(text)
     return "\n".join(
         line.strip() for line in text.splitlines() if line.strip())
+
+
+def _wiki_zone_field(source, label):
+    """Extract one value from the standard P99 zone summary table."""
+    match = re.search(
+        rf"!\s*'{{0,5}}\s*{re.escape(label)}\s*:?\s*'{{0,5}}\s*\n"
+        rf"\|\s*(.*?)(?=\n\|-\s*\n|\n!\s*'{{0,5}}|\n\|\}}|\Z)",
+        str(source or ""), re.IGNORECASE | re.DOTALL)
+    return match.group(1).strip() if match else ""
+
+
+def _wiki_link_labels(value):
+    labels = []
+    for target, label in re.findall(
+            r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]",
+            str(value or "")):
+        visible = _plain_wiki_text(label or target)
+        if visible and visible.casefold() not in {
+                item.casefold() for item in labels}:
+            labels.append(visible)
+    return labels
+
+
+def parse_wiki_zone_payload(wikitext, rendered_html, fallback_name=""):
+    """Return a searchable zone and NPC catalog from one P99 Wiki page."""
+    source = str(wikitext or "")
+    zone_name = str(fallback_name or "").replace("_", " ").strip()
+    level_range = _plain_wiki_text(
+        _wiki_zone_field(source, "Level of Monsters"))
+    mob_types = _plain_wiki_text(
+        _wiki_zone_field(source, "Types of Monsters"))
+    notable = _wiki_link_labels(_wiki_zone_field(source, "Notable NPCs"))
+    notable_keys = {name.casefold() for name in notable}
+    unique_raw = _wiki_zone_field(source, "Unique Items")
+    unique_items = _wiki_link_labels(unique_raw)
+    for item in re.findall(r"\{\{:\s*([^}|]+)", unique_raw):
+        label = _plain_wiki_text(item)
+        if label and label.casefold() not in {
+                value.casefold() for value in unique_items}:
+            unique_items.append(label)
+
+    lead = source.split("{|", 1)[0]
+    lead = re.sub(r"(?m)^\s*\{\{[^\n]+\}\}\s*$", "", lead)
+    summary = _plain_wiki_text(re.sub(r"'{2,5}", "", lead))
+    era_match = re.search(r"\{\{\s*(Classic|Kunark|Velious)\s+Era\s*\}\}",
+                          source, re.IGNORECASE)
+    map_match = re.search(
+        r"\[\[(?:Image|File):\s*([^\]|]+)", source, re.IGNORECASE)
+
+    html_source = str(rendered_html or "")
+    heading = html_source.rfind("What's in this zone?")
+    if heading >= 0:
+        html_source = html_source[heading:]
+    table_match = re.search(
+        r"<table\b[^>]*class=[\"'][^\"']*\beoTable3\b[^\"']*"
+        r"\bsortable\b[^\"']*[\"'][^>]*>(.*?)</table>",
+        html_source, re.IGNORECASE | re.DOTALL)
+    mobs = []
+    if table_match:
+        for raw_row in re.findall(
+                r"<tr\b[^>]*>(.*?)</tr>", table_match.group(1),
+                re.IGNORECASE | re.DOTALL):
+            raw_cells = re.findall(
+                r"<t[dh]\b[^>]*>(.*?)</t[dh]>", raw_row,
+                re.IGNORECASE | re.DOTALL)
+            if len(raw_cells) < 6:
+                continue
+            clean_cells = [
+                re.sub(r"<span\b[^>]*class=[\"'][^\"']*\bhb\b[^\"']*"
+                       r"[\"'][^>]*>.*?</span>", "", cell,
+                       flags=re.IGNORECASE | re.DOTALL)
+                for cell in raw_cells]
+            name_links = re.findall(
+                r"<a\b[^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>",
+                clean_cells[0], re.IGNORECASE | re.DOTALL)
+            name = (_rendered_html_text(name_links[0][1]) if name_links else
+                    _rendered_html_text(clean_cells[0]))
+            if not name or name.casefold() == "npc name":
+                continue
+            target = (unquote(name_links[0][0].lstrip("/"))
+                      if name_links else name.replace(" ", "_"))
+            drop_links = re.findall(
+                r"<a\b[^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>",
+                clean_cells[5], re.IGNORECASE | re.DOTALL)
+            drops = []
+            for _, raw_label in drop_links:
+                label = _rendered_html_text(raw_label)
+                if label and label.casefold() not in {
+                        value.casefold() for value in drops}:
+                    drops.append(label)
+            fallback_loot = _rendered_html_text(clean_cells[5])
+            if not drops and fallback_loot and fallback_loot.casefold() not in {
+                    "none", "various", "need info", "?"}:
+                drops.append(fallback_loot)
+            mobs.append({
+                "name": name,
+                "target": target,
+                "named": name.casefold() in notable_keys,
+                "race": _rendered_html_text(clean_cells[1]),
+                "class": _rendered_html_text(clean_cells[2]),
+                "level": _rendered_html_text(clean_cells[3]),
+                "location": _rendered_html_text(clean_cells[4]),
+                "drops": drops,
+                "loot": ", ".join(drops) if drops else fallback_loot,
+                "description": (
+                    _rendered_html_text(clean_cells[6])
+                    if len(clean_cells) > 6 else ""),
+            })
+    return {
+        "name": zone_name,
+        "summary": summary,
+        "era": era_match.group(1).title() if era_match else "",
+        "levels": level_range,
+        "types": mob_types,
+        "notable": notable,
+        "unique_items": unique_items,
+        "map_image": map_match.group(1).strip() if map_match else "",
+        "mobs": mobs,
+    }
 
 
 def _wiki_target_url(target):
@@ -993,10 +1120,23 @@ def parse_wiki_entity_wikitext(wikitext, fallback_name="", kind="npc"):
                 facts.append((label, value))
         summary = _plain_wiki_text(
             _wiki_template_field(source, "description"))
+        known_loot = _wiki_template_field(source, "known_loot")
+        drops = _wiki_link_labels(known_loot)
+        for item in re.findall(r"\{\{:\s*([^}|]+)", known_loot):
+            label = _plain_wiki_text(item)
+            if label and label.casefold() not in {
+                    value.casefold() for value in drops}:
+                drops.append(label)
+        if drops:
+            facts.append(("Known loot", f"{len(drops)} listed items"))
+            loot_summary = "KNOWN LOOT\n" + "\n".join(
+                f"• {value}" for value in drops)
+            summary = (summary + "\n\n" + loot_summary).strip()
         return {
             "name": name or fallback_name.replace("_", " "),
             "kind": "NPC",
             "facts": facts,
+            "drops": drops,
             "summary": summary or "The Wiki does not include a short description.",
         }
 
@@ -3078,6 +3218,9 @@ class GreenMarket(ParserWindow):
         gear_layout.addWidget(self.gear_table, 1)
         self._gear_tab_index = self.tabs.addTab(gear_page, "Gear · stats")
 
+        self._zone_tab_index = self.tabs.addTab(
+            self._zone_explorer_page(), "Zones")
+
         self.auction_composer = AuctionComposer(self._auction_price, self)
         self._auction_tab_index = self.tabs.addTab(
             self.auction_composer, "WTS / WTB Builder")
@@ -3256,6 +3399,8 @@ class GreenMarket(ParserWindow):
                 f"Search cached PigParse {self._server} listings and prices"),
             "Gear · stats": (
                 "Compare and sort P99 items by stats, class, race, slot, and effects"),
+            "Zones": (
+                "Search a P99 zone, then browse its mobs, nameds, drops, and map"),
             "WTS / WTB Builder": (
                 "Build customized auction messages; WTS uses real item links and "
                 "WTB uses plain text"),
@@ -3333,6 +3478,405 @@ class GreenMarket(ParserWindow):
         self._refresh_gear_index()
         if self._toggled and not self._loaded_online:
             self.refresh()
+
+    def _zone_explorer_page(self):
+        """Build the compact P99 zone browser inside Market."""
+        page = QWidget()
+        page.setObjectName("MarketZonesPage")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(5)
+
+        controls = QFrame()
+        controls.setObjectName("MarketZoneControls")
+        control_layout = QGridLayout(controls)
+        control_layout.setContentsMargins(7, 6, 7, 6)
+        control_layout.setSpacing(5)
+        self.zone_selector = QComboBox()
+        self.zone_selector.setEditable(True)
+        self.zone_selector.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.zone_selector.addItems(sorted(
+            MapData.get_zone_dict(), key=str.casefold))
+        self.zone_selector.setCurrentText(
+            str(config.data["market"].get("zone_explorer_last", "") or ""))
+        self.zone_selector.setAccessibleName("Zone to explore")
+        self.zone_selector.setAccessibleDescription(
+            "Search the bundled Project 1999 zone names and load its Wiki catalog")
+        self.zone_selector.setToolTip(
+            "Type a zone name, choose it from the list, then press Enter or Load")
+        self.zone_selector.lineEdit().setAccessibleName("Zone name search")
+        self.zone_selector.lineEdit().setToolTip(
+            "Type all or part of a Project 1999 zone name")
+        zone_completer = self.zone_selector.completer()
+        if zone_completer:
+            zone_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+            zone_completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        self.zone_selector.lineEdit().returnPressed.connect(self._load_zone_explorer)
+        control_layout.addWidget(self.zone_selector, 0, 0, 1, 3)
+
+        self.zone_load_button = QPushButton("Load zone")
+        self.zone_load_button.setIcon(game_icon("search"))
+        self.zone_load_button.setAccessibleName("Load selected P99 zone")
+        self.zone_load_button.setToolTip(
+            "Load mobs, nameds, drops, level range, and zone facts from P99 Wiki")
+        self.zone_load_button.clicked.connect(self._load_zone_explorer)
+        control_layout.addWidget(self.zone_load_button, 0, 3)
+
+        self.zone_search = QLineEdit()
+        self.zone_search.setPlaceholderText("Search this zone: mob, drop, level…")
+        self.zone_search.setClearButtonEnabled(True)
+        self.zone_search.setAccessibleName("Search within the loaded zone")
+        self.zone_search.setToolTip(
+            "Filter the loaded zone by NPC, level, class, race, location, drop, or notes")
+        clear_zone_search = self.zone_search.findChild(QToolButton)
+        if clear_zone_search:
+            clear_zone_search.setAccessibleName("Clear zone result search")
+            clear_zone_search.setToolTip("Show every mob in the loaded zone")
+        self.zone_search.textChanged.connect(self._refresh_zone_rows)
+        control_layout.addWidget(self.zone_search, 1, 0, 1, 3)
+
+        self.zone_named_only = QCheckBox("Nameds only")
+        self.zone_named_only.setAccessibleName("Show named NPCs only")
+        self.zone_named_only.setToolTip(
+            "Show only NPCs listed as notable on this P99 Wiki zone page")
+        self.zone_named_only.toggled.connect(self._refresh_zone_rows)
+        control_layout.addWidget(self.zone_named_only, 1, 3)
+        control_layout.setColumnStretch(0, 1)
+        layout.addWidget(controls)
+
+        self.zone_summary = QLabel(
+            "Choose a zone to browse its mobs, nameds, drops, and Vantage map.")
+        self.zone_summary.setObjectName("MarketZoneSummary")
+        self.zone_summary.setWordWrap(True)
+        self.zone_summary.setAccessibleName(self.zone_summary.text())
+        layout.addWidget(self.zone_summary)
+
+        headers = ("Named", "NPC", "Level", "Class", "Race", "Drops", "Location")
+        self.zone_table = QTableWidget(0, len(headers))
+        self.zone_table.setObjectName("MarketZoneTable")
+        self.zone_table.setHorizontalHeaderLabels(headers)
+        self.zone_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.zone_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows)
+        self.zone_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection)
+        self.zone_table.setAlternatingRowColors(True)
+        self.zone_table.setSortingEnabled(True)
+        self.zone_table.verticalHeader().setVisible(False)
+        self.zone_table.setAccessibleName("Mobs in selected Project 1999 zone")
+        self.zone_table.setAccessibleDescription(
+            "Sortable and searchable NPC list with named status, levels, drops, and locations")
+        ensure_table_header_tooltips(
+            self.zone_table, "the selected Project 1999 zone")
+        zone_header = self.zone_table.horizontalHeader()
+        zone_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        zone_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        zone_header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        for column, width in enumerate((58, 180, 60, 92, 92, 220, 170)):
+            self.zone_table.setColumnWidth(column, width)
+        self.zone_table.itemSelectionChanged.connect(
+            self._zone_selection_changed)
+        self.zone_table.cellDoubleClicked.connect(self._open_zone_row)
+        actions = QFrame()
+        actions.setObjectName("MarketZoneActions")
+        action_layout = QHBoxLayout(actions)
+        action_layout.setContentsMargins(6, 4, 6, 4)
+        action_layout.setSpacing(5)
+        self.zone_result_count = QLabel("No zone loaded")
+        self.zone_result_count.setObjectName("MarketStatSummary")
+        action_layout.addWidget(self.zone_result_count, 1)
+        self.zone_npc_button = QPushButton("NPC details")
+        self.zone_npc_button.setIcon(game_icon("poi"))
+        self.zone_npc_button.setEnabled(False)
+        self.zone_npc_button.setToolTip(
+            "Open the selected NPC's level, location, combat facts, and Wiki summary")
+        self.zone_npc_button.clicked.connect(self._open_selected_zone_npc)
+        action_layout.addWidget(self.zone_npc_button)
+        self.zone_drop_selector = QComboBox()
+        self.zone_drop_selector.setMinimumContentsLength(14)
+        self.zone_drop_selector.setAccessibleName("Drop from selected NPC")
+        self.zone_drop_selector.setToolTip(
+            "Choose one known drop from the selected NPC")
+        self.zone_drop_selector.setEnabled(False)
+        action_layout.addWidget(self.zone_drop_selector)
+        self.zone_drop_button = QPushButton("Item details")
+        self.zone_drop_button.setIcon(game_icon("market"))
+        self.zone_drop_button.setEnabled(False)
+        self.zone_drop_button.setToolTip(
+            "Open the selected drop as a full Vantage item card")
+        self.zone_drop_button.clicked.connect(self._open_selected_zone_drop)
+        action_layout.addWidget(self.zone_drop_button)
+        self.zone_map_button = QPushButton("Vantage map")
+        self.zone_map_button.setIcon(game_icon("map"))
+        self.zone_map_button.setEnabled(False)
+        self.zone_map_button.setToolTip(
+            "Open this zone in Vantage's interactive map window")
+        self.zone_map_button.clicked.connect(self._open_zone_map)
+        action_layout.addWidget(self.zone_map_button)
+        self.zone_wiki_button = QPushButton("Zone Wiki")
+        self.zone_wiki_button.setIcon(game_icon("ph-file-search"))
+        self.zone_wiki_button.setEnabled(False)
+        self.zone_wiki_button.setToolTip(
+            "Open the complete zone page on Project 1999 Wiki")
+        self.zone_wiki_button.clicked.connect(self._open_zone_wiki)
+        action_layout.addWidget(self.zone_wiki_button)
+        layout.addWidget(actions)
+        layout.addWidget(self.zone_table, 1)
+
+        self._zone_data = {}
+        self._zone_mobs = []
+        self._zone_drop_requests = set()
+        return page
+
+    def _load_zone_explorer(self):
+        requested = self.zone_selector.currentText().strip()
+        if not requested:
+            self.zone_summary.setText("Enter or choose a zone first.")
+            self.zone_selector.setFocus()
+            return False
+        self.zone_load_button.setEnabled(False)
+        self.zone_load_button.setText("Loading…")
+        self.zone_summary.setText(
+            f"Loading {requested} from Project 1999 Wiki…")
+        cached_path = _wiki_zone_cache_path(requested)
+        try:
+            cached = json.loads(cached_path.read_text(encoding="utf-8"))
+            if isinstance(cached, dict) and cached.get("mobs"):
+                self._set_zone_data(cached, cached=True)
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+            pass
+        request = QNetworkRequest(QUrl(P99_WIKI_API.format(
+            slug=quote(requested.replace(" ", "_"), safe=""))))
+        request.setHeader(
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.43")
+        reply = self._network.get(request)
+        reply.finished.connect(lambda: self._zone_finished(
+            reply, requested, cached_path))
+        return True
+
+    def _zone_finished(self, reply, requested, cache_path):
+        try:
+            if reply.error() != QNetworkReply.NetworkError.NoError:
+                raise ValueError(reply.errorString())
+            payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
+            parsed = payload.get("parse")
+            if not isinstance(parsed, dict):
+                raise ValueError("zone not found on P99 Wiki")
+            wikitext = parsed.get("wikitext", {})
+            rendered = parsed.get("text", {})
+            if isinstance(wikitext, dict):
+                wikitext = wikitext.get("*", "")
+            if isinstance(rendered, dict):
+                rendered = rendered.get("*", "")
+            data = parse_wiki_zone_payload(
+                wikitext, rendered, parsed.get("title") or requested)
+            if not data.get("mobs"):
+                raise ValueError("this page has no recognized P99 zone mob table")
+            self._set_zone_data(data)
+            cache_path.write_text(json.dumps(data), encoding="utf-8")
+        except (OSError, RuntimeError, UnicodeError, ValueError,
+                json.JSONDecodeError) as error:
+            if not self._zone_mobs:
+                self.zone_summary.setText(
+                    f"Could not load {requested} · {error}")
+                self.zone_summary.setAccessibleName(self.zone_summary.text())
+        finally:
+            self.zone_load_button.setEnabled(True)
+            self.zone_load_button.setText("Load zone")
+            reply.deleteLater()
+
+    def _set_zone_data(self, data, cached=False):
+        self._zone_data = dict(data or {})
+        self._zone_mobs = list(self._zone_data.get("mobs") or [])
+        name = str(self._zone_data.get("name") or
+                   self.zone_selector.currentText()).strip()
+        self.zone_selector.setCurrentText(name)
+        config.data["market"]["zone_explorer_last"] = name
+        if getattr(config, "_filename", ""):
+            config.save()
+        notable_count = sum(bool(mob.get("named")) for mob in self._zone_mobs)
+        facts = [value for value in (
+            self._zone_data.get("era"),
+            f"Levels {self._zone_data.get('levels')}"
+            if self._zone_data.get("levels") else "",
+            f"{len(self._zone_mobs):,} mobs",
+            f"{notable_count:,} nameds",
+            self._zone_data.get("types")) if value]
+        suffix = " · cached" if cached else " · updated now"
+        self.zone_summary.setText(" · ".join(facts) + suffix)
+        self.zone_summary.setAccessibleName(self.zone_summary.text())
+        self.zone_map_button.setEnabled(bool(MapData.resolve_zone_name(name)))
+        self.zone_wiki_button.setEnabled(True)
+        self._refresh_zone_rows()
+        _announce_accessible(
+            self, f"Loaded {name}: {len(self._zone_mobs)} mobs, "
+            f"{notable_count} named NPCs")
+
+    def _refresh_zone_rows(self, *_):
+        if not hasattr(self, "zone_table"):
+            return
+        query = self.zone_search.text().strip().casefold()
+        named_only = self.zone_named_only.isChecked()
+        visible = []
+        for mob in self._zone_mobs:
+            if named_only and not mob.get("named"):
+                continue
+            haystack = " ".join(str(value or "") for value in (
+                mob.get("name"), mob.get("level"), mob.get("class"),
+                mob.get("race"), mob.get("loot"), mob.get("location"),
+                mob.get("description"))).casefold()
+            if query and query not in haystack:
+                continue
+            visible.append(mob)
+        self.zone_table.setSortingEnabled(False)
+        self.zone_table.setRowCount(len(visible))
+        for row, mob in enumerate(visible):
+            values = (
+                "Yes" if mob.get("named") else "",
+                mob.get("name"), mob.get("level"), mob.get("class"),
+                mob.get("race"), mob.get("loot") or "—",
+                mob.get("location") or "—")
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(str(value or ""))
+                item.setToolTip(str(value or ""))
+                if column == 0:
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    item.setData(Qt.ItemDataRole.UserRole, mob)
+                self.zone_table.setItem(row, column, item)
+        self.zone_table.setSortingEnabled(True)
+        self.zone_result_count.setText(
+            f"{len(visible):,} / {len(self._zone_mobs):,} mobs")
+        self.zone_result_count.setAccessibleName(self.zone_result_count.text())
+        self._zone_selection_changed()
+
+    def _selected_zone_mob(self):
+        row = self.zone_table.currentRow()
+        if row < 0:
+            return None
+        item = self.zone_table.item(row, 0)
+        value = item.data(Qt.ItemDataRole.UserRole) if item else None
+        return value if isinstance(value, dict) else None
+
+    def _zone_selection_changed(self):
+        mob = self._selected_zone_mob()
+        self.zone_npc_button.setEnabled(bool(mob))
+        self.zone_drop_selector.clear()
+        for drop in (mob or {}).get("drops", []):
+            self.zone_drop_selector.addItem(str(drop))
+        has_drops = self.zone_drop_selector.count() > 0
+        self.zone_drop_selector.setEnabled(has_drops)
+        self.zone_drop_button.setEnabled(has_drops)
+        if (mob and not has_drops and
+                str(mob.get("loot") or "").casefold() == "various"):
+            self._load_selected_zone_drops(mob)
+
+    def _load_selected_zone_drops(self, mob):
+        target = str(mob.get("target") or mob.get("name") or "").strip()
+        key = target.casefold()
+        if not target or key in self._zone_drop_requests:
+            return False
+        cache_path = _wiki_entity_cache_path(target, "npc")
+        try:
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            drops = list(cached.get("drops") or [])
+            if drops:
+                self._apply_zone_npc_drops(mob, drops)
+                return True
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+            pass
+        self._zone_drop_requests.add(key)
+        request = QNetworkRequest(QUrl(P99_WIKI_API.format(
+            slug=quote(target.replace(" ", "_"), safe=""))))
+        request.setHeader(
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.43")
+        reply = self._network.get(request)
+        reply.finished.connect(lambda: self._zone_npc_drops_finished(
+            reply, mob, target, key, cache_path))
+        return True
+
+    def _zone_npc_drops_finished(self, reply, mob, target, key, cache_path):
+        try:
+            if reply.error() != QNetworkReply.NetworkError.NoError:
+                return
+            payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
+            parsed = payload.get("parse")
+            if not isinstance(parsed, dict):
+                return
+            wikitext = parsed.get("wikitext", {})
+            if isinstance(wikitext, dict):
+                wikitext = wikitext.get("*", "")
+            entity = parse_wiki_entity_wikitext(
+                wikitext, fallback_name=target, kind="npc")
+            cache_path.write_text(json.dumps(entity), encoding="utf-8")
+            self._apply_zone_npc_drops(mob, entity.get("drops") or [])
+        except (OSError, RuntimeError, UnicodeError, ValueError,
+                json.JSONDecodeError):
+            pass
+        finally:
+            self._zone_drop_requests.discard(key)
+            reply.deleteLater()
+
+    def _apply_zone_npc_drops(self, mob, drops):
+        drops = [str(value).strip() for value in drops if str(value).strip()]
+        if not drops:
+            return False
+        mob["drops"] = drops
+        mob["loot"] = ", ".join(drops)
+        selected = self._selected_zone_mob()
+        if selected is mob:
+            self.zone_drop_selector.clear()
+            self.zone_drop_selector.addItems(drops)
+            self.zone_drop_selector.setEnabled(True)
+            self.zone_drop_button.setEnabled(True)
+            row = self.zone_table.currentRow()
+            item = self.zone_table.item(row, 5)
+            if item:
+                item.setText(mob["loot"])
+                item.setToolTip(mob["loot"])
+        return True
+
+    def _open_zone_row(self, row, column):
+        if column == 5 and self._selected_zone_mob() and (
+                self._selected_zone_mob().get("drops")):
+            return self._open_selected_zone_drop()
+        return self._open_selected_zone_npc()
+
+    def _open_selected_zone_npc(self):
+        mob = self._selected_zone_mob()
+        if not mob:
+            return False
+        self._show_wiki_entity(
+            mob.get("target") or mob.get("name"), mob.get("name"), "npc")
+        return True
+
+    def _open_selected_zone_drop(self):
+        name = self.zone_drop_selector.currentText().strip()
+        if not name:
+            return False
+        self._show_wiki_item_name(name)
+        return True
+
+    def _open_zone_map(self):
+        name = str(self._zone_data.get("name") or "")
+        app = QApplication.instance()
+        maps = getattr(app, "_parsers_dict", {}).get("maps")
+        if not maps or not maps._load_zone(name):
+            self.zone_summary.setText(
+                f"No bundled Vantage map matches {name}.")
+            return False
+        if not maps.isVisible():
+            maps.toggle()
+        else:
+            maps.raise_()
+            maps.activateWindow()
+        return True
+
+    def _open_zone_wiki(self):
+        name = str(self._zone_data.get("name") or "").strip()
+        if not name:
+            return False
+        return bool(webbrowser.open(_wiki_target_url(name)))
 
     @staticmethod
     def _equipment_combo(values, accessible_name, callback):
@@ -3490,6 +4034,21 @@ class GreenMarket(ParserWindow):
         if not item:
             self.status.setText("Select an item name to open its card")
             return
+        return self._show_wiki_item_payload(item)
+
+    def _show_wiki_item_name(self, name):
+        """Open a full item card from a zone drop without changing filters."""
+        wanted = str(name or "").strip()
+        if not wanted:
+            return None
+        gear = next((item for item in self._gear_model.items
+                     if item.name.casefold() == wanted.casefold()), None)
+        item = dict(self._gear_model.price_item(wanted) or {})
+        item["n"] = gear.name if gear else wanted
+        item["_gear"] = gear
+        return self._show_wiki_item_payload(item)
+
+    def _show_wiki_item_payload(self, item):
         server = self._server
         card = WikiItemCard(
             item, self, server=server, catalog=self._gear_model.items,
@@ -3510,10 +4069,11 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.42")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.43")
         reply = self._network.get(request)
         reply.finished.connect(
             lambda: self._wiki_item_finished(reply, card, json_path, icon_path))
+        return card
 
     def _show_wiki_entity(self, target, label, kind):
         kind = str(kind or "").casefold()
@@ -3532,7 +4092,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.42")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.43")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._wiki_entity_finished(
             reply, card, cache_path, target, kind))
@@ -3617,7 +4177,7 @@ class GreenMarket(ParserWindow):
                     filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.42")
+                    "Vantage/1.44.43")
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
                     lambda: self._wiki_icon_finished(
@@ -3869,7 +4429,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.42")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.43")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -3892,7 +4452,7 @@ class GreenMarket(ParserWindow):
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
                 QNetworkRequest.KnownHeaders.UserAgentHeader,
-                "Vantage/1.44.42")
+                "Vantage/1.44.43")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -3935,6 +4495,9 @@ class GreenMarket(ParserWindow):
         zone = ZONE_RX.match(text)
         if zone:
             self._zone = zone.group("zone")
+            if (hasattr(self, "zone_selector") and
+                    not self._zone_data.get("name")):
+                self.zone_selector.setCurrentText(self._zone)
             in_ec = self._zone.casefold() in {
                 "east commonlands", "east commonlands tunnel"}
             if in_ec:
@@ -4266,7 +4829,7 @@ class GreenMarket(ParserWindow):
         self.status.setText(f"Refreshing PigParse {server}…")
         request = QNetworkRequest(QUrl(market_endpoint(server)))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.42")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.43")
         reply = self._network.get(request)
         reply.setProperty("market_server", server)
         reply.finished.connect(lambda: self._finished(reply))
@@ -4394,7 +4957,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(market_detail_api(server).format(
             item_name=quote(name, safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.42")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.43")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.setProperty("market_server", server)

@@ -96,6 +96,9 @@ def test_native_npc_summary_extracts_useful_drop_details():
 | HP = 17750
 | damage_per_hit = 132 - 330
 | description = Drops several sought-after regenerative items.
+| known_loot =
+<ul><li>{{:Fungus Covered Scale Tunic}} (Ultra Rare)</li>
+<li>[[Shrooms|Shrooms]] (Common)</li></ul>
 }}"""
 
     entity = parse_wiki_entity_wikitext(
@@ -104,7 +107,10 @@ def test_native_npc_summary_extracts_useful_drop_details():
     assert entity["name"] == "myconid spore king"
     assert ("Zone", "Old Sebilis") in entity["facts"]
     assert ("Location", "3%? @ (-910, 109)") in entity["facts"]
+    assert ("Known loot", "2 listed items") in entity["facts"]
+    assert entity["drops"] == ["Shrooms", "Fungus Covered Scale Tunic"]
     assert "regenerative" in entity["summary"]
+    assert "KNOWN LOOT" in entity["summary"]
 
 
 def test_native_zone_summary_stays_inside_the_app():
