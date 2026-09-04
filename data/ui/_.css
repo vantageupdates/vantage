@@ -916,41 +916,43 @@ QProgressBar {
 #ItemComparePanel { background-color: #090C0F; }
 #ItemCompareTitle {
     color: #F2D77F;
-    font-size: 14px;
+    font-size: 12px;
     font-weight: 700;
-    padding: 2px 4px;
+    padding: 1px 3px;
 }
-#ItemCompareIntro {
-    color: #D9E3E6;
-    background-color: #121A20;
-    border: 1px solid #40505C;
-    border-radius: 5px;
-    padding: 6px 8px;
+#ItemCompareBase {
+    color: #F4F0E7;
+    background-color: #171D20;
+    border: 1px solid #46525A;
+    border-radius: 4px;
+    padding: 3px 7px;
+    font-weight: 600;
 }
-#ItemCompareFinder {
-    background-color: #10161A;
-    border: 1px solid #3D4A52;
-    border-radius: 6px;
+#ItemCompareLegend {
+    color: #B7C2C5;
+    background-color: #101518;
+    border: 1px solid #354047;
+    border-radius: 4px;
+    padding: 3px 7px;
+    font-size: 10px;
 }
 #ItemCompareSectionLabel {
     color: #E6C969;
     font-size: 10px;
     font-weight: 700;
-    letter-spacing: 1px;
 }
-#ItemCompareSearchResults, #ItemCompareSelectedItems {
+#ItemCompareSelectedItems {
     background-color: #0C1114;
     border: 1px solid #344149;
     border-radius: 4px;
     padding: 2px;
 }
-#ItemCompareSearchResults::item, #ItemCompareSelectedItems::item {
-    padding: 4px 7px;
+#ItemCompareSelectedItems::item {
+    padding: 3px 6px;
     margin: 1px;
     border: 1px solid transparent;
     border-radius: 3px;
 }
-#ItemCompareSearchResults::item:selected,
 #ItemCompareSelectedItems::item:selected {
     color: #FFF0B0;
     background-color: #31301F;
@@ -961,7 +963,7 @@ QProgressBar {
     color: #BFE9DD;
     background-color: #101B1A;
     border-left: 3px solid #5AAE98;
-    padding: 5px 8px;
+    padding: 3px 7px;
 }
 #ItemCompareTable { border: 1px solid #40505C; }
 #ItemCompareTable QTableCornerButton::section {

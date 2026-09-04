@@ -1354,69 +1354,88 @@ class ItemComparePanel(QWidget):
         self.back_button.setToolTip("Return to the item card")
         self.back_button.clicked.connect(self.back_requested.emit)
         header.addWidget(self.back_button)
-        title = QLabel(f"COMPARE · BASE: {self.base.name}" if self.base else "COMPARE ITEMS")
+        title = QLabel("COMPARE GEAR")
         title.setObjectName("ItemCompareTitle")
-        title.setWordWrap(True)
         title.setAccessibleName(title.text())
-        header.addWidget(title, 1)
+        header.addWidget(title)
+        self.base_label = QLabel(
+            f"BASE · {self.base.name}" if self.base else "NO BASE")
+        self.base_label.setObjectName("ItemCompareBase")
+        self.base_label.setToolTip("Every stat change is measured from this item")
+        self.base_label.setAccessibleName(self.base_label.text())
+        header.addWidget(self.base_label, 1)
+        legend = QLabel("GAIN +   LOSS −   SAME =")
+        legend.setObjectName("ItemCompareLegend")
+        legend.setToolTip(
+            "Teal is a stat gain, coral is a stat loss, and gray is unchanged")
+        legend.setAccessibleName(
+            "Comparison legend: gain, loss, and same")
+        header.addWidget(legend)
         outer.addLayout(header)
 
-        intro = QLabel(
-            "Search the complete P99 item catalog below. Add up to 7 other "
-            "items; GAIN and LOSS show every stat change from BASE. This "
-            "search is independent from the Market filters.")
-        intro.setObjectName("ItemCompareIntro")
-        intro.setWordWrap(True)
-        intro.setAccessibleName(intro.text())
-        intro.setToolTip("Price is reference only and is not scored as a stat")
-        outer.addWidget(intro)
-
-        finder = QFrame()
-        finder.setObjectName("ItemCompareFinder")
-        finder_layout = QGridLayout(finder)
-        finder_layout.setContentsMargins(7, 7, 7, 7)
+        finder_layout = QHBoxLayout()
+        finder_layout.setContentsMargins(0, 0, 0, 0)
         finder_layout.setSpacing(5)
-        finder_label = QLabel("ADD ANOTHER ITEM")
+        finder_label = QLabel("Add item")
         finder_label.setObjectName("ItemCompareSectionLabel")
-        finder_layout.addWidget(finder_label, 0, 0, 1, 2)
+        finder_layout.addWidget(finder_label)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Search all P99 items by name or effect…")
+        self.search.setPlaceholderText(
+            "Search full P99 catalog, then choose a suggestion…")
         self.search.setClearButtonEnabled(True)
         self.search.setAccessibleName("Search all P99 items to compare")
         self.search.setAccessibleDescription(
             "Searches the full local item catalog, independently of the main Market list")
         self.search.setToolTip(
-            "Type at least 2 characters; searches names, click, proc, worn, focus, and bard effects")
+            "Type 2 or more characters and choose a suggestion; Enter also adds a unique result")
+        self._search_matches = []
+        self._completion_model = QStringListModel(self)
+        self.completer = QCompleter(self._completion_model, self)
+        self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.completer.setCompletionMode(
+            QCompleter.CompletionMode.UnfilteredPopupCompletion)
+        self.completer.setMaxVisibleItems(9)
+        self.completer.setWrapAround(False)
+        self.completer.activated[str].connect(self._add_completion)
+        self.search.setCompleter(self.completer)
         self.search.textChanged.connect(self._refresh_search_results)
-        finder_layout.addWidget(self.search, 1, 0)
-        self.add_button = QPushButton("Add selected")
+        self.search.returnPressed.connect(self._add_selected)
+        finder_layout.addWidget(self.search, 1)
+        self.add_button = QPushButton("Add")
         self.add_button.setIcon(game_icon("plus"))
         self.add_button.setEnabled(False)
-        self.add_button.setAccessibleName("Add selected item to comparison")
-        self.add_button.setToolTip("Add the highlighted search result")
+        self.add_button.setAccessibleName("Add matching item to comparison")
+        self.add_button.setToolTip(
+            "Add an exact or uniquely matching item from the full catalog")
         self.add_button.clicked.connect(self._add_selected)
-        finder_layout.addWidget(self.add_button, 1, 1)
-        self.results = QListWidget()
-        self.results.setObjectName("ItemCompareSearchResults")
-        self.results.setMaximumHeight(92)
-        self.results.setAccessibleName("Full catalog search results")
-        self.results.setAccessibleDescription(
-            "Select an item and activate Add selected, or double-click it")
-        self.results.itemSelectionChanged.connect(
-            lambda: self.add_button.setEnabled(bool(self.results.selectedItems())))
-        self.results.itemDoubleClicked.connect(lambda *_: self._add_selected())
-        finder_layout.addWidget(self.results, 2, 0, 1, 2)
-        self.search_status = QLabel("Type 2 or more characters to find an item.")
+        finder_layout.addWidget(self.add_button)
+        outer.addLayout(finder_layout)
+
+        self.search_status = QLabel(
+            "Search is independent from Market filters · price is reference only")
         self.search_status.setObjectName("ItemCompareSearchStatus")
-        finder_layout.addWidget(self.search_status, 3, 0, 1, 2)
-        outer.addWidget(finder)
+        self.search_status.setToolTip(
+            "Search includes item names plus click, proc, worn, focus, and bard effects")
+        outer.addWidget(self.search_status)
 
         selected_bar = QHBoxLayout()
-        selected_label = QLabel("ITEMS IN COMPARISON")
+        selected_label = QLabel("Comparing")
         selected_label.setObjectName("ItemCompareSectionLabel")
         selected_bar.addWidget(selected_label)
-        selected_bar.addStretch(1)
-        self.remove_button = QPushButton("Remove selected")
+        self.selected_items = QListWidget()
+        self.selected_items.setObjectName("ItemCompareSelectedItems")
+        self.selected_items.setFixedHeight(38)
+        self.selected_items.setFlow(QListWidget.Flow.LeftToRight)
+        self.selected_items.setWrapping(False)
+        self.selected_items.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.selected_items.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.selected_items.setAccessibleName("Items currently being compared")
+        self.selected_items.itemSelectionChanged.connect(
+            self._selected_item_changed)
+        selected_bar.addWidget(self.selected_items, 1)
+        self.remove_button = QPushButton("Remove")
         self.remove_button.setIcon(game_icon("trash"))
         self.remove_button.setEnabled(False)
         self.remove_button.setAccessibleName("Remove selected comparison item")
@@ -1424,18 +1443,11 @@ class ItemComparePanel(QWidget):
         self.remove_button.clicked.connect(self._remove_selected)
         selected_bar.addWidget(self.remove_button)
         outer.addLayout(selected_bar)
-        self.selected_items = QListWidget()
-        self.selected_items.setObjectName("ItemCompareSelectedItems")
-        self.selected_items.setMaximumHeight(58)
-        self.selected_items.setFlow(QListWidget.Flow.LeftToRight)
-        self.selected_items.setWrapping(True)
-        self.selected_items.setAccessibleName("Items currently being compared")
-        self.selected_items.itemSelectionChanged.connect(self._selected_item_changed)
-        outer.addWidget(self.selected_items)
 
         self.summary = QLabel()
         self.summary.setObjectName("ItemCompareSummary")
-        self.summary.setWordWrap(True)
+        self.summary.setTextFormat(Qt.TextFormat.RichText)
+        self.summary.setWordWrap(False)
         outer.addWidget(self.summary)
 
         self.table = QTableWidget()
@@ -1462,46 +1474,62 @@ class ItemComparePanel(QWidget):
 
     def _refresh_search_results(self, query):
         query = str(query or "").strip().casefold()
-        self.results.clear()
+        self._search_matches = []
+        self._completion_model.setStringList([])
         self.add_button.setEnabled(False)
         if len(query) < 2:
-            self.search_status.setText("Type 2 or more characters to find an item.")
+            self.search_status.setText(
+                "Type 2+ characters · full P99 catalog · independent from Market filters")
             return
         selected = {_item_key(item.name) for item in self.items}
-        matches = [
+        self._search_matches = [
             item for item in self.catalog
             if query in item.search_text and _item_key(item.name) not in selected]
-        for gear in matches[:100]:
-            details = []
-            for label, key in (("AC", "ac"), ("HP", "hp"), ("Mana", "mana")):
-                value = gear.stat(key)
-                if value:
-                    details.append(f"{label} {value:+d}")
-            row = QListWidgetItem(
-                gear.name + ("  ·  " + " · ".join(details) if details else ""))
-            row.setData(Qt.ItemDataRole.UserRole, _item_key(gear.name))
-            row.setToolTip(gear.effect_text or gear.name)
-            self.results.addItem(row)
-        suffix = " · showing first 100" if len(matches) > 100 else ""
-        self.search_status.setText(f"{len(matches):,} matches{suffix}")
+        suggestions = [item.name for item in self._search_matches[:50]]
+        self._completion_model.setStringList(suggestions)
+        exact = self._catalog_by_key.get(_item_key(self.search.text()))
+        ready = exact if exact not in self.items else None
+        self.add_button.setEnabled(bool(ready or len(self._search_matches) == 1))
+        self.search_status.setText(
+            f"{len(self._search_matches):,} matches · choose a suggestion"
+            if self._search_matches else "No matching item · try another name or effect")
+        if suggestions and self.search.hasFocus():
+            self.completer.complete()
 
     def _add_selected(self):
-        rows = self.results.selectedItems()
-        if not rows:
+        exact = self._catalog_by_key.get(_item_key(self.search.text()))
+        gear = exact if exact not in self.items else None
+        if gear is None and len(self._search_matches) == 1:
+            gear = self._search_matches[0]
+        if gear is None:
+            self.search_status.setText("Choose one item from the suggestions first")
+            return False
+        return self._add_item(gear)
+
+    def _add_completion(self, name):
+        gear = self._catalog_by_key.get(_item_key(name))
+        return self._add_item(gear)
+
+    def _add_item(self, gear):
+        if not isinstance(gear, GearItem):
             return False
         if len(self.items) >= self.MAX_ITEMS:
             self.search_status.setText(
                 f"Comparison limit reached · {self.MAX_ITEMS} items including BASE")
             return False
-        key = str(rows[0].data(Qt.ItemDataRole.UserRole) or "")
-        gear = self._catalog_by_key.get(key)
+        key = _item_key(gear.name)
         if gear is None or key in {_item_key(item.name) for item in self.items}:
             return False
         self.items.append(gear)
         self._refresh_selected_items()
         self._render_comparison()
-        self._refresh_search_results(self.search.text())
+        with QSignalBlocker(self.search):
+            self.search.clear()
+        self._search_matches = []
+        self._completion_model.setStringList([])
+        self.add_button.setEnabled(False)
         self.search_status.setText(f"Added {gear.name} · {len(self.items)} items")
+        self.search.setFocus(Qt.FocusReason.ShortcutFocusReason)
         return True
 
     def _selected_item_changed(self):
@@ -1518,7 +1546,8 @@ class ItemComparePanel(QWidget):
         removed = self.items.pop(row)
         self._refresh_selected_items()
         self._render_comparison()
-        self._refresh_search_results(self.search.text())
+        if self.search.text().strip():
+            self._refresh_search_results(self.search.text())
         self.search_status.setText(f"Removed {removed.name} · {len(self.items)} items")
         return True
 
@@ -1603,20 +1632,26 @@ class ItemComparePanel(QWidget):
 
         if len(self.items) < 2:
             self.summary.setText(
-                "BASE is ready · search the complete catalog and add another item.")
+                "Search above and choose an item to compare.")
+            accessible_summary = self.summary.text()
         else:
             summaries = []
+            accessible_parts = []
             rows = gear_comparison_rows(self.items)
-            for column, item in enumerate(self.items):
-                if column == 0:
-                    summaries.append(f"BASE · {item.name}")
-                    continue
+            for column, item in enumerate(self.items[1:], 1):
                 gains = sum(row["deltas"][column] > 0 for row in rows)
                 losses = sum(row["deltas"][column] < 0 for row in rows)
                 summaries.append(
-                    f"{item.name}: {gains} GAIN · {losses} LOSS · {lead_counts[column]} BEST")
-            self.summary.setText("  |  ".join(summaries))
-        self.summary.setAccessibleName(self.summary.text())
+                    f"<b>{html.escape(item.name)}</b> "
+                    f"<span style='color:#8CF0C3'>+{gains} GAIN</span> · "
+                    f"<span style='color:#FFAA9D'>−{losses} LOSS</span> · "
+                    f"<span style='color:#F2D77F'>{lead_counts[column]} BEST</span>")
+                accessible_parts.append(
+                    f"{item.name}: {gains} gains, {losses} losses, "
+                    f"{lead_counts[column]} best stats")
+            self.summary.setText(" &nbsp; | &nbsp; ".join(summaries))
+            accessible_summary = "; ".join(accessible_parts)
+        self.summary.setAccessibleName(accessible_summary)
         self.summary.setToolTip(
             "Counts are unweighted; class, slot, and effects still determine the useful choice")
 
@@ -1854,7 +1889,7 @@ class WikiItemCard(UniformScaleDialog):
         self._item_window_size = self.size()
         self.pages.setCurrentWidget(self.compare_panel)
         self._set_page_design(
-            QSize(900, 600), QSize(630, 420), QSize(900, 600))
+            QSize(800, 500), QSize(600, 375), QSize(800, 500))
         self.setWindowTitle(f"Vantage · Compare · {self.item_name}")
         self.compare_panel.focus_search()
         _announce_accessible(
@@ -3404,7 +3439,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.39")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.40")
         reply = self._network.get(request)
         reply.finished.connect(
             lambda: self._wiki_item_finished(reply, card, json_path, icon_path))
@@ -3423,7 +3458,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.39")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.40")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._wiki_entity_finished(
             reply, card, cache_path, target, kind))
@@ -3508,7 +3543,7 @@ class GreenMarket(ParserWindow):
                     filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.39")
+                    "Vantage/1.44.40")
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
                     lambda: self._wiki_icon_finished(
@@ -3760,7 +3795,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.39")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.40")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -3782,7 +3817,7 @@ class GreenMarket(ParserWindow):
                     return
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.39")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.40")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -4155,7 +4190,7 @@ class GreenMarket(ParserWindow):
         self._refresh_button.setText("Refreshing…")
         self.status.setText(f"Refreshing PigParse {server}…")
         request = QNetworkRequest(QUrl(market_endpoint(server)))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.39")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.40")
         reply = self._network.get(request)
         reply.setProperty("market_server", server)
         reply.finished.connect(lambda: self._finished(reply))
@@ -4282,7 +4317,7 @@ class GreenMarket(ParserWindow):
             f"Evaluating PigParse {server} history · {name}…")
         request = QNetworkRequest(QUrl(market_detail_api(server).format(
             item_name=quote(name, safe=""))))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.39")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.40")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.setProperty("market_server", server)

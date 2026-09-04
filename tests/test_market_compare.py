@@ -60,14 +60,13 @@ app.processEvents()
 compare = card.compare_panel
 compare.search.setText("Armor")
 app.processEvents()
-armor_results = [compare.results.item(i).text() for i in range(compare.results.count())]
-compare.results.setCurrentRow(0)
+armor_results = compare._completion_model.stringList()
+armor_add_enabled = compare.add_button.isEnabled()
 compare.add_button.click()
 compare.search.setText("Health")
 app.processEvents()
-health_results = [compare.results.item(i).text() for i in range(compare.results.count())]
-compare.results.setCurrentRow(0)
-compare.add_button.click()
+health_results = compare._completion_model.stringList()
+compare._add_completion("Health Robe")
 app.processEvents()
 table = compare.table
 rows = {table.verticalHeaderItem(row).text(): row for row in range(table.rowCount())}
@@ -78,11 +77,14 @@ result = {
     "main_selection_mode": market.gear_table.selectionMode().value,
     "single_mode": QAbstractItemView.SelectionMode.SingleSelection.value,
     "current_is_compare": card.pages.currentWidget() is compare,
+    "design_size": [card._dialog_design_size.width(), card._dialog_design_size.height()],
+    "window_size": [card.width(), card.height()],
     "window_title": card.windowTitle(),
     "card_tip": card.compare_button.toolTip(),
     "search_name": compare.search.accessibleName(),
     "search_description": compare.search.accessibleDescription(),
     "armor_results": armor_results,
+    "armor_add_enabled": armor_add_enabled,
     "health_results": health_results,
     "selected": [item.name for item in compare.items],
     "selected_labels": [compare.selected_items.item(i).text() for i in range(compare.selected_items.count())],
@@ -94,6 +96,7 @@ result = {
     "gain_color": table.item(ac_row, 1).foreground().color().name(),
     "loss_color": table.item(ac_row, 2).foreground().color().name(),
     "summary": compare.summary.text(),
+    "summary_accessible": compare.summary.accessibleName(),
     "table_description": table.accessibleDescription(),
 }
 compare.selected_items.setCurrentRow(1)
@@ -119,12 +122,15 @@ def test_comparison_lives_inside_item_card_with_independent_search(tmp_path):
     assert result["main_has_mode"] is False
     assert result["main_selection_mode"] == result["single_mode"]
     assert result["current_is_compare"] is True
+    assert result["design_size"] == [800, 500]
+    assert result["window_size"] == [800, 500]
     assert result["window_title"] == "Vantage · Compare · Base Robe"
     assert "independent full-catalog search" in result["card_tip"]
     assert result["search_name"] == "Search all P99 items to compare"
     assert "independently of the main Market list" in result["search_description"]
-    assert result["armor_results"] == ["Armor Robe  ·  AC +15 · HP +50"]
-    assert result["health_results"] == ["Health Robe  ·  AC +8 · HP +120"]
+    assert result["armor_results"] == ["Armor Robe"]
+    assert result["armor_add_enabled"] is True
+    assert result["health_results"] == ["Health Robe"]
     assert result["selected"] == ["Base Robe", "Armor Robe", "Health Robe"]
     assert result["selected_labels"][0] == "BASE · Base Robe"
     assert result["headers"] == ["BASE · Base Robe", "Armor Robe", "Health Robe"]
@@ -135,6 +141,8 @@ def test_comparison_lives_inside_item_card_with_independent_search(tmp_path):
     assert result["gain_color"] == "#8cf0c3"
     assert result["loss_color"] == "#ffaa9d"
     assert "GAIN" in result["summary"] and "LOSS" in result["summary"]
+    assert "gains" in result["summary_accessible"]
+    assert "losses" in result["summary_accessible"]
     assert "GAIN, LOSS, or SAME text and color" in result["table_description"]
     assert result["after_remove"] == ["Base Robe", "Health Robe"]
     assert result["back_to_item"] is True
