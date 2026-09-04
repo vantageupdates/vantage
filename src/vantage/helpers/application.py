@@ -42,7 +42,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=43,
+    patch=44,
     build=""
 )
 
@@ -818,10 +818,10 @@ class VantageApp(QApplication):
             toggle.setChecked(parser.isVisible())
             parser_toggles[toggle] = parser
 
-        spell_library_action = menu.addAction('Spell Library…')
+        spell_library_action = menu.addAction('Spells & Skills…')
         spell_library_action.setIcon(game_icon('ph-spellbook'))
         spell_library_action.setToolTip(
-            'Search P99 spells by class and level, including Wiki acquisition and prices')
+            'Search P99 spells and class skills, levels, training, caps, and Wiki guides')
 
         menu.addSeparator()
         settings_action = menu.addAction('Settings')
@@ -967,7 +967,7 @@ class VantageApp(QApplication):
         self._about_dialog_instance.activateWindow()
 
     def show_spell_library(self):
-        """Open the lazy local/Wiki spell catalog without startup overhead."""
+        """Open the lazy P99 spell and class-skill catalog."""
         if self._spell_library_dialog is None:
             from vantage.helpers.spell_library import SpellLibraryDialog
             self._spell_library_dialog = SpellLibraryDialog(

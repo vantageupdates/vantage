@@ -18,8 +18,9 @@ from PySide6.QtNetwork import (
     QNetworkAccessManager, QNetworkReply, QNetworkRequest)
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QHBoxLayout, QHeaderView, QLabel,
-    QLineEdit, QPushButton, QSplitter, QTableView, QTextBrowser,
-    QVBoxLayout, QWidget)
+    QLineEdit, QPushButton, QSplitter, QTableView, QTableWidget,
+    QTableWidgetItem, QTabWidget, QTextBrowser, QToolButton, QVBoxLayout,
+    QWidget)
 
 from vantage.helpers import resource_path
 from vantage.helpers.icons import game_icon
@@ -27,6 +28,8 @@ from vantage.helpers.spell_icons import spell_icon_pixmap
 from vantage.helpers.portable import data_dir
 from vantage.helpers.scaled_dialog import UniformScaleDialog
 from vantage.helpers.spell_catalog import P99_SPELL_CLASSES, p99_spell_entries
+from vantage.helpers.responsive import (
+    ensure_tab_tooltips, ensure_table_header_tooltips)
 from vantage.parsers.market import (
     combined_market_price, normalize_market_server,
     parse_wiki_auction_html)
@@ -36,10 +39,15 @@ P99_WIKI_API = (
     "https://wiki.project1999.com/api.php?action=parse&page={slug}"
     "&prop=text%7Cwikitext&format=json")
 P99_WIKI_URL = "https://wiki.project1999.com/{slug}"
-USER_AGENT = "Vantage/1.44.43"
+USER_AGENT = "Vantage/1.44.44"
 ACQUISITION_WORDS = (
     "merchant", "sold by", "where to obtain", "where to find", "drop",
     "research", "recipe", "created by", "quest", "reward", "turn in",
+)
+P99_SKILL_CLASSES = (
+    "Bard", "Cleric", "Druid", "Enchanter", "Magician", "Monk",
+    "Necromancer", "Paladin", "Ranger", "Rogue", "Shadow Knight",
+    "Shaman", "Warrior", "Wizard",
 )
 
 
@@ -48,6 +56,18 @@ def _cache_path(name, server="Green"):
     digest = hashlib.sha256(
         str(name).strip().casefold().encode("utf-8")).hexdigest()[:20]
     return data_dir("cache", "wiki-spells") / f"{server}-{digest}.json"
+
+
+def _skills_cache_path(class_name):
+    digest = hashlib.sha256(
+        str(class_name).strip().casefold().encode("utf-8")).hexdigest()[:20]
+    return data_dir("cache", "wiki-skills") / f"class-{digest}.json"
+
+
+def _skill_detail_cache_path(target):
+    digest = hashlib.sha256(
+        str(target).strip().casefold().encode("utf-8")).hexdigest()[:20]
+    return data_dir("cache", "wiki-skills") / f"skill-{digest}.json"
 
 
 def _wiki_url(name):
@@ -161,6 +181,129 @@ def sanitize_wiki_html(rendered_html):
     return source
 
 
+def _rendered_text(value):
+    source = re.sub(
+        r"<span\b[^>]*class=[\"'][^\"']*\beditsection\b[^\"']*"
+        r"[\"'][^>]*>.*?</span>", "", str(value or ""),
+        flags=re.IGNORECASE | re.DOTALL)
+    source = re.sub(r"<br\s*/?>", "\n", source, flags=re.IGNORECASE)
+    source = re.sub(r"<[^>]+>", " ", source)
+    return " ".join(html.unescape(source).split())
+
+
+def parse_class_skills_html(rendered_html, class_name=""):
+    """Extract the P99 class skill tables and specialization guidance."""
+    source = str(rendered_html or "")
+    skills_marker = re.search(
+        r'<span\b[^>]*id=["\']Skills["\'][^>]*>', source,
+        re.IGNORECASE)
+    if not skills_marker:
+        return {"class": str(class_name), "specialization": "", "skills": []}
+    section_start = skills_marker.start()
+    next_h1 = re.search(r"<h1\b", source[skills_marker.end():], re.IGNORECASE)
+    section_end = (
+        skills_marker.end() + next_h1.start() if next_h1 else len(source))
+    section = source[section_start:section_end]
+
+    headings = list(re.finditer(
+        r'<h2\b[^>]*>.*?<span\b[^>]*id=["\'](?P<id>[^"\']+)'
+        r'["\'][^>]*>.*?</h2>', section,
+        re.IGNORECASE | re.DOTALL))
+    specialization = ""
+    skills = []
+    for index, heading in enumerate(headings):
+        heading_id = heading.group("id")
+        block_end = (
+            headings[index + 1].start()
+            if index + 1 < len(headings) else len(section))
+        block = section[heading.end():block_end]
+        if heading_id.casefold() == "specialization":
+            specialization = _rendered_text(block)[:3000]
+            continue
+        if not heading_id.casefold().endswith("_skills"):
+            continue
+        category = heading_id.replace("_", " ").title().removesuffix(" Skills")
+        table = re.search(
+            r"<table\b[^>]*>(?P<body>.*?)</table>", block,
+            re.IGNORECASE | re.DOTALL)
+        if not table:
+            continue
+        raw_rows = re.findall(
+                r"<tr\b[^>]*>(.*?)</tr>", table.group("body"),
+                re.IGNORECASE | re.DOTALL)
+        if not raw_rows:
+            continue
+        header_cells = re.findall(
+            r"<t[dh]\b[^>]*>(.*?)</t[dh]>", raw_rows[0],
+            re.IGNORECASE | re.DOTALL)
+        headers = [_rendered_text(cell).casefold() for cell in header_cells]
+
+        def column_index(*needles):
+            return next((index for index, label in enumerate(headers)
+                         if any(needle in label for needle in needles)), -1)
+
+        level_index = column_index("level")
+        skill_index = column_index("skill")
+        trained_index = column_index("trained", "train")
+        cap_50_index = column_index("until 50", "through 50", "cap at 50")
+        cap_60_index = column_index("above 50", "after 50", "cap at 60")
+        max_index = column_index("max", "cap")
+        if cap_50_index < 0:
+            cap_50_index = max_index
+        if cap_60_index < 0:
+            cap_60_index = max_index
+        required = (level_index, skill_index, trained_index, cap_50_index)
+        if any(index < 0 for index in required):
+            continue
+        for raw_row in raw_rows[1:]:
+            cells = re.findall(
+                r"<t[dh]\b[^>]*>(.*?)</t[dh]>", raw_row,
+                re.IGNORECASE | re.DOTALL)
+            maximum_index = max(
+                level_index, skill_index, trained_index,
+                cap_50_index, cap_60_index)
+            if len(cells) <= maximum_index:
+                continue
+            level_text = _rendered_text(cells[level_index])
+            level_match = re.search(r"\d+", level_text)
+            if not level_match:
+                continue
+            link = re.search(
+                r'<a\b[^>]*href=["\'](?P<href>[^"\']+)["\']',
+                cells[skill_index], re.IGNORECASE)
+            skill_name = _rendered_text(cells[skill_index])
+            if link:
+                target = _wiki_title_from_url(link.group("href"))
+            else:
+                aliases = {
+                    "1-hand blunt": "Skill 1H Blunt",
+                    "2-hand blunt": "Skill 2H Blunt",
+                    "1-hand slashing": "Skill 1H Slashing",
+                    "2-hand slashing": "Skill 2H Slashing",
+                    "hand to hand": "Skill Hand to Hand",
+                }
+                target = aliases.get(skill_name.casefold(), f"Skill {skill_name}")
+            trained = _rendered_text(cells[trained_index])
+            if trained.casefold() in {"y", "yes"}:
+                trained = "Yes"
+            elif trained.casefold() in {"n", "no"}:
+                trained = "No"
+            skills.append({
+                "level": int(level_match.group()),
+                "trained": trained,
+                "name": skill_name,
+                "cap_50": _rendered_text(cells[cap_50_index]),
+                "cap_60": _rendered_text(cells[cap_60_index]),
+                "category": category,
+                "target": target,
+            })
+    return {
+        "class": str(class_name),
+        "specialization": specialization,
+        "skills": skills,
+    }
+
+
 @dataclass(frozen=True)
 class SpellListing:
     entry: object
@@ -263,16 +406,31 @@ class SpellLibraryDialog(UniformScaleDialog):
         self._current = None
         self._pending = None
         self._reply = None
+        self._skills_reply = None
+        self._skill_detail_reply = None
+        self._skills_generation = 0
+        self._skill_detail_generation = 0
+        self._skills_data = {}
+        self._visible_skills = []
+        self._current_skill = None
         self._linked_title = ""
         self._linked_url = QUrl()
         self._request_generation = 0
         self._network = QNetworkAccessManager(self)
         self.setObjectName("SpellLibraryDialog")
-        self.setWindowTitle("Vantage · P99 Spell Library")
+        self.setWindowTitle("Vantage · P99 Spells & Skills")
 
         root = QVBoxLayout(self.scaled_surface)
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(6)
+        self.catalog_tabs = QTabWidget()
+        self.catalog_tabs.setObjectName("SpellSkillTabs")
+        root.addWidget(self.catalog_tabs, 1)
+
+        spell_page = QWidget()
+        spell_root = QVBoxLayout(spell_page)
+        spell_root.setContentsMargins(0, 4, 0, 0)
+        spell_root.setSpacing(6)
 
         controls = QHBoxLayout()
         controls.setSpacing(5)
@@ -301,11 +459,11 @@ class SpellLibraryDialog(UniformScaleDialog):
         self.level_filter.setToolTip(
             "Shows only levels that contain spells for the selected class")
         controls.addWidget(self.level_filter)
-        root.addLayout(controls)
+        spell_root.addLayout(controls)
 
         splitter = QSplitter()
         splitter.setChildrenCollapsible(False)
-        root.addWidget(splitter, 1)
+        spell_root.addWidget(splitter, 1)
 
         self.model = SpellLibraryModel(self._entries, self)
         self.proxy = SpellLibraryFilter(self)
@@ -418,6 +576,15 @@ class SpellLibraryDialog(UniformScaleDialog):
         detail_layout.addWidget(self.source)
         splitter.addWidget(detail)
         splitter.setSizes((410, 630))
+        self.catalog_tabs.addTab(spell_page, "Spells")
+        self.skills_page = self._build_skills_page()
+        self.catalog_tabs.addTab(self.skills_page, "Skills")
+        ensure_tab_tooltips(self.catalog_tabs, {
+            "Spells": (
+                "Search P99 spells by class and level, then read their Wiki details"),
+            "Skills": (
+                "Choose a P99 class and search when each skill unlocks and its caps"),
+        })
 
         self._selection_timer = QTimer(self)
         self._selection_timer.setSingleShot(True)
@@ -430,7 +597,419 @@ class SpellLibraryDialog(UniformScaleDialog):
             self._selection_changed)
         self.table.clicked.connect(self._activate_index)
         self.table.activated.connect(self._activate_index)
+        self.catalog_tabs.currentChanged.connect(self._catalog_tab_changed)
         QTimer.singleShot(0, self._select_first)
+
+    def _catalog_tab_changed(self, _index):
+        if (self.catalog_tabs.currentWidget() is self.skills_page and
+                not self._skills_data.get("skills") and
+                self._skills_reply is None):
+            self._load_selected_class_skills()
+
+    def _build_skills_page(self):
+        page = QWidget()
+        page.setObjectName("SkillLibraryPage")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 4, 0, 0)
+        layout.setSpacing(6)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(5)
+        self.skill_class_filter = QComboBox()
+        for class_name in P99_SKILL_CLASSES:
+            self.skill_class_filter.addItem(class_name, class_name)
+        preferred = str(getattr(
+            getattr(self.spells_panel, "_character_context", None),
+            "player_class", "") or "")
+        preferred_index = self.skill_class_filter.findData(preferred)
+        self.skill_class_filter.setCurrentIndex(max(0, preferred_index))
+        self.skill_class_filter.setAccessibleName("P99 class for skill lookup")
+        self.skill_class_filter.setToolTip(
+            "Choose a class to load its P99 skill unlock levels and caps")
+        controls.addWidget(self.skill_class_filter)
+
+        self.skill_search = QLineEdit()
+        self.skill_search.setPlaceholderText("Search this class's skills…")
+        self.skill_search.setClearButtonEnabled(True)
+        self.skill_search.setAccessibleName("Search skills for selected class")
+        self.skill_search.setToolTip(
+            "Filter by skill name, category, level, training, or cap")
+        clear_skill_search = self.skill_search.findChild(QToolButton)
+        if clear_skill_search:
+            clear_skill_search.setAccessibleName("Clear skill search")
+            clear_skill_search.setToolTip("Show every skill for this class")
+        controls.addWidget(self.skill_search, 1)
+
+        self.skill_refresh_button = QPushButton("Refresh class")
+        self.skill_refresh_button.setIcon(game_icon("refresh"))
+        self.skill_refresh_button.setAccessibleName(
+            "Refresh selected class skills from Project 1999 Wiki")
+        self.skill_refresh_button.setToolTip(
+            "Download the selected class's current P99 skill tables again")
+        controls.addWidget(self.skill_refresh_button)
+        layout.addLayout(controls)
+
+        self.skill_summary = QLabel(
+            "Choose a class to see its casting, combat, and miscellaneous skills.")
+        self.skill_summary.setObjectName("SpellLibraryPrice")
+        self.skill_summary.setWordWrap(True)
+        self.skill_summary.setAccessibleName(self.skill_summary.text())
+        layout.addWidget(self.skill_summary)
+
+        splitter = QSplitter()
+        splitter.setChildrenCollapsible(False)
+        self.skill_table = QTableWidget(0, 6)
+        self.skill_table.setObjectName("SkillLibraryTable")
+        self.skill_table.setHorizontalHeaderLabels((
+            "Level", "Skill", "Category", "Trained", "Cap ≤50", "Cap >50"))
+        self.skill_table.setAccessibleName("Skills for selected P99 class")
+        self.skill_table.setAccessibleDescription(
+            "Sortable class skills showing unlock level, trainer requirement, and caps")
+        self.skill_table.setToolTip(
+            "Select a skill for its class facts and Project 1999 Wiki guide")
+        self.skill_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.skill_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows)
+        self.skill_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection)
+        self.skill_table.setAlternatingRowColors(True)
+        self.skill_table.setSortingEnabled(True)
+        self.skill_table.verticalHeader().setVisible(False)
+        skill_header = self.skill_table.horizontalHeader()
+        skill_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        skill_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        skill_header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        for column in range(3, 6):
+            skill_header.setSectionResizeMode(
+                column, QHeaderView.ResizeMode.ResizeToContents)
+        ensure_table_header_tooltips(
+            self.skill_table, "the selected Project 1999 class")
+        splitter.addWidget(self.skill_table)
+
+        detail = QWidget()
+        detail_layout = QVBoxLayout(detail)
+        detail_layout.setContentsMargins(8, 0, 0, 0)
+        detail_layout.setSpacing(5)
+        headline = QHBoxLayout()
+        skill_identity = QVBoxLayout()
+        self.skill_name_label = QLabel("Choose a skill")
+        self.skill_name_label.setObjectName("SpellLibraryTitle")
+        self.skill_fact_label = QLabel(
+            "Select a row to see when the skill unlocks and its cap.")
+        self.skill_fact_label.setObjectName("SpellLibraryClasses")
+        self.skill_fact_label.setWordWrap(True)
+        skill_identity.addWidget(self.skill_name_label)
+        skill_identity.addWidget(self.skill_fact_label)
+        headline.addLayout(skill_identity, 1)
+        self.skill_open_button = QPushButton("Open source")
+        self.skill_open_button.setIcon(game_icon("map"))
+        self.skill_open_button.setEnabled(False)
+        self.skill_open_button.setAccessibleName(
+            "Open selected skill on Project 1999 Wiki")
+        self.skill_open_button.setToolTip(
+            "Open the selected skill's source page in your browser")
+        self.skill_open_button.clicked.connect(self._open_selected_skill)
+        headline.addWidget(self.skill_open_button)
+        detail_layout.addLayout(headline)
+
+        self.skill_body = QTextBrowser()
+        self.skill_body.setObjectName("SpellLibraryDetail")
+        self.skill_body.setAccessibleName("Selected P99 skill information")
+        self.skill_body.setOpenExternalLinks(True)
+        self.skill_body.setToolTip(
+            "Class guidance and Wiki information for the selected skill")
+        self.skill_body.document().setDefaultStyleSheet(
+            "body { color: #D9D2C3; background: #101419; }"
+            "h1, h2, h3, h4 { color: #D7BD7B; }"
+            "a { color: #D7BD7B; }"
+            "table { color: #E6E2D9; background: #10161B; "
+            "border-collapse: collapse; }"
+            "th { color: #E8D59D; background: #1B2026; }"
+            "td { color: #E6E2D9; background: #10161B; }"
+            "td, th { border: 1px solid #3A4650; padding: 3px; }")
+        self.skill_body.setHtml(
+            "<h2>P99 Class Skills</h2><p>Loading the selected class…</p>")
+        detail_layout.addWidget(self.skill_body, 1)
+        self.skill_source = QLabel("PROJECT 1999 WIKI · CLASS SKILLS")
+        self.skill_source.setObjectName("SpellLibrarySource")
+        self.skill_source.setWordWrap(True)
+        self.skill_source.setToolTip(
+            "Unlock levels, training, caps, and guides come from Project 1999 Wiki")
+        detail_layout.addWidget(self.skill_source)
+        splitter.addWidget(detail)
+        splitter.setSizes((590, 450))
+        layout.addWidget(splitter, 1)
+
+        self._skill_selection_timer = QTimer(self)
+        self._skill_selection_timer.setSingleShot(True)
+        self._skill_selection_timer.setInterval(180)
+        self._skill_selection_timer.timeout.connect(self._load_skill_detail)
+        self.skill_class_filter.currentIndexChanged.connect(
+            self._load_selected_class_skills)
+        self.skill_search.textChanged.connect(self._refresh_skill_rows)
+        self.skill_refresh_button.clicked.connect(
+            lambda: self._load_selected_class_skills(force=True))
+        self.skill_table.itemSelectionChanged.connect(
+            self._skill_selection_changed)
+        self.skill_table.cellDoubleClicked.connect(
+            lambda *_: self._open_selected_skill())
+        return page
+
+    def _load_selected_class_skills(self, *_args, force=False):
+        class_name = str(self.skill_class_filter.currentData() or "").strip()
+        if not class_name:
+            return False
+        self._skills_generation += 1
+        generation = self._skills_generation
+        if self._skills_reply is not None and self._skills_reply.isRunning():
+            self._skills_reply.abort()
+        cache_path = _skills_cache_path(class_name)
+        cached = None
+        if not force:
+            try:
+                cached = json.loads(cache_path.read_text(encoding="utf-8"))
+                if cached.get("skills"):
+                    self._set_skills_data(cached, cached=True)
+            except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+                cached = None
+        self.skill_refresh_button.setEnabled(False)
+        if not cached:
+            self._skills_data = {}
+            self._visible_skills = []
+            self.skill_table.setRowCount(0)
+            self.skill_summary.setText(
+                f"Loading {class_name} skills from Project 1999 Wiki…")
+            self.skill_summary.setAccessibleName(self.skill_summary.text())
+        request = QNetworkRequest(QUrl(P99_WIKI_API.format(
+            slug=quote(class_name.replace(" ", "_"), safe=""))))
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, USER_AGENT)
+        request.setTransferTimeout(12000)
+        reply = self._network.get(request)
+        self._skills_reply = reply
+        reply.finished.connect(lambda: self._class_skills_finished(
+            reply, class_name, generation, cache_path))
+        return True
+
+    def _class_skills_finished(self, reply, class_name, generation, cache_path):
+        try:
+            if generation != self._skills_generation:
+                return
+            if reply.error() != QNetworkReply.NetworkError.NoError:
+                raise ValueError(reply.errorString())
+            payload_bytes = bytes(reply.readAll())
+            if len(payload_bytes) > 2_000_000:
+                raise ValueError("Wiki response is larger than the safe limit")
+            payload = json.loads(payload_bytes.decode("utf-8"))
+            parsed = payload.get("parse")
+            if not isinstance(parsed, dict):
+                raise ValueError("class page not found on P99 Wiki")
+            rendered = parsed.get("text", {})
+            if isinstance(rendered, dict):
+                rendered = rendered.get("*", "")
+            data = parse_class_skills_html(rendered, class_name)
+            if not data.get("skills"):
+                raise ValueError("no recognized skill tables on this class page")
+            data["fetched_at"] = datetime.datetime.now(
+                datetime.timezone.utc).isoformat()
+            cache_path.write_text(
+                json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            self._set_skills_data(data)
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
+            if not self._skills_data.get("skills"):
+                self.skill_summary.setText(
+                    f"Could not load {class_name} skills · {error}")
+                self.skill_summary.setAccessibleName(self.skill_summary.text())
+        finally:
+            if self._skills_reply is reply:
+                self._skills_reply = None
+            self.skill_refresh_button.setEnabled(True)
+            reply.deleteLater()
+
+    def _set_skills_data(self, data, cached=False):
+        self._skills_data = dict(data or {})
+        skills = list(self._skills_data.get("skills") or [])
+        class_name = str(self._skills_data.get("class") or
+                         self.skill_class_filter.currentText())
+        categories = len({row.get("category") for row in skills})
+        suffix = "cached" if cached else "updated now"
+        self.skill_summary.setText(
+            f"{class_name} · {len(skills)} skills · {categories} categories · {suffix}")
+        self.skill_summary.setAccessibleName(self.skill_summary.text())
+        self._refresh_skill_rows()
+        specialization = str(self._skills_data.get("specialization") or "")
+        if specialization:
+            self.skill_body.setHtml(
+                f"<h2>{html.escape(class_name)} skills</h2>"
+                "<h3>Specialization guidance</h3>"
+                f"<p>{html.escape(specialization)}</p>"
+                "<p>Select any skill for its unlock level, caps, and Wiki guide.</p>")
+        else:
+            self.skill_body.setHtml(
+                f"<h2>{html.escape(class_name)} skills</h2>"
+                "<p>Select any skill for its unlock level, caps, and Wiki guide.</p>")
+        self.skill_source.setText(
+            f"PROJECT 1999 WIKI · {class_name.upper()} CLASS TABLE · {suffix.upper()}")
+
+    def _refresh_skill_rows(self, *_args):
+        query = self.skill_search.text().strip().casefold()
+        skills = list(self._skills_data.get("skills") or [])
+        self._visible_skills = [row for row in skills if not query or query in
+                                " ".join(str(value or "") for value in row.values()).casefold()]
+        self.skill_table.setSortingEnabled(False)
+        self.skill_table.setRowCount(len(self._visible_skills))
+        for row_index, skill in enumerate(self._visible_skills):
+            values = (
+                skill.get("level"), skill.get("name"), skill.get("category"),
+                skill.get("trained"), skill.get("cap_50"), skill.get("cap_60"))
+            for column, value in enumerate(values):
+                item = QTableWidgetItem()
+                if column == 0:
+                    item.setData(Qt.ItemDataRole.DisplayRole, int(value or 0))
+                    item.setData(Qt.ItemDataRole.UserRole, skill)
+                else:
+                    item.setText(str(value or ""))
+                item.setToolTip(str(value or ""))
+                self.skill_table.setItem(row_index, column, item)
+        self.skill_table.setSortingEnabled(True)
+        self.skill_table.sortItems(0, Qt.SortOrder.AscendingOrder)
+        if self.skill_table.rowCount():
+            self.skill_table.selectRow(0)
+        else:
+            self._current_skill = None
+            self.skill_name_label.setText("No matching skills")
+            self.skill_fact_label.setText("Clear or change the search text.")
+
+    def _selected_skill(self):
+        row = self.skill_table.currentRow()
+        item = self.skill_table.item(row, 0) if row >= 0 else None
+        value = item.data(Qt.ItemDataRole.UserRole) if item else None
+        return value if isinstance(value, dict) else None
+
+    def _skill_selection_changed(self):
+        self._current_skill = self._selected_skill()
+        self.skill_open_button.setEnabled(bool(self._current_skill))
+        if self._current_skill:
+            self._skill_selection_timer.start()
+
+    def _load_skill_detail(self):
+        skill = self._current_skill
+        if not skill:
+            return False
+        class_name = str(self._skills_data.get("class") or "Class")
+        name = str(skill.get("name") or "Skill")
+        self.skill_name_label.setText(name)
+        self.skill_fact_label.setText(
+            f"{class_name} · {skill.get('category')} · level {skill.get('level')} · "
+            f"trained {skill.get('trained')} · caps {skill.get('cap_50')} / "
+            f"{skill.get('cap_60')}")
+        self.skill_body.setHtml(
+            f"<h2>{html.escape(name)}</h2>"
+            f"<p><b>{html.escape(class_name)}</b> gains this at level "
+            f"<b>{skill.get('level')}</b>.</p>"
+            f"<p>Category: {html.escape(str(skill.get('category') or ''))}<br>"
+            f"Trainer: {html.escape(str(skill.get('trained') or ''))}<br>"
+            f"Cap through 50: {html.escape(str(skill.get('cap_50') or ''))}<br>"
+            f"Cap above 50: {html.escape(str(skill.get('cap_60') or ''))}</p>"
+            "<p>Loading the detailed P99 Wiki guide…</p>")
+        target = str(skill.get("target") or f"Skill {name}")
+        cache_path = _skill_detail_cache_path(target)
+        try:
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            if cached.get("wiki_html"):
+                self._render_skill_detail(skill, cached, cached=True)
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+            pass
+        # Selection timers can still be queued while a reusable dialog is
+        # closing. Cached/local facts are safe to render, but never start a
+        # fresh network request for a surface that is no longer visible.
+        if not self.isVisible():
+            return True
+        self._skill_detail_generation += 1
+        generation = self._skill_detail_generation
+        if (self._skill_detail_reply is not None and
+                self._skill_detail_reply.isRunning()):
+            self._skill_detail_reply.abort()
+        request = QNetworkRequest(QUrl(P99_WIKI_API.format(
+            slug=quote(target.replace(" ", "_"), safe=""))))
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, USER_AGENT)
+        request.setTransferTimeout(12000)
+        reply = self._network.get(request)
+        self._skill_detail_reply = reply
+        reply.finished.connect(lambda: self._skill_detail_finished(
+            reply, skill, target, generation, cache_path))
+        return True
+
+    def _skill_detail_finished(
+            self, reply, skill, target, generation, cache_path):
+        try:
+            if generation != self._skill_detail_generation:
+                return
+            if reply.error() != QNetworkReply.NetworkError.NoError:
+                raise ValueError(reply.errorString())
+            payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
+            parsed = payload.get("parse")
+            if not isinstance(parsed, dict):
+                raise ValueError("skill guide not found")
+            rendered = parsed.get("text", {})
+            if isinstance(rendered, dict):
+                rendered = rendered.get("*", "")
+            record = {
+                "target": target,
+                "wiki_html": sanitize_wiki_html(rendered),
+                "fetched_at": datetime.datetime.now(
+                    datetime.timezone.utc).isoformat(),
+            }
+            cache_path.write_text(
+                json.dumps(record, ensure_ascii=False), encoding="utf-8")
+            self._render_skill_detail(skill, record)
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
+            if self._current_skill is skill:
+                self.skill_source.setText(
+                    f"PROJECT 1999 WIKI · CLASS FACTS AVAILABLE · GUIDE OFFLINE · {error}")
+        finally:
+            if self._skill_detail_reply is reply:
+                self._skill_detail_reply = None
+            reply.deleteLater()
+
+    def _render_skill_detail(self, skill, record, cached=False):
+        if self._current_skill is not skill and (
+                not self._current_skill or
+                self._current_skill.get("name") != skill.get("name")):
+            return
+        class_name = str(self._skills_data.get("class") or "Class")
+        name = str(skill.get("name") or "Skill")
+        facts = (
+            f"<p><b>{html.escape(class_name)}</b> · level {skill.get('level')} · "
+            f"{html.escape(str(skill.get('category') or ''))} · "
+            f"trained {html.escape(str(skill.get('trained') or ''))} · "
+            f"caps {html.escape(str(skill.get('cap_50') or ''))} / "
+            f"{html.escape(str(skill.get('cap_60') or ''))}</p>")
+        self.skill_body.setHtml(
+            f"<h1>{html.escape(name)}</h1>" + facts +
+            str(record.get("wiki_html") or "") +
+            "<p>Source: Project 1999 Wiki.</p>")
+        self.skill_source.setText(
+            "PROJECT 1999 WIKI · SKILL GUIDE · " +
+            ("LOCAL CACHE" if cached else "UPDATED NOW"))
+
+    def _open_selected_skill(self):
+        skill = self._current_skill
+        if not skill:
+            return False
+        QDesktopServices.openUrl(QUrl(_wiki_url(
+            skill.get("target") or f"Skill {skill.get('name') or ''}")))
+        return True
+
+    def closeEvent(self, event):
+        """Stop deferred Wiki work before this reusable dialog is hidden."""
+        self._selection_timer.stop()
+        self._skill_selection_timer.stop()
+        for reply in (
+                self._reply, self._skills_reply, self._skill_detail_reply):
+            if reply is not None and reply.isRunning():
+                reply.abort()
+        super().closeEvent(event)
 
     def _filters_changed(self, *_args):
         self._sync_available_levels()
@@ -523,7 +1102,7 @@ class SpellLibraryDialog(UniformScaleDialog):
                 ).days < 7
             except (KeyError, TypeError, ValueError):
                 pass
-        if not fresh:
+        if not fresh and self.isVisible():
             self._fetch(entry)
 
     def _set_icon(self, icon_id):

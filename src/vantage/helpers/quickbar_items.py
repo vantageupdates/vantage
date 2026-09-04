@@ -10,7 +10,7 @@ QUICKBAR_ITEMS = (
     ("combat", "Combat Parser", "ph-sword", "windows"),
     ("heals", "Heal Chain", "ph-heal", "windows"),
     ("market", "Market", "ph-storefront", "windows"),
-    ("spell_library", "Spell Library", "ph-spellbook", "tools"),
+    ("spell_library", "Spells & Skills", "ph-spellbook", "tools"),
     ("mobile", "Vantage on Your Phone", "ph-mobile", "tools"),
     ("link_logs", "Select Logs Folder", "ph-folder-open", "logs"),
     ("log_help", "How to Link Logs", "ph-file-search", "logs"),

@@ -77,6 +77,12 @@ COMMON_ITEM_CLICK_SPELLS = {
     "spear of fate": "Curse of the Spirits",
     "fungi covered great staff": "Fungal Regrowth",
 }
+# P99 item pages sometimes document an authoritative duration that cannot be
+# derived from the character profile.  Keep these narrow and source-specific:
+# the same landing sentence can also belong to an ordinary memorized spell.
+ITEM_CLICK_DURATION_SECONDS = {
+    "pegasus feather cloak": 12 * 60,
+}
 # P99 omits the spell name when another player buffs you. A few landing lines
 # are shared by a whole spell family, so they cannot enter the normal unique
 # message index. Use the lowest common player spell as a truthful label rather
@@ -124,6 +130,16 @@ def item_click_spell_name(item_name):
         except sqlite3.Error:
             pass
     return _p99_click_spell_names().get(item_name.casefold(), '')
+
+
+def _item_effect_spell(source, item_name):
+    """Clone an item effect and apply any authoritative P99 item timing."""
+    detected = copy.copy(source)
+    seconds = ITEM_CLICK_DURATION_SECONDS.get(
+        str(item_name or '').strip().casefold())
+    if seconds:
+        detected.duration_seconds = int(seconds)
+    return detected
 
 
 def _anchorless_self_click_effects(spell_book):
@@ -419,10 +435,10 @@ class Spells(ParserWindow):
         self._boat_group.set_enabled(self._boat_toggle.isChecked())
         self._library_button = QPushButton()
         self._library_button.setIcon(game_icon('search'))
-        self._library_button.setAccessibleName('Open P99 Spell Library')
+        self._library_button.setAccessibleName('Open P99 Spells and Skills')
         self._library_button.setProperty('HeaderPriority', 2)
         self._library_button.setToolTip(
-            'Search P99 spells by class and level, with Wiki acquisition and prices')
+            'Search P99 spells plus class skill levels, training, caps, and Wiki guides')
         self._library_button.clicked.connect(
             QApplication.instance().show_spell_library)
         self.menu_area.addWidget(self._library_button)
@@ -1058,10 +1074,19 @@ class Spells(ParserWindow):
             if item_triggers_enabled else None)
         if item_glow:
             item_name = item_glow.group('item').strip()
+            indexed_spell_name = item_click_spell_name(item_name)
             self._pending_item_click = (
-                timestamp, item_name, item_click_spell_name(item_name))
+                timestamp, item_name, indexed_spell_name)
             if self._spell_trigger:
-                self._spell_trigger.mark_item_cast(item_name, timestamp)
+                # The casting line can name the memorized spell even when an
+                # item actually supplied a distinct P99 effect record.  The
+                # Pegasus Feather Cloak is the important example: EQ prints
+                # ``You begin casting Levitate``, but the cloak's Levitation
+                # effect is fixed at twelve minutes.  Let the owned glow line
+                # select the indexed item effect before the landing is timed.
+                indexed_spell = self.spell_book.get(indexed_spell_name)
+                self._spell_trigger.mark_item_cast(
+                    item_name, timestamp, indexed_spell)
         elif not item_triggers_enabled:
             self._pending_item_click = None
 
@@ -1182,7 +1207,7 @@ class Spells(ParserWindow):
             if not player_buff and not indexed_click:
                 return False
         self._pending_item_click = None
-        detected = copy.copy(spell)
+        detected = _item_effect_spell(spell, indexed_item or item_name)
         detected.source_item = indexed_item or item_name
         detected.runtime_level = self._active_cast_level()
         self._spell_container.add_spell(
@@ -1796,7 +1821,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.43')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.44')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -3640,9 +3665,12 @@ class SpellTrigger(QObject):
                 self.spell_triggered.emit(self)
         return matched
 
-    def mark_item_cast(self, item_name, timestamp=None):
-        """Trust a player-owned item glow and widen the item's landing window."""
-        if not getattr(self.spell, 'source_item', ''):
+    def mark_item_cast(self, item_name, timestamp=None, effect_spell=None):
+        """Trust an owned glow and use the indexed P99 item-effect record."""
+        if (effect_spell is not None and
+                int(getattr(effect_spell, 'duration_formula', 0) or 0) != 0):
+            self.spell = _item_effect_spell(effect_spell, item_name)
+        elif not getattr(self.spell, 'source_item', ''):
             self.spell = copy.copy(self.spell)
         self.spell.source_item = str(item_name or 'Item click')
         self._item_cast_timestamp = timestamp or self.timestamp

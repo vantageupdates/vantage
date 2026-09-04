@@ -3,13 +3,13 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt, QUrl
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QToolButton
 
 from vantage.helpers.spell_catalog import p99_spell_entries
 from vantage.helpers.spell_library import (
     SpellLibraryDialog, SpellLibraryFilter, SpellLibraryModel,
     _cache_path, _wiki_title_from_url, extract_acquisition_text,
-    sanitize_wiki_html)
+    parse_class_skills_html, sanitize_wiki_html)
 from vantage.parsers.market import GreenMarket
 
 
@@ -97,6 +97,35 @@ Combine [[Rune A]] and [[Rune B]].
         "https://wiki.project1999.com/index.php?title=Old_Sebilis") == "Old Sebilis"
 
 
+def test_p99_class_skill_tables_include_unlock_training_caps_and_guidance():
+    rendered = """
+<h1><span id="Skills">Skills</span></h1>
+<h2><span id="Specialization">Specialization</span></h2>
+<p>Enchanters usually specialize in <a href="/Skill_Alteration">Alteration</a>.</p>
+<h2><span id="Casting_Skills">Casting Skills</span></h2>
+<table><tr><td><b>Level</b></td><td>Trained</td><td>Skill</td>
+<td>Cap Until 50</td><td>Cap Above 50</td></tr>
+<tr><td>4</td><td>Yes</td><td><a href="/Skill_Meditate">Meditate</a></td>
+<td>235</td><td>252</td></tr></table>
+<h2><span id="Combat_Skills">Combat Skills</span></h2>
+<table><tr><td>Level</td><td>Trained</td><td>Skill</td><td>Cap Until 50</td>
+<td>Cap Above 50</td></tr><tr><td>22</td><td>Yes</td><td>Dodge</td>
+<td>75</td><td>75</td></tr></table>
+<h1><span id="Spell_Information">Spell Information</span></h1>
+"""
+    data = parse_class_skills_html(rendered, "Enchanter")
+    assert data["class"] == "Enchanter"
+    assert "specialize in Alteration" in data["specialization"]
+    assert data["skills"] == [
+        {"level": 4, "trained": "Yes", "name": "Meditate",
+         "cap_50": "235", "cap_60": "252", "category": "Casting",
+         "target": "Skill Meditate"},
+        {"level": 22, "trained": "Yes", "name": "Dodge",
+         "cap_50": "75", "cap_60": "75", "category": "Combat",
+         "target": "Skill Dodge"},
+    ]
+
+
 def test_spell_price_prefers_cached_green_wts_row():
     class Model:
         items = [
@@ -155,6 +184,9 @@ def test_spell_library_is_complete_but_lazy(monkeypatch):
         assert dialog.table.viewport().cursor().shape() == \
             Qt.CursorShape.PointingHandCursor
         assert dialog.body.openExternalLinks() is False
+        assert dialog.catalog_tabs.count() == 2
+        assert dialog.catalog_tabs.tabText(1) == "Skills"
+        assert dialog.catalog_tabs.tabToolTip(1)
         assert dialog.search.toolTip()
         assert dialog.class_filter.toolTip()
         assert dialog.level_filter.toolTip()
@@ -168,6 +200,36 @@ def test_spell_library_is_complete_but_lazy(monkeypatch):
         dialog._open_detail_link(QUrl(
             "https://wiki.project1999.com/Emperor_Chottal"))
         assert opened == ["Emperor Chottal"]
+    finally:
+        dialog.close()
+
+
+def test_skills_tab_filters_visible_class_rows(monkeypatch):
+    _app()
+    monkeypatch.setattr(
+        SpellLibraryDialog, "_load_selected_class_skills", lambda *_args, **_kwargs: None)
+    dialog = SpellLibraryDialog()
+    try:
+        dialog.catalog_tabs.setCurrentWidget(dialog.skills_page)
+        dialog._set_skills_data({
+            "class": "Enchanter",
+            "specialization": "Alteration is the common specialization.",
+            "skills": [
+                {"level": 4, "trained": "Yes", "name": "Meditate",
+                 "cap_50": "235", "cap_60": "252", "category": "Casting",
+                 "target": "Skill Meditate"},
+                {"level": 22, "trained": "Yes", "name": "Dodge",
+                 "cap_50": "75", "cap_60": "75", "category": "Combat",
+                 "target": "Skill Dodge"},
+            ],
+        })
+        assert dialog.skill_table.rowCount() == 2
+        dialog.skill_search.setText("dodge")
+        _app().processEvents()
+        assert dialog.skill_table.rowCount() == 1
+        assert dialog.skill_table.item(0, 1).text() == "Dodge"
+        assert dialog.skill_table.horizontalHeaderItem(0).toolTip()
+        assert dialog.skill_search.findChild(QToolButton).toolTip()
     finally:
         dialog.close()
 
