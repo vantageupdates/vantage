@@ -19,7 +19,7 @@ from urllib.parse import quote, unquote
 import webbrowser
 
 from PySide6.QtCore import (
-    QAbstractTableModel, QEvent, QItemSelectionModel, QModelIndex,
+    QAbstractTableModel, QEvent, QModelIndex,
     QSignalBlocker, QSize,
     QSortFilterProxyModel, QStringListModel, Signal, Qt, QTimer, QUrl)
 from PySide6.QtGui import (
@@ -28,9 +28,9 @@ from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequ
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QCompleter, QDialog,
     QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLayout, QLabel, QLineEdit,
-    QListWidget, QMessageBox, QPlainTextEdit, QPushButton, QTabWidget,
-    QSystemTrayIcon, QTableView, QTableWidget, QTableWidgetItem, QSizePolicy, QToolButton,
-    QVBoxLayout, QWidget)
+    QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
+    QStackedWidget, QTabWidget, QSystemTrayIcon, QTableView, QTableWidget,
+    QTableWidgetItem, QSizePolicy, QToolButton, QVBoxLayout, QWidget)
 
 from vantage.helpers import config, resource_path
 from vantage.helpers.audio import audio_muted, notification_sound, play_alert
@@ -1306,8 +1306,11 @@ class GearFilter(QSortFilterProxyModel):
         return True
 
 
-class ItemCompareDialog(UniformScaleDialog):
-    """Side-by-side P99 item stats with differences from a locked base."""
+class ItemComparePanel(QWidget):
+    """Independent P99 item finder and side-by-side stat comparison."""
+
+    back_requested = Signal()
+    MAX_ITEMS = 8
 
     META_ROWS = (
         ("Binding", lambda item: "NO DROP" if item.nodrop else "Droppable"),
@@ -1324,63 +1327,122 @@ class ItemCompareDialog(UniformScaleDialog):
         ("Worn", "wornName"), ("Focus", "focusName"),
         ("Bard", "bardName"))
 
-    def __init__(self, items, prices=None, parent=None):
-        unique = []
-        seen = set()
-        for item in items or ():
-            if not isinstance(item, GearItem):
-                continue
-            key = _item_key(item.name)
-            if key and key not in seen:
-                seen.add(key)
-                unique.append(item)
-        self.items = tuple(unique)
-        self.prices = {
-            _item_key(name): int(value or 0)
-            for name, value in (prices or {}).items()}
-        super().__init__(
-            QSize(1040, 640), parent, minimum_size=QSize(364, 224),
-            initial_size=QSize(936, 576))
-        self.setObjectName("ItemCompareDialog")
-        self.setWindowTitle("Vantage · Compare Items")
-        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+    def __init__(self, base, catalog=(), price_lookup=None, parent=None):
+        super().__init__(parent)
+        self.setObjectName("ItemComparePanel")
+        self.base = base if isinstance(base, GearItem) else None
+        unique = {}
+        for item in catalog or ():
+            if isinstance(item, GearItem):
+                unique.setdefault(_item_key(item.name), item)
+        if self.base is not None:
+            unique[_item_key(self.base.name)] = self.base
+        self.catalog = tuple(sorted(unique.values(), key=lambda item: item.name.casefold()))
+        self._catalog_by_key = {
+            _item_key(item.name): item for item in self.catalog}
+        self._price_lookup = price_lookup or (lambda _name: 0)
+        self.items = [self.base] if self.base is not None else []
 
-        outer = QVBoxLayout(self.scaled_surface)
+        outer = QVBoxLayout(self)
         outer.setContentsMargins(9, 9, 9, 9)
         outer.setSpacing(6)
-        title = QLabel(
-            f"COMPARE ITEMS · BASE: {self.items[0].name}"
-            if self.items else "COMPARE ITEMS")
+
+        header = QHBoxLayout()
+        self.back_button = QPushButton("Back to item")
+        self.back_button.setIcon(game_icon("back"))
+        self.back_button.setAccessibleName("Back to item details")
+        self.back_button.setToolTip("Return to the item card")
+        self.back_button.clicked.connect(self.back_requested.emit)
+        header.addWidget(self.back_button)
+        title = QLabel(f"COMPARE · BASE: {self.base.name}" if self.base else "COMPARE ITEMS")
         title.setObjectName("ItemCompareTitle")
         title.setWordWrap(True)
         title.setAccessibleName(title.text())
-        outer.addWidget(title)
+        header.addWidget(title, 1)
+        outer.addLayout(header)
 
         intro = QLabel(
-            "BEST marks the highest numeric value in each row. 'vs BASE' "
-            "shows the difference. Price is for reference and is not "
-            "treated as an equipment stat.")
+            "Search the complete P99 item catalog below. Add up to 7 other "
+            "items; GAIN and LOSS show every stat change from BASE. This "
+            "search is independent from the Market filters.")
         intro.setObjectName("ItemCompareIntro")
         intro.setWordWrap(True)
         intro.setAccessibleName(intro.text())
-        intro.setToolTip(
-            "A higher number leads that stat row; ties receive a star too")
+        intro.setToolTip("Price is reference only and is not scored as a stat")
         outer.addWidget(intro)
+
+        finder = QFrame()
+        finder.setObjectName("ItemCompareFinder")
+        finder_layout = QGridLayout(finder)
+        finder_layout.setContentsMargins(7, 7, 7, 7)
+        finder_layout.setSpacing(5)
+        finder_label = QLabel("ADD ANOTHER ITEM")
+        finder_label.setObjectName("ItemCompareSectionLabel")
+        finder_layout.addWidget(finder_label, 0, 0, 1, 2)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Search all P99 items by name or effect…")
+        self.search.setClearButtonEnabled(True)
+        self.search.setAccessibleName("Search all P99 items to compare")
+        self.search.setAccessibleDescription(
+            "Searches the full local item catalog, independently of the main Market list")
+        self.search.setToolTip(
+            "Type at least 2 characters; searches names, click, proc, worn, focus, and bard effects")
+        self.search.textChanged.connect(self._refresh_search_results)
+        finder_layout.addWidget(self.search, 1, 0)
+        self.add_button = QPushButton("Add selected")
+        self.add_button.setIcon(game_icon("plus"))
+        self.add_button.setEnabled(False)
+        self.add_button.setAccessibleName("Add selected item to comparison")
+        self.add_button.setToolTip("Add the highlighted search result")
+        self.add_button.clicked.connect(self._add_selected)
+        finder_layout.addWidget(self.add_button, 1, 1)
+        self.results = QListWidget()
+        self.results.setObjectName("ItemCompareSearchResults")
+        self.results.setMaximumHeight(92)
+        self.results.setAccessibleName("Full catalog search results")
+        self.results.setAccessibleDescription(
+            "Select an item and activate Add selected, or double-click it")
+        self.results.itemSelectionChanged.connect(
+            lambda: self.add_button.setEnabled(bool(self.results.selectedItems())))
+        self.results.itemDoubleClicked.connect(lambda *_: self._add_selected())
+        finder_layout.addWidget(self.results, 2, 0, 1, 2)
+        self.search_status = QLabel("Type 2 or more characters to find an item.")
+        self.search_status.setObjectName("ItemCompareSearchStatus")
+        finder_layout.addWidget(self.search_status, 3, 0, 1, 2)
+        outer.addWidget(finder)
+
+        selected_bar = QHBoxLayout()
+        selected_label = QLabel("ITEMS IN COMPARISON")
+        selected_label.setObjectName("ItemCompareSectionLabel")
+        selected_bar.addWidget(selected_label)
+        selected_bar.addStretch(1)
+        self.remove_button = QPushButton("Remove selected")
+        self.remove_button.setIcon(game_icon("trash"))
+        self.remove_button.setEnabled(False)
+        self.remove_button.setAccessibleName("Remove selected comparison item")
+        self.remove_button.setToolTip("BASE is locked; select another item to remove it")
+        self.remove_button.clicked.connect(self._remove_selected)
+        selected_bar.addWidget(self.remove_button)
+        outer.addLayout(selected_bar)
+        self.selected_items = QListWidget()
+        self.selected_items.setObjectName("ItemCompareSelectedItems")
+        self.selected_items.setMaximumHeight(58)
+        self.selected_items.setFlow(QListWidget.Flow.LeftToRight)
+        self.selected_items.setWrapping(True)
+        self.selected_items.setAccessibleName("Items currently being compared")
+        self.selected_items.itemSelectionChanged.connect(self._selected_item_changed)
+        outer.addWidget(self.selected_items)
 
         self.summary = QLabel()
         self.summary.setObjectName("ItemCompareSummary")
         self.summary.setWordWrap(True)
         outer.addWidget(self.summary)
 
-        row_count = (
-            len(self.META_ROWS) + 1 + len(STAT_OPTIONS) +
-            len(self.EFFECT_ROWS))
-        self.table = QTableWidget(row_count, len(self.items))
+        self.table = QTableWidget()
         self.table.setObjectName("ItemCompareTable")
         self.table.setAccessibleName("Item stat comparison")
         self.table.setAccessibleDescription(
-            "Items are columns. Metadata, price, stats, effects, and numeric "
-            "differences from the base item are rows.")
+            "Items are columns. GAIN, LOSS, or SAME text and color show each numeric difference from BASE.")
         self.table.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(
@@ -1391,26 +1453,98 @@ class ItemCompareDialog(UniformScaleDialog):
         self.table.setWordWrap(True)
         self.table.verticalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.ResizeToContents)
+        outer.addWidget(self.table, 1)
+        self._refresh_selected_items()
+        self._render_comparison()
+
+    def focus_search(self):
+        self.search.setFocus(Qt.FocusReason.ShortcutFocusReason)
+
+    def _refresh_search_results(self, query):
+        query = str(query or "").strip().casefold()
+        self.results.clear()
+        self.add_button.setEnabled(False)
+        if len(query) < 2:
+            self.search_status.setText("Type 2 or more characters to find an item.")
+            return
+        selected = {_item_key(item.name) for item in self.items}
+        matches = [
+            item for item in self.catalog
+            if query in item.search_text and _item_key(item.name) not in selected]
+        for gear in matches[:100]:
+            details = []
+            for label, key in (("AC", "ac"), ("HP", "hp"), ("Mana", "mana")):
+                value = gear.stat(key)
+                if value:
+                    details.append(f"{label} {value:+d}")
+            row = QListWidgetItem(
+                gear.name + ("  ·  " + " · ".join(details) if details else ""))
+            row.setData(Qt.ItemDataRole.UserRole, _item_key(gear.name))
+            row.setToolTip(gear.effect_text or gear.name)
+            self.results.addItem(row)
+        suffix = " · showing first 100" if len(matches) > 100 else ""
+        self.search_status.setText(f"{len(matches):,} matches{suffix}")
+
+    def _add_selected(self):
+        rows = self.results.selectedItems()
+        if not rows:
+            return False
+        if len(self.items) >= self.MAX_ITEMS:
+            self.search_status.setText(
+                f"Comparison limit reached · {self.MAX_ITEMS} items including BASE")
+            return False
+        key = str(rows[0].data(Qt.ItemDataRole.UserRole) or "")
+        gear = self._catalog_by_key.get(key)
+        if gear is None or key in {_item_key(item.name) for item in self.items}:
+            return False
+        self.items.append(gear)
+        self._refresh_selected_items()
+        self._render_comparison()
+        self._refresh_search_results(self.search.text())
+        self.search_status.setText(f"Added {gear.name} · {len(self.items)} items")
+        return True
+
+    def _selected_item_changed(self):
+        selected = self.selected_items.currentRow()
+        self.remove_button.setEnabled(selected > 0)
+        self.remove_button.setToolTip(
+            "Remove this item from the comparison" if selected > 0 else
+            "BASE is locked; select another item to remove it")
+
+    def _remove_selected(self):
+        row = self.selected_items.currentRow()
+        if row <= 0 or row >= len(self.items):
+            return False
+        removed = self.items.pop(row)
+        self._refresh_selected_items()
+        self._render_comparison()
+        self._refresh_search_results(self.search.text())
+        self.search_status.setText(f"Removed {removed.name} · {len(self.items)} items")
+        return True
+
+    def _refresh_selected_items(self):
+        self.selected_items.clear()
+        for index, gear in enumerate(self.items):
+            row = QListWidgetItem(("BASE · " if index == 0 else "") + gear.name)
+            row.setToolTip(
+                "Locked comparison base" if index == 0 else
+                "Select this item to remove it")
+            self.selected_items.addItem(row)
+        self.remove_button.setEnabled(False)
+
+    def _render_comparison(self):
+        row_count = len(self.META_ROWS) + 1 + len(STAT_OPTIONS) + len(self.EFFECT_ROWS)
+        self.table.clear()
+        self.table.setRowCount(row_count)
+        self.table.setColumnCount(len(self.items))
+        self.table.setHorizontalHeaderLabels([
+            ("BASE · " if index == 0 else "") + item.name
+            for index, item in enumerate(self.items)])
         header = self.table.horizontalHeader()
         header.setMinimumSectionSize(150)
         header.setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch if len(self.items) <= 4 else
             QHeaderView.ResizeMode.Interactive)
-
-        horizontal = []
-        for index, item in enumerate(self.items):
-            cell = QTableWidgetItem(
-                ("BASE · " if index == 0 else "") + item.name)
-            cell.setToolTip(
-                f"{item.name}" +
-                (" is the comparison base" if index == 0 else
-                 " is compared with the base item"))
-            horizontal.append(cell)
-        self.table.setHorizontalHeaderLabels(
-            [cell.text() for cell in horizontal])
-        for column, source in enumerate(horizontal):
-            target = self.table.horizontalHeaderItem(column)
-            target.setToolTip(source.toolTip())
 
         row = 0
         for label, value_getter in self.META_ROWS:
@@ -1421,13 +1555,12 @@ class ItemCompareDialog(UniformScaleDialog):
 
         self._set_row_label(
             row, "30d price", "Recent PigParse price; lower is not marked as better")
-        base_price = self.prices.get(_item_key(self.items[0].name), 0) \
-            if self.items else 0
+        base_price = int(self._price_lookup(self.items[0].name) or 0) if self.items else 0
         for column, item in enumerate(self.items):
-            price = self.prices.get(_item_key(item.name), 0)
+            price = int(self._price_lookup(item.name) or 0)
             text = f"{price:,} pp" if price else "—"
             if price and column:
-                text += f" · vs BASE {price - base_price:+,} pp"
+                text += f" · PRICE {price - base_price:+,} pp"
             elif price:
                 text += " · BASE"
             self._set_text_cell(row, column, text)
@@ -1446,17 +1579,18 @@ class ItemCompareDialog(UniformScaleDialog):
                 if leading:
                     lead_counts[column] += 1
                 value_text = f"{value:+d}" if value else "0"
-                suffix = " · BASE"
-                if column:
-                    suffix = f" · vs BASE {delta:+d}"
-                text = ("BEST · " if leading else "") + value_text + suffix
+                state = "BASE" if column == 0 else (
+                    f"GAIN {delta:+d}" if delta > 0 else
+                    f"LOSS {delta:+d}" if delta < 0 else "SAME 0")
+                text = ("BEST · " if leading else "") + value_text + " · " + state
                 detail = (
                     f"{item.name} · {label} {value:+d} · " +
                     ("highest value · " if leading else "") +
                     ("comparison base" if column == 0 else
                      f"difference from base {delta:+d}"))
                 self._set_text_cell(
-                    row, column, text, detail, emphasized=leading)
+                    row, column, text, detail, emphasized=leading,
+                    delta=None if column == 0 else delta)
             row += 1
 
         for label, key in self.EFFECT_ROWS:
@@ -1467,28 +1601,24 @@ class ItemCompareDialog(UniformScaleDialog):
                     row, column, str(getattr(item, key, "") or "—"))
             row += 1
 
-        leaders = sorted(
-            zip(lead_counts, (item.name for item in self.items)),
-            reverse=True)
-        lead_text = " · ".join(
-            f"{name}: {count}" for count, name in leaders)
-        self.summary.setText(
-            "Highest-value stat rows · " + lead_text +
-            ". Build, class, slot, and effects still determine which item is better.")
+        if len(self.items) < 2:
+            self.summary.setText(
+                "BASE is ready · search the complete catalog and add another item.")
+        else:
+            summaries = []
+            rows = gear_comparison_rows(self.items)
+            for column, item in enumerate(self.items):
+                if column == 0:
+                    summaries.append(f"BASE · {item.name}")
+                    continue
+                gains = sum(row["deltas"][column] > 0 for row in rows)
+                losses = sum(row["deltas"][column] < 0 for row in rows)
+                summaries.append(
+                    f"{item.name}: {gains} GAIN · {losses} LOSS · {lead_counts[column]} BEST")
+            self.summary.setText("  |  ".join(summaries))
         self.summary.setAccessibleName(self.summary.text())
         self.summary.setToolTip(
-            "This is an unweighted count, not an automatic gear recommendation")
-        outer.addWidget(self.table, 1)
-
-        actions = QHBoxLayout()
-        actions.addStretch(1)
-        close = QPushButton("Close comparison")
-        close.setIcon(game_icon("minimize"))
-        close.setAccessibleName("Close item comparison")
-        close.setToolTip("Close this comparison and return to the Market")
-        close.clicked.connect(self.close)
-        actions.addWidget(close)
-        outer.addLayout(actions)
+            "Counts are unweighted; class, slot, and effects still determine the useful choice")
 
         if len(self.items) > 4:
             self.table.resizeColumnsToContents()
@@ -1502,14 +1632,24 @@ class ItemCompareDialog(UniformScaleDialog):
         self.table.setVerticalHeaderItem(row, item)
 
     def _set_text_cell(
-            self, row, column, text, tooltip="", emphasized=False):
+            self, row, column, text, tooltip="", emphasized=False, delta=None):
         item = QTableWidgetItem(str(text))
         item.setToolTip(tooltip or str(text))
+        if delta is not None and delta > 0:
+            item.setForeground(QColor("#8CF0C3"))
+            item.setBackground(QColor("#10271F"))
+        elif delta is not None and delta < 0:
+            item.setForeground(QColor("#FFAA9D"))
+            item.setBackground(QColor("#2B1716"))
+        elif delta == 0:
+            item.setForeground(QColor("#B8C1C5"))
+            item.setBackground(QColor("#171C20"))
         if emphasized:
             font = item.font()
             font.setBold(True)
             item.setFont(font)
-            item.setForeground(QColor("#F2D77F"))
+            if delta is None:
+                item.setForeground(QColor("#F2D77F"))
         self.table.setItem(row, column, item)
 
 
@@ -1565,9 +1705,9 @@ class WikiItemCard(UniformScaleDialog):
     """Small native EverQuest-style item card backed by P99 Wiki."""
 
     wiki_entity_requested = Signal(str, str, str)
-    compare_requested = Signal(object)
 
-    def __init__(self, item, parent=None, server="Green"):
+    def __init__(self, item, parent=None, server="Green", catalog=(),
+                 price_lookup=None):
         super().__init__(
             QSize(500, 430), parent, minimum_size=QSize(175, 151),
             initial_size=QSize(450, 387))
@@ -1580,7 +1720,14 @@ class WikiItemCard(UniformScaleDialog):
         self.setObjectName("WikiItemDialog")
         self.setWindowTitle(f"Vantage · {self.item_name}")
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        outer = QVBoxLayout(self.scaled_surface)
+
+        root = QVBoxLayout(self.scaled_surface)
+        root.setContentsMargins(0, 0, 0, 0)
+        self.pages = QStackedWidget()
+        self.pages.setObjectName("WikiItemPages")
+        root.addWidget(self.pages)
+        self.item_page = QWidget()
+        outer = QVBoxLayout(self.item_page)
         outer.setContentsMargins(10, 10, 10, 10)
         outer.setSpacing(8)
         card = QFrame()
@@ -1677,10 +1824,10 @@ class WikiItemCard(UniformScaleDialog):
         compare.setAccessibleName(
             f"Compare {self.item_name} with other P99 items")
         compare.setToolTip(
-            "Use this item as BASE, then click other rows in Gear stats"
+            "Open an independent full-catalog search with this item locked as BASE"
             if compare.isEnabled() else
             "Comparison needs the local P99 item stats index")
-        compare.clicked.connect(self._request_comparison)
+        compare.clicked.connect(self._show_comparison)
         self.compare_button = compare
         actions.addWidget(compare)
         open_wiki = QPushButton("Open P99 Wiki")
@@ -1694,9 +1841,50 @@ class WikiItemCard(UniformScaleDialog):
         actions.addWidget(close)
         outer.addLayout(actions)
 
-    def _request_comparison(self):
-        self.compare_requested.emit(self.item)
-        self.close()
+        self.pages.addWidget(self.item_page)
+        self.compare_panel = ItemComparePanel(
+            item.get("_gear"), catalog=catalog,
+            price_lookup=price_lookup, parent=self.pages)
+        self.compare_panel.back_requested.connect(self._show_item)
+        self.pages.addWidget(self.compare_panel)
+
+    def _show_comparison(self):
+        if not self.compare_button.isEnabled():
+            return False
+        self._item_window_size = self.size()
+        self.pages.setCurrentWidget(self.compare_panel)
+        self._set_page_design(
+            QSize(900, 600), QSize(630, 420), QSize(900, 600))
+        self.setWindowTitle(f"Vantage · Compare · {self.item_name}")
+        self.compare_panel.focus_search()
+        _announce_accessible(
+            self, f"Independent item comparison opened. {self.item_name} is BASE")
+        return True
+
+    def _show_item(self):
+        restore = getattr(self, "_item_window_size", QSize(450, 387))
+        self.pages.setCurrentWidget(self.item_page)
+        self._set_page_design(
+            QSize(500, 430), QSize(175, 151), restore)
+        self.setWindowTitle(f"Vantage · {self.item_name}")
+        self.compare_button.setFocus(Qt.FocusReason.ShortcutFocusReason)
+
+    def _set_page_design(self, design_size, minimum_size, window_size):
+        """Keep both stacked pages crisp at their own native geometry."""
+        self._dialog_design_size = QSize(design_size)
+        old_proxy = self._dialog_proxy
+        old_proxy.setWidget(None)
+        self._dialog_scene.removeItem(old_proxy)
+        old_proxy.deleteLater()
+        self.scaled_surface.setFixedSize(self._dialog_design_size)
+        self._dialog_proxy = self._dialog_scene.addWidget(self.scaled_surface)
+        layout = self.scaled_surface.layout()
+        if layout is not None:
+            layout.invalidate()
+            layout.setGeometry(self.scaled_surface.rect())
+        self.setMinimumSize(QSize(minimum_size))
+        self.resize(QSize(window_size))
+        self._update_dialog_scale()
 
     def set_item_data(self, data, cached=False):
         self.name_label.setText(data.get("name") or self.item_name)
@@ -2586,9 +2774,6 @@ class GreenMarket(ParserWindow):
         self._live_match_count = 0
         self._last_live_alert = ""
         self._last_live_alert_state = "ready"
-        self._compare_mode = False
-        self._compare_base = None
-        self._compare_dialog = None
 
         self._network = QNetworkAccessManager(self)
         self._model = MarketModel()
@@ -2769,33 +2954,13 @@ class GreenMarket(ParserWindow):
         self.era_filter.currentIndexChanged.connect(
             lambda _: self._set_era_filter(self.era_filter.currentData()))
         gear_tools_layout.addWidget(self.era_filter, 1, 1)
-        self.compare_mode_button = QPushButton("Select to compare")
-        self.compare_mode_button.setObjectName("MarketCompareMode")
-        self.compare_mode_button.setIcon(game_icon("compare"))
-        self.compare_mode_button.setCheckable(True)
-        self.compare_mode_button.setAccessibleName(
-            "Select Market items to compare")
-        self.compare_mode_button.setAccessibleDescription(
-            "Locks the current item as the base and lets each click add or "
-            "remove a full row from the comparison")
-        self.compare_mode_button.setToolTip(
-            "Select a base item first, then turn this on and click other Gear "
-            "rows to add or remove them")
-        self.compare_mode_button.toggled.connect(self._toggle_compare_mode)
-        gear_tools_layout.addWidget(self.compare_mode_button, 1, 2)
-        self.compare_selected_button = QPushButton("View comparison · 0")
-        self.compare_selected_button.setObjectName("MarketCompareSelected")
-        self.compare_selected_button.setIcon(game_icon("check"))
-        self.compare_selected_button.setEnabled(False)
-        self.compare_selected_button.setAccessibleName(
-            "View selected item comparison")
-        self.compare_selected_button.setAccessibleDescription(
-            "Opens a table of item stats, effects, and differences from the "
-            "locked base item")
-        self.compare_selected_button.setToolTip(
-            "Select at least one other item to compare with BASE")
-        self.compare_selected_button.clicked.connect(self._open_comparison)
-        gear_tools_layout.addWidget(self.compare_selected_button, 1, 3)
+        self.gear_filter_note = QLabel(
+            "Click an item name to view its card and compare it")
+        self.gear_filter_note.setObjectName("MarketStatSummary")
+        self.gear_filter_note.setAccessibleName(self.gear_filter_note.text())
+        self.gear_filter_note.setToolTip(
+            "Comparison opens inside the item card and has its own full-catalog search")
+        gear_tools_layout.addWidget(self.gear_filter_note, 1, 2, 1, 2)
         gear_tools_layout.setColumnStretch(2, 1)
         gear_layout.addWidget(gear_tools)
         self._gear_width_save_timer = QTimer(self)
@@ -2804,8 +2969,6 @@ class GreenMarket(ParserWindow):
         self._gear_width_save_timer.timeout.connect(
             self._save_gear_column_widths)
         self.gear_table = self._gear_table()
-        self.gear_table.selectionModel().selectionChanged.connect(
-            self._compare_selection_changed)
         gear_layout.addWidget(self.gear_table, 1)
         self._gear_tab_index = self.tabs.addTab(gear_page, "Gear · stats")
 
@@ -3107,179 +3270,14 @@ class GreenMarket(ParserWindow):
     def _update_gear_summary(self):
         if not hasattr(self, "gear_results"):
             return
-        if self._compare_mode:
-            self._compare_selection_changed()
-            return
         label = STAT_NAMES.get(self._gear_model.active_stat, "AC")
         visible = self._gear_proxy.rowCount()
         total = len(self._gear_model.items)
         self.gear_results.setText(
             f"{visible:,} / {total:,} items · highest {label} first")
 
-    def _gear_proxy_index(self, item):
-        if not isinstance(item, GearItem):
-            return QModelIndex()
-        wanted = _item_key(item.name)
-        for row, candidate in enumerate(self._gear_model.items):
-            if _item_key(candidate.name) == wanted:
-                return self._gear_proxy.mapFromSource(
-                    self._gear_model.index(row, 0))
-        return QModelIndex()
-
-    def _gear_item_at(self, proxy_index):
-        if not proxy_index or not proxy_index.isValid():
-            return None
-        source = self._gear_proxy.mapToSource(proxy_index)
-        if not source.isValid():
-            return None
-        return self._gear_model.items[source.row()]
-
-    def _begin_comparison(self, payload=None):
-        item = payload if isinstance(payload, GearItem) else None
-        if isinstance(payload, dict):
-            item = payload.get("_gear")
-        if not isinstance(item, GearItem):
-            selected = self._selected_item()
-            item = selected.get("_gear") if selected else None
-        if not isinstance(item, GearItem):
-            with QSignalBlocker(self.compare_mode_button):
-                self.compare_mode_button.setChecked(False)
-            self.status.setText(
-                "Select an item with P99 stats before starting comparison")
-            _announce_accessible(
-                self, "Select an item with P99 stats before comparing")
-            return False
-
-        self._compare_mode = True
-        self._compare_base = item
-        with QSignalBlocker(self.compare_mode_button):
-            self.compare_mode_button.setChecked(True)
-        self.tabs.setCurrentIndex(self._gear_tab_index)
-        self.gear_table.setSelectionMode(
-            QAbstractItemView.SelectionMode.MultiSelection)
-        selection = self.gear_table.selectionModel()
-        with QSignalBlocker(selection):
-            selection.clearSelection()
-            base_index = self._gear_proxy_index(item)
-            if base_index.isValid():
-                selection.select(
-                    base_index,
-                    QItemSelectionModel.SelectionFlag.Select |
-                    QItemSelectionModel.SelectionFlag.Rows)
-                self.gear_table.setCurrentIndex(base_index)
-        self._compare_selection_changed()
-        self.gear_table.setFocus(Qt.FocusReason.ShortcutFocusReason)
-        _announce_accessible(
-            self, f"Compare mode. {item.name} is the base item. "
-            "Click other rows to add or remove them.")
-        return True
-
-    def _toggle_compare_mode(self, checked):
-        if checked:
-            self._begin_comparison()
-        else:
-            self._end_comparison()
-
-    def _end_comparison(self):
-        base = self._compare_base
-        self._compare_mode = False
-        self._compare_base = None
-        with QSignalBlocker(self.compare_mode_button):
-            self.compare_mode_button.setChecked(False)
-        self.gear_table.setSelectionMode(
-            QAbstractItemView.SelectionMode.SingleSelection)
-        selection = self.gear_table.selectionModel()
-        with QSignalBlocker(selection):
-            selection.clearSelection()
-            base_index = self._gear_proxy_index(base)
-            if base_index.isValid():
-                selection.select(
-                    base_index,
-                    QItemSelectionModel.SelectionFlag.Select |
-                    QItemSelectionModel.SelectionFlag.Rows)
-                self.gear_table.setCurrentIndex(base_index)
-        self.compare_selected_button.setText("View comparison · 0")
-        self.compare_selected_button.setEnabled(False)
-        self.compare_selected_button.setToolTip(
-            "Select at least one other item to compare with BASE")
-        self._update_gear_summary()
-
-    def _selected_comparison_items(self):
-        if not isinstance(self._compare_base, GearItem):
-            return ()
-        selected = [self._compare_base]
-        seen = {_item_key(self._compare_base.name)}
-        for index in self.gear_table.selectionModel().selectedRows():
-            item = self._gear_item_at(index)
-            key = _item_key(item.name) if isinstance(item, GearItem) else ""
-            if key and key not in seen:
-                seen.add(key)
-                selected.append(item)
-        return tuple(selected)
-
-    def _compare_selection_changed(self, *_):
-        if not self._compare_mode or not isinstance(
-                self._compare_base, GearItem):
-            return
-        selection = self.gear_table.selectionModel()
-        base_index = self._gear_proxy_index(self._compare_base)
-        if (base_index.isValid() and not selection.isRowSelected(
-                base_index.row(), QModelIndex())):
-            with QSignalBlocker(selection):
-                selection.select(
-                    base_index,
-                    QItemSelectionModel.SelectionFlag.Select |
-                    QItemSelectionModel.SelectionFlag.Rows)
-        items = self._selected_comparison_items()
-        count = len(items)
-        self.compare_selected_button.setText(
-            f"View comparison · {count}")
-        self.compare_selected_button.setEnabled(count >= 2)
-        self.compare_selected_button.setToolTip(
-            "Open stats, effects, and differences for the selected items"
-            if count >= 2 else
-            "Click at least one other row to compare it with BASE")
-        self.compare_selected_button.setAccessibleName(
-            f"View comparison of {count} selected items")
-        self.gear_results.setText(
-            f"Compare mode · BASE: {self._compare_base.name} · "
-            f"{count} selected · click rows to add or remove")
-        self.gear_results.setAccessibleName(self.gear_results.text())
-
-    def _open_comparison(self):
-        items = self._selected_comparison_items()
-        if len(items) < 2:
-            self.status.setText(
-                "Select at least one other Gear row to compare with BASE")
-            _announce_accessible(
-                self, "Select at least one other item for comparison")
-            return None
-        prices = {item.name: self._auction_price(item.name) for item in items}
-        if self._compare_dialog is not None:
-            try:
-                self._compare_dialog.close()
-            except RuntimeError:
-                pass
-        dialog = ItemCompareDialog(items, prices, self)
-        self._compare_dialog = dialog
-        dialog.destroyed.connect(
-            lambda *_: self._clear_compare_dialog(dialog))
-        dialog.show()
-        dialog.raise_()
-        self.status.setText(
-            f"Comparing {len(items)} items · BASE: {items[0].name}")
-        _announce_accessible(
-            dialog, f"Item comparison opened with {len(items)} items")
-        return dialog
-
-    def _clear_compare_dialog(self, dialog):
-        if self._compare_dialog is dialog:
-            self._compare_dialog = None
-
     def _clear_filters(self):
         """Restore every Market result filter without touching user data."""
-        if self._compare_mode:
-            self._end_comparison()
         controls = (
             self.search, self.class_filter, self.race_filter,
             self.slot_filter, self.stat_sort, self.effect_filter,
@@ -3378,9 +3376,6 @@ class GreenMarket(ParserWindow):
             self._show_wiki_card(index)
 
     def _gear_item_clicked(self, index):
-        if self._compare_mode:
-            self._compare_selection_changed()
-            return
         if index.isValid() and index.column() == 0:
             self._show_wiki_card(index)
 
@@ -3390,9 +3385,10 @@ class GreenMarket(ParserWindow):
             self.status.setText("Select an item name to open its card")
             return
         server = self._server
-        card = WikiItemCard(item, self, server=server)
+        card = WikiItemCard(
+            item, self, server=server, catalog=self._gear_model.items,
+            price_lookup=self._auction_price)
         card.wiki_entity_requested.connect(self._show_wiki_entity)
-        card.compare_requested.connect(self._begin_comparison)
         card.show()
         card.raise_()
         json_path, icon_path = _wiki_cache_paths(item.get("n"), server)
@@ -3408,7 +3404,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.38")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.39")
         reply = self._network.get(request)
         reply.finished.connect(
             lambda: self._wiki_item_finished(reply, card, json_path, icon_path))
@@ -3427,7 +3423,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.38")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.39")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._wiki_entity_finished(
             reply, card, cache_path, target, kind))
@@ -3512,7 +3508,7 @@ class GreenMarket(ParserWindow):
                     filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.38")
+                    "Vantage/1.44.39")
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
                     lambda: self._wiki_icon_finished(
@@ -3764,7 +3760,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.38")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.39")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -3786,7 +3782,7 @@ class GreenMarket(ParserWindow):
                     return
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.38")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.39")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -4159,7 +4155,7 @@ class GreenMarket(ParserWindow):
         self._refresh_button.setText("Refreshing…")
         self.status.setText(f"Refreshing PigParse {server}…")
         request = QNetworkRequest(QUrl(market_endpoint(server)))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.38")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.39")
         reply = self._network.get(request)
         reply.setProperty("market_server", server)
         reply.finished.connect(lambda: self._finished(reply))
@@ -4286,7 +4282,7 @@ class GreenMarket(ParserWindow):
             f"Evaluating PigParse {server} history · {name}…")
         request = QNetworkRequest(QUrl(market_detail_api(server).format(
             item_name=quote(name, safe=""))))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.38")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.39")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.setProperty("market_server", server)

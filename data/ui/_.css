@@ -913,12 +913,7 @@ QProgressBar {
     font-size: 10px;
     padding-left: 4px;
 }
-#MarketCompareMode:checked {
-    color: #FFF0B0;
-    background-color: #3B321C;
-    border-color: #C8A94F;
-}
-#ItemCompareDialog { background-color: #090C0F; }
+#ItemComparePanel { background-color: #090C0F; }
 #ItemCompareTitle {
     color: #F2D77F;
     font-size: 14px;
@@ -932,6 +927,36 @@ QProgressBar {
     border-radius: 5px;
     padding: 6px 8px;
 }
+#ItemCompareFinder {
+    background-color: #10161A;
+    border: 1px solid #3D4A52;
+    border-radius: 6px;
+}
+#ItemCompareSectionLabel {
+    color: #E6C969;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+#ItemCompareSearchResults, #ItemCompareSelectedItems {
+    background-color: #0C1114;
+    border: 1px solid #344149;
+    border-radius: 4px;
+    padding: 2px;
+}
+#ItemCompareSearchResults::item, #ItemCompareSelectedItems::item {
+    padding: 4px 7px;
+    margin: 1px;
+    border: 1px solid transparent;
+    border-radius: 3px;
+}
+#ItemCompareSearchResults::item:selected,
+#ItemCompareSelectedItems::item:selected {
+    color: #FFF0B0;
+    background-color: #31301F;
+    border-color: #A8893F;
+}
+#ItemCompareSearchStatus { color: #AAB6BA; font-size: 10px; }
 #ItemCompareSummary {
     color: #BFE9DD;
     background-color: #101B1A;
