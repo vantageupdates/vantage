@@ -42,9 +42,14 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=44,
+    patch=45,
     build=""
 )
+
+UPDATE_INITIAL_DELAY_MS = 3000
+UPDATE_HEARTBEAT_MS = 10 * 60 * 1000
+UPDATE_RETRY_MS = 60 * 1000
+UPDATE_BUSY_RETRY_MS = 15 * 1000
 
 
 class SettingsSignals(QObject):
@@ -132,10 +137,24 @@ class VantageApp(QApplication):
         self._update_dialog_instance = None
         self._log_monitor_dialog_instance = None
         self._update_controller = UpdateController(CURRENT_VERSION, self)
+        self._update_auto_enabled = bool(
+            config.data['general'].get('update_check', True))
+        self._update_check_state = (
+            "idle" if self._update_auto_enabled else "disabled")
+        self._update_check_error = ""
+        self._update_heartbeat = QTimer(self)
+        self._update_heartbeat.setSingleShot(True)
+        self._update_heartbeat.timeout.connect(self._update_heartbeat_tick)
+        self._update_controller.check_started.connect(
+            self._update_check_started)
         self._update_controller.check_finished.connect(
             self._update_check_finished)
+        self._update_controller.check_failed.connect(
+            self._update_check_failed)
         self._update_controller.update_available.connect(
             self._update_available)
+        self._signals["settings"].config_updated.connect(
+            self._update_settings_changed)
         self._update_toast = QuickUpdateToast(
             self._update_controller, self)
         self._mobile_share_instance = None
@@ -175,17 +194,15 @@ class VantageApp(QApplication):
         updated_from = os.environ.pop("VANTAGE_UPDATED_FROM", "").strip()
         update_error = os.environ.pop("VANTAGE_UPDATE_ERROR", "").strip()
         if updated_from:
-            self._update_toast.show_success(updated_from, CURRENT_VERSION)
-            self.show_overlay_notification(
+            self._queue_quickbar_notice(
                 "Vantage updated",
-                f"Updated from {updated_from} to {CURRENT_VERSION}.",
-                msecs=6500, overlay_id="alerts")
+                f"{updated_from} → {CURRENT_VERSION}")
         elif update_error:
             self.show_overlay_notification(
                 "Vantage update",
                 update_error, msecs=8500, overlay_id="alerts",
                 text_color="#E08372")
-        QTimer.singleShot(15000, self._maybe_check_updates)
+        self._schedule_update_check(UPDATE_INITIAL_DELAY_MS)
 
     def _log_archive_completed(self, report):
         if report.moved:
@@ -888,20 +905,61 @@ class VantageApp(QApplication):
         elif action in parser_toggles:
             parser_toggles[action].toggle()
 
-    def _maybe_check_updates(self):
+    def _schedule_update_check(self, delay_ms):
+        """Arm one update heartbeat without stacking duplicate checks."""
+        if not config.data['general'].get('update_check', True):
+            self._update_heartbeat.stop()
+            return False
+        self._update_heartbeat.start(max(250, int(delay_ms)))
+        return True
+
+    def _update_heartbeat_tick(self):
+        """Check GitHub now; transient failures are retried automatically."""
         if not config.data['general'].get('update_check', True):
             return
-        last_check = float(
-            config.data['general'].get('last_update_check', 0.0) or 0.0)
-        if time.time() - last_check >= 24 * 60 * 60:
-            self._update_controller.check()
+        if not self._update_controller.check():
+            self._schedule_update_check(UPDATE_BUSY_RETRY_MS)
+
+    def _maybe_check_updates(self):
+        """Backward-compatible entry point for an immediate heartbeat."""
+        self._update_heartbeat_tick()
+
+    def _update_check_started(self):
+        self._update_check_state = "checking"
+        self._update_check_error = ""
+        self._refresh_quickbar()
 
     def _update_check_finished(self, _info, _message):
         config.data['general']['last_update_check'] = time.time()
         config.save()
+        self._update_check_state = (
+            "ready" if self.new_version_available() else
+            "idle" if self._update_auto_enabled else "disabled")
+        self._update_check_error = ""
         self._refresh_quickbar()
+        self._schedule_update_check(UPDATE_HEARTBEAT_MS)
+
+    def _update_check_failed(self, message):
+        self._update_check_state = (
+            "retrying" if self._update_auto_enabled else "disabled")
+        self._update_check_error = str(message or "Update check failed")
+        self._refresh_quickbar()
+        self._schedule_update_check(UPDATE_RETRY_MS)
+
+    def _update_settings_changed(self):
+        enabled = bool(config.data['general'].get('update_check', True))
+        if enabled == self._update_auto_enabled:
+            return
+        self._update_auto_enabled = enabled
+        if enabled:
+            self._schedule_update_check(500)
+        else:
+            self._update_heartbeat.stop()
+            self._update_check_state = "disabled"
+            self._refresh_quickbar()
 
     def _update_available(self, info):
+        self._update_check_state = "ready"
         self._refresh_quickbar()
         dialog = self._update_dialog_instance
         if dialog is not None and dialog.isVisible():

@@ -1821,7 +1821,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.44')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.45')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:

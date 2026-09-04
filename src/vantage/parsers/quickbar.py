@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 import time
 
 from PySide6.QtCore import QEvent, QSize, Qt, QTimer
@@ -37,6 +38,7 @@ class QuickBarNotificationRail(QFrame):
             Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._label.hide()
         self._notice_id = 0
+        self._pending = deque(maxlen=20)
         self._moving = False
         self._reduce_motion = False
 
@@ -50,7 +52,7 @@ class QuickBarNotificationRail(QFrame):
         self._clear_timer.timeout.connect(self._clear)
 
     def present(self, notice_id, text, reduce_motion=False, available=True):
-        """Present a new notice without replaying it during ordinary refreshes."""
+        """Queue a notice for one complete marquee pass in arrival order."""
         try:
             notice_id = int(notice_id)
         except (TypeError, ValueError):
@@ -60,6 +62,23 @@ class QuickBarNotificationRail(QFrame):
         self._notice_id = notice_id
         self._reduce_motion = bool(reduce_motion)
         clean = " ".join(str(text).split())
+        # Hidden/vertical rails consume the event immediately. A notice is a
+        # live event, not history that should surprise the user hours later.
+        if not available or not self.isVisible():
+            return
+        self._pending.append(clean)
+        if self._label.isVisible():
+            self.setAccessibleDescription(
+                f"{len(self._pending)} more notification" +
+                ("s" if len(self._pending) != 1 else "") + " queued")
+            return
+        self._show_next()
+
+    def _show_next(self):
+        if not self._pending or not self.isVisible():
+            self._clear_current()
+            return
+        clean = self._pending.popleft()
         self._scroll_timer.stop()
         self._clear_timer.stop()
         self._label.setText(clean)
@@ -68,11 +87,8 @@ class QuickBarNotificationRail(QFrame):
         self._label.show()
         self.setToolTip(clean)
         self.setAccessibleName(f"Latest Vantage notification: {clean}")
-        # Hidden/vertical rails consume the event immediately. A notice is a
-        # live event, not history that should surprise the user hours later.
-        if not available or not self.isVisible():
-            self._clear()
-            return
+        self.setAccessibleDescription(
+            f"Marquee notification; {len(self._pending)} more queued")
         self._announce_accessibly(clean)
         if self._reduce_motion:
             self._moving = False
@@ -125,6 +141,11 @@ class QuickBarNotificationRail(QFrame):
             self._clear()
 
     def _clear(self):
+        self._clear_current()
+        if self._pending and self.isVisible():
+            self._show_next()
+
+    def _clear_current(self):
         self._scroll_timer.stop()
         self._clear_timer.stop()
         self._moving = False
@@ -133,6 +154,8 @@ class QuickBarNotificationRail(QFrame):
         self.setToolTip(
             "The next attributable Vantage event appears here")
         self.setAccessibleName("Quick Bar notification rail; no active notice")
+        self.setAccessibleDescription(
+            f"{len(self._pending)} notifications waiting")
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -695,20 +718,37 @@ class QuickBar(ParserWindow):
 
         update_ready = self._application.new_version_available()
         update_button = self._buttons["updates"]
+        update_state = str(getattr(
+            self._application, "_update_check_state", "idle"))
         update_button.setProperty("Alert", update_ready)
+        update_button.setProperty("UpdateState", update_state)
         update_button.setStyle(update_button.style())
         self._update_badge.setVisible(update_ready)
         if update_ready:
             self._update_badge.raise_()
-        update_button.setToolTip(
-            "An update is ready · open the verified updater" if update_ready
-            else "Check GitHub for a verified Vantage update")
-        update_button.setAccessibleName(
-            "Update ready; open Vantage updater" if update_ready
-            else "Check for Vantage updates")
-        update_button.setAccessibleDescription(
-            "A verified Vantage update is ready to install" if update_ready
-            else "No verified update is currently waiting")
+        if update_ready:
+            tooltip = "An update is ready · open the verified updater"
+            accessible_name = "Update ready; open Vantage updater"
+            description = "A verified Vantage update is ready to install"
+        elif update_state == "checking":
+            tooltip = "Checking GitHub for a verified Vantage update…"
+            accessible_name = "Checking for Vantage updates"
+            description = "The automatic update heartbeat is checking now"
+        elif update_state == "retrying":
+            tooltip = "Update check unavailable · retrying automatically"
+            accessible_name = "Update check will retry automatically"
+            description = "The update heartbeat will retry in about one minute"
+        elif update_state == "disabled":
+            tooltip = "Automatic update checks are off · click to check now"
+            accessible_name = "Check manually for Vantage updates"
+            description = "Automatic update heartbeat is disabled in Settings"
+        else:
+            tooltip = "Updates checked automatically every 10 minutes · click now"
+            accessible_name = "Check for Vantage updates"
+            description = "No verified update is currently waiting"
+        update_button.setToolTip(tooltip)
+        update_button.setAccessibleName(accessible_name)
+        update_button.setAccessibleDescription(description)
 
         self._buttons["support"].setToolTip(
             "Like this project? Support it — Buy Me a Coffee")

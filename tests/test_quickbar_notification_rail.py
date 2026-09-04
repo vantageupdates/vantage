@@ -46,11 +46,26 @@ sound = {
     'announcements': list(announcements),
 }
 
+# New events wait their turn instead of replacing the current marquee.
+app._queue_quickbar_notice('Fetter resisted')
+app._queue_quickbar_notice('Manastone for sale · Trader')
+app.processEvents()
+queued = {
+    'current': rail._label.text(),
+    'pending': list(rail._pending),
+}
+
 # The same or older event ID is a refresh, not a new live announcement.
 rail.present(rail._notice_id, 'Spells · Duplicate must not announce')
 duplicate_announcement_count = len(announcements)
 
+seen_after_first = ''
 for _ in range(2000):
+    rail._advance()
+    if rail._label.text() != 'Clarity faded':
+        seen_after_first = rail._label.text()
+        break
+for _ in range(4000):
     if not rail._label.isVisible():
         break
     rail._advance()
@@ -103,6 +118,8 @@ vertical = {
 print(json.dumps({
     'empty': empty,
     'sound': sound,
+    'queued': queued,
+    'seen_after_first': seen_after_first,
     'cleared': cleared,
     'not_replayed': not_replayed,
     'reduced': reduced,
@@ -138,6 +155,11 @@ def test_quickbar_notification_rail_shows_one_event_then_clears(tmp_path):
     assert result['sound']['text'] in result['sound']['accessible']
     assert result['sound']['announcements'] == ['Clarity faded']
     assert result['duplicate_announcement_count'] == 1
+    assert result['queued'] == {
+        'current': 'Clarity faded',
+        'pending': ['Fetter resisted', 'Manastone for sale · Trader'],
+    }
+    assert result['seen_after_first'] == 'Fetter resisted'
 
     assert result['cleared'] == {
         'text': '', 'visible': False, 'scrolling': False}
@@ -151,8 +173,8 @@ def test_quickbar_notification_rail_shows_one_event_then_clears(tmp_path):
         'text_visible': False,
         'scrolling': False,
         'clear_pending': False,
-        # The reduced-motion notice announced; the hidden notice did not.
-        'announcement_count': 2,
+        # All four visible notices announced; the hidden notice did not.
+        'announcement_count': 4,
     }
     assert result['hidden_replayed'] is False
     assert result['vertical'] == {

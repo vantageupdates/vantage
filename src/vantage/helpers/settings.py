@@ -477,9 +477,9 @@ class SettingsWindow(UniformScaleDialog):
         update_check = QCheckBox()
         update_check.setObjectName('general:update_check')
         update_check.setToolTip(
-            'Once per day, check the official vantageupdates/vantage GitHub '
-            'Release; downloads and installation always require your click')
-        gsl.addRow('Check for updates daily', update_check)
+            'Check the official vantageupdates/vantage GitHub Release at '
+            'startup and every 10 minutes; installation always requires your click')
+        gsl.addRow('Automatic update heartbeat', update_check)
 
         gsl.addRow(SettingsHeader('LOG ARCHIVE'))
         log_archive_enabled = QCheckBox()

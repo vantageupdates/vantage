@@ -15,11 +15,11 @@ VSVersionInfo(
         '040904B0',
         [StringStruct('CompanyName', 'Vantage Project'),
          StringStruct('FileDescription', 'Vantage - EverQuest companion'),
-         StringStruct('FileVersion', '1.44.44'),
+         StringStruct('FileVersion', '1.44.45'),
          StringStruct('InternalName', 'Vantage'),
          StringStruct('OriginalFilename', 'Vantage.exe'),
          StringStruct('ProductName', 'Vantage'),
-         StringStruct('ProductVersion', '1.44.44')]
+         StringStruct('ProductVersion', '1.44.45')]
       )
     ]),
     VarFileInfo([VarStruct('Translation', [1033, 1200])])

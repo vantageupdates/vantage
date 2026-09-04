@@ -31,7 +31,7 @@ LATEST_RELEASE_API = (
     f"https://api.github.com/repos/{REPOSITORY}/releases/latest")
 RELEASES_URL = f"https://github.com/{REPOSITORY}/releases"
 ASSET_NAME = "Vantage.exe"
-USER_AGENT = "Vantage/1.44.44"
+USER_AGENT = "Vantage/1.44.45"
 
 
 def file_sha256(path):
@@ -97,7 +97,9 @@ def parse_release_payload(payload):
 
 
 class UpdateController(QObject):
+    check_started = Signal()
     check_finished = Signal(object, str)
+    check_failed = Signal(str)
     update_available = Signal(object)
     failed = Signal(str)
     download_progress = Signal(int, int)
@@ -134,6 +136,13 @@ class UpdateController(QObject):
             b"2026-03-10"))
         request.setRawHeader(QByteArray(b"User-Agent"), QByteArray(
             USER_AGENT.encode("ascii")))
+        request.setRawHeader(QByteArray(b"Cache-Control"), QByteArray(
+            b"no-cache"))
+        request.setAttribute(
+            QNetworkRequest.Attribute.CacheLoadControlAttribute,
+            QNetworkRequest.CacheLoadControl.AlwaysNetwork)
+        request.setAttribute(
+            QNetworkRequest.Attribute.CacheSaveControlAttribute, False)
         request.setAttribute(
             QNetworkRequest.Attribute.RedirectPolicyAttribute,
             QNetworkRequest.RedirectPolicy.NoLessSafeRedirectPolicy)
@@ -142,6 +151,7 @@ class UpdateController(QObject):
     def check(self):
         if self.busy:
             return False
+        self.check_started.emit()
         self._reply = self._network.get(self._request(LATEST_RELEASE_API))
         self._reply.finished.connect(self._check_finished)
         return True
@@ -161,12 +171,16 @@ class UpdateController(QObject):
                 None, "No Vantage release has been published yet.")
             return
         if error != QNetworkReply.NetworkError.NoError:
-            self.failed.emit(f"GitHub update check failed: {error_text}")
+            message = f"GitHub update check failed: {error_text}"
+            self.check_failed.emit(message)
+            self.failed.emit(message)
             return
         try:
             info = parse_release_payload(json.loads(payload.decode("utf-8")))
         except (UnicodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
-            self.failed.emit(str(exc))
+            message = str(exc)
+            self.check_failed.emit(message)
+            self.failed.emit(message)
             return
         self.latest_info = info
         if info.version > self.current_version:
