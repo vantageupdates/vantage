@@ -323,9 +323,15 @@ def gear_item_summary_html(item):
             for label, key in fields if item.stat(key)]
         if values:
             groups.append(" · ".join(values))
-    effects = [
-        f"<b>{html.escape(label)}</b> · {html.escape(value)}"
-        for label, value in item.effects()]
+    effects = []
+    for label, value in item.effects():
+        target = quote(str(value).strip(), safe="")
+        effects.append(
+            f'<b>{html.escape(label)}</b> · '
+            f'<a href="vantage://wiki/effect/{target}" '
+            f'style="color:#F2D784;text-decoration:underline;" '
+            f'title="Open what {html.escape(value, quote=True)} does on '
+            f'Project 1999 Wiki">{html.escape(value)}</a>')
     if effects:
         groups.append("<br>".join(effects))
     return "<br>".join(groups) or "No numeric stats or effects are listed."
@@ -640,8 +646,9 @@ def _wiki_cache_paths(name, server="Green"):
     return cache / f"{digest}.json", cache / f"{icon_digest}.png"
 
 
-def _wiki_entity_cache_path(target):
-    digest = hashlib.sha256(str(target).encode("utf-8")).hexdigest()[:20]
+def _wiki_entity_cache_path(target, kind=""):
+    digest = hashlib.sha256(
+        f"{kind}|{target}".encode("utf-8")).hexdigest()[:20]
     return data_dir("cache", "wiki-entities") / f"{digest}.json"
 
 
@@ -922,6 +929,56 @@ def combined_market_price(item, wiki_auction, closeness=1.30):
 def parse_wiki_entity_wikitext(wikitext, fallback_name="", kind="npc"):
     """Extract a short native NPC or zone summary from P99 Wiki markup."""
     source = str(wikitext or "")
+    if kind == "effect":
+        name = (
+            _plain_wiki_text(_wiki_template_field(source, "spellname")) or
+            _plain_wiki_text(_wiki_template_field(source, "name")) or
+            fallback_name.replace("_", " "))
+        description = _plain_wiki_text(
+            _wiki_template_field(source, "description"))
+        effects = []
+        for raw_effect in re.findall(
+                r"(?is)\{\{SpellSlotRow(?:Smart)?\s*\|\s*\d+\s*\|\s*"
+                r"(.*?)(?=\|\s*simple\s*=|\}\})", source):
+            effect = _plain_wiki_text(raw_effect)
+            if effect and effect not in effects:
+                effects.append(effect)
+
+        facts = []
+        for label, field_name in (
+                ("Type", "spell_type"), ("Target", "target_type"),
+                ("Duration", "duration"), ("Resist", "resist"),
+                ("Casting", "casting_time"), ("Recast", "recast_time"),
+                ("Range", "range"), ("Mana", "mana"), ("Skill", "skill")):
+            value = _plain_wiki_text(
+                _wiki_template_field(source, field_name))
+            if value:
+                facts.append((label, value))
+
+        sections = []
+        if description:
+            sections.append(description)
+        if effects:
+            sections.append(
+                "WHAT IT DOES\n" + "\n".join(f"• {value}" for value in effects))
+        messages = []
+        for label, field_name in (
+                ("Cast on you", "msg_cast_on_you"),
+                ("Wears off", "msg_wears_off")):
+            value = _plain_wiki_text(
+                _wiki_template_field(source, field_name))
+            if value:
+                messages.append(f"{label}: {value}")
+        if messages:
+            sections.append("GAME MESSAGES\n" + "\n".join(messages))
+        return {
+            "name": name,
+            "kind": "EFFECT",
+            "facts": facts,
+            "summary": "\n\n".join(sections) or
+                       "The Wiki page does not include a spell-effect summary.",
+        }
+
     if kind == "npc":
         name = _plain_wiki_text(_wiki_template_field(source, "name"))
         facts = []
@@ -1802,10 +1859,17 @@ class WikiItemCard(UniformScaleDialog):
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.attributes.setWordWrap(True)
         self.attributes.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse)
+            Qt.TextInteractionFlag.TextBrowserInteraction)
+        self.attributes.setOpenExternalLinks(False)
+        self.attributes.linkActivated.connect(self._internal_wiki_link)
+        self.attributes.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.attributes.setAccessibleName("Item stats and effect links")
+        self.attributes.setAccessibleDescription(
+            "Click, proc, worn, focus, and bard effect names open a compact "
+            "Project 1999 Wiki explanation")
         self.attributes.setToolTip(
-            "Sortable stats plus click, proc, worn, focus, and bard effects "
-            "from the local P99 item index")
+            "Sortable local P99 stats. Select an underlined effect to see "
+            "what it does according to Project 1999 Wiki")
         card_layout.addWidget(self.attributes, 2, 0, 1, 2)
 
         self.stats = QLabel("Loading item details…")
@@ -2014,7 +2078,7 @@ class WikiItemCard(UniformScaleDialog):
 
 
 class WikiEntityCard(UniformScaleDialog):
-    """In-app P99 Wiki summary for a drop NPC or zone."""
+    """In-app P99 Wiki summary for a drop NPC, zone, or item effect."""
 
     def __init__(self, name, kind, parent=None):
         super().__init__(
@@ -2022,6 +2086,7 @@ class WikiEntityCard(UniformScaleDialog):
             initial_size=QSize(387, 279))
         self.target_name = name
         self.entity_kind = kind
+        self.wiki_url = _wiki_target_url(name)
         self.setObjectName("WikiEntityDialog")
         self.setWindowTitle(f"Vantage · {name}")
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
@@ -2053,11 +2118,17 @@ class WikiEntityCard(UniformScaleDialog):
             Qt.TextInteractionFlag.TextSelectableByMouse)
         self.summary.setToolTip("Short description from Project 1999 Wiki")
         outer.addWidget(scrollable(self.summary, "WikiEntityScroll"), 1)
+        open_wiki = QPushButton("Open P99 Wiki")
+        open_wiki.setIcon(game_icon("map"))
+        open_wiki.setToolTip(
+            "Open the full Project 1999 Wiki page in your browser")
+        open_wiki.clicked.connect(lambda: webbrowser.open(self.wiki_url))
         close = QPushButton("Close")
         close.setToolTip("Close this card")
         close.clicked.connect(self.close)
         actions = QHBoxLayout()
         actions.addStretch(1)
+        actions.addWidget(open_wiki)
         actions.addWidget(close)
         outer.addLayout(actions)
 
@@ -3439,16 +3510,19 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.40")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.41")
         reply = self._network.get(request)
         reply.finished.connect(
             lambda: self._wiki_item_finished(reply, card, json_path, icon_path))
 
     def _show_wiki_entity(self, target, label, kind):
+        kind = str(kind or "").casefold()
+        if kind not in {"npc", "zone", "effect"}:
+            return None
         card = WikiEntityCard(label or target, kind, self)
         card.show()
         card.raise_()
-        cache_path = _wiki_entity_cache_path(target)
+        cache_path = _wiki_entity_cache_path(target, kind)
         try:
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
             card.set_entity_data(cached, cached=True)
@@ -3458,7 +3532,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.40")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.41")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._wiki_entity_finished(
             reply, card, cache_path, target, kind))
@@ -3543,7 +3617,7 @@ class GreenMarket(ParserWindow):
                     filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.40")
+                    "Vantage/1.44.41")
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
                     lambda: self._wiki_icon_finished(
@@ -3795,7 +3869,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.40")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.41")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -3817,7 +3891,8 @@ class GreenMarket(ParserWindow):
                     return
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.40")
+                QNetworkRequest.KnownHeaders.UserAgentHeader,
+                "Vantage/1.44.41")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -4190,7 +4265,8 @@ class GreenMarket(ParserWindow):
         self._refresh_button.setText("Refreshing…")
         self.status.setText(f"Refreshing PigParse {server}…")
         request = QNetworkRequest(QUrl(market_endpoint(server)))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.40")
+        request.setHeader(
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.41")
         reply = self._network.get(request)
         reply.setProperty("market_server", server)
         reply.finished.connect(lambda: self._finished(reply))
@@ -4317,7 +4393,8 @@ class GreenMarket(ParserWindow):
             f"Evaluating PigParse {server} history · {name}…")
         request = QNetworkRequest(QUrl(market_detail_api(server).format(
             item_name=quote(name, safe=""))))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.40")
+        request.setHeader(
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.41")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.setProperty("market_server", server)

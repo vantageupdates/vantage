@@ -57,7 +57,9 @@ def test_local_p99_index_loads_stats_and_effects(tmp_path):
     assert items[0].effects("worn") == (("Worn", "Flowing Thought I"),)
     summary = gear_item_summary_html(items[0])
     assert "<b>AC</b> +12" in summary
-    assert "<b>Worn</b> · Flowing Thought I" in summary
+    assert "<b>Worn</b> · <a" in summary
+    assert "vantage://wiki/effect/Flowing%20Thought%20I" in summary
+    assert ">Flowing Thought I</a>" in summary
     assert "<b>NO DROP</b>" in summary
     assert "<b>Velious</b>" in summary
 

@@ -3,9 +3,11 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication
 
 from vantage.parsers.market import (
-    MarketModel, combined_market_price, parse_wiki_entity_wikitext,
+    GearItem, MarketModel, WikiItemCard, combined_market_price,
+    parse_wiki_entity_wikitext,
     parse_wiki_auction_html, parse_wiki_green_auction_html,
     parse_wiki_item_wikitext)
 
@@ -118,6 +120,58 @@ def test_native_zone_summary_stays_inside_the_app():
     assert entity["name"] == "Old Sebilis"
     assert "ancient capital" in entity["summary"]
     assert entity["facts"] == [("Enemy levels", "48-60")]
+
+
+def test_native_effect_summary_explains_what_the_item_effect_does():
+    source = """{{Spellpagesmart|
+| spellname = Spirit of Wolf
+| description = Infuses your target with the spirit of the wolf.
+| slots =
+{{SpellSlotRowSmart | 1 | Increase Movement Speed by 34% (L9) to 55% (L50) | simple = 0 }}
+| mana = 40
+| casting_time = 4.50
+| recast_time = 3.50
+| duration = 27.0 mins @L9 to 36.0 mins @L12
+| target_type = Single
+| spell_type = Beneficial
+| resist = Unresistable
+| msg_cast_on_you = You feel the spirit of wolf enter you.
+| msg_wears_off = The spirit of wolf leaves you.
+}}"""
+
+    entity = parse_wiki_entity_wikitext(
+        source, "Spirit of Wolf", "effect")
+
+    assert entity["name"] == "Spirit of Wolf"
+    assert entity["kind"] == "EFFECT"
+    assert ("Duration", "27.0 mins @L9 to 36.0 mins @L12") in entity["facts"]
+    assert ("Resist", "Unresistable") in entity["facts"]
+    assert "WHAT IT DOES" in entity["summary"]
+    assert "Increase Movement Speed by 34%" in entity["summary"]
+    assert "Wears off: The spirit of wolf leaves you." in entity["summary"]
+
+
+def test_item_effect_names_are_keyboard_accessible_internal_wiki_links():
+    app = QApplication.instance() or QApplication([])
+    gear = GearItem(
+        name="Fungus Covered Scale Tunic", wornName="Fungal Regrowth")
+    card = WikiItemCard({"n": gear.name, "_gear": gear})
+    requests = []
+    card.wiki_entity_requested.connect(
+        lambda target, label, kind: requests.append((target, label, kind)))
+
+    assert "vantage://wiki/effect/Fungal%20Regrowth" in card.attributes.text()
+    assert card.attributes.textInteractionFlags() & (
+        Qt.TextInteractionFlag.LinksAccessibleByKeyboard)
+    assert card.attributes.focusPolicy() == Qt.FocusPolicy.StrongFocus
+    assert "Project 1999 Wiki explanation" in (
+        card.attributes.accessibleDescription())
+
+    card.attributes.linkActivated.emit(
+        "vantage://wiki/effect/Fungal%20Regrowth")
+    app.processEvents()
+    assert requests == [("Fungal Regrowth", "Fungal Regrowth", "effect")]
+    card.close()
 
 
 def test_market_item_name_looks_and_behaves_like_a_link():
