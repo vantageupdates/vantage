@@ -42,7 +42,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=37,
+    patch=38,
     build=""
 )
 

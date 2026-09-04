@@ -913,6 +913,36 @@ QProgressBar {
     font-size: 10px;
     padding-left: 4px;
 }
+#MarketCompareMode:checked {
+    color: #FFF0B0;
+    background-color: #3B321C;
+    border-color: #C8A94F;
+}
+#ItemCompareDialog { background-color: #090C0F; }
+#ItemCompareTitle {
+    color: #F2D77F;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 2px 4px;
+}
+#ItemCompareIntro {
+    color: #D9E3E6;
+    background-color: #121A20;
+    border: 1px solid #40505C;
+    border-radius: 5px;
+    padding: 6px 8px;
+}
+#ItemCompareSummary {
+    color: #BFE9DD;
+    background-color: #101B1A;
+    border-left: 3px solid #5AAE98;
+    padding: 5px 8px;
+}
+#ItemCompareTable { border: 1px solid #40505C; }
+#ItemCompareTable QTableCornerButton::section {
+    background-color: #1A2329;
+    border: 1px solid #40505C;
+}
 #MobileShareTitle {
     color: #F3F0E9;
     font-size: 15px;
