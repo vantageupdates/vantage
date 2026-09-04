@@ -49,3 +49,15 @@ with a game publisher, server operator, market-data provider, or wiki.
 Compatibility with third-party trigger-pack file formats does not imply
 affiliation, endorsement, or inclusion of those applications. Vantage does not
 bundle their proprietary code, artwork, sounds, or databases.
+
+## Community acknowledgments
+
+Vantage acknowledges the nParse project and contributors, PigParse / EqTool,
+the Project 1999 Wiki and P99 Planner communities, the Brewall mapping
+community, and respawntimer community data. Their roles and source links are
+described in `SOURCE-NOTICE.md`.
+
+GINA and GamParse are mentioned only as community inspiration and to describe
+compatibility with familiar workflows. They are not represented as code or
+asset providers for Vantage. None of these acknowledgments implies affiliation,
+endorsement, sponsorship, or permission beyond each project's published terms.

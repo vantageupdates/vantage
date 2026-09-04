@@ -7,7 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import QSize, Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QIcon
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QTabWidget,
+    QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QTabWidget, QTextBrowser,
     QVBoxLayout, QWidget)
 
 from vantage.helpers import resource_path
@@ -17,6 +17,44 @@ from vantage.helpers.scaled_dialog import UniformScaleDialog
 
 SOURCE_URL = "https://github.com/vantageupdates/vantage"
 SUPPORT_URL = "https://buymeacoffee.com/vantagecompanion"
+CONTACT_EMAIL = "vantagecompanion@gmail.com"
+CONTACT_URL = f"mailto:{CONTACT_EMAIL}"
+
+
+CREDITS_HTML = """
+<h2>Credits &amp; Acknowledgments</h2>
+<p>Vantage is made possible by open-source software and years of work by the
+EverQuest and Project 1999 community.</p>
+<ul>
+  <li><a href="https://github.com/nomns/nparse">nParse project and
+  contributors</a> — Vantage contains extensively modified GPL-3.0 code
+  derived from nParse.</li>
+  <li><a href="https://github.com/smasherprog/EqTool">PigParse / EqTool</a>
+  — market-data reference used by Vantage.</li>
+  <li><a href="https://wiki.project1999.com/">Project 1999 Wiki</a> and
+  <a href="https://p99planner.com/">P99 Planner</a> communities — factual
+  game references and community-maintained metadata.</li>
+  <li><a href="https://github.com/RedGuides/brewall-maps">Brewall mapping
+  community</a> — classic community map resources.</li>
+  <li><a href="https://github.com/perotan/respawntimer">respawntimer community
+  data</a> — a reference for zone respawn facts.</li>
+  <li>GINA and GamParse — acknowledged only as community inspiration and for
+  compatibility with familiar workflows. Vantage does not claim that their
+  creators supplied code or endorsed this project.</li>
+  <li><a href="https://github.com/coreui/coreui-icons">CoreUI Icons</a>,
+  <a href="https://github.com/phosphor-icons/core">Phosphor Icons</a>, and
+  <a href="https://github.com/notofonts/latin-greek-cyrillic">Noto Sans</a>
+  — interface resources under their respective licenses.</li>
+</ul>
+<p>The complete runtime dependency and license list is available in the
+<b>Open Source Licenses</b> tab.</p>
+<p>Official contact: <a href="mailto:vantagecompanion@gmail.com">email the
+Vantage project at vantagecompanion@gmail.com</a>.</p>
+<p><b>Independent project.</b> Vantage is not affiliated with, endorsed by, or
+sponsored by Daybreak Game Company, EverQuest, Project 1999, or any community
+project named above. Names and trademarks remain the property of their
+respective owners.</p>
+"""
 
 
 def _legal_text(filename):
@@ -41,13 +79,21 @@ def open_external_url(url):
     return QDesktopServices.openUrl(parsed)
 
 
+def open_contact_url(url):
+    """Open only the project's fixed email destination."""
+    parsed = QUrl(str(url or ""))
+    if parsed.toString() != CONTACT_URL:
+        return False
+    return QDesktopServices.openUrl(parsed)
+
+
 class AboutDialog(UniformScaleDialog):
     """Keep product identity prominent and legal attribution discoverable."""
 
     def __init__(self, version, parent=None):
         super().__init__(
             QSize(640, 380), parent,
-            minimum_size=QSize(320, 190), initial_size=QSize(640, 380))
+            minimum_size=QSize(420, 260), initial_size=QSize(640, 380))
         self.setObjectName("AboutDialog")
         self.setWindowTitle("About Vantage")
         self.setModal(False)
@@ -77,6 +123,17 @@ class AboutDialog(UniformScaleDialog):
             "Discord: mindflux99")
         creator.setObjectName("AboutCreator")
         copy.addWidget(creator)
+        contact = QLabel(
+            f'Official contact: <a href="{CONTACT_URL}">{CONTACT_EMAIL}</a>')
+        contact.setObjectName("AboutContact")
+        contact.setTextFormat(Qt.TextFormat.RichText)
+        contact.setTextInteractionFlags(
+            Qt.TextInteractionFlag.LinksAccessibleByMouse |
+            Qt.TextInteractionFlag.LinksAccessibleByKeyboard)
+        contact.setAccessibleName(
+            f"Email the Vantage project at {CONTACT_EMAIL}")
+        contact.linkActivated.connect(open_contact_url)
+        copy.addWidget(contact)
         identity.addLayout(copy, 1)
         root.addLayout(identity)
 
@@ -121,6 +178,19 @@ class AboutDialog(UniformScaleDialog):
         source.clicked.connect(lambda: open_external_url(SOURCE_URL))
         overview_layout.addWidget(source)
         tabs.addTab(overview, "About")
+
+        credits = QTextBrowser()
+        credits.setObjectName("CreditsAcknowledgments")
+        credits.setOpenExternalLinks(False)
+        credits.setOpenLinks(False)
+        credits.setAccessibleName("Credits and acknowledgments")
+        credits.setHtml(CREDITS_HTML)
+        credits.anchorClicked.connect(
+            lambda url: (
+                open_contact_url(url.toString())
+                if url.scheme().casefold() == "mailto"
+                else open_external_url(url.toString())))
+        tabs.addTab(credits, "Credits & Acknowledgments")
 
         notices = QPlainTextEdit()
         notices.setObjectName("LegalNotices")

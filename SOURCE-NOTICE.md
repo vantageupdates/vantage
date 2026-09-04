@@ -1,9 +1,40 @@
-# Source and data notice
+# Credits, source and data notice
+
+## Credits & Acknowledgments
+
+Vantage is made possible by open-source software and years of work by the
+EverQuest and Project 1999 community. We gratefully acknowledge:
+
+- the [nParse project and its contributors](https://github.com/nomns/nparse),
+  whose GPL-3.0 code is the upstream foundation from which Vantage was
+  extensively modified;
+- [PigParse / EqTool](https://github.com/smasherprog/EqTool), used as a
+  market-data reference;
+- the [Project 1999 Wiki](https://wiki.project1999.com/) and
+  [P99 Planner](https://p99planner.com/) communities for factual game
+  references and community-maintained metadata;
+- the [Brewall mapping community](https://github.com/RedGuides/brewall-maps)
+  for classic community map resources; and
+- the [respawntimer community data](https://github.com/perotan/respawntimer),
+  used as a reference when normalizing zone respawn facts.
+
+GINA and GamParse are acknowledged only as community inspiration and for
+compatibility with familiar workflows. Vantage does not claim that their
+creators supplied code, assets, or endorsement.
+
+Acknowledgment identifies provenance or inspiration; it does not imply
+affiliation, endorsement, sponsorship, or a license beyond the terms published
+by each respective project.
+
+Official Vantage project contact: vantagecompanion@gmail.com. The creator's
+community contact remains Discord `mindflux99`.
+
+## Source and data provenance
 
 Vantage contains extensively modified GPL-3.0 code derived from
-https://github.com/nomns/nparse. The original copyright and license notices are
-preserved here and in the repository history. Vantage modifications made in
-2026 are distributed under the same GNU GPL version 3 license.
+https://github.com/nomns/nparse. The upstream project and license are identified
+in this notice. Vantage modifications made in 2026 are distributed under the
+same GNU GPL version 3 license.
 
 Market values are attributed in-app to PigParse Green. Project 1999 Wiki is a separately labeled secondary reference for item icons, statistics, drop NPCs, zones, and the shipped item-to-click-effect index. Robust estimates are local calculations and never alter upstream records.
 

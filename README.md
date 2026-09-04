@@ -1,6 +1,7 @@
 # Vantage · P99 Companion
 
-Created by Mindflux / Harmflux on P99 Green Server · Discord: `mindflux99`
+Created by Mindflux / Harmflux on P99 Green Server · Discord: `mindflux99` ·
+Official contact: [vantagecompanion@gmail.com](mailto:vantagecompanion@gmail.com)
 
 Aplicación comunitaria gratuita, nativa, ligera y de un solo ejecutable para Windows. El estado de juego usado por timers, buffs, mapas, análisis y alertas proviene únicamente del log de EverQuest activado por el usuario o de archivos creados manualmente con `/outputfile`. No lee memoria del proceso, no inyecta código, no envía teclas y no automatiza acciones del personaje. Vantage combina Smart Spawn Timers, mercado Green/Blue, análisis de combate, cadenas de Complete Heal y alertas configurables en una interfaz oscura moderna, sin incrustar Chromium/WebView.
 
@@ -54,6 +55,33 @@ El parser trabaja por eventos; no reescanea continuamente todo el log. Un único
 La página móvil se sirve desde la PC únicamente mientras la sesión está activa. El token viaja en el fragmento del enlace, no se guarda en los logs del servidor, y las APIs requieren ese token. EverQuest Live usa una segunda llave exclusiva del QR Wi-Fi; la llave del túnel de Internet no puede solicitar imágenes del juego. La captura está apagada en cada inicio y sólo trabaja cuando el teléfono mantiene visible esa pestaña. Con WinEQ2, Vantage reconoce la superficie activa hija o propietaria y captura directamente la ventana del juego; al cambiar de aplicación se pausa para no exponer otra ventana. El teléfono muestra el motivo real si la captura debe esperar. El modo Internet descarga `cloudflared` sólo después de una confirmación explícita, valida su firma de Windows y usa un Quick Tunnel sin cuenta.
 
 Vantage se distribuye como un único `Vantage.exe`: no requiere instalación, DLLs sueltas ni una carpeta junto al ejecutable. La configuración, caché, sonidos copiados, grabaciones de mapa y el componente opcional de Cloudflare se conservan en `%LOCALAPPDATA%\Vantage`. Puedes mover el ejecutable sin arrastrar archivos adicionales.
+
+## Créditos y agradecimientos
+
+Vantage contiene código GPL-3.0 extensamente modificado derivado del
+[proyecto nParse y sus contribuidores](https://github.com/nomns/nparse).
+Agradecemos también a [PigParse / EqTool](https://github.com/smasherprog/EqTool),
+a las comunidades de [Project 1999 Wiki](https://wiki.project1999.com/) y
+[P99 Planner](https://p99planner.com/), a la comunidad de mapas
+[Brewall](https://github.com/RedGuides/brewall-maps) y a los datos comunitarios
+de [respawntimer](https://github.com/perotan/respawntimer) por las referencias
+descritas con precisión en `SOURCE-NOTICE.md`.
+
+GINA y GamParse se reconocen únicamente como inspiración comunitaria y para
+describir compatibilidad con flujos conocidos; no se presentan como proveedores
+de código o recursos de Vantage. CoreUI Icons, Phosphor Icons, Noto Sans y las
+dependencias incluidas conservan sus respectivas licencias, enumeradas en
+`THIRD-PARTY-NOTICES.md`.
+
+Estos agradecimientos no implican afiliación, patrocinio, aprobación o permisos
+adicionales. Vantage es un proyecto comunitario independiente; no está afiliado
+ni respaldado por Daybreak Game Company, EverQuest, Project 1999 ni los proyectos
+comunitarios mencionados. Los nombres y marcas pertenecen a sus respectivos
+propietarios.
+
+Contacto oficial del proyecto:
+[vantagecompanion@gmail.com](mailto:vantagecompanion@gmail.com). El contacto
+comunitario del creador continúa siendo Discord `mindflux99`.
 
 ## Herramienta gratuita y uso en P99
 
