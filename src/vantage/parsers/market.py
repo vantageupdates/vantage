@@ -723,14 +723,22 @@ def parse_wiki_zone_payload(wikitext, rendered_html, fallback_name=""):
     heading = html_source.rfind("What's in this zone?")
     if heading >= 0:
         html_source = html_source[heading:]
-    table_match = re.search(
+    table_matches = re.findall(
         r"<table\b[^>]*class=[\"'][^\"']*\beoTable3\b[^\"']*"
         r"\bsortable\b[^\"']*[\"'][^>]*>(.*?)</table>",
         html_source, re.IGNORECASE | re.DOTALL)
+    # Modern zone pages can render Quest and Item tables before the NPC table.
+    # Selecting the first generic eoTable3 made those rows look like mobs and
+    # left the Nameds view empty. Identify the table by its semantic headers.
+    table_body = next((body for body in table_matches if (
+        re.search(r"<th\b[^>]*>\s*(?:<[^>]+>\s*)*NPC\s+Name\b",
+                  body, re.IGNORECASE) and
+        re.search(r"<th\b[^>]*>\s*(?:<[^>]+>\s*)*Level\b",
+                  body, re.IGNORECASE))), None)
     mobs = []
-    if table_match:
+    if table_body:
         for raw_row in re.findall(
-                r"<tr\b[^>]*>(.*?)</tr>", table_match.group(1),
+                r"<tr\b[^>]*>(.*?)</tr>", table_body,
                 re.IGNORECASE | re.DOTALL):
             raw_cells = re.findall(
                 r"<t[dh]\b[^>]*>(.*?)</t[dh]>", raw_row,
@@ -3218,9 +3226,6 @@ class GreenMarket(ParserWindow):
         gear_layout.addWidget(self.gear_table, 1)
         self._gear_tab_index = self.tabs.addTab(gear_page, "Gear · stats")
 
-        self._zone_tab_index = self.tabs.addTab(
-            self._zone_explorer_page(), "Zones")
-
         self.auction_composer = AuctionComposer(self._auction_price, self)
         self._auction_tab_index = self.tabs.addTab(
             self.auction_composer, "WTS / WTB Builder")
@@ -3399,8 +3404,6 @@ class GreenMarket(ParserWindow):
                 f"Search cached PigParse {self._server} listings and prices"),
             "Gear · stats": (
                 "Compare and sort P99 items by stats, class, race, slot, and effects"),
-            "Zones": (
-                "Search a P99 zone, then browse its mobs, nameds, drops, and map"),
             "WTS / WTB Builder": (
                 "Build customized auction messages; WTS uses real item links and "
                 "WTB uses plain text"),
@@ -3649,7 +3652,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(requested.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.47")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.48")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_finished(
             reply, requested, cached_path))
@@ -3789,7 +3792,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(target.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.47")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.48")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_npc_drops_finished(
             reply, mob, target, key, cache_path))
@@ -4069,7 +4072,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.47")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.48")
         reply = self._network.get(request)
         reply.finished.connect(
             lambda: self._wiki_item_finished(reply, card, json_path, icon_path))
@@ -4092,7 +4095,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.47")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.48")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._wiki_entity_finished(
             reply, card, cache_path, target, kind))
@@ -4177,7 +4180,7 @@ class GreenMarket(ParserWindow):
                     filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.47")
+                    "Vantage/1.44.48")
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
                     lambda: self._wiki_icon_finished(
@@ -4429,7 +4432,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.47")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.48")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -4452,7 +4455,7 @@ class GreenMarket(ParserWindow):
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
                 QNetworkRequest.KnownHeaders.UserAgentHeader,
-                "Vantage/1.44.47")
+                "Vantage/1.44.48")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -4829,7 +4832,7 @@ class GreenMarket(ParserWindow):
         self.status.setText(f"Refreshing PigParse {server}…")
         request = QNetworkRequest(QUrl(market_endpoint(server)))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.47")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.48")
         reply = self._network.get(request)
         reply.setProperty("market_server", server)
         reply.finished.connect(lambda: self._finished(reply))
@@ -4957,7 +4960,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(market_detail_api(server).format(
             item_name=quote(name, safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.47")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.48")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.setProperty("market_server", server)

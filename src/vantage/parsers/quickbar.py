@@ -909,7 +909,18 @@ class QuickBar(ParserWindow):
 
     def _trigger(self, key):
         if key in self._window_targets:
-            self._window_targets[key].toggle()
+            target = self._window_targets[key]
+            was_visible = target.isVisible()
+            target.toggle()
+            if was_visible and not target.isVisible():
+                # The Quick Bar already owns the user's click. Returning Qt
+                # focus within it does not activate the bar or pull foreground
+                # focus away from EverQuest when invoked programmatically.
+                button = self._buttons.get(key)
+                if button is not None:
+                    QTimer.singleShot(
+                        0, lambda launcher=button: launcher.setFocus(
+                            Qt.FocusReason.OtherFocusReason))
         elif key in self._DIALOG_ACTIONS:
             self._toggle_dialog_action(key)
         elif key == "support":

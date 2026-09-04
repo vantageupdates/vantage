@@ -265,14 +265,15 @@ def test_scaled_panels_keep_keyboard_pointer_and_tooltips(tmp_path):
     assert result["missing_timer_tooltips"] == []
     assert result["map_manual_pan"] is True
     assert result["minimum_sizes"] == {
-            "quickbar": [217, 25],
+        "quickbar": [236, 25],
         "maps": [100, 100], "spells": [210, 111],
         "tick": [88, 48],
         "timers": [300, min(
             result["timer_required_physical_height"],
             result["timer_screen_height"])],
         "combat": [130, 75],
-        "heals": [130, 55], "market": [245, 155]}
+        "heals": [130, 55], "market": [245, 155],
+        "zones": [225, 140], "quests": [225, 145]}
     assert result["minimum_sizes"]["timers"] == [
         300, min(
             result["timer_required_physical_height"],
@@ -280,7 +281,8 @@ def test_scaled_panels_keep_keyboard_pointer_and_tooltips(tmp_path):
     assert result["missing_by_panel"] == {
         "quickbar": [], "maps": [], "spells": [], "tick": [],
         "timers": [], "combat": [],
-        "heals": [], "market": [], "overlay_editor": []}
+        "heals": [], "market": [], "zones": [], "quests": [],
+        "overlay_editor": []}
     assert all(
         replica['logical_before'][:3] == replica['logical_after'][:3]
         and replica['window'] == replica['expected']

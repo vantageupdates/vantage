@@ -29,6 +29,8 @@ from vantage.parsers.heals import HealChain
 from vantage.parsers.maps import Maps
 from vantage.parsers.maps.window import MapsSignals
 from vantage.parsers.market import GreenMarket
+from vantage.parsers.zones import Zones
+from vantage.parsers.quests import Quests
 from vantage.parsers.quickbar import QuickBar
 from vantage.parsers.spells import Spells
 from vantage.parsers.tick import ServerTick
@@ -42,7 +44,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=47,
+    patch=48,
     build=""
 )
 
@@ -229,10 +231,12 @@ class VantageApp(QApplication):
         tick = ServerTick()
         spells.spell_faded.connect(tick.spell_faded)
         timers = SpawnTimers()
-        self._splash.step("Preparing combat and Market…", 70)
+        self._splash.step("Preparing combat, Market, Zones, and Quests…", 70)
         combat = Combat()
         heals = HealChain()
         market = GreenMarket()
+        zones = Zones()
+        quests = Quests()
         self._parsers_dict = {
             "maps": maps,
             "spells": spells,
@@ -241,6 +245,8 @@ class VantageApp(QApplication):
             "combat": combat,
             "heals": heals,
             "market": market,
+            "zones": zones,
+            "quests": quests,
         }
         quickbar = QuickBar(self, self._parsers_dict)
         self._parsers_dict["quickbar"] = quickbar
@@ -253,6 +259,8 @@ class VantageApp(QApplication):
             self._parsers_dict["combat"],
             self._parsers_dict["heals"],
             self._parsers_dict["market"],
+            self._parsers_dict["zones"],
+            self._parsers_dict["quests"],
         ]
         # Launcher-first startup: build every parser once, but expose only the
         # Quick Bar. This prevents taskbar/window flashes and leaves each tool
@@ -828,6 +836,8 @@ class VantageApp(QApplication):
                 "timers": "Smart Timers",
                 "heals": "Heal Chain",
                 "market": "Market",
+                "zones": "Zones",
+                "quests": "Quests",
             }.get(parser.name, parser.name.title())
             toggle = menu.addAction(label)
             toggle.setIcon(game_icon(WINDOW_ICONS.get(parser.name, 'timer')))

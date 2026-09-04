@@ -1,7 +1,7 @@
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 44, 47, 0),
-    prodvers=(1, 44, 47, 0),
+    filevers=(1, 44, 48, 0),
+    prodvers=(1, 44, 48, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -15,11 +15,11 @@ VSVersionInfo(
         '040904B0',
         [StringStruct('CompanyName', 'Vantage Project'),
          StringStruct('FileDescription', 'Vantage - EverQuest companion'),
-         StringStruct('FileVersion', '1.44.47'),
+         StringStruct('FileVersion', '1.44.48'),
          StringStruct('InternalName', 'Vantage'),
          StringStruct('OriginalFilename', 'Vantage.exe'),
          StringStruct('ProductName', 'Vantage'),
-         StringStruct('ProductVersion', '1.44.47')]
+         StringStruct('ProductVersion', '1.44.48')]
       )
     ]),
     VarFileInfo([VarStruct('Translation', [1033, 1200])])

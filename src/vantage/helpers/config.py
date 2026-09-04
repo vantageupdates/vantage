@@ -311,8 +311,8 @@ def verify_settings():
     # interactive and never creates another normal Windows taskbar entry.
     data['quickbar'] = data.get('quickbar', {})
     data['quickbar']['geometry'] = get_setting(
-        data['quickbar'].get('geometry', [10, 10, 590, 62]),
-        [10, 10, 590, 62],
+        data['quickbar'].get('geometry', [10, 10, 629, 67]),
+        [10, 10, 629, 67],
         lambda value: isinstance(value, list) and len(value) == 4)
     for key, default in (
             ('toggled', True), ('auto_hide_menu', False),
@@ -957,6 +957,60 @@ def verify_settings():
         key: _bounded_int(width, 60, 38, 640)
         for key, width in raw_market_widths.items()
         if key in market_column_keys}
+
+    # Independent Project 1999 zone browser. Preserve the legacy Market tab's
+    # last selection once when an existing profile is upgraded.
+    data['zones'] = data.get('zones', {})
+    data['zones']['geometry'] = get_setting(
+        data['zones'].get('geometry', [210, 120, 900, 560]),
+        [210, 120, 900, 560],
+        lambda value: isinstance(value, list) and len(value) == 4)
+    for key, default in (
+            ('toggled', False), ('clickthrough', False),
+            ('auto_hide_menu', False), ('always_on_top', False),
+            ('frameless', True)):
+        data['zones'][key] = get_setting(data['zones'].get(key, default), default)
+    data['zones']['clickthrough'] = False
+    data['zones']['opacity'] = get_setting(
+        data['zones'].get('opacity', 100), 100,
+        lambda value: 40 <= value <= 100)
+    data['zones']['last_zone'] = get_setting(
+        data['zones'].get(
+            'last_zone', data['market'].get('zone_explorer_last', '')), '',
+        lambda value: isinstance(value, str))
+
+    # Quest catalog data is cached separately on demand. Only the window and
+    # active floating-checklist state live in the durable user configuration.
+    data['quests'] = data.get('quests', {})
+    data['quests']['geometry'] = get_setting(
+        data['quests'].get('geometry', [230, 130, 900, 580]),
+        [230, 130, 900, 580],
+        lambda value: isinstance(value, list) and len(value) == 4)
+    for key, default in (
+            ('toggled', False), ('clickthrough', False),
+            ('auto_hide_menu', False), ('always_on_top', False),
+            ('frameless', True)):
+        data['quests'][key] = get_setting(
+            data['quests'].get(key, default), default)
+    data['quests']['clickthrough'] = False
+    data['quests']['opacity'] = get_setting(
+        data['quests'].get('opacity', 100), 100,
+        lambda value: 40 <= value <= 100)
+    checklist = data['quests'].get('checklist', {})
+    if not isinstance(checklist, dict):
+        checklist = {}
+    checklist['title'] = get_setting(checklist.get('title', ''), '')
+    checklist['steps'] = get_setting(
+        checklist.get('steps', []), [], lambda value: isinstance(value, list))
+    checklist['steps'] = [str(step)[:360] for step in checklist['steps'][:96]]
+    checklist['checked'] = get_setting(
+        checklist.get('checked', []), [], lambda value: isinstance(value, list))
+    checklist['checked'] = [str(key)[:32] for key in checklist['checked'][:96]]
+    checklist['geometry'] = get_setting(
+        checklist.get('geometry', [80, 80, 380, 480]),
+        [80, 80, 380, 480],
+        lambda value: isinstance(value, list) and len(value) == 4)
+    data['quests']['checklist'] = checklist
 
     # Local, read-only EverQuest view. Enabling is intentionally per-session.
     data['mobile'] = data.get('mobile', {})

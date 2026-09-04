@@ -17,6 +17,8 @@ WINDOW_ICONS = {
     "combat": "ph-sword",
     "heals": "ph-heal",
     "market": "ph-storefront",
+    "zones": "ph-compass",
+    "quests": "ph-quest-scroll",
 }
 
 
