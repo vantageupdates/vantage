@@ -42,12 +42,12 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=46,
+    patch=47,
     build=""
 )
 
 UPDATE_INITIAL_DELAY_MS = 3000
-UPDATE_HEARTBEAT_MS = 10 * 60 * 1000
+UPDATE_HEARTBEAT_MS = 60 * 1000
 UPDATE_RETRY_MS = 60 * 1000
 UPDATE_BUSY_RETRY_MS = 15 * 1000
 

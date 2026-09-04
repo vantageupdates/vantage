@@ -83,12 +83,12 @@ def test_update_heartbeat_starts_fast_retries_and_updates_quickbar(tmp_path):
         check=True, capture_output=True, text=True, timeout=30)
     result = json.loads(completed.stdout.strip().splitlines()[-1])
 
-    assert result['constants'] == [3000, 15000, 60000, 600000]
+    assert result['constants'] == [3000, 15000, 60000, 60000]
     assert result['initial']['active'] is True
     assert result['initial']['interval'] == 3000
-    assert 'every 10 minutes' in result['initial']['tooltip']
+    assert 'every minute' in result['initial']['tooltip']
     assert result['initial']['update_toast_visible'] is False
-    update_message = 'Vantage updated · 1.44.44 → 1.44.46'
+    update_message = 'Vantage updated · 1.44.44 → 1.44.47'
     assert update_message in (
         [result['initial']['rail_text']] + result['initial']['rail_pending'])
     assert result['busy'] == 15000
@@ -104,5 +104,5 @@ def test_update_heartbeat_starts_fast_retries_and_updates_quickbar(tmp_path):
     }
     assert result['healthy'] == {
         'state': 'idle',
-        'interval': 600000,
+        'interval': 60000,
     }

@@ -478,7 +478,7 @@ class SettingsWindow(UniformScaleDialog):
         update_check.setObjectName('general:update_check')
         update_check.setToolTip(
             'Check the official vantageupdates/vantage GitHub Release at '
-            'startup and every 10 minutes; installation always requires your click')
+            'startup and every minute; installation always requires your click')
         gsl.addRow('Automatic update heartbeat', update_check)
 
         gsl.addRow(SettingsHeader('LOG ARCHIVE'))

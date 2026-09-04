@@ -743,7 +743,7 @@ class QuickBar(ParserWindow):
             accessible_name = "Check manually for Vantage updates"
             description = "Automatic update heartbeat is disabled in Settings"
         else:
-            tooltip = "Updates checked automatically every 10 minutes · click now"
+            tooltip = "Updates checked automatically every minute · click now"
             accessible_name = "Check for Vantage updates"
             description = "No verified update is currently waiting"
         update_button.setToolTip(tooltip)
