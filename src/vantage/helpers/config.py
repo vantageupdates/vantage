@@ -296,6 +296,27 @@ def save():
                 pass
 
 
+def verify_update_checkpoint(spell_rows, timer_rows):
+    """Confirm the next Vantage process will read the exact live state.
+
+    Update handoff is the one place where a successful return from ``save``
+    is not sufficient: the current process is about to exit. Re-open the
+    durable JSON and compare the two live countdown collections before the
+    updater is allowed to spawn.
+    """
+    if not _filename:
+        return False
+    try:
+        with open(_filename, encoding='utf-8') as source:
+            persisted = json.load(source)
+        return (
+            persisted.get('spells', {}).get('active_timer_state') ==
+            spell_rows and
+            persisted.get('timers', {}).get('items') == timer_rows)
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return False
+
+
 def verify_settings():
     # verify vantage.config.json contains what it should and
     # set defaults if appropriate

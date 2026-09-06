@@ -1,3 +1,4 @@
+import copy
 import math
 import os
 import time
@@ -44,7 +45,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=49,
+    patch=50,
     build=""
 )
 
@@ -989,17 +990,26 @@ class VantageApp(QApplication):
         return True
 
     def checkpoint_for_update(self):
-        """Persist live countdown state before the updater starts another EXE."""
-        for parser in self._parsers:
-            parser._save_geometry()
-        spells = self._parsers_dict.get('spells')
-        timers = self._parsers_dict.get('timers')
-        if spells is not None:
-            spells.checkpoint_runtime_state()
-        if timers is not None:
-            timers.checkpoint_runtime_state()
-        config.save()
-        return True
+        """Persist and verify countdown state before another EXE can start."""
+        try:
+            for parser in self._parsers:
+                parser._save_geometry()
+            spells = self._parsers_dict.get('spells')
+            timers = self._parsers_dict.get('timers')
+            if spells is not None:
+                spells.checkpoint_runtime_state()
+            if timers is not None:
+                timers.checkpoint_runtime_state()
+            spell_rows = copy.deepcopy(
+                config.data.get('spells', {}).get('active_timer_state', []))
+            timer_rows = copy.deepcopy(
+                config.data.get('timers', {}).get('items', []))
+            config.save()
+            return config.verify_update_checkpoint(spell_rows, timer_rows)
+        except Exception:
+            # The installer treats False as a hard cancellation and leaves the
+            # current Vantage process, tray, and windows running.
+            return False
 
     def show_update_dialog(self):
         if self._update_dialog_instance is None:

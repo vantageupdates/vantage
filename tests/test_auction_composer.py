@@ -1,5 +1,6 @@
 from PySide6.QtWidgets import QApplication, QSpinBox
 
+import vantage.parsers.market as market_module
 from vantage.parsers.market import (
     AuctionComposer, AuctionEntry, AuctionQuantity, GearItem, P99_CHAT_LIMIT,
     P99_ITEM_LINK_DELIMITER, compose_auction_lines, normalize_auction_price,
@@ -99,6 +100,39 @@ def test_composer_copies_plain_wts_and_builds_linked_hotbutton_without_inventory
     assert copied == "WTB Manastone 80000p PST"
     assert P99_ITEM_LINK_DELIMITER not in copied
     composer.close()
+
+
+def test_repeated_plain_copies_never_alternate_or_expose_terminal_nul():
+    app = _app()
+    composer = AuctionComposer()
+    composer.set_catalog([GearItem("Manastone", id=6040, peqId=13401)])
+    composer.item_search.setText("Manastone")
+    assert composer.add_search_item()
+
+    for _attempt in range(20):
+        assert composer.copy_next() is True
+        assert app.clipboard().text() == "WTS Manastone PST"
+        assert not app.clipboard().text().endswith("\x00")
+    composer.close()
+
+
+def test_plain_copy_removes_only_terminal_nul_and_keeps_eq_controls():
+    app = _app()
+    payload = "prefix\x12internal-link-data\x12suffix"
+
+    assert market_module._copy_plain_auction_text(payload + "\x00") is True
+    assert app.clipboard().text() == payload
+    assert app.clipboard().text().count(P99_ITEM_LINK_DELIMITER) == 2
+
+
+def test_plain_copy_remains_exact_after_clipboard_events_are_processed():
+    app = _app()
+    value = "WTS Manastone 80k PST"
+
+    assert market_module._copy_plain_auction_text(value) is True
+    for _attempt in range(5):
+        app.processEvents()
+    assert app.clipboard().text() == value
 
 
 def test_linked_wts_installs_into_free_p99_social_with_backup(tmp_path):

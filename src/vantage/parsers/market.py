@@ -19,9 +19,9 @@ from urllib.parse import quote, unquote
 import webbrowser
 
 from PySide6.QtCore import (
-    QAbstractTableModel, QEvent, QModelIndex,
+    QAbstractTableModel, QEvent, QEventLoop, QModelIndex,
     QSignalBlocker, QSize,
-    QSortFilterProxyModel, QStringListModel, Signal, Qt, QTimer, QUrl)
+    QSortFilterProxyModel, QStringListModel, Signal, Qt, QThread, QTimer, QUrl)
 from PySide6.QtGui import (
     QAccessible, QAccessibleAnnouncementEvent, QColor, QFont, QPixmap)
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
@@ -35,7 +35,6 @@ from PySide6.QtWidgets import (
 from vantage.helpers import config, resource_path
 from vantage.helpers.audio import audio_muted, notification_sound, play_alert
 from vantage.helpers.icons import game_icon
-from vantage.helpers.eq_clipboard import set_eq_clipboard
 from vantage.helpers.friends_manager import everquest_root_from_logs
 from vantage.helpers.parser import ParserWindow
 from vantage.helpers.portable import data_dir
@@ -471,6 +470,33 @@ def _compact_template_text(value):
 
 def _preview_auction_line(value):
     return P99_LINK_RX.sub(lambda match: f"[{match.group(1)}]", str(value or ""))
+
+
+def _copy_plain_auction_text(text):
+    """Publish stable plain chat text and verify Qt's observable clipboard.
+
+    WTS/WTB copy intentionally contains no clickable item-link payload. Keep a
+    single clipboard owner here: Qt publishes the standard Windows text
+    formats Titanium reads, without racing the separate native compatibility
+    writer or exposing its C-string terminator. Internal control characters
+    are preserved; only an unintended terminal NUL is normalized.
+    """
+    value = str(text or "").rstrip("\x00")
+    application = QApplication.instance()
+    if application is None:
+        return False
+    clipboard = application.clipboard()
+    try:
+        for _attempt in range(8):
+            clipboard.setText(value)
+            application.processEvents(
+                QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+            QThread.msleep(15)
+            if clipboard.text() == value:
+                return True
+        return False
+    except RuntimeError:
+        return False
 
 
 def compose_auction_lines(
@@ -2950,7 +2976,7 @@ class AuctionComposer(QWidget):
         if not self._raw_lines or not self.copy_button.isEnabled():
             return False
         line = self._raw_lines[self._copy_index]
-        if not set_eq_clipboard(line):
+        if not _copy_plain_auction_text(line):
             self._set_preview_status(
                 "Clipboard is busy · close another clipboard tool and try again",
                 announce=True)
@@ -3652,7 +3678,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(requested.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.49")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.50")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_finished(
             reply, requested, cached_path))
@@ -3792,7 +3818,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(target.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.49")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.50")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_npc_drops_finished(
             reply, mob, target, key, cache_path))
@@ -4072,7 +4098,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.49")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.50")
         reply = self._network.get(request)
         reply.finished.connect(
             lambda: self._wiki_item_finished(reply, card, json_path, icon_path))
@@ -4095,7 +4121,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.49")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.50")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._wiki_entity_finished(
             reply, card, cache_path, target, kind))
@@ -4180,7 +4206,7 @@ class GreenMarket(ParserWindow):
                     filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.49")
+                    "Vantage/1.44.50")
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
                     lambda: self._wiki_icon_finished(
@@ -4432,7 +4458,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.49")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.50")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -4455,7 +4481,7 @@ class GreenMarket(ParserWindow):
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
                 QNetworkRequest.KnownHeaders.UserAgentHeader,
-                "Vantage/1.44.49")
+                "Vantage/1.44.50")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -4832,7 +4858,7 @@ class GreenMarket(ParserWindow):
         self.status.setText(f"Refreshing PigParse {server}…")
         request = QNetworkRequest(QUrl(market_endpoint(server)))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.49")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.50")
         reply = self._network.get(request)
         reply.setProperty("market_server", server)
         reply.finished.connect(lambda: self._finished(reply))
@@ -4960,7 +4986,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(market_detail_api(server).format(
             item_name=quote(name, safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.49")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.50")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.setProperty("market_server", server)

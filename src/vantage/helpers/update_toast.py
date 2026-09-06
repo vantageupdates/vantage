@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QCursor
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import (
+    QAccessible, QAccessibleAnnouncementEvent, QCursor)
 from PySide6.QtWidgets import (
     QApplication, QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton,
     QVBoxLayout, QWidget)
@@ -59,8 +60,8 @@ class QuickUpdateToast(QWidget):
 
         self.message = QLabel("A verified Vantage update is available.")
         self.message.setObjectName("QuickUpdateMessage")
-        self.message.setAccessibleName("Update status")
         root.addWidget(self.message)
+        self._set_status(self.message.text(), announce=False)
 
         self.progress = QProgressBar()
         self.progress.setObjectName("QuickUpdateProgress")
@@ -101,11 +102,13 @@ class QuickUpdateToast(QWidget):
         self.update_button.setEnabled(True)
         self.update_button.setText("Update")
         self.title.setText("VANTAGE UPDATE")
-        self.message.setText(
-            f"Vantage {info.version} is ready · verified GitHub Release")
+        self._set_status(
+            f"Vantage {info.version} is ready · verified GitHub Release",
+            announce=False)
         self._move_top_right()
         self.show()
         self.raise_()
+        self._announce_status()
 
     def show_success(self, previous_version, current_version):
         """Leave an unmistakable receipt after the replacement restarts."""
@@ -122,11 +125,13 @@ class QuickUpdateToast(QWidget):
             pass
         self.update_button.clicked.connect(self.hide)
         self.title.setText("UPDATE COMPLETE")
-        self.message.setText(
-            f"Vantage {current_version} is installed · was {previous_version}")
+        self._set_status(
+            f"Vantage {current_version} is installed · was {previous_version}",
+            announce=False)
         self._move_top_right()
         self.show()
         self.raise_()
+        self._announce_status()
 
     def _move_top_right(self):
         screen = QApplication.screenAt(QCursor.pos()) \
@@ -141,8 +146,7 @@ class QuickUpdateToast(QWidget):
 
     def start_one_click_update(self):
         if not self.info or self.controller.busy:
-            self.message.setText(
-                "Another update operation is already running.")
+            self._set_status("Another update operation is already running.")
             return
         self._one_click_active = True
         self.close_button.setEnabled(False)
@@ -150,7 +154,7 @@ class QuickUpdateToast(QWidget):
         self.update_button.setText("Updating…")
         self.progress.setValue(0)
         self.progress.show()
-        self.message.setText("Downloading and verifying Vantage…")
+        self._set_status("Downloading and verifying Vantage…")
         if not self.controller.download(self.info):
             self._failed("The update could not start.")
 
@@ -165,14 +169,41 @@ class QuickUpdateToast(QWidget):
         if not self._one_click_active:
             return
         self.progress.setValue(100)
-        self.message.setText("Verified · restarting Vantage…")
+        self._set_status("Verified · restarting Vantage…")
         self.application.install_quick_update(info, path, self)
 
     def _failed(self, message):
         if not self._one_click_active:
             return
+        focused = QApplication.focusWidget()
+        restore_focus = bool(
+            self.isActiveWindow() and focused and
+            (focused is self or self.isAncestorOf(focused)))
         self._one_click_active = False
         self.close_button.setEnabled(True)
         self.update_button.setEnabled(True)
         self.update_button.setText("Try again")
-        self.message.setText(str(message))
+        self._set_status(str(message))
+        if restore_focus:
+            QTimer.singleShot(
+                0, lambda: self.update_button.setFocus(
+                    Qt.FocusReason.OtherFocusReason))
+
+    def _set_status(self, message, announce=True):
+        """Synchronize visible and assistive status without taking focus."""
+        message = " ".join(str(message or "").split())
+        self.message.setText(message)
+        self.message.setAccessibleName(f"Update status: {message}")
+        self.message.setAccessibleDescription(message)
+        if announce and self.isVisible():
+            self._announce_status()
+
+    def _announce_status(self):
+        message = self.message.text()
+        if not self.isVisible() or not message:
+            return
+        try:
+            QAccessible.updateAccessibility(
+                QAccessibleAnnouncementEvent(self.message, message))
+        except (AttributeError, RuntimeError, TypeError):
+            pass

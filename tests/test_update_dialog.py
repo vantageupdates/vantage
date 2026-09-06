@@ -77,7 +77,29 @@ after = {
     'progress': dialog.progress.value(),
     'active': dialog._one_click_active,
 }
-print(json.dumps({'before': before, 'during': during, 'after': after}))
+
+class FailingController(Controller):
+    def launch_installer(self, info, path):
+        raise RuntimeError(
+            'The update was cancelled and Vantage remains open.')
+
+failing_controller = FailingController()
+failure_dialog = UpdateDialog(failing_controller)
+failure_dialog.info = info
+failure_dialog.staged_path = 'verified-Vantage.exe'
+failure_dialog.show()
+failure_dialog.install()
+app.processEvents()
+failure = {
+    'visible': failure_dialog.isVisible(),
+    'active': failure_dialog._one_click_active,
+    'status': failure_dialog.status.text(),
+    'try_again': failure_dialog.download_button.text(),
+    'later_enabled': failure_dialog.close_button.isEnabled(),
+}
+print(json.dumps({
+    'before': before, 'during': during, 'after': after, 'failure': failure}))
+failure_dialog.close()
 dialog.close()
 """
 
@@ -110,4 +132,13 @@ def test_update_dialog_has_one_download_verify_install_action(tmp_path):
         'installed': ['1.0.1', 'verified-Vantage.exe'],
         'progress': 100,
         'active': False,
+    }
+    assert result['failure'] == {
+        'visible': True,
+        'active': False,
+        'status': (
+            'Update could not start: The update was cancelled and Vantage '
+            'remains open.'),
+        'try_again': 'Try again',
+        'later_enabled': True,
     }
