@@ -7,7 +7,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QFormLayout, QFrame,
                              QHeaderView, QHBoxLayout, QLabel, QListWidget,
                              QListWidgetItem, QInputDialog,
-                             QSpinBox, QStackedWidget, QPushButton,
+                             QSlider, QSpinBox, QStackedWidget, QPushButton,
                              QSplitter, QTableWidget, QTableWidgetItem,
                              QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
                              QTreeWidgetItemIterator, QVBoxLayout,
@@ -18,7 +18,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QFormLayou
 from vantage.helpers import config, text_time_to_seconds
 from vantage.helpers.audio import (
     DEFAULT_SOUND, add_custom_sound_to_combo, play_alert,
-    set_audio_muted, set_sound_combo_value, speak_text)
+    master_volume, set_audio_muted, set_master_volume,
+    set_sound_combo_value, speak_text)
 from vantage.helpers.icons import game_icon
 from vantage.helpers.friends_manager import FriendsManagerDialog
 from vantage.helpers.gina_import import GinaImportError, import_gina_package
@@ -240,6 +241,8 @@ class SettingsWindow(UniformScaleDialog):
             QSize(720, 520), minimum_size=QSize(216, 156),
             initial_size=QSize(612, 442))
         self.setWindowTitle('Vantage · Settings')
+        self._master_volume_before_edit = master_volume()
+        self._settings_saved = False
 
         layout = QVBoxLayout()
 
@@ -345,6 +348,9 @@ class SettingsWindow(UniformScaleDialog):
                 elif wt == QSpinBox:
                     key1, key2 = widget.objectName().split(':')
                     config.data[key1][key2] = widget.value()
+                elif wt == QSlider and ':' in widget.objectName():
+                    key1, key2 = widget.objectName().split(':')
+                    config.data[key1][key2] = widget.value()
                 elif wt == QLineEdit:
                     key1, key2 = widget.objectName().split(':')
                     config.data[key1][key2] = widget.text()
@@ -373,17 +379,32 @@ class SettingsWindow(UniformScaleDialog):
                 trigger_sounds_changed = True
         config.save()
         set_audio_muted(config.data['general'].get('audio_muted', False))
+        set_master_volume(config.data['general'].get('master_volume', 100))
+        self._master_volume_before_edit = master_volume()
         QApplication.instance()._signals["settings"].config_updated.emit()
         if trigger_sounds_changed:
             QApplication.instance()._signals[
                 "settings"].spell_triggers_updated.emit()
+        self._settings_saved = True
         self.accept()
 
     def _cancelled(self):
+        set_master_volume(self._master_volume_before_edit)
         self._set_values()
         self.reject()
 
+    def showEvent(self, event):
+        # SettingsWindow is retained and shown again by the application. Each
+        # editing session needs its own rollback point; a constructor-only
+        # snapshot would incorrectly restore a value from an earlier opening.
+        self._master_volume_before_edit = master_volume()
+        self._settings_saved = False
+        self._set_values()
+        super().showEvent(event)
+
     def closeEvent(self, _):
+        if not self._settings_saved:
+            set_master_volume(self._master_volume_before_edit)
         self._set_values()
         self.reject()
 
@@ -416,6 +437,9 @@ class SettingsWindow(UniformScaleDialog):
                             and not config.data[key1][key2]:
                         self.sharing_player_name.setDisabled(True)
                 elif wt == QSpinBox:
+                    key1, key2 = widget.objectName().split(':')
+                    widget.setValue(config.data[key1][key2])
+                elif wt == QSlider and ':' in widget.objectName():
                     key1, key2 = widget.objectName().split(':')
                     widget.setValue(config.data[key1][key2])
                 elif wt == QLineEdit:
@@ -652,9 +676,36 @@ class SettingsWindow(UniformScaleDialog):
             'Stops every WAV and Windows voice notification immediately; '
             'this is the same Master Mute used by the Quick Bar')
         sound_sl.addRow('Master Mute', master_mute)
+        master_volume_label = QLabel()
+        master_volume_slider = QSlider(Qt.Orientation.Horizontal)
+        master_volume_slider.setObjectName('general:master_volume')
+        master_volume_slider.setRange(0, 100)
+        master_volume_slider.setSingleStep(1)
+        master_volume_slider.setPageStep(10)
+        master_volume_slider.setAccessibleName('Master volume')
+        master_volume_slider.setAccessibleDescription(
+            'Scales every Vantage sound and spoken notification. Zero '
+            'percent is silent but does not turn on Master Mute.')
+        master_volume_slider.setToolTip(
+            'Scale every WAV and Windows voice alert from 0% to 100%. '
+            'Unlike Master Mute, 0% does not change the mute switch.')
+        master_volume_label.setBuddy(master_volume_slider)
+
+        def update_master_volume(value):
+            value = set_master_volume(value)
+            master_volume_label.setText(f'Master Volume · {value}%')
+            master_volume_label.setAccessibleName(
+                f'Master volume, {value} percent')
+
+        master_volume_slider.valueChanged.connect(update_master_volume)
+        update_master_volume(master_volume())
+        self.master_volume_slider = master_volume_slider
+        self.master_volume_value_label = master_volume_label
+        sound_sl.addRow(master_volume_label, master_volume_slider)
         sound_intro = QLabel(
             'Choose the sound used by each automatic notification. Test uses '
-            'the route\'s real volume. Master Mute always wins.')
+            'the route\'s real volume, scaled by Master Volume. Master Mute '
+            'always wins.')
         sound_intro.setObjectName('CombatDataNotice')
         sound_intro.setWordWrap(True)
         sound_sl.addRow('', sound_intro)

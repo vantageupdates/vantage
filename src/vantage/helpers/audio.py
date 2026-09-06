@@ -73,6 +73,27 @@ _SPEECH = None
 _DEFAULT_VOICE_NAME = ""
 
 
+def _percent(value, default=100):
+    """Return a defensive 0-100 percentage for live audio settings."""
+    try:
+        return max(0, min(100, int(value)))
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def master_volume():
+    """Return the live global volume without changing the mute state."""
+    return _percent(
+        config.data.get("general", {}).get("master_volume", 100), 100)
+
+
+def set_master_volume(volume):
+    """Apply a global volume percentage to subsequent WAV and TTS alerts."""
+    value = _percent(volume, 100)
+    config.data.setdefault("general", {})["master_volume"] = value
+    return value
+
+
 def sound_choices():
     """Return immutable display labels and URIs for gallery controls."""
     return SOUND_GALLERY
@@ -367,6 +388,7 @@ def play_alert(
     volume = max(0, min(100, int(volume)))
     profile = profile_audio_settings(character, server)
     volume = round(volume * int(profile.get("volume", 100)) / 100)
+    volume = round(volume * master_volume() / 100)
     if volume <= 0:
         return False
     sound = resolve_sound(path)
@@ -426,6 +448,7 @@ def speak_text(
     volume = max(0, min(100, int(volume)))
     profile = profile_audio_settings(character, server)
     volume = round(volume * int(profile.get("volume", 100)) / 100)
+    volume = round(volume * master_volume() / 100)
     speech = _speech_engine()
     if not message or volume <= 0 or speech is None:
         return False

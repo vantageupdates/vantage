@@ -14,12 +14,66 @@ data = {}
 _filename = ''
 APP_EXIT = False
 
+QUEST_CHECKLIST_MAX_STEPS = 180
+QUEST_CHECKLIST_MAX_ENTRY_BYTES = 16 * 1024
+QUEST_CHECKLIST_MAX_TOTAL_BYTES = 384 * 1024
+
 
 def _bounded_int(value, default, lower, upper):
     try:
         return max(lower, min(upper, int(value)))
     except (TypeError, ValueError):
         return default
+
+
+def _normalize_quest_checklist_steps(value):
+    """Keep complete legacy/structured steps within a bounded config budget.
+
+    Invalid or oversized records are discarded whole instead of being sliced
+    into corrupt JSON or an incomplete quest instruction.
+    """
+    if not isinstance(value, list):
+        return []
+    normalized = []
+    total_bytes = 0
+    for raw in value[:QUEST_CHECKLIST_MAX_STEPS]:
+        parsed = raw
+        if isinstance(raw, str) and raw.lstrip().startswith('{'):
+            try:
+                parsed = json.loads(raw)
+            except (TypeError, ValueError):
+                continue
+        if isinstance(parsed, dict):
+            text = parsed.get('text', '')
+            group = parsed.get('group', '')
+            if not isinstance(text, str) or not text.strip():
+                continue
+            if not isinstance(group, str):
+                group = ''
+            try:
+                depth = max(0, min(12, int(parsed.get('depth', 0))))
+            except (TypeError, ValueError):
+                depth = 0
+            kind = 'group' if parsed.get('kind') == 'group' else 'action'
+            candidate = json.dumps({
+                'text': text.strip(), 'depth': depth,
+                'kind': kind, 'group': group.strip(),
+            }, ensure_ascii=False, separators=(',', ':'))
+        elif isinstance(parsed, str):
+            # Backward compatibility with plain-text checklist rows.
+            candidate = parsed.strip()
+            if not candidate:
+                continue
+        else:
+            continue
+        size = len(candidate.encode('utf-8'))
+        if size > QUEST_CHECKLIST_MAX_ENTRY_BYTES:
+            continue
+        if total_bytes + size > QUEST_CHECKLIST_MAX_TOTAL_BYTES:
+            break
+        normalized.append(candidate)
+        total_bytes += size
+    return normalized
 
 BASIC_ALERTS_VERSION = 2
 BASIC_ALERTS = (
@@ -274,6 +328,10 @@ def verify_settings():
     data['general']['audio_muted'] = get_setting(
         data['general'].get('audio_muted', False),
         False
+    )
+    data['general']['master_volume'] = _bounded_int(
+        data['general'].get('master_volume', 100),
+        100, 0, 100
     )
     data['general']['reduce_motion'] = get_setting(
         data['general'].get('reduce_motion', False),
@@ -961,6 +1019,8 @@ def verify_settings():
     # Independent Project 1999 zone browser. Preserve the legacy Market tab's
     # last selection once when an existing profile is upgraded.
     data['zones'] = data.get('zones', {})
+    if not isinstance(data['zones'], dict):
+        data['zones'] = {}
     data['zones']['geometry'] = get_setting(
         data['zones'].get('geometry', [210, 120, 900, 560]),
         [210, 120, 900, 560],
@@ -978,14 +1038,36 @@ def verify_settings():
         data['zones'].get(
             'last_zone', data['market'].get('zone_explorer_last', '')), '',
         lambda value: isinstance(value, str))
+    raw_zone_widths = data['zones'].get('column_widths', {})
+    if not isinstance(raw_zone_widths, dict):
+        raw_zone_widths = {}
+    zone_width_defaults = {
+        'items': (320, 240),
+        'mobs': (220, 65, 90, 105, 280, 180),
+        'nameds': (220, 65, 90, 105, 280, 180),
+    }
+    # Validate each table independently. A damaged width list for one tab must
+    # never discard the user's valid layout for either of the other tabs.
+    data['zones']['column_widths'] = {
+        table_key: [
+            _bounded_int(width, defaults[index], 38, 1200)
+            for index, width in enumerate(raw_zone_widths[table_key])]
+        for table_key, defaults in zone_width_defaults.items()
+        if (isinstance(raw_zone_widths.get(table_key), list) and
+            len(raw_zone_widths[table_key]) == len(defaults))
+    }
 
     # Quest catalog data is cached separately on demand. Only the window and
     # active floating-checklist state live in the durable user configuration.
     data['quests'] = data.get('quests', {})
+    if not isinstance(data['quests'], dict):
+        data['quests'] = {}
     data['quests']['geometry'] = get_setting(
         data['quests'].get('geometry', [230, 130, 900, 580]),
         [230, 130, 900, 580],
-        lambda value: isinstance(value, list) and len(value) == 4)
+        lambda value: (isinstance(value, list) and len(value) == 4 and
+                       all(isinstance(item, int) for item in value) and
+                       value[2] > 0 and value[3] > 0))
     for key, default in (
             ('toggled', False), ('clickthrough', False),
             ('auto_hide_menu', False), ('always_on_top', False),
@@ -999,17 +1081,20 @@ def verify_settings():
     checklist = data['quests'].get('checklist', {})
     if not isinstance(checklist, dict):
         checklist = {}
-    checklist['title'] = get_setting(checklist.get('title', ''), '')
-    checklist['steps'] = get_setting(
-        checklist.get('steps', []), [], lambda value: isinstance(value, list))
-    checklist['steps'] = [str(step)[:360] for step in checklist['steps'][:96]]
+    checklist['title'] = get_setting(checklist.get('title', ''), '')[:512]
+    checklist['steps'] = _normalize_quest_checklist_steps(
+        checklist.get('steps', []))
     checklist['checked'] = get_setting(
         checklist.get('checked', []), [], lambda value: isinstance(value, list))
-    checklist['checked'] = [str(key)[:32] for key in checklist['checked'][:96]]
+    checklist['checked'] = [key for key in checklist['checked']
+                            if isinstance(key, str) and 0 < len(key) <= 64][
+                                :QUEST_CHECKLIST_MAX_STEPS]
     checklist['geometry'] = get_setting(
         checklist.get('geometry', [80, 80, 380, 480]),
         [80, 80, 380, 480],
-        lambda value: isinstance(value, list) and len(value) == 4)
+        lambda value: (isinstance(value, list) and len(value) == 4 and
+                       all(isinstance(item, int) for item in value) and
+                       value[2] > 0 and value[3] > 0))
     data['quests']['checklist'] = checklist
 
     # Local, read-only EverQuest view. Enabling is intentionally per-session.

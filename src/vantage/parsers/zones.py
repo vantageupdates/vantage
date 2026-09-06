@@ -6,12 +6,12 @@ import json
 from urllib.parse import quote
 import webbrowser
 
-from PySide6.QtCore import QEvent, Qt, QTimer, QUrl
+from PySide6.QtCore import QEvent, QSignalBlocker, Qt, QTimer, QUrl
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QComboBox, QFrame, QGridLayout,
-    QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton, QTabWidget,
+    QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMenu, QPushButton, QTabWidget,
     QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget)
 
 from vantage.helpers import config
@@ -31,6 +31,11 @@ class Zones(ParserWindow):
 
     name = "zones"
     _allow_clickthrough = False
+    COLUMN_DEFAULTS = {
+        "items": (320, 240),
+        "mobs": (220, 65, 90, 105, 280, 180),
+        "nameds": (220, 65, 90, 105, 280, 180),
+    }
 
     def __init__(self):
         super().__init__()
@@ -44,7 +49,19 @@ class Zones(ParserWindow):
         self._zone_mobs = []
         self._zone_drop_requests = set()
         self._zone_reply = None
+        self._zone_request_id = 0
+        self._drop_reply_contexts = {}
+        self._suppress_zone_selection = True
+        self._zone_tables = {}
+        self._column_width_save_timer = QTimer(self)
+        self._column_width_save_timer.setSingleShot(True)
+        self._column_width_save_timer.setInterval(350)
+        self._column_width_save_timer.timeout.connect(
+            self._save_column_widths)
         self._build_ui()
+        app = QApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self._cancel_network_requests)
 
     def _build_ui(self):
         controls = QFrame()
@@ -64,7 +81,7 @@ class Zones(ParserWindow):
             "Choose a zone; its items, mobs, named NPCs, and context load automatically")
         self.zone_selector.setToolTip(
             "Choose a Project 1999 zone · zone information loads automatically")
-        self.zone_selector.activated.connect(self._zone_selected)
+        self.zone_selector.currentIndexChanged.connect(self._zone_selected)
         control_layout.addWidget(self.zone_selector, 0, 0, 1, 3)
 
         self.zone_load_button = QPushButton("Reload zone")
@@ -110,11 +127,14 @@ class Zones(ParserWindow):
 
         self.tabs = QTabWidget()
         self.tabs.setObjectName("ZoneBrowserTabs")
-        self.item_table = self._table(("Item", "Source"), "Items in selected zone")
+        self.item_table = self._table(
+            "items", ("Item", "Source"), "Items in selected zone")
         self.mob_table = self._table(
+            "mobs",
             ("NPC", "Level", "Class", "Race", "Drops", "Location"),
             "Mobs in selected zone")
         self.named_table = self._table(
+            "nameds",
             ("Named NPC", "Level", "Class", "Race", "Drops", "Location"),
             "Named NPCs in selected zone")
         # Compatibility name for integrations that previously inspected the
@@ -144,6 +164,52 @@ class Zones(ParserWindow):
         self.zone_result_count = QLabel("No zone loaded")
         self.zone_result_count.setObjectName("ZoneBrowserResultCount")
         action_layout.addWidget(self.zone_result_count, 1)
+
+        self.zone_columns_button = QToolButton()
+        self.zone_columns_button.setObjectName("ZoneColumnsButton")
+        self.zone_columns_button.setText("&Columns")
+        self.zone_columns_button.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.zone_columns_button.setPopupMode(
+            QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.zone_columns_button.setAccessibleName("Resize zone table columns")
+        self.zone_columns_button.setAccessibleDescription(
+            "Open keyboard controls for the current table column. Columns "
+            "can also be resized by dragging their header dividers")
+        self.zone_columns_button.setToolTip(
+            "Resize the current column · Alt+C · headers can also be dragged")
+        self.zone_columns_menu = QMenu(self.zone_columns_button)
+        self.zone_columns_menu.setAccessibleName("Zone column size controls")
+        self.zone_columns_menu.setToolTipsVisible(True)
+        self.zone_column_wider_action = self.zone_columns_menu.addAction(
+            "Make &wider")
+        self.zone_column_wider_action.setToolTip(
+            "Increase the current column width")
+        self.zone_column_wider_action.triggered.connect(
+            lambda: self._resize_current_column(40))
+        self.zone_column_narrower_action = self.zone_columns_menu.addAction(
+            "Make &narrower")
+        self.zone_column_narrower_action.setToolTip(
+            "Decrease the current column width")
+        self.zone_column_narrower_action.triggered.connect(
+            lambda: self._resize_current_column(-40))
+        self.zone_column_autofit_action = self.zone_columns_menu.addAction(
+            "&Auto-fit current column")
+        self.zone_column_autofit_action.setToolTip(
+            "Fit the current column to its heading and visible content")
+        self.zone_column_autofit_action.triggered.connect(
+            self._autofit_current_column)
+        self.zone_columns_menu.addSeparator()
+        self.zone_column_reset_action = self.zone_columns_menu.addAction(
+            "&Reset this tab")
+        self.zone_column_reset_action.setToolTip(
+            "Restore the default widths for every column on this tab")
+        self.zone_column_reset_action.triggered.connect(
+            self._reset_current_table_columns)
+        self.zone_columns_menu.aboutToShow.connect(
+            self._update_column_action_state)
+        self.zone_columns_button.setMenu(self.zone_columns_menu)
+        action_layout.addWidget(self.zone_columns_button)
 
         self.zone_detail_button = QPushButton("Open details")
         self.zone_detail_button.setIcon(game_icon("ph-file-search"))
@@ -189,28 +255,130 @@ class Zones(ParserWindow):
         last_zone = str(config.data["zones"].get("last_zone", "") or "")
         if last_zone:
             self._select_zone(last_zone)
+        self._suppress_zone_selection = False
 
-    def _table(self, headers, accessible_name):
+    def _table(self, table_key, headers, accessible_name):
         table = QTableWidget(0, len(headers))
         table.setHorizontalHeaderLabels(headers)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         table.setAlternatingRowColors(True)
+        table.setWordWrap(False)
         table.setSortingEnabled(True)
+        table.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         table.verticalHeader().setVisible(False)
         table.setAccessibleName(accessible_name)
         table.setAccessibleDescription(
-            "Sortable results; press Enter or double-click to open the selected result")
+            "Sortable results. Drag a header divider to resize columns; use "
+            "the Columns menu for keyboard resizing and the horizontal "
+            "scrollbar for wide content. Press Enter or double-click to open "
+            "the selected result")
         ensure_table_header_tooltips(table, accessible_name.casefold())
         header = table.horizontalHeader()
+        header.setAccessibleName(f"Resizable columns for {accessible_name}")
+        header.setAccessibleDescription(
+            "Click a heading to sort. Drag the divider between headings to "
+            "make a column wider or narrower")
+        header.setToolTip(
+            "Click a heading to sort · drag a divider to resize · saved per tab")
+        header.setMinimumSectionSize(38)
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        if len(headers) > 1:
-            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setStretchLastSection(False)
+        saved = config.data["zones"].get("column_widths", {}).get(table_key)
+        widths = saved if isinstance(saved, list) else self.COLUMN_DEFAULTS[table_key]
+        for column, width in enumerate(widths):
+            table.setColumnWidth(column, int(width))
+        self._zone_tables[table_key] = table
+        header.sectionResized.connect(
+            lambda *_args: self._column_width_save_timer.start())
         table.itemSelectionChanged.connect(self._selection_changed)
         table.cellDoubleClicked.connect(lambda *_: self._open_selected())
         table.installEventFilter(self)
         return table
+
+    def _capture_column_widths(self):
+        if not getattr(self, "_zone_tables", None):
+            return
+        config.data["zones"]["column_widths"] = {
+            table_key: [
+                table.columnWidth(column)
+                for column in range(table.columnCount())]
+            for table_key, table in self._zone_tables.items()
+        }
+
+    def _save_column_widths(self):
+        self._capture_column_widths()
+        if getattr(config, "_filename", ""):
+            config.save()
+
+    def _save_geometry(self):
+        # Update/install checkpoints call this synchronously. Capture widths
+        # before the base class writes the same atomic settings file.
+        self._capture_column_widths()
+        super()._save_geometry()
+
+    def _current_column_context(self):
+        table = self._current_table()
+        column = table.currentColumn()
+        if column < 0 or column >= table.columnCount():
+            column = 0 if table.columnCount() else -1
+        header_item = table.horizontalHeaderItem(column) if column >= 0 else None
+        name = header_item.text() if header_item is not None else "column"
+        return table, column, name
+
+    def _update_column_action_state(self):
+        table, column, _name = self._current_column_context()
+        available = column >= 0
+        self.zone_column_wider_action.setEnabled(
+            available and table.columnWidth(column) < 1200)
+        self.zone_column_narrower_action.setEnabled(
+            available and table.columnWidth(column) >
+            table.horizontalHeader().minimumSectionSize())
+        self.zone_column_autofit_action.setEnabled(available)
+        self.zone_column_reset_action.setEnabled(table.columnCount() > 0)
+
+    def _announce_column_width(self, name, width):
+        _announce_accessible(self, f"{name} column width {width} pixels")
+
+    def _resize_current_column(self, adjustment):
+        table, column, name = self._current_column_context()
+        if column < 0:
+            return False
+        minimum = table.horizontalHeader().minimumSectionSize()
+        width = max(minimum, min(1200, table.columnWidth(column) + adjustment))
+        table.setColumnWidth(column, width)
+        self._column_width_save_timer.start()
+        self._announce_column_width(name, table.columnWidth(column))
+        return True
+
+    def _autofit_current_column(self):
+        table, column, name = self._current_column_context()
+        if column < 0:
+            return False
+        table.resizeColumnToContents(column)
+        width = max(
+            table.horizontalHeader().minimumSectionSize(),
+            min(1200, table.columnWidth(column)))
+        table.setColumnWidth(column, width)
+        self._column_width_save_timer.start()
+        self._announce_column_width(name, table.columnWidth(column))
+        return True
+
+    def _reset_current_table_columns(self):
+        table = self._current_table()
+        table_key = next(
+            (key for key, candidate in self._zone_tables.items()
+             if candidate is table), None)
+        if table_key is None:
+            return False
+        for column, width in enumerate(self.COLUMN_DEFAULTS[table_key]):
+            table.setColumnWidth(column, width)
+        self._column_width_save_timer.start()
+        tab_name = self.tabs.tabText(self.tabs.currentIndex())
+        _announce_accessible(self, f"{tab_name} column widths reset")
+        return True
 
     def eventFilter(self, watched, event):
         zone_tables = tuple(
@@ -225,7 +393,25 @@ class Zones(ParserWindow):
         return super().eventFilter(watched, event)
 
     def _zone_selected(self, _index):
+        if self._suppress_zone_selection:
+            return False
+        if not self._selected_zone_name():
+            self._clear_zone_results()
+            self.zone_summary.setText("Choose a zone first.")
+            self.zone_summary.setAccessibleName(self.zone_summary.text())
+            return False
+        self._clear_zone_results()
         return self._load_zone(announce=True)
+
+    def _clear_zone_results(self):
+        """Remove the previous zone immediately while a new one is loading."""
+        self._zone_data = {}
+        self._zone_mobs = []
+        self.zone_description.clear()
+        self.zone_description.hide()
+        self.zone_map_button.setEnabled(False)
+        self.zone_wiki_button.setEnabled(False)
+        self._refresh_views(announce=False)
 
     def toggle(self):
         was_visible = self.isVisible()
@@ -250,7 +436,9 @@ class Zones(ParserWindow):
             return False
         for index in range(self.zone_selector.count()):
             if str(self.zone_selector.itemData(index) or "").casefold() == resolved.casefold():
+                blocker = QSignalBlocker(self.zone_selector)
                 self.zone_selector.setCurrentIndex(index)
+                del blocker
                 return True
         return False
 
@@ -264,8 +452,21 @@ class Zones(ParserWindow):
                 _announce_accessible(self, "Choose a zone first")
             return False
         if self._zone_reply is not None:
+            previous = self._zone_reply
+            # Mark it stale and disconnect before abort(); Qt may emit finished
+            # synchronously from abort(), which previously allowed a nested
+            # table rebuild inside currentIndexChanged on Windows.
+            self._zone_reply = None
             try:
-                self._zone_reply.abort()
+                previous.finished.disconnect(self._zone_finished)
+            except (RuntimeError, TypeError):
+                pass
+            try:
+                previous.abort()
+            except RuntimeError:
+                pass
+            try:
+                previous.deleteLater()
             except RuntimeError:
                 pass
         self.zone_load_button.setEnabled(False)
@@ -282,16 +483,30 @@ class Zones(ParserWindow):
         except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
             pass
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
-            slug=quote(requested.replace(" ", "_"), safe=""))))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.48")
+            slug=quote(requested.replace(" ", "_"), safe="")) +
+            "&redirects=1"))
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.49")
         reply = self._network.get(request)
+        self._zone_request_id += 1
+        reply.setProperty("zoneRequestId", self._zone_request_id)
+        reply.setProperty("zoneRequested", requested)
+        reply.setProperty("zoneCachePath", str(cache_path))
+        reply.setProperty("zoneAnnounce", bool(announce))
         self._zone_reply = reply
-        reply.finished.connect(lambda: self._zone_finished(
-            reply, requested, cache_path, announce))
+        reply.finished.connect(self._zone_finished)
         return True
 
-    def _zone_finished(self, reply, requested, cache_path, announce=True):
-        current = reply is self._zone_reply
+    def _zone_finished(self):
+        reply = self.sender()
+        if reply is None:
+            return
+        requested = str(reply.property("zoneRequested") or "")
+        cache_path = _wiki_zone_cache_path(requested)
+        announce = bool(reply.property("zoneAnnounce"))
+        current = bool(
+            reply is self._zone_reply and
+            int(reply.property("zoneRequestId") or -1) ==
+            self._zone_request_id)
         try:
             if not current:
                 return
@@ -403,6 +618,7 @@ class Zones(ParserWindow):
 
     @staticmethod
     def _fill_simple(table, rows):
+        blocker = QSignalBlocker(table)
         table.setSortingEnabled(False)
         table.setRowCount(len(rows))
         for row_number, values in enumerate(rows):
@@ -412,9 +628,11 @@ class Zones(ParserWindow):
                 item.setData(Qt.ItemDataRole.UserRole, str(values[0]))
                 table.setItem(row_number, column, item)
         table.setSortingEnabled(True)
+        del blocker
 
     @staticmethod
     def _fill_mobs(table, mobs):
+        blocker = QSignalBlocker(table)
         table.setSortingEnabled(False)
         table.setRowCount(len(mobs))
         for row_number, mob in enumerate(mobs):
@@ -428,6 +646,7 @@ class Zones(ParserWindow):
                     item.setData(Qt.ItemDataRole.UserRole, mob)
                 table.setItem(row_number, column, item)
         table.setSortingEnabled(True)
+        del blocker
 
     def _current_table(self):
         return (self.item_table, self.mob_table,
@@ -497,12 +716,21 @@ class Zones(ParserWindow):
         self._zone_drop_requests.add(key)
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(target.replace(" ", "_"), safe=""))))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.48")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.49")
         reply = self._network.get(request)
-        reply.finished.connect(lambda: self._drops_finished(reply, mob, target, key, cache_path))
+        self._drop_reply_contexts[reply] = (mob, target, key, cache_path)
+        reply.finished.connect(self._drops_finished)
         return True
 
-    def _drops_finished(self, reply, mob, target, key, cache_path):
+    def _drops_finished(self):
+        reply = self.sender()
+        if reply is None:
+            return
+        context = self._drop_reply_contexts.pop(reply, None)
+        if context is None:
+            reply.deleteLater()
+            return
+        mob, target, key, cache_path = context
         try:
             if reply.error() != QNetworkReply.NetworkError.NoError:
                 return
@@ -521,6 +749,41 @@ class Zones(ParserWindow):
         finally:
             self._zone_drop_requests.discard(key)
             reply.deleteLater()
+
+    def _cancel_network_requests(self):
+        """Make every late network completion harmless during app teardown."""
+        zone_reply = self._zone_reply
+        self._zone_reply = None
+        self._zone_request_id += 1
+        if zone_reply is not None:
+            try:
+                zone_reply.finished.disconnect(self._zone_finished)
+            except (RuntimeError, TypeError):
+                pass
+            try:
+                zone_reply.abort()
+            except RuntimeError:
+                pass
+            try:
+                zone_reply.deleteLater()
+            except RuntimeError:
+                pass
+        pending = list(self._drop_reply_contexts)
+        self._drop_reply_contexts.clear()
+        self._zone_drop_requests.clear()
+        for reply in pending:
+            try:
+                reply.finished.disconnect(self._drops_finished)
+            except (RuntimeError, TypeError):
+                pass
+            try:
+                reply.abort()
+            except RuntimeError:
+                pass
+            try:
+                reply.deleteLater()
+            except RuntimeError:
+                pass
 
     def _apply_drops(self, mob, drops):
         drops = [str(value).strip() for value in drops if str(value).strip()]

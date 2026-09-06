@@ -4,8 +4,10 @@ from pathlib import Path
 import subprocess
 import sys
 
+from vantage.helpers import config
 from vantage.parsers.quests import (
-    _step_key, parse_quest_catalog_payload, parse_quest_wikitext)
+    _plain_wiki, _section, _step_key, parse_quest_catalog_payload,
+    parse_quest_wikitext)
 
 
 ROOT = Path(__file__).parents[1]
@@ -15,6 +17,7 @@ ACCESSIBILITY_SCRIPT = r"""
 import json
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
+from vantage.helpers import config
 from vantage.helpers.application import VantageApp
 import vantage.parsers.quests as quests_module
 
@@ -34,14 +37,58 @@ QTest.qWait(320)
 app.processEvents()
 filter_state = [window.match_count.text(), list(announcements)]
 
+long_step = ('Travel to the hidden grove beside the Skyfire zone line at '
+             '3234, 2871, then speak with Telin Darkforest and say action '
+             'while invisible. ' + 'Keep the exact location context. ' * 12)
+records = [
+    {'text': 'Acquire the Worn Note', 'depth': 0, 'kind': 'group', 'group': ''},
+    {'text': long_step, 'depth': 1, 'kind': 'action',
+     'group': 'Acquire the Worn Note'},
+    {'text': 'Give the Worn Note to Faelin Bloodbriar.', 'depth': 1,
+     'kind': 'action', 'group': 'Acquire the Worn Note'},
+]
 window._show_quest({
     'title': 'Aegis Quest', 'summary': 'Summary',
-    'steps': ['First step', 'Second step'],
+    'steps': records,
     'wiki_url': 'https://wiki.project1999.com/Aegis_Quest',
 })
 window._open_checklist()
 app.processEvents()
 checklist_focus = window._checklist._boxes[0].hasFocus()
+first_box = window._checklist._boxes[0]
+first_row = first_box.parentWidget()
+wrap_state = {
+    'label_wrap': first_row.label.wordWrap(),
+    'horizontal_off': window._checklist.steps_scroll.horizontalScrollBarPolicy()
+        == Qt.ScrollBarAlwaysOff,
+    'accessible_full': long_step.strip() in first_box.accessibleName(),
+    'persisted_full': json.loads(
+        config.data['quests']['checklist']['steps'][1])['text'] == long_step.strip(),
+}
+QTest.mouseClick(first_row.label, Qt.LeftButton)
+label_toggled = first_box.isChecked()
+first_box.setFocus()
+QTest.keyClick(first_box, Qt.Key_Space)
+QTest.keyClick(first_box, Qt.Key_Space)
+keyboard_toggled = first_box.isChecked()
+window._checklist._boxes[1].setFocus()
+window._checklist.set_quest('Aegis Quest', records,
+                            config.data['quests']['checklist']['checked'],
+                            save=False)
+app.processEvents()
+rebuild_focus = window._checklist._boxes[1].hasFocus()
+reworded = [records[0], records[1], dict(records[2], text='Reworded final turn-in.')]
+window._checklist.set_quest('Aegis Quest', reworded, save=False)
+app.processEvents()
+reworded_focus = window._checklist._boxes[1].hasFocus()
+window._checklist.set_quest('Aegis Quest', records[:2], save=False)
+app.processEvents()
+previous_focus = window._checklist._boxes[0].hasFocus()
+window._checklist.set_quest('Aegis Quest', [], save=False)
+app.processEvents()
+stable_focus = window._checklist.reset_button.hasFocus()
+window._checklist.set_quest('Aegis Quest', records, save=False)
+app.processEvents()
 QTest.keyClick(window._checklist, Qt.Key_Escape)
 app.processEvents()
 return_focus = window.checklist_button.hasFocus()
@@ -57,6 +104,15 @@ print(json.dumps({
     'search_focus': search_focus,
     'filter_state': filter_state,
     'checklist_focus': checklist_focus,
+    'wrap_state': wrap_state,
+    'label_toggled': label_toggled,
+    'keyboard_toggled': keyboard_toggled,
+    'rebuild_focus': rebuild_focus,
+    'reworded_focus': reworded_focus,
+    'previous_focus': previous_focus,
+    'stable_focus': stable_focus,
+    'nested_name': window._checklist._boxes[0].accessibleName(),
+    'nested_description': window._checklist._boxes[0].accessibleDescription(),
     'return_focus': return_focus,
     'progress_messages': progress_messages,
 }))
@@ -97,6 +153,54 @@ This longer section must not replace the concise walkthrough.
 """
 
 
+DRUID_EPIC = r"""
+== Checklist ==
+{{CheckboxList}}
+* '''Acquire a [[Shiny Tin Bowl]]'''
+:* Speak with [[Telin Darkforest]] in [[Burning Wood]] and say "I will take action" to receive a [[Worn note]].
+:* Give [[Sionae]] (-2300, -930 in [[East Karana]]) the [[Braided Grass Amulet]].
+:* '''CAUTION, INTERCEPT THE ENEMY''': Give [[Teloa]] (-3800, -2860 in [[East Karana]]) the amulet, spawning the [[Dark Elf Corruptor]] at (-700, -1450).
+:* Kill the [[Dark Elf Corruptor]], loot [[Fleshbound Tome]].
+* '''Forage the [[Hardened Mixture]]'''
+:* Forage the following four items:
+::* [[Chilled Tundra Root]] from [[Everfrost]].
+::* [[Ripened Heartfruit]] from [[Greater Faydark]].
+:* Combine all four items in the [[Shiny Tin Bowl]] to make a [[Hardened Mixture]].
+== Short Walkthrough ==
+'''Telin Darkforest'''
+This less structured section must not replace the real checklist.
+"""
+
+
+BONE_CHIPS_QEYNOS = r"""
+== Walkthrough ==
+''Note - He only takes two bone chips.''
+You say, 'Hail, Lashun Novashine'
+: Lashun Novashine says 'I wish to spread His word.'
+'''Turn in two [[Bone Chips]], unstacked.'''
+* Your faction standing with [[Priests of Life]] got better.
+'''Hand [[Lashun Novashine]] 2 Gold.''' (Copper may work.)
+"""
+
+
+TENTH_RING = r"""
+Overview: Hand the [[Dirk of the Dain]] back to [[Dain Frostreaver IV]] to receive the [[Declaration of War]].
+==== Obtaining the Orders ====
+: Dain Frostreaver IV says, 'Gather your army and follow me.'
+'''Take the [[Declaration of War]] to [[Sentry Badain]] in [[Great Divide]], at -1080, +140. Hand Sentry Badain the Declaration and [[Coldain Hero's Insignia Ring]] to start the war.'''
+'''Give [[Seneschal Aldikar]] your ring 9. He gives it back with [[Orders of engagement]].'''
+==== Triggering the War ====
+'''Give the [[Orders of engagement]] to [[Zrelik]] (not the one in Thurgadin).'''
+==== The War ====
+<b>Round 1 Mobs</b>
+* [[Kromrif Spearman]]
+* [[Kromrif Captain]]
+Kill [[Narandi the Wretched]] and loot his head.
+==== Turn-In for the 10th Ring ====
+'''Once you have won, turn in ring 9 and [[Narandi's head]] to [[Seneschal Aldikar]] to receive [[Ring of Dain Frostreaver IV]].'''
+"""
+
+
 def test_catalog_supports_modern_mediawiki_continuation():
     titles, continuation = parse_quest_catalog_payload({
         "continue": {"cmcontinue": "page|next", "continue": "-||"},
@@ -126,12 +230,12 @@ def test_quest_page_becomes_summary_and_actionable_steps():
     assert quest["metadata"]["Quest Giver"] == "Clurg"
     assert "Start Zone: Oggok" in quest["summary"]
     assert "Faction" in quest["rewards"]
-    assert quest["steps"] == [
-        "Get Kiola Nut",
-        "↳ Go to Ocean of Tears and purchase a Kiola Nut.",
+    assert [step["text"] for step in quest["steps"]] == [
+        "Get Kiola Nut", "Go to Ocean of Tears and purchase a Kiola Nut.",
         "Get Barkeep Compendium",
-        "↳ Give the four ingredients to Gregor Nasin at the same time.",
-    ]
+        "Give the four ingredients to Gregor Nasin at the same time."]
+    assert [step["kind"] for step in quest["steps"]] == [
+        "group", "action", "group", "action"]
     assert quest["wiki_url"].endswith("/Exotic_Drinks")
 
 
@@ -144,6 +248,116 @@ def test_unstructured_page_has_safe_fallback():
     quest = parse_quest_wikitext("A community note without sections.", "Odd Quest")
     assert quest["steps"] == []
     assert "community note" in quest["summary"]
+
+
+def test_section_keeps_nested_subsections_until_peer_heading():
+    source = "== Checklist ==\nfirst\n==== Part A ====\nsecond\n== Other ==\nno"
+    assert _section(source, ("Checklist",)) == \
+        "first\n==== Part A ====\nsecond"
+
+
+def test_parameterized_wiki_templates_preserve_meaningful_context():
+    assert _plain_wiki("Meet at {{Loc|123|-456|7}}") == \
+        "Meet at 123, -456, 7"
+    assert _plain_wiki("Meet at {{Loc|x=123|y=-456|z=7}}") == \
+        "Meet at 123, -456, 7"
+    nested = _plain_wiki(
+        "Find {{NPC|Telin Darkforest|zone=[[Burning Wood]]|"
+        "loc={{Loc|3234|2871}}}}")
+    assert nested == (
+        "Find Telin Darkforest (zone: Burning Wood; loc: 3234, 2871)")
+    assert _plain_wiki(
+        "Loot {{Item|Worn Note|source=Telin Darkforest}}") == \
+        "Loot Worn Note (source: Telin Darkforest)"
+    assert _plain_wiki("{{Mystery|item=Bone Chips|count=2}}") == \
+        "Mystery: item: Bone Chips; count: 2"
+    assert "open the full Wiki page" in _plain_wiki("{{UnresolvedTemplate}}")
+
+
+def test_druid_epic_prefers_checklist_and_keeps_every_nested_action():
+    steps = parse_quest_wikitext(DRUID_EPIC, "Druid Epic Quest")["steps"]
+    actions = [step["text"] for step in steps if step["kind"] == "action"]
+    assert "Speak with Telin Darkforest in Burning Wood and say \"I will take action\" to receive a Worn note." in actions
+    assert "Give Sionae (-2300, -930 in East Karana) the Braided Grass Amulet." in actions
+    assert any("Give Teloa" in action and "-3800, -2860" in action
+               and "Dark Elf Corruptor" in action for action in actions)
+    assert "Forage Chilled Tundra Root from Everfrost." in actions
+    assert "Forage Ripened Heartfruit from Greater Faydark." in actions
+    assert "Combine all four items in the Shiny Tin Bowl to make a Hardened Mixture." in actions
+    assert any(step["kind"] == "group" and
+               step["text"] == "Forage the Hardened Mixture" for step in steps)
+
+
+def test_bone_chips_extracts_unbulleted_bold_turnins_not_dialogue_or_faction():
+    steps = parse_quest_wikitext(
+        BONE_CHIPS_QEYNOS, "Bone Chips Qeynos")["steps"]
+    actions = [step["text"] for step in steps if step["kind"] == "action"]
+    assert "Turn in two Bone Chips, unstacked." in actions
+    assert "Hand Lashun Novashine 2 Gold. (Copper may work.)" in actions
+    assert not any("faction standing" in action.casefold() for action in actions)
+    assert not any("says '" in action for action in actions)
+
+
+def test_tenth_ring_extracts_full_actions_and_excludes_mob_name_rows():
+    steps = parse_quest_wikitext(
+        TENTH_RING, "10th Coldain Ring Quest")["steps"]
+    actions = [step["text"] for step in steps if step["kind"] == "action"]
+    assert any("Take the Declaration of War" in action and
+               "-1080, +140" in action for action in actions)
+    assert any("Hand Sentry Badain" in action and
+               "Coldain Hero's Insignia Ring" in action for action in actions)
+    assert "Give the Orders of engagement to Zrelik (not the one in Thurgadin)." in actions
+    assert "Kill Narandi the Wretched and loot his head." in actions
+    assert any("turn in ring 9" in action and "Narandi's head" in action
+               for action in actions)
+    assert "Kromrif Spearman" not in actions
+    assert "Kromrif Captain" not in actions
+
+
+def test_structured_and_legacy_checklist_steps_survive_config_roundtrip(
+        tmp_path):
+    destination = tmp_path / "vantage.config.json"
+    original_data = config.data
+    original_filename = config._filename
+    long_text = (
+        "Travel to Burning Wood at 3234, 2871 and speak with Telin Darkforest. "
+        + "Preserve this location and turn-in context exactly. " * 18)
+    structured = json.dumps({
+        "text": long_text, "depth": 2, "kind": "action",
+        "group": "Acquire the Worn Note"}, ensure_ascii=False,
+        separators=(",", ":"))
+    legacy = "Give Faelin Bloodbriar the Worn Note."
+    try:
+        config._filename = str(destination)
+        config.data = {"quests": {"checklist": {
+            "title": "Druid Epic Quest",
+            "steps": [structured, legacy, "{broken-json", 42,
+                      "x" * (17 * 1024)],
+            "checked": ["1234567890abcdef", None, {"bad": "key"}],
+            "geometry": [80, 80, 380, 480],
+        }}}
+        config.verify_settings()
+        saved_steps = config.data["quests"]["checklist"]["steps"]
+        assert len(saved_steps) == 2
+        assert json.loads(saved_steps[0])["text"] == long_text.strip()
+        assert len(json.loads(saved_steps[0])["text"]) > 360
+        assert saved_steps[1] == legacy
+        assert config.data["quests"]["checklist"]["checked"] == [
+            "1234567890abcdef"]
+        config.save()
+
+        config.load(str(destination))
+        config.verify_settings()
+        roundtrip = config.data["quests"]["checklist"]["steps"]
+        assert json.loads(roundtrip[0])["text"] == long_text.strip()
+        assert roundtrip[1] == legacy
+
+        config.data = {"quests": ["malformed", "container"]}
+        config.verify_settings()
+        assert config.data["quests"]["checklist"]["steps"] == []
+    finally:
+        config.data = original_data
+        config._filename = original_filename
 
 
 def test_quest_keyboard_focus_counts_and_coalesced_announcements(tmp_path):
@@ -159,5 +373,18 @@ def test_quest_keyboard_focus_counts_and_coalesced_announcements(tmp_path):
     assert result["filter_state"][0] == "1 matching quest"
     assert result["filter_state"][1][-1] == ["1 matching quest", False]
     assert result["checklist_focus"] is True
+    assert result["wrap_state"] == {
+        "label_wrap": True, "horizontal_off": True,
+        "accessible_full": True, "persisted_full": True}
+    assert result["label_toggled"] is True
+    assert result["keyboard_toggled"] is True
+    assert result["rebuild_focus"] is True
+    assert result["reworded_focus"] is True
+    assert result["previous_focus"] is True
+    assert result["stable_focus"] is True
+    assert result["nested_name"].startswith(
+        "Under Acquire the Worn Note, substep 1:")
+    assert result["nested_description"] == (
+        "Checklist hierarchy depth 1; parent group Acquire the Worn Note")
     assert result["return_focus"] is True
     assert result["progress_messages"] == [["2 of 2 steps complete", False]]

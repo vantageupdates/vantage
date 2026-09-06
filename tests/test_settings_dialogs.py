@@ -32,6 +32,9 @@ preview = GinaImportPreviewDialog([
 settings.show()
 preview.show()
 app.processEvents()
+master_volume = settings.master_volume_slider
+master_volume.setValue(40)
+app.processEvents()
 settings._list_widget.setCurrentRow(4)
 settings._list_widget.setFocus()
 app.processEvents()
@@ -63,6 +66,19 @@ if settings._trigger_sound_routes:
         trigger_combo.findData('builtin:arcane-bloom'))
     trigger_saved = [item_index, field_index]
 settings._save()
+# Reuse the same SettingsWindow for two more editing sessions. Both ways of
+# dismissing it must restore the value saved by the immediately prior session.
+settings.show()
+app.processEvents()
+master_volume.setValue(20)
+settings._cancelled()
+master_volume_after_cancel = config.data['general']['master_volume']
+settings.show()
+app.processEvents()
+master_volume.setValue(20)
+settings.close()
+app.processEvents()
+master_volume_after_close = config.data['general']['master_volume']
 print(json.dumps({
     'settings_sections': settings._list_widget.count(),
     'section_names': [settings._list_widget.item(row).text()
@@ -88,6 +104,15 @@ print(json.dumps({
     'settings_page_sync': settings._widget_stack.currentIndex(),
     'settings_selected_center': selected_center,
     'settings_indicator_pixels': indicator_pixels,
+    'master_volume_saved': config.data['general']['master_volume'],
+    'master_volume_value': master_volume.value(),
+    'master_volume_label': settings.master_volume_value_label.text(),
+    'master_volume_accessible_name': master_volume.accessibleName(),
+    'master_volume_accessible_description': master_volume.accessibleDescription(),
+    'master_volume_tooltip': master_volume.toolTip(),
+    'master_volume_keyboard_step': master_volume.singleStep(),
+    'master_volume_after_cancel': master_volume_after_cancel,
+    'master_volume_after_close': master_volume_after_close,
 }))
 preview.close()
 settings.close()
@@ -130,3 +155,13 @@ def test_settings_and_gtt_preview_open_as_independent_dialogs(tmp_path):
     # focus on the navigation list.
     assert any(red > 120 and red > green > blue
                for red, green, blue in result['settings_indicator_pixels'])
+    assert result['master_volume_saved'] == 40
+    assert result['master_volume_value'] == 40
+    assert result['master_volume_label'] == 'Master Volume · 40%'
+    assert result['master_volume_accessible_name'] == 'Master volume'
+    assert 'does not turn on Master Mute' in (
+        result['master_volume_accessible_description'])
+    assert result['master_volume_tooltip']
+    assert result['master_volume_keyboard_step'] == 1
+    assert result['master_volume_after_cancel'] == 40
+    assert result['master_volume_after_close'] == 40

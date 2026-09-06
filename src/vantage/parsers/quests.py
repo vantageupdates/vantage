@@ -14,8 +14,8 @@ from PySide6.QtNetwork import (
     QNetworkAccessManager, QNetworkReply, QNetworkRequest)
 from PySide6.QtWidgets import (
     QCheckBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QMessageBox, QPushButton, QSplitter, QTabWidget,
-    QTextBrowser, QToolButton, QVBoxLayout, QWidget)
+    QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QSizePolicy,
+    QSplitter, QTabWidget, QTextBrowser, QToolButton, QVBoxLayout, QWidget)
 
 from vantage.helpers import config
 from vantage.helpers.icons import game_icon
@@ -31,6 +31,75 @@ QUEST_CATEGORY = "Category:Quests"
 QUEST_CATALOG_CACHE_VERSION = 1
 NETWORK_TIMEOUT_MS = 15000
 MAX_CATALOG_PAGES = 10
+MAX_QUEST_STEPS = 180
+
+ACTION_VERBS = (
+    "acquire", "ask", "bring", "buy", "camp", "cast", "collect",
+    "combine", "create", "deliver", "equip", "find", "follow", "forage",
+    "get", "give", "go", "hail", "hand", "head", "kill", "loot", "make",
+    "obtain", "purchase", "receive", "return", "run", "say", "show",
+    "slay", "spawn", "speak", "take", "talk", "trade", "travel",
+    "trigger", "turn in", "use", "wait", "zone")
+ACTION_VERB_PATTERN = "|".join(
+    re.escape(verb) for verb in sorted(ACTION_VERBS, key=len, reverse=True))
+
+
+def _clean_template_value(value):
+    text = str(value or "").strip()
+    text = re.sub(r"\[\[([^\]|#]+)(?:#[^\]|]*)?\|([^\]]+)\]\]",
+                  lambda match: match.group(2), text)
+    text = re.sub(r"\[\[([^\]]+)\]\]", lambda match: match.group(1), text)
+    text = re.sub(r"<[^>]+>", "", text)
+    return html.unescape(re.sub(r"'{2,5}", "", text)).strip()
+
+
+def _render_wiki_template(match):
+    """Preserve useful template parameters instead of silently erasing them."""
+    parts = [part.strip() for part in match.group(1).split("|")]
+    name = parts[0].strip()
+    if name.startswith(":"):
+        return _clean_template_value(name[1:])
+    folded = name.casefold().replace("_", " ").strip()
+    if folded in {
+            "checkboxlist", "end", "classic era", "kunark era",
+            "velious era", "nerfed", "yougainexperience"}:
+        return "Experience reward" if folded == "yougainexperience" else ""
+
+    positional = []
+    named = {}
+    for raw in parts[1:]:
+        if "=" in raw:
+            key, value = raw.split("=", 1)
+            key = _clean_template_value(key).casefold().strip()
+            value = _clean_template_value(value)
+            if key and value:
+                named[key] = value
+        else:
+            value = _clean_template_value(raw)
+            if value:
+                positional.append(value)
+
+    if folded in {"loc", "location"}:
+        coordinates = []
+        for key in ("x", "y", "z"):
+            if named.get(key):
+                coordinates.append(named[key])
+        coordinates.extend(positional)
+        return ", ".join(dict.fromkeys(coordinates)) or "location on Wiki page"
+
+    if folded in {"npc", "item", "zone"}:
+        display = (named.pop("name", "") or named.pop("display", "") or
+                   (positional.pop(0) if positional else name.title()))
+        context = positional + [
+            f"{key.replace('_', ' ')}: {value}"
+            for key, value in named.items()]
+        return display + (f" ({'; '.join(context)})" if context else "")
+
+    readable = positional + [
+        f"{key.replace('_', ' ')}: {value}" for key, value in named.items()]
+    if readable:
+        return f"{name}: " + "; ".join(readable)
+    return f"[Wiki template: {name}; open the full Wiki page]"
 
 
 def _plain_wiki(value):
@@ -47,8 +116,14 @@ def _plain_wiki(value):
     text = re.sub(r"\[\[([^\]]+)\]\]", lambda match: match.group(1), text)
     text = re.sub(r"\{\{YouGainExperience\}\}", "Experience reward", text,
                   flags=re.IGNORECASE)
-    text = re.sub(r"\{\{:[^{}]+\}\}", "", text)
-    text = re.sub(r"\{\{[^{}]*\}\}", "", text)
+    # Resolve innermost templates repeatedly so nested meaningful values are
+    # retained. A small cap prevents malformed cyclic-looking markup from
+    # consuming unbounded work.
+    for _ in range(8):
+        updated = re.sub(r"\{\{([^{}]*)\}\}", _render_wiki_template, text)
+        if updated == text:
+            break
+        text = updated
     text = re.sub(r"<[^>]+>", "", text)
     text = re.sub(r"'{2,5}", "", text)
     text = html.unescape(text)
@@ -58,11 +133,23 @@ def _plain_wiki(value):
 
 
 def _section(source, names):
-    alternatives = "|".join(re.escape(name) for name in names)
-    match = re.search(
-        rf"^==+\s*(?:{alternatives})\s*==+\s*$\n?(.*?)(?=^==+[^=].*?==+\s*$|\Z)",
-        str(source or ""), re.IGNORECASE | re.MULTILINE | re.DOTALL)
-    return match.group(1).strip() if match else ""
+    """Return a section including subsections until a peer/parent heading."""
+    source = str(source or "")
+    wanted = {str(name).strip().casefold() for name in names}
+    headings = list(re.finditer(
+        r"^(?P<marks>={2,6})\s*(?P<title>.*?)\s*(?P=marks)\s*$",
+        source, re.MULTILINE))
+    for index, heading in enumerate(headings):
+        if _plain_wiki(heading.group("title")).casefold() not in wanted:
+            continue
+        level = len(heading.group("marks"))
+        end = len(source)
+        for following in headings[index + 1:]:
+            if len(following.group("marks")) <= level:
+                end = following.start()
+                break
+        return source[heading.end():end].strip()
+    return ""
 
 
 def _quest_metadata(source):
@@ -83,36 +170,185 @@ def _quest_metadata(source):
     return result
 
 
+def _action_match(text):
+    clean = str(text or "").strip()
+    if not clean:
+        return None
+    folded = clean.casefold()
+    if folded.startswith(("your faction ", "category:", "experience reward")):
+        return None
+    direct = re.match(
+        rf"^(?:(?:then|next|finally)\s+)?(?:you\s+)?"
+        rf"(?:(?:must|should|need to|can)\s+)?({ACTION_VERB_PATTERN})\b",
+        clean, re.IGNORECASE)
+    temporal = re.match(
+        rf"^(?:once|when|after)\b.*?(?:,\s*|\byou\s+"
+        rf"(?:must|should|need to|can)\s+)({ACTION_VERB_PATTERN})\b",
+        clean, re.IGNORECASE)
+    spoken = re.match(r"^You\s+say\b", clean, re.IGNORECASE)
+    after_alert = re.search(
+        rf":\s*(?:you\s+)?({ACTION_VERB_PATTERN})\b", clean,
+        re.IGNORECASE)
+    if folded.startswith(("warning", "note", "be careful", "do not", "never")):
+        return after_alert
+    return direct or temporal or spoken or after_alert
+
+
+def _record(text, depth=0, kind="action", group=""):
+    return {
+        "text": str(text).strip(),
+        "depth": max(0, int(depth)),
+        "kind": "group" if kind == "group" else "action",
+        "group": str(group or "").strip(),
+    }
+
+
+def _split_action_sentences(text):
+    """Keep actionable sentences complete instead of truncating long prose."""
+    clean = " ".join(str(text or "").split()).strip()
+    if not clean:
+        return []
+    pieces = re.split(r"(?<=[.!?])\s+(?=(?:['\"]?[A-Z]))", clean)
+    actions = []
+    for piece in pieces:
+        piece = piece.strip()
+        if _action_match(piece):
+            actions.append(piece)
+            continue
+        if actions and piece.startswith("(") and piece.endswith(")"):
+            actions[-1] += " " + piece
+            continue
+        # One Wiki line frequently combines context followed by multiple
+        # imperative clauses without reliable sentence punctuation.
+        embedded = re.search(
+            rf"\b((?:{ACTION_VERB_PATTERN})\b.*)$", piece, re.IGNORECASE)
+        if embedded and re.search(r"[.;:]\s*$", piece[:embedded.start()]):
+            action = embedded.group(1).strip()
+            if _action_match(action):
+                actions.append(action)
+    return actions
+
+
 def _quest_steps(source):
-    body = _section(source, (
-        "TLDR; Walkthrough", "TLDR Walkthrough", "Short Walkthrough",
-        "Walkthrough", "Quest Walkthrough"))
+    """Extract ordered, hierarchical actions from varied community markup."""
+    body = ""
+    for name in (
+            "Checklist", "TLDR; Walkthrough", "TLDR Walkthrough",
+            "Short Walkthrough", "Walkthrough", "Quest Walkthrough"):
+        body = _section(source, (name,))
+        if body:
+            break
     if not body:
         body = str(source or "")
-    steps = []
-    for raw in body.splitlines():
-        match = re.match(r"^\s*([*#]+)\s+(.+)$", raw)
-        if not match:
-            continue
-        text = _plain_wiki(match.group(2)).replace("\n", " ").strip(" -")
-        if not text or text.casefold().startswith(("your faction", "category:")):
-            continue
-        depth = max(0, len(match.group(1)) - 1)
-        prefix = "↳ " if depth else ""
-        candidate = (prefix + text)[:360]
-        if candidate.casefold() not in {item.casefold() for item in steps}:
-            steps.append(candidate)
-        if len(steps) >= 96:
-            break
-    if steps:
-        return steps
+
+    tokens = []
+    pending = None
+    current_heading = ""
+
+    def flush_pending():
+        nonlocal pending
+        if pending:
+            tokens.append(pending)
+            pending = None
 
     for raw in body.splitlines():
-        clean = _plain_wiki(raw).replace("\n", " ")
-        if re.match(r"^(?:Step|Stage|The Final Stage)\b", clean,
-                    re.IGNORECASE):
-            steps.append(clean[:360])
-    return steps[:96]
+        heading = re.match(
+            r"^={2,6}\s*(.*?)\s*={2,6}\s*$", raw.strip())
+        if heading:
+            flush_pending()
+            current_heading = _plain_wiki(heading.group(1))
+            continue
+        bullet = re.match(r"^\s*([:*#;]+)\s*(.+)$", raw)
+        if bullet and any(mark in bullet.group(1) for mark in "*#"):
+            flush_pending()
+            pending = {
+                "type": "list", "marker": bullet.group(1),
+                "text": bullet.group(2).strip(), "heading": current_heading}
+            continue
+        stripped = raw.strip()
+        if stripped.startswith(":"):
+            flush_pending()
+            continue
+        if (pending and raw[:1].isspace() and stripped and not stripped.startswith(
+                ("{{", "[[Category:", "<div", "</div", ":"))):
+            # Wrapped Wiki bullets often continue on the next physical line.
+            pending["text"] += " " + stripped
+            continue
+        flush_pending()
+        if stripped:
+            tokens.append({
+                "type": "plain", "text": stripped,
+                "heading": current_heading})
+    flush_pending()
+
+    list_tokens = [token for token in tokens if token["type"] == "list"]
+    records = []
+    seen = set()
+    contexts = {}
+    active_heading = ""
+
+    def append_record(record):
+        text_key = record["text"].casefold()
+        key = (record["kind"], text_key)
+        if not record["text"] or key in seen or len(records) >= MAX_QUEST_STEPS:
+            return
+        seen.add(key)
+        records.append(record)
+
+    for index, token in enumerate(tokens):
+        clean = _plain_wiki(token["text"]).replace("\n", " ").strip(" -")
+        if not clean or clean.casefold().startswith(
+                ("your faction", "category:", "experience reward")):
+            continue
+        if token["type"] == "list":
+            marker = token["marker"]
+            depth = max(0, len(marker) - 1)
+            future_depth = -1
+            try:
+                list_index = list_tokens.index(token)
+                if list_index + 1 < len(list_tokens):
+                    future_depth = max(
+                        0, len(list_tokens[list_index + 1]["marker"]) - 1)
+            except ValueError:
+                pass
+            has_children = future_depth > depth
+            match = _action_match(clean)
+            if has_children:
+                append_record(_record(clean, depth, "group", clean))
+                contexts[depth] = clean
+                for deeper in [key for key in contexts if key > depth]:
+                    contexts.pop(deeper, None)
+                continue
+            if match:
+                group = contexts.get(max((key for key in contexts if key < depth),
+                                         default=-1), "")
+                append_record(_record(clean, depth, "action", group))
+                continue
+            # A child such as "Chilled Tundra Root from Everfrost" inherits
+            # the actionable verb from "Forage the following four items".
+            parent = contexts.get(max((key for key in contexts if key < depth),
+                                      default=-1), "")
+            parent_action = _action_match(parent)
+            if parent_action:
+                inferred = f"{parent_action.group(1).capitalize()} {clean}"
+                append_record(_record(inferred, depth, "action", parent))
+            continue
+
+        heading_name = token.get("heading", "")
+        for action in _split_action_sentences(clean):
+            if heading_name and heading_name != active_heading:
+                append_record(_record(heading_name, 0, "group", heading_name))
+                active_heading = heading_name
+            append_record(_record(action, 1 if heading_name else 0,
+                                  "action", heading_name))
+
+    if not any(record["kind"] == "action" for record in records):
+        return []
+    # Do not leave section headers with no action underneath them.
+    return [record for index, record in enumerate(records)
+            if record["kind"] == "action" or any(
+                later["kind"] == "action" and later["group"] == record["text"]
+                for later in records[index + 1:])][:MAX_QUEST_STEPS]
 
 
 def _wiki_links(value):
@@ -152,8 +388,9 @@ def parse_quest_wikitext(source, fallback_title=""):
     if lead:
         summary_parts.append(lead)
     if not summary_parts and steps:
-        summary_parts.append("First steps: " + "; ".join(
-            step.removeprefix("↳ ") for step in steps[:3]))
+        first_actions = [step["text"] for step in steps
+                         if step.get("kind") == "action"][:3]
+        summary_parts.append("First steps: " + "; ".join(first_actions))
     return {
         "title": title,
         "metadata": metadata,
@@ -182,6 +419,85 @@ def parse_quest_catalog_payload(payload):
 
 def _step_key(text):
     return hashlib.sha256(str(text).strip().casefold().encode("utf-8")).hexdigest()[:16]
+
+
+def _normalize_step_records(steps):
+    records = []
+    for value in steps or ():
+        record = value
+        if isinstance(value, str) and value.lstrip().startswith("{"):
+            try:
+                record = json.loads(value)
+            except (TypeError, ValueError):
+                record = value
+        if isinstance(record, dict):
+            text = str(record.get("text", "")).strip()
+            if text:
+                records.append(_record(
+                    text, record.get("depth", 0), record.get("kind", "action"),
+                    record.get("group", "")))
+        else:
+            text = str(record or "").strip()
+            if text:
+                records.append(_record(text.removeprefix("↳ "),
+                                       int(text.startswith("↳ "))))
+    return records
+
+
+class _ClickableStepLabel(QLabel):
+    """Word-wrapped checkbox label that keeps the native checkbox control."""
+
+    def __init__(self, text, checkbox, parent=None):
+        super().__init__(text, parent)
+        self.checkbox = checkbox
+        self.setWordWrap(True)
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
+        self.setAccessibleName("")
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.checkbox.toggle()
+            self.checkbox.setFocus(Qt.FocusReason.MouseFocusReason)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+
+class _ChecklistStepRow(QWidget):
+    def __init__(self, number, record, parent=None):
+        super().__init__(parent)
+        self.setObjectName("QuestChecklistStepRow")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(min(36, record["depth"] * 12), 2, 2, 2)
+        layout.setSpacing(6)
+        self.checkbox = QCheckBox()
+        if record["depth"] and record["group"]:
+            accessible_name = (
+                f"Under {record['group']}, substep {number}: {record['text']}")
+            accessible_description = (
+                f"Checklist hierarchy depth {record['depth']}; "
+                f"parent group {record['group']}")
+        elif record["depth"]:
+            accessible_name = f"Substep {number}: {record['text']}"
+            accessible_description = (
+                f"Checklist hierarchy depth {record['depth']}")
+        else:
+            accessible_name = f"Quest step {number}: {record['text']}"
+            accessible_description = "Top-level quest checklist step"
+        self.checkbox.setAccessibleName(accessible_name)
+        self.checkbox.setAccessibleDescription(accessible_description)
+        self.checkbox.setToolTip(record["text"])
+        self.checkbox.setProperty("step_key", _step_key(record["text"]))
+        self.checkbox.setProperty("step_text", record["text"])
+        layout.addWidget(self.checkbox, 0, Qt.AlignmentFlag.AlignTop)
+        self.label = _ClickableStepLabel(
+            f"{number}. {record['text']}", self.checkbox, self)
+        layout.addWidget(self.label, 1)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
 
 
 class QuestChecklistWindow(QWidget):
@@ -223,21 +539,26 @@ class QuestChecklistWindow(QWidget):
         self.steps_layout.setContentsMargins(2, 2, 2, 2)
         self.steps_layout.setSpacing(4)
         self.steps_layout.addStretch(1)
-        layout.addWidget(scrollable(self.steps_body, "QuestChecklistScroll"), 1)
+        self.steps_scroll = scrollable(
+            self.steps_body, "QuestChecklistScroll")
+        self.steps_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        layout.addWidget(self.steps_scroll, 1)
 
         actions = QHBoxLayout()
-        reset = QPushButton("Reset checks")
-        reset.setIcon(game_icon("refresh"))
-        reset.setToolTip("Uncheck every step after confirmation")
-        reset.setAccessibleName("Reset all quest checklist steps")
-        reset.clicked.connect(self._confirm_reset)
-        actions.addWidget(reset)
-        clear = QPushButton("Clear quest")
-        clear.setIcon(game_icon("trash"))
-        clear.setToolTip("Remove the active floating checklist after confirmation")
-        clear.setAccessibleName("Clear the active quest checklist")
-        clear.clicked.connect(self._confirm_clear)
-        actions.addWidget(clear)
+        self.reset_button = QPushButton("Reset checks")
+        self.reset_button.setIcon(game_icon("refresh"))
+        self.reset_button.setToolTip("Uncheck every step after confirmation")
+        self.reset_button.setAccessibleName("Reset all quest checklist steps")
+        self.reset_button.clicked.connect(self._confirm_reset)
+        actions.addWidget(self.reset_button)
+        self.clear_button = QPushButton("Clear quest")
+        self.clear_button.setIcon(game_icon("trash"))
+        self.clear_button.setToolTip(
+            "Remove the active floating checklist after confirmation")
+        self.clear_button.setAccessibleName("Clear the active quest checklist")
+        self.clear_button.clicked.connect(self._confirm_clear)
+        actions.addWidget(self.clear_button)
         layout.addLayout(actions)
         self.restore()
 
@@ -249,25 +570,54 @@ class QuestChecklistWindow(QWidget):
         self.set_quest(title, steps, checked, save=False)
 
     def set_quest(self, title, steps, checked=(), save=True):
+        focused_index = next((index for index, box in enumerate(self._boxes)
+                              if box.hasFocus()), None)
+        focused_key = (self._boxes[focused_index].property("step_key")
+                       if focused_index is not None else None)
         while self.steps_layout.count() > 1:
             item = self.steps_layout.takeAt(0)
             widget = item.widget()
             if widget:
                 widget.deleteLater()
         self._boxes = []
+        self._step_records = _normalize_step_records(steps)
         checked = set(checked)
-        for number, text in enumerate(steps, 1):
-            box = QCheckBox(f"{number}. {text}")
-            box.setProperty("step_key", _step_key(text))
+        action_number = 0
+        for record in self._step_records:
+            if record["kind"] == "group":
+                heading = QLabel(record["text"])
+                heading.setObjectName("QuestChecklistGroup")
+                heading.setWordWrap(True)
+                heading.setAccessibleName(f"Quest section: {record['text']}")
+                self.steps_layout.insertWidget(
+                    self.steps_layout.count() - 1, heading)
+                continue
+            action_number += 1
+            row = _ChecklistStepRow(action_number, record, self.steps_body)
+            box = row.checkbox
             box.setChecked(box.property("step_key") in checked)
-            box.setAccessibleName(f"Quest step {number}: {text}")
             box.stateChanged.connect(self._changed)
-            self.steps_layout.insertWidget(self.steps_layout.count() - 1, box)
+            self.steps_layout.insertWidget(self.steps_layout.count() - 1, row)
             self._boxes.append(box)
         self.title.setText(title or "No quest selected")
         self._update_progress()
         if save:
             self._save_state()
+            _announce_accessible(
+                self.title,
+                f"Checklist updated for {title}; {len(self._boxes)} actionable steps")
+        if focused_index is not None:
+            restored = next((box for box in self._boxes
+                             if box.property("step_key") == focused_key), None)
+            if restored is None and self._boxes:
+                # Same index is the next action after a deletion/rewording;
+                # the final previous action is the fallback at list end.
+                restored = self._boxes[min(focused_index, len(self._boxes) - 1)]
+            if restored is None:
+                restored = self.reset_button
+            QTimer.singleShot(
+                0, lambda target=restored: target.setFocus(
+                    Qt.FocusReason.OtherFocusReason))
 
     def _changed(self, _state):
         self._update_progress()
@@ -292,7 +642,8 @@ class QuestChecklistWindow(QWidget):
             return
         state = config.data["quests"].setdefault("checklist", {})
         state["title"] = self.title.text() if self._boxes else ""
-        state["steps"] = [box.text().split(". ", 1)[-1] for box in self._boxes]
+        state["steps"] = [json.dumps(record, ensure_ascii=False, separators=(",", ":"))
+                          for record in self._step_records]
         state["checked"] = [box.property("step_key") for box in self._boxes
                             if box.isChecked()]
         state["geometry"] = [self.x(), self.y(), self.width(), self.height()]
@@ -552,7 +903,7 @@ class Quests(ParserWindow):
         request = QNetworkRequest(url)
         request.setTransferTimeout(NETWORK_TIMEOUT_MS)
         request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader,
-                          "Vantage/1.44.48 (vantagecompanion@gmail.com)")
+                          "Vantage/1.44.49 (vantagecompanion@gmail.com)")
         return self._network.get(request)
 
     def _fetch_catalog(self, force=False):
@@ -692,9 +1043,18 @@ class Quests(ParserWindow):
         self.quest_title.setAccessibleName(f"Selected quest: {quest['title']}")
         self.summary.setPlainText(quest["summary"])
         self.steps.clear()
-        for number, step in enumerate(quest["steps"], 1):
-            item = QListWidgetItem(f"{number}. {step}")
-            item.setToolTip(step)
+        action_number = 0
+        for step in _normalize_step_records(quest["steps"]):
+            if step["kind"] == "group":
+                item = QListWidgetItem(step["text"])
+                item.setData(Qt.ItemDataRole.UserRole, "group")
+            else:
+                action_number += 1
+                indent = "  " * min(3, step["depth"])
+                item = QListWidgetItem(
+                    f"{indent}{action_number}. {step['text']}")
+                item.setData(Qt.ItemDataRole.UserRole, "action")
+            item.setToolTip(step["text"])
             self.steps.addItem(item)
         if not quest["steps"]:
             self.steps.addItem(

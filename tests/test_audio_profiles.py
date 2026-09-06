@@ -170,6 +170,72 @@ def test_profile_volume_voice_and_speed_are_applied_to_trigger_audio(
     audio._ACTIVE_EFFECTS.clear()
 
 
+def test_master_volume_scales_wav_and_speech_after_profile_volume(
+        monkeypatch, tmp_path):
+    app = _App()
+    wav = tmp_path / 'test.wav'
+    wav.write_bytes(b'RIFF')
+    config.data = {
+        'general': {'audio_muted': False, 'master_volume': 50},
+        'spells': {'audio_profiles': {
+            'gandalf@green': {
+                'character': 'Gandalf', 'server': 'Green',
+                'voice_name': '', 'voice_speed': 0, 'volume': 50}}}}
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, '_ACTIVE_EFFECTS', set())
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, 'resolve_sound', lambda _path: Path(wav))
+    monkeypatch.setattr(audio, 'QSoundEffect', _Effect)
+    monkeypatch.setattr(audio, 'QTimer', type(
+        'Timer', (), {'singleShot': staticmethod(lambda *_args: None)}))
+    speech = _Speech()
+    monkeypatch.setattr(audio, '_SPEECH', speech)
+
+    assert audio.play_alert(
+        'builtin:test', 80, character='Gandalf', server='Green')
+    assert next(iter(audio._ACTIVE_EFFECTS)).volume == 0.2
+    assert audio.speak_text(
+        'Test', 80, character='Gandalf', server='Green')
+    assert speech.volume == 0.2
+    assert app.events[-1] == ('Vantage speech', 'tts:Test', 20)
+
+    # The live setter affects the very next playback without save or reload.
+    assert audio.set_master_volume(25) == 25
+    assert config.data['general']['master_volume'] == 25
+    assert audio.play_alert(
+        'builtin:test', 80, character='Gandalf', server='Green')
+    assert _Effect.instances[-1].volume == 0.1
+    audio._ACTIVE_EFFECTS.clear()
+
+
+def test_zero_master_volume_is_silent_without_enabling_master_mute(
+        monkeypatch):
+    app = _App()
+    config.data = {
+        'general': {'audio_muted': False, 'master_volume': 0},
+        'spells': {'audio_profiles': {}}}
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+
+    class _ForbiddenEffect:
+        def __init__(self, _parent):
+            raise AssertionError('Zero-volume audio created a sound effect')
+
+    monkeypatch.setattr(audio, 'QSoundEffect', _ForbiddenEffect)
+    speech = _Speech()
+    monkeypatch.setattr(audio, '_SPEECH', speech)
+
+    assert not audio.audio_muted()
+    assert not audio.play_alert('builtin:test', 100)
+    assert not audio.speak_text('Silent test', 100)
+    assert config.data['general']['audio_muted'] is False
+    assert app.blocked == []
+    assert app.events == []
+    assert speech.message is None
+
+
 def test_master_mute_is_a_fail_closed_gate_for_wav_and_speech(monkeypatch):
     app = _App()
     config.data = {
