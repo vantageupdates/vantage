@@ -1,5 +1,24 @@
 # VantageUI releases
 
+## 1.44.60
+
+Install folder: `VantageUI-v1.44.60`.
+
+- Reserves 26px for each wrapped spell name instead of the clipped 20px box.
+  Keeps three pixels above and below that text region inside each gem.
+- Increases gem height only from 28px to 32px, with separate 2px row gaps.
+  Keeps the compact 120px gem / 130px window widths, existing font, horizontal
+  centering, colors and art. The native 24px icon is centered with a 4px inset.
+- Increases the spell window height to contain all eight rows. No changes to
+  inventory, bags, Actions, health, attack or any other window.
+- Adds a regression check that rejects the previous clipped label geometry.
+  This reserves two lines; Titanium labels do not support dynamic font fitting
+  or conditional vertical centering. It is not a promise for arbitrary-length
+  names or a substitute for checking the native client after reload.
+
+Load manually with `/loadskin VantageUI-v1.44.60 1`. Character INIs and
+Companion remain unchanged. In-game rendering still needs confirmation.
+
 ## 1.44.59
 
 Install folder: `VantageUI-v1.44.59`.

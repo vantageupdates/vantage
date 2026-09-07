@@ -88,29 +88,43 @@ def test_reproduces_ui54_resistance_icon_overlap(school):
     assert bag_intrusions(xml, icon), 'The previous four-pixel intrusion must be caught'
 
 
+def assert_two_line_spell_name_room(gem, label):
+    """Reserve two 12px line boxes plus descent slack, inside the gem.
+
+    This is a conservative geometry budget, not a simulation of EQ's renderer.
+    Checking only containment previously allowed a clipped 20px label to pass.
+    """
+    gx, gy, gw, gh = rect(gem)
+    lx, ly, lw, lh = rect(label)
+    assert lh >= 2 * 12 + 2, 'Two-line spell name needs descent slack'
+    assert gy + 3 <= ly and ly + lh <= gy + gh - 3
+    assert gx + 31 <= lx and lx + lw <= gx + gw - 4
+
+
 @pytest.mark.parametrize('index', range(8))
 def test_spell_gems_have_room_for_names_inset_icons_and_row_gaps(index):
     xml = root('EQUI_CastSpellWnd.xml')
     gem = item(xml, 'SpellGem', f'CSPW_Spell{index}')
     label = item(xml, 'Label', f'CSPW_Spell{index}_Name')
     window = item(xml, 'Screen', 'CastSpellWnd')
-    assert rect(gem) == (1, 18 + 30 * index, 120, 28)
-    assert rect(label) == (32, 24 + 30 * index, 85, 20)
+    assert rect(gem) == (1, 18 + 34 * index, 120, 32)
+    assert rect(label) == (32, 21 + 34 * index, 85, 26)
+    assert_two_line_spell_name_room(gem, label)
     assert label.findtext('Font') == '1'
     assert label.findtext('NoWrap') == 'false'
     assert label.findtext('EQType') == str(60 + index)
     assert label.findtext('AlignCenter') == 'true'
     assert gem.findtext('ScreenID') == f'CSPW_Spell{index}'
     assert gem.findtext('SpellIconOffsetX') == '4'
-    assert gem.findtext('SpellIconOffsetY') == '2'
+    assert gem.findtext('SpellIconOffsetY') == '4'
     gx, gy, gw, gh = rect(gem)
     lx, ly, lw, lh = rect(label)
     # Titanium icons are 24px. Never enlarge the art or use newer-client tags.
     assert gx + 4 + 24 + 3 <= lx
-    assert gy + 2 + 24 <= gy + gh - 2
+    assert 4 + 24 + 4 == gh
     assert lx + lw <= gx + gw - 4
-    assert ly == gy + 6
-    assert ly + lh <= gy + gh - 2
+    assert ly == gy + 3
+    assert ly + lh <= gy + gh - 3
     assert gx + gw <= int(window.findtext('Size/CX')) - 8
     assert gy + gh <= int(window.findtext('Size/CY')) - 8
     assert gem.find('SpellIconSizeX') is None
@@ -120,6 +134,21 @@ def test_spell_gems_have_room_for_names_inset_icons_and_row_gaps(index):
         assert rect(following)[1] - (gy + gh) == 2
     header = item(xml, 'Button', 'CSPW_SpellBook')
     assert rect(header) == (1, 1, 120, 14)
+    assert window.findtext('Size/CX') == '130'
+    assert window.findtext('Size/CY') == '298'
+
+
+@pytest.mark.parametrize('index', range(8))
+def test_rejects_ui59_clipped_two_line_spell_labels(index):
+    xml = root('EQUI_CastSpellWnd.xml')
+    gem = deepcopy(item(xml, 'SpellGem', f'CSPW_Spell{index}'))
+    label = deepcopy(item(xml, 'Label', f'CSPW_Spell{index}_Name'))
+    gem.find('Location/Y').text = str(18 + 30 * index)
+    gem.find('Size/CY').text = '28'
+    label.find('Location/Y').text = str(24 + 30 * index)
+    label.find('Size/CY').text = '20'
+    with pytest.raises(AssertionError, match='Two-line spell name'):
+        assert_two_line_spell_name_room(gem, label)
 
 
 def test_player_name_hp_and_mana_do_not_overlap():
