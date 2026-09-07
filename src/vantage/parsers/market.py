@@ -2262,6 +2262,23 @@ class WikiItemCard(UniformScaleDialog):
         self.stats.setToolTip("Item stats from the P99 Wiki page")
         card_layout.addWidget(self.stats, 3, 0, 1, 2)
 
+        self.quest_use = QLabel(
+            "<b>Quest use</b> · Checking P99 and Allakhazam…")
+        self.quest_use.setObjectName("WikiItemQuestUse")
+        self.quest_use.setWordWrap(True)
+        self.quest_use.setTextFormat(Qt.TextFormat.RichText)
+        self.quest_use.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextBrowserInteraction)
+        self.quest_use.setOpenExternalLinks(False)
+        self.quest_use.linkActivated.connect(self._internal_wiki_link)
+        self.quest_use.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.quest_use.setAccessibleName("Quest use: checking sources")
+        self.quest_use.setAccessibleDescription(
+            "Checking Project 1999 and Allakhazam for related quests")
+        self.quest_use.setToolTip(
+            "Waiting for both sources; Project 1999 determines P99 applicability")
+        card_layout.addWidget(self.quest_use, 4, 0, 1, 2)
+
         self.drops = QLabel("Checking P99 origin and Allakhazam corroboration…")
         self.drops.setObjectName("WikiItemDrops")
         self.drops.setWordWrap(True)
@@ -2272,13 +2289,13 @@ class WikiItemCard(UniformScaleDialog):
         self.drops.linkActivated.connect(self._internal_wiki_link)
         self.drops.setAccessibleName("Obtaining this item")
         self.drops.setAccessibleDescription(
-            "P99-preferred drop, zone, quest and note data with separate "
+            "P99-preferred drop, zone and note data with separate "
             "Allakhazam corroboration status")
         self.drops.setToolTip(
             "P99 is preferred for server applicability. Allakhazam is a "
             "separate modern-EQ cross-check and may disagree.")
         self.drops.setMinimumHeight(115)
-        card_layout.addWidget(self.drops, 4, 0, 1, 2)
+        card_layout.addWidget(self.drops, 5, 0, 1, 2)
         card_layout.setColumnStretch(1, 1)
         self.card_scroll = scrollable(card, "WikiItemCardScroll")
         outer.addWidget(self.card_scroll, 1)
@@ -2486,8 +2503,13 @@ class WikiItemCard(UniformScaleDialog):
         checking = any(
             self._source_state.get(part) == "checking"
             for part in ("p99", "zam"))
+        origin_p99 = {
+            "drops": p99.get("drops", []), "notes": p99.get("notes", "")}
+        origin_zam = {key: zam.get(key, [])
+                      for key in ("drops", "mobs", "zones")}
         status = ("Checking sources" if checking else
-                  item_origin_corroboration(p99, zam))
+                  item_origin_corroboration(origin_p99, origin_zam))
+        self._render_quest_use(checking)
         blocks = [
             f'<b>Obtaining this item · {html.escape(status)}</b>',
             '<span style="color:#c7ae76">P99 applies to this server; '
@@ -2508,22 +2530,11 @@ class WikiItemCard(UniformScaleDialog):
                     f'{zone_target}">{zone}</a></td></tr>')
             blocks.append('<table cellspacing="0" cellpadding="2">' +
                           ''.join(rows) + '</table>')
-        quests = p99.get("related_quests", [])
-        if quests:
-            links = []
-            for entry in quests[:12]:
-                name = html.escape(str(entry.get("name") or "Quest"))
-                target = quote(str(
-                    entry.get("target") or entry.get("name") or ""), safe="")
-                links.append(
-                    f'<a href="vantage://wiki/quest/{target}">{name}</a>')
-            blocks.append('<b>P99 related quests</b> · ' + ', '.join(links))
         notes = str(p99.get("notes") or "").strip()
         if notes:
             blocks.append('<b>P99 note</b> · ' + html.escape(notes))
         zam_bits = []
-        for label, key in (("drops", "mobs"), ("zones", "zones"),
-                           ("quests", "quests")):
+        for label, key in (("drops", "mobs"), ("zones", "zones")):
             names = [html.escape(str(value.get("name") or ""))
                      for value in zam.get(key, [])[:8]
                      if isinstance(value, dict) and value.get("name")]
@@ -2540,8 +2551,9 @@ class WikiItemCard(UniformScaleDialog):
             blocks.append(
                 '<b>Allakhazam unavailable</b> · P99 data remains usable; '
                 'use Open ZAM search or Retry sources.')
-        elif not drops and not quests and not notes:
-            blocks.append('No structured origin data was found in either source.')
+        elif not drops and not notes:
+            blocks.append(
+                'No drop, zone, or note origin data was found in either source.')
         self.drops.setText('<br>'.join(blocks))
         if not checking:
             # The independently fixed price/actions stay put while the final
@@ -2549,6 +2561,116 @@ class WikiItemCard(UniformScaleDialog):
             QTimer.singleShot(
                 0, lambda: self.card_scroll.ensureWidgetVisible(
                     self.drops, 8, 8))
+
+    @staticmethod
+    def _unique_quest_entries(entries, *, p99=False):
+        """Return bounded, normalized quest names without trusting markup."""
+        unique = []
+        seen = set()
+        for value in entries or ():
+            if not isinstance(value, dict):
+                continue
+            name = " ".join(str(value.get("name") or "").split())
+            normalized = _normalized_source_name(name)
+            if not name or not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            entry = {"name": name, "normalized": normalized}
+            if p99:
+                entry["target"] = " ".join(str(
+                    value.get("target") or name).split())
+            unique.append(entry)
+            if len(unique) >= 12:
+                break
+        return unique
+
+    def _render_quest_use(self, checking):
+        """Render one compact source-aware quest membership readout."""
+        if checking:
+            self.quest_use.setText(
+                "<b>Quest use</b> · Checking P99 and Allakhazam…")
+            self.quest_use.setAccessibleName("Quest use: checking sources")
+            self.quest_use.setAccessibleDescription(
+                "Checking Project 1999 and Allakhazam for related quests")
+            self.quest_use.setToolTip(
+                "Waiting for both sources; Project 1999 determines P99 applicability")
+            return
+
+        p99_quests = self._unique_quest_entries(
+            self._p99_origin.get("related_quests", ()), p99=True)
+        zam_quests = self._unique_quest_entries(
+            self._zam_origin.get("quests", ()))
+        p99_names = {entry["normalized"] for entry in p99_quests}
+        zam_names = {entry["normalized"] for entry in zam_quests}
+        overlap = p99_names & zam_names
+
+        if p99_quests:
+            def quest_link(entry):
+                return (
+                    '<a href="vantage://wiki/quest/' +
+                    quote(entry["target"], safe="") + '">' +
+                    html.escape(entry["name"]) + '</a>')
+
+            corroborated = [entry for entry in p99_quests
+                             if entry["normalized"] in overlap]
+            p99_only = [entry for entry in p99_quests
+                        if entry["normalized"] not in overlap]
+            corroborated_names = [entry["name"] for entry in corroborated]
+            p99_only_names = [entry["name"] for entry in p99_only]
+            if corroborated and not p99_only:
+                state = "P99 + Allakhazam corroborated"
+                description = (
+                    "Quests confirmed by Project 1999 and corroborated by "
+                    "Allakhazam: " + ", ".join(corroborated_names))
+                detail = ", ".join(
+                    quest_link(entry) for entry in corroborated)
+            elif corroborated:
+                state = "P99 confirmed · some Allakhazam corroboration"
+                description = (
+                    "Corroborated quests: " +
+                    ", ".join(corroborated_names) + ". P99-only quests: " +
+                    ", ".join(p99_only_names))
+                detail = (
+                    '<b>Corroborated</b>: ' + ', '.join(
+                        quest_link(entry) for entry in corroborated) +
+                    ' · <b>P99 only</b>: ' + ', '.join(
+                        quest_link(entry) for entry in p99_only))
+            else:
+                state = "P99 confirmed · P99 only"
+                description = (
+                    "Related quest listed by Project 1999 only: " +
+                    ", ".join(p99_only_names))
+                detail = ", ".join(
+                    quest_link(entry) for entry in p99_only)
+            self.quest_use.setText(
+                f'<b>Quest use</b> · <b>{state}</b> · ' + detail)
+            self.quest_use.setAccessibleName(f"Quest use: {state}")
+            self.quest_use.setAccessibleDescription(description)
+            self.quest_use.setToolTip(
+                "Select a linked P99 quest to open its compact in-app quest card")
+            return
+
+        if zam_quests:
+            names = [entry["name"] for entry in zam_quests]
+            self.quest_use.setText(
+                "<b>Quest use</b> · <b>Allakhazam only · unconfirmed for "
+                "P99</b> · " + html.escape(", ".join(names)))
+            self.quest_use.setAccessibleName(
+                "Quest use: Allakhazam only, unconfirmed for P99")
+            self.quest_use.setAccessibleDescription(
+                "Allakhazam lists related quest entries that Project 1999 "
+                "does not confirm: " + ", ".join(names))
+            self.quest_use.setToolTip(
+                "Allakhazam covers modern EverQuest; these quest names are not P99-confirmed")
+            return
+
+        message = "No related quest listed by P99 or Allakhazam"
+        self.quest_use.setText(f"<b>Quest use</b> · {message}")
+        self.quest_use.setAccessibleName(f"Quest use: {message}")
+        self.quest_use.setAccessibleDescription(
+            message + "; this does not prove that no quest exists")
+        self.quest_use.setToolTip(
+            "Neither structured source lists a related quest; this is not a definitive no-quest claim")
 
     def _set_auction_price(self, auction):
         comparison = combined_market_price(self.item, auction)
@@ -4044,7 +4166,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(requested.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.57")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.58")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_finished(
             reply, requested, cached_path))
@@ -4184,7 +4306,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(target.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.57")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.58")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_npc_drops_finished(
             reply, mob, target, key, cache_path))
@@ -4504,7 +4626,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.57")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.58")
         reply = self._network.get(request)
         timer = QTimer(self)
         timer.setSingleShot(True)
@@ -4589,7 +4711,7 @@ class GreenMarket(ParserWindow):
             return None
         request = QNetworkRequest(QUrl(safe_url))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.57")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.58")
         reply = self._network.get(request)
         timer = QTimer(self)
         timer.setSingleShot(True)
@@ -4695,7 +4817,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.57")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.58")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._wiki_entity_finished(
             reply, card, cache_path, target, kind))
@@ -4784,7 +4906,7 @@ class GreenMarket(ParserWindow):
                     filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.57")
+                    "Vantage/1.44.58")
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
                     lambda: self._wiki_icon_finished(
@@ -5037,7 +5159,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.57")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.58")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -5060,7 +5182,7 @@ class GreenMarket(ParserWindow):
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
                 QNetworkRequest.KnownHeaders.UserAgentHeader,
-                "Vantage/1.44.57")
+                "Vantage/1.44.58")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -5421,7 +5543,7 @@ class GreenMarket(ParserWindow):
         self.status.setText(f"Refreshing PigParse {server}…")
         request = QNetworkRequest(QUrl(market_endpoint(server)))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.57")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.58")
         reply = self._network.get(request)
         reply.setProperty("market_server", server)
         reply.finished.connect(lambda: self._finished(reply))
@@ -5549,7 +5671,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(market_detail_api(server).format(
             item_name=quote(name, safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.57")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.58")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.setProperty("market_server", server)

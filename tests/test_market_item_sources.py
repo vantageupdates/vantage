@@ -127,13 +127,119 @@ def test_item_card_keeps_sources_safe_compact_and_keyboard_accessible():
     app.processEvents()
 
     rendered = card.drops.text()
-    assert "&lt;img" in rendered and "&lt;script&gt;" in rendered
-    assert "<script>" not in rendered and "onerror=bad>" not in rendered
+    quest_rendered = card.quest_use.text()
+    assert "&lt;img" in rendered and "&lt;script&gt;" in quest_rendered
+    assert "<script>" not in quest_rendered
+    assert "onerror=bad>" not in rendered
     assert "P99 applies to this server" in rendered
+    assert "P99 related quests" not in rendered
     assert card.drops.focusPolicy().name == "StrongFocus"
+    assert card.quest_use.focusPolicy().name == "StrongFocus"
+    assert card.quest_use.accessibleName().startswith("Quest use:")
+    assert card.quest_use.accessibleDescription()
+    assert card.quest_use.toolTip()
     assert card.scaled_surface.findChild(ResponsiveActionBar) is not None
     assert card.source_retry_button.isEnabled()
     assert card.source_retry_button.toolTip()
+    card.close()
+
+
+def test_item_card_quest_use_is_compact_source_aware_and_routes_links():
+    app = QApplication.instance() or QApplication([])
+    card = WikiItemCard({"n": "Journeyman's Boots"})
+    routed = []
+    card.wiki_entity_requested.connect(
+        lambda target, label, kind: routed.append((target, label, kind)))
+
+    card.begin_source_request(21)
+    assert "Checking P99 and Allakhazam" in card.quest_use.text()
+    assert card.quest_use.accessibleName() == "Quest use: checking sources"
+
+    card.set_item_data({
+        "name": card.wiki_name,
+        "stats": "MAGIC ITEM",
+        "related_quests": [
+            {"name": "Boots Quest", "target": "Boots Quest"},
+            {"name": "  Boots   Quest  ", "target": "duplicate"},
+            {"name": "<script>bad()</script>", "target": "Unsafe Quest"},
+        ],
+    }, token=21)
+    assert "Checking P99 and Allakhazam" in card.quest_use.text()
+    card.set_zam_data({
+        "quests": [
+            {"name": "Boots Quest"}, {"name": "boots quest"}],
+    }, token=21)
+    rendered = card.quest_use.text()
+    assert "P99 confirmed · some Allakhazam corroboration" in rendered
+    assert "<b>Corroborated</b>:" in rendered
+    assert "<b>P99 only</b>:" in rendered
+    assert rendered.count(">Boots Quest</a>") == 1
+    assert "&lt;script&gt;bad()&lt;/script&gt;" in rendered
+    assert "<script>" not in rendered
+    provenance = card.quest_use.accessibleDescription()
+    assert "Corroborated quests: Boots Quest." in provenance
+    assert "P99-only quests: <script>bad()</script>" in provenance
+    assert "Boots Quest" not in card.drops.text()
+    card.quest_use.linkActivated.emit("vantage://wiki/quest/Boots%20Quest")
+    assert routed == [("Boots Quest", "Boots Quest", "quest")]
+
+    card.begin_source_request(22)
+    card.set_item_data({
+        "name": card.wiki_name, "stats": "MAGIC ITEM",
+        "related_quests": [{"name": "P99 Quest", "target": "P99 Quest"}],
+    }, token=22)
+    card.set_zam_data({"quests": [{"name": "Different Quest"}]}, token=22)
+    assert "P99 confirmed · P99 only" in card.quest_use.text()
+    assert "P99 Quest</a>" in card.quest_use.text()
+    assert "Different Quest" not in card.quest_use.text()
+
+    card.begin_source_request(25)
+    card.set_item_data({
+        "name": card.wiki_name, "stats": "MAGIC ITEM",
+        "related_quests": [
+            {"name": "Boots Quest", "target": "Boots Quest"},
+            {"name": "Second Quest", "target": "Second Quest"}],
+    }, token=25)
+    card.set_zam_data({
+        "quests": [
+            {"name": "boots quest"}, {"name": "Second Quest"}],
+    }, token=25)
+    assert "P99 + Allakhazam corroborated" in card.quest_use.text()
+    assert "some Allakhazam corroboration" not in card.quest_use.text()
+    assert "P99 only" not in card.quest_use.text()
+    assert "Boots Quest, Second Quest" in \
+        card.quest_use.accessibleDescription()
+
+    card.begin_source_request(23)
+    card.set_item_data({
+        "name": card.wiki_name, "stats": "MAGIC ITEM",
+        "related_quests": [],
+    }, token=23)
+    card.set_zam_data({
+        "quests": [
+            {"name": "ZAM <Only>"}, {"name": "ZAM <Only>"}],
+    }, token=23)
+    rendered = card.quest_use.text()
+    assert "Allakhazam only · unconfirmed for P99" in rendered
+    assert "ZAM &lt;Only&gt;" in rendered
+    assert "vantage://wiki/quest/" not in rendered
+
+    card.begin_source_request(24)
+    card.set_item_data({
+        "name": card.wiki_name, "stats": "MAGIC ITEM",
+        "related_quests": [],
+    }, token=24)
+    card.set_zam_data({"quests": []}, token=24)
+    assert "No related quest listed by P99 or Allakhazam" in \
+        card.quest_use.text()
+    assert "does not prove that no quest exists" in \
+        card.quest_use.accessibleDescription()
+
+    current = card.quest_use.text()
+    assert card.set_zam_data(
+        {"quests": [{"name": "Stale Quest"}]}, token=23) is False
+    assert card.quest_use.text() == current
+    app.processEvents()
     card.close()
 
 
