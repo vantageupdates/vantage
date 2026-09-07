@@ -6,7 +6,7 @@
     <ScreenID>IW_ResistMagicIcon</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>231</X>
+      <X>239</X>
       <Y>250</Y>
     </Location>
     <Size>
@@ -19,7 +19,7 @@
     <ScreenID>IW_ResistFireIcon</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>231</X>
+      <X>239</X>
       <Y>264</Y>
     </Location>
     <Size>
@@ -32,7 +32,7 @@
     <ScreenID>IW_ResistColdIcon</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>231</X>
+      <X>239</X>
       <Y>278</Y>
     </Location>
     <Size>
@@ -45,7 +45,7 @@
     <ScreenID>IW_ResistDiseaseIcon</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>231</X>
+      <X>239</X>
       <Y>292</Y>
     </Location>
     <Size>
@@ -58,7 +58,7 @@
     <ScreenID>IW_ResistPoisonIcon</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>231</X>
+      <X>239</X>
       <Y>306</Y>
     </Location>
     <Size>
@@ -1469,11 +1469,11 @@
 		<!--<Font>3</Font>-->
 		<RelativePosition>true</RelativePosition>
 		<Location>
-			<X>245</X>
+			<X>253</X>
 			<Y>305</Y>
 		</Location>
 		<Size>
-			<CX>64</CX>
+			<CX>58</CX>
 			<CY>14</CY>
 		</Size>
 		<Text>POISON</Text>
@@ -1517,11 +1517,11 @@
 		<!--<Font>3</Font>-->
 		<RelativePosition>true</RelativePosition>
 		<Location>
-			<X>245</X>
+			<X>253</X>
 			<Y>249</Y>
 		</Location>
 		<Size>
-			<CX>64</CX>
+			<CX>58</CX>
 			<CY>14</CY>
 		</Size>
 		<Text>MAGIC</Text>
@@ -1565,11 +1565,11 @@
 		<!--<Font>3</Font>-->
 		<RelativePosition>true</RelativePosition>
 		<Location>
-			<X>245</X>
+			<X>253</X>
 			<Y>291</Y>
 		</Location>
 		<Size>
-			<CX>64</CX>
+			<CX>58</CX>
 			<CY>14</CY>
 		</Size>
 		<Text>DISEASE</Text>
@@ -1613,11 +1613,11 @@
 		<!--<Font>3</Font>-->
 		<RelativePosition>true</RelativePosition>
 		<Location>
-			<X>245</X>
+			<X>253</X>
 			<Y>263</Y>
 		</Location>
 		<Size>
-			<CX>64</CX>
+			<CX>58</CX>
 			<CY>14</CY>
 		</Size>
 		<Text>FIRE</Text>
@@ -1661,11 +1661,11 @@
 		<!--<Font>3</Font>-->
 		<RelativePosition>true</RelativePosition>
 		<Location>
-			<X>245</X>
+			<X>253</X>
 			<Y>277</Y>
 		</Location>
 		<Size>
-			<CX>64</CX>
+			<CX>58</CX>
 			<CY>14</CY>
 		</Size>
 		<Text>COLD</Text>

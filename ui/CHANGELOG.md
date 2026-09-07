@@ -1,5 +1,22 @@
 # VantageUI releases
 
+## 1.44.55
+
+Install folder: `VantageUI-v1.44.55`.
+
+- Declares the target health-bar components before their parent window, fixing
+  the four unresolved ScreenPiece references reported by the actual EQ client.
+- Moves all five inventory resistance icons clear of the bag slots: a four-pixel
+  overlap is replaced by a four-pixel gap. Keeps their native 12px artwork intact
+  and aligns resistance labels and values without changing the window size.
+- Adds regression checks for declaration order and icon/slot separation,
+  including fixtures reproducing both defects from 1.44.54.
+- Retains the 1.44.54 Windows-permissions fix, prior versions and character INIs.
+
+Load manually with `/loadskin VantageUI-v1.44.55 1`. Actual in-game loading and
+visual confirmation must follow reload; package/static checks alone do not
+prove client compatibility. Existing visual/client limits below still apply.
+
 ## 1.44.54
 
 Install folder: `VantageUI-v1.44.54`. Supersedes 1.44.53 without overwriting it.

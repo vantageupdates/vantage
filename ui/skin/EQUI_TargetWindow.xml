@@ -248,46 +248,6 @@
     <AlignCenter>true</AlignCenter>
     <AlignRight>false</AlignRight>
   </Label>
-  <Screen item="TargetWindow">
-    <ScreenID />
-    <RelativePosition>false</RelativePosition>
-    <Location>
-      <X>516</X>
-      <Y>242</Y>
-    </Location>
-    <Size>
-      <CX>270</CX>
-      <CY>65</CY>
-    </Size>
-    <Text>TARGET</Text>
-    <Style_VScroll>false</Style_VScroll>
-    <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
-    <TooltipReference>Your Current Target</TooltipReference>
-    <DrawTemplate>WDT_RoundedNoTitle</DrawTemplate>
-    <Style_Titlebar>false</Style_Titlebar>
-    <Style_Closebox>false</Style_Closebox>
-    <Style_Minimizebox>false</Style_Minimizebox>
-    <Style_Border>true</Style_Border>
-    <Style_Sizable>false</Style_Sizable>
-    <Pieces>Target_HP2</Pieces>
-    <Pieces>VantageTarget_HP_0</Pieces>
-    <Pieces>VantageTarget_HP_1A_X</Pieces>
-    <Pieces>VantageTarget_HP_1B</Pieces>
-    <Pieces>VantageTarget_HP_2A_X</Pieces>
-    <Pieces>VantageTarget_HP_2B</Pieces>
-    <Pieces>VantageTarget_HP_3A_X</Pieces>
-    <Pieces>VantageTarget_HP_3B</Pieces>
-    <Pieces>VantageTarget_HP_4A_X</Pieces>
-    <Pieces>VantageTarget_HP_4B</Pieces>
-    <Pieces>VantageTarget_HP_VantageTicks</Pieces>
-    <Pieces>Target_HPLabel</Pieces>
-    <Pieces>Target_HPPercLabel</Pieces>
-    <Pieces>Target_Casting_Gauge</Pieces>
-    <Pieces>Target_Casting_SpellName</Pieces>
-    <Pieces>TargetName</Pieces>
-    <Pieces>A_TargetBoxStaticAnim</Pieces>
-  </Screen>
   <Ui2DAnimation item="VantageTarget_GaugeFill1">
     <Cycle>true</Cycle>
     <Frames>
@@ -722,4 +682,44 @@
     <AutoDraw>true</AutoDraw>
     <Animation>A_VantageHP240Lines</Animation>
   </StaticAnimation>
+  <Screen item="TargetWindow">
+    <ScreenID />
+    <RelativePosition>false</RelativePosition>
+    <Location>
+      <X>516</X>
+      <Y>242</Y>
+    </Location>
+    <Size>
+      <CX>270</CX>
+      <CY>65</CY>
+    </Size>
+    <Text>TARGET</Text>
+    <Style_VScroll>false</Style_VScroll>
+    <Style_HScroll>false</Style_HScroll>
+    <Style_Transparent>false</Style_Transparent>
+    <TooltipReference>Your Current Target</TooltipReference>
+    <DrawTemplate>WDT_RoundedNoTitle</DrawTemplate>
+    <Style_Titlebar>false</Style_Titlebar>
+    <Style_Closebox>false</Style_Closebox>
+    <Style_Minimizebox>false</Style_Minimizebox>
+    <Style_Border>true</Style_Border>
+    <Style_Sizable>false</Style_Sizable>
+    <Pieces>Target_HP2</Pieces>
+    <Pieces>VantageTarget_HP_0</Pieces>
+    <Pieces>VantageTarget_HP_1A_X</Pieces>
+    <Pieces>VantageTarget_HP_1B</Pieces>
+    <Pieces>VantageTarget_HP_2A_X</Pieces>
+    <Pieces>VantageTarget_HP_2B</Pieces>
+    <Pieces>VantageTarget_HP_3A_X</Pieces>
+    <Pieces>VantageTarget_HP_3B</Pieces>
+    <Pieces>VantageTarget_HP_4A_X</Pieces>
+    <Pieces>VantageTarget_HP_4B</Pieces>
+    <Pieces>VantageTarget_HP_VantageTicks</Pieces>
+    <Pieces>Target_HPLabel</Pieces>
+    <Pieces>Target_HPPercLabel</Pieces>
+    <Pieces>Target_Casting_Gauge</Pieces>
+    <Pieces>Target_Casting_SpellName</Pieces>
+    <Pieces>TargetName</Pieces>
+    <Pieces>A_TargetBoxStaticAnim</Pieces>
+  </Screen>
 </XML>
