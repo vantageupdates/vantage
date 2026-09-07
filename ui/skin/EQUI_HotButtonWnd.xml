@@ -892,8 +892,8 @@
     <ScreenID>Newslot1</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>214</X>
-      <Y>45</Y>
+      <X>176</X>
+      <Y>1</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -913,8 +913,8 @@
     <ScreenID>Newslot2</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>256</X>
-      <Y>45</Y>
+      <X>176</X>
+      <Y>42</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -934,8 +934,8 @@
     <ScreenID>Newslot3</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>214</X>
-      <Y>87</Y>
+      <X>176</X>
+      <Y>83</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -955,8 +955,8 @@
     <ScreenID>Newslot4</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>256</X>
-      <Y>87</Y>
+      <X>176</X>
+      <Y>124</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -976,8 +976,8 @@
     <ScreenID>Newslot5</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>214</X>
-      <Y>129</Y>
+      <X>176</X>
+      <Y>165</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -997,8 +997,8 @@
     <ScreenID>Newslot6</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>256</X>
-      <Y>129</Y>
+      <X>176</X>
+      <Y>206</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1018,8 +1018,8 @@
     <ScreenID>Newslot7</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>214</X>
-      <Y>171</Y>
+      <X>176</X>
+      <Y>247</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1039,8 +1039,8 @@
     <ScreenID>Newslot8</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>256</X>
-      <Y>171</Y>
+      <X>176</X>
+      <Y>288</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1060,8 +1060,8 @@
     <ScreenID>Prim</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>88</X>
-      <Y>1</Y>
+      <X>1</X>
+      <Y>211</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1081,8 +1081,8 @@
     <ScreenID>Sec</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>130</X>
-      <Y>1</Y>
+      <X>42</X>
+      <Y>211</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1102,8 +1102,8 @@
     <ScreenID>Ranged</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>172</X>
-      <Y>1</Y>
+      <X>1</X>
+      <Y>253</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1123,8 +1123,8 @@
     <ScreenID>Ammo</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>214</X>
-      <Y>1</Y>
+      <X>42</X>
+      <Y>253</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1144,8 +1144,8 @@
     <ScreenID>Head</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>130</X>
-      <Y>45</Y>
+      <X>88</X>
+      <Y>1</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1165,8 +1165,8 @@
     <ScreenID>Chest</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>130</X>
-      <Y>129</Y>
+      <X>1</X>
+      <Y>295</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1186,8 +1186,8 @@
     <ScreenID>Legs</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>130</X>
-      <Y>255</Y>
+      <X>42</X>
+      <Y>295</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1207,8 +1207,8 @@
     <ScreenID>Boots</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>88</X>
-      <Y>255</Y>
+      <X>1</X>
+      <Y>337</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1229,7 +1229,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>130</X>
-      <Y>213</Y>
+      <Y>253</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1249,8 +1249,8 @@
     <ScreenID>Earring1</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>88</X>
-      <Y>45</Y>
+      <X>130</X>
+      <Y>1</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1270,8 +1270,8 @@
     <ScreenID>Earring2</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>172</X>
-      <Y>45</Y>
+      <X>130</X>
+      <Y>43</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1291,8 +1291,8 @@
     <ScreenID>Ring1</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>88</X>
-      <Y>213</Y>
+      <X>130</X>
+      <Y>169</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1312,8 +1312,8 @@
     <ScreenID>Ring2</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>172</X>
-      <Y>213</Y>
+      <X>130</X>
+      <Y>211</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1333,8 +1333,8 @@
     <ScreenID>Wrist1</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>88</X>
-      <Y>171</Y>
+      <X>130</X>
+      <Y>85</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1354,8 +1354,8 @@
     <ScreenID>Wrist2</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>172</X>
-      <Y>171</Y>
+      <X>130</X>
+      <Y>127</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1375,8 +1375,8 @@
     <ScreenID>Face</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>130</X>
-      <Y>87</Y>
+      <X>88</X>
+      <Y>43</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1396,8 +1396,8 @@
     <ScreenID>Neck</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>172</X>
-      <Y>87</Y>
+      <X>88</X>
+      <Y>85</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1418,7 +1418,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>88</X>
-      <Y>87</Y>
+      <Y>253</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1439,7 +1439,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>88</X>
-      <Y>129</Y>
+      <Y>127</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1459,8 +1459,8 @@
     <ScreenID>Arms</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>172</X>
-      <Y>129</Y>
+      <X>88</X>
+      <Y>169</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1480,8 +1480,8 @@
     <ScreenID>Hands</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>130</X>
-      <Y>171</Y>
+      <X>88</X>
+      <Y>211</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1533,8 +1533,8 @@
       <Y>230</Y>
     </Location>
     <Size>
-      <CX>306</CX>
-      <CY>302</CY>
+      <CX>226</CX>
+      <CY>386</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>

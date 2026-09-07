@@ -13,6 +13,18 @@ Install folder: `VantageUI-v1.44.56`.
   paints a permanent white outline. The client still controls attack blinking;
   no artificial animation loop or attack-state binding is added.
 - Adds geometry, spacing and native attack-draw regression coverage.
+- Reorganizes the compact hotbar into two columns of five buttons, two vertical
+  columns of seven equipment slots, and one column of eight bag slots. The seven
+  remaining equipment slots sit beneath the buttons. The window is narrower
+  (226px instead of 306px), but taller (386px); native 40px item art is retained
+  rather than cropped to simulate smaller bags. No equipment binding is removed.
+- Uses fine, softened gold slot borders and light, opaque 1px HP separators.
+  Keeps game item/spell artwork and atlas coordinates intact.
+- Adds interpolated native health-color steps every 5% rather than 20%, retaining
+  normal green at high HP and yellow/orange/red at lower HP. This smooths the
+  palette but is not a time-animated continuous transition, which XML cannot bind.
+- School-dependent casting-bar color remains a separate Companion integration
+  decision: the native gauge has no current-spell-school color binding.
 
 The 1.44.55 client log confirms its fatal XML load error is gone. This new
 version still needs manual `/loadskin VantageUI-v1.44.56 1` verification for

@@ -36,6 +36,10 @@ def test_nested_health_screens_are_declared_before_their_parent(filename):
 def test_reproduces_four_actual_ui54_target_symbol_table_errors():
     xml = deepcopy(root('EQUI_TargetWindow.xml'))
     parent = item(xml, 'Screen', 'TargetWindow')
+    # Recreate 1.44.54 membership, excluding later intermediate-color layers.
+    for piece in list(parent.findall('Pieces')):
+        if (piece.text or '').startswith('VantageTarget_HP_S'):
+            parent.remove(piece)
     xml.remove(parent)
     xml.insert(1, parent)
     assert forward_screen_references(xml) == [
@@ -147,3 +151,59 @@ def test_attack_rim_is_client_drawn_not_a_permanent_decoration():
     schema = root('SIDL.xml')
     default = schema.find(".//{*}ElementType[@name='StaticScreenPiece']/{*}element[@name='AutoDraw']/{*}default")
     assert default is not None and default.text == 'true'
+
+
+@pytest.mark.parametrize('filename,prefixes', [
+    ('EQUI_PlayerWindow.xml', ['Player']),
+    ('EQUI_GroupWindow.xml', [f'Party{i}' for i in range(1, 6)]),
+    ('EQUI_PetInfoWindow.xml', ['Pet']),
+    ('EQUI_TargetWindow.xml', ['VantageTarget']),
+])
+def test_health_intermediate_layers_preserve_native_bindings_and_clip_bounds(filename, prefixes):
+    import importlib.util
+    path = SKIN.parents[1] / 'scripts' / 'ui_health_palette.py'
+    spec = importlib.util.spec_from_file_location('health_palette', path)
+    palette = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(palette)
+    xml = root(filename)
+    assert forward_screen_references(xml) == []
+    for prefix in prefixes:
+        base = item(xml, 'Gauge', prefix + '_HP_0')
+        x, y, width, height = rect(base)
+        for threshold in (p for p in range(5, 80, 5) if p % 20):
+            name = f'{prefix}_HP_S{threshold:02}'
+            a, b = (item(xml, 'Gauge', name + suffix) for suffix in ('A', 'B'))
+            clip = item(xml, 'Screen', name + 'A_X')
+            cut = width * threshold // 100
+            assert rect(clip) == (x, y, cut, height)
+            assert rect(b) == (x + cut, y, width - cut, height)
+            assert int(b.findtext('GaugeOffsetX')) == -cut
+            assert int(a.findtext('GaugeOffsetX')) == -100 * threshold
+            assert int(a.findtext('Size/CX')) == 10000 - 100 * threshold
+            for gauge in (a, b):
+                assert gauge.findtext('EQType') == base.findtext('EQType')
+                assert tuple(int(gauge.findtext('FillTint/' + c)) for c in 'RGB') == palette.color_at(threshold)
+    original = (SKIN / filename).read_text(encoding='ascii')
+    assert palette.refine(original, filename) == original
+
+
+def test_native_edge_atlas_has_light_one_pixel_separators_and_fine_gold():
+    data = (SKIN / 'VantageControlEdges.tga').read_bytes()
+    assert (data[2], data[16], data[17]) == (2, 32, 40)
+    width = int.from_bytes(data[12:14], 'little')
+    height = int.from_bytes(data[14:16], 'little')
+    assert (width, height, len(data)) == (512, 128, 18 + 512 * 128 * 4)
+    def pixel(x, y):
+        offset = 18 + 4 * (y * width + x)
+        return tuple(data[offset:offset + 4])
+    for origin, bar_width in ((2, 240), (246, 100)):
+        columns = {origin + i * bar_width // 5 - 1 for i in range(1, 5)}
+        for x in range(origin, origin + bar_width):
+            for y in range(12, 32):
+                color = pixel(x, y)
+                if x in columns and 15 <= y < 29:
+                    assert color == (138, 160, 170, 225)
+                else:
+                    assert color[3] == 0
+    alphas = [pixel(x, y)[3] for y in range(2, 4) for x in range(2, 44)]
+    assert 0 < max(alphas) < 110

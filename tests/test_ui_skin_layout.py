@@ -176,7 +176,7 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
     root = _root("EQUI_HotButtonWnd.xml")
     window = _item(root, "Screen", "HotButtonWnd")
     window_size = _pair(window, "Size", "CX", "CY")
-    assert window_size == (306, 302)
+    assert window_size == (226, 386)
     assert window.findtext("Style_Sizable") == "false"
     pieces = [piece.text.strip() for piece in window.findall("Pieces")]
 
@@ -222,27 +222,27 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
         "Wrist2": 10,
     }
     gear_locations = {
-        "Prim": (88, 1),
-        "Sec": (130, 1),
-        "Ranged": (172, 1),
-        "Ammo": (214, 1),
-        "Earring1": (88, 45),
-        "Head": (130, 45),
-        "Earring2": (172, 45),
-        "Back": (88, 87),
-        "Face": (130, 87),
-        "Neck": (172, 87),
-        "Shoulder": (88, 129),
-        "Chest": (130, 129),
-        "Arms": (172, 129),
-        "Wrist1": (88, 171),
-        "Hands": (130, 171),
-        "Wrist2": (172, 171),
-        "Ring1": (88, 213),
-        "Belt": (130, 213),
-        "Ring2": (172, 213),
-        "Boots": (88, 255),
-        "Legs": (130, 255),
+        "Head": (88, 1),
+        "Face": (88, 43),
+        "Neck": (88, 85),
+        "Shoulder": (88, 127),
+        "Arms": (88, 169),
+        "Hands": (88, 211),
+        "Back": (88, 253),
+        "Earring1": (130, 1),
+        "Earring2": (130, 43),
+        "Wrist1": (130, 85),
+        "Wrist2": (130, 127),
+        "Ring1": (130, 169),
+        "Ring2": (130, 211),
+        "Belt": (130, 253),
+        "Prim": (1, 211),
+        "Sec": (42, 211),
+        "Ranged": (1, 253),
+        "Ammo": (42, 253),
+        "Chest": (1, 295),
+        "Legs": (42, 295),
+        "Boots": (1, 337),
     }
     inventory = {}
     for name, eq_type in gear_types.items():
@@ -262,7 +262,7 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
         assert slot.findtext("ScreenID") == name
         assert int(slot.findtext("EQType")) == 21 + index
         rect = _rect(slot)
-        expected_location = (214 + 42 * ((index - 1) % 2), 45 + 42 * ((index - 1) // 2))
+        expected_location = (176, 1 + 41 * (index - 1))
         assert rect == (*expected_location, 40, 40)
         _assert_in_bounds(rect, window_size)
         assert pieces.count(name) == 1
