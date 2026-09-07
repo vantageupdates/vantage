@@ -6,7 +6,7 @@ from vantage.helpers import config
 from vantage.helpers.application import VantageApp
 from vantage.helpers.notification_routes import (
     NOTIFICATION_ROUTES, NotificationDeliveryResult,
-    classify_chat_notification)
+    TellAudioCooldown, classify_chat_notification)
 
 
 EXPECTED_ROUTES = {
@@ -56,6 +56,71 @@ def test_chat_classifier_rejects_private_and_non_player_noise():
         "Camper tells you, 'VTS1:abcdefghijklmnop'", 'Mindflux') is None
     assert classify_chat_notification(
         "a frost giant tells you, 'Begone'", 'Mindflux') is None
+
+
+def test_tell_audio_cooldown_is_per_sender_character_and_server():
+    now = [100.0]
+    cooldown = TellAudioCooldown(clock=lambda: now[0])
+
+    assert cooldown.allow("Ayla", "Mindflux", "Green") is True
+    now[0] += 10
+    assert cooldown.allow("ayla", "MINDFLUX", "green") is False
+    assert cooldown.allow("Borin", "Mindflux", "Green") is True
+    assert cooldown.allow("Ayla", "Altflux", "Green") is True
+    assert cooldown.allow("Ayla", "Mindflux", "Blue") is True
+
+    now[0] = 130.0
+    assert cooldown.allow("Ayla", "Mindflux", "Green") is True
+
+
+def test_tell_audio_cooldown_prunes_to_a_fixed_bound():
+    now = [0.0]
+    cooldown = TellAudioCooldown(
+        clock=lambda: now[0], cooldown=30, max_entries=2)
+    for sender in ("Ayla", "Borin", "Ceryn"):
+        assert cooldown.allow(sender, "Mindflux", "Green") is True
+        now[0] += 1
+    assert len(cooldown) == 2
+
+
+def test_repeated_tells_remain_visual_but_audio_is_suppressed_per_sender():
+    now = [500.0]
+
+    class Host:
+        def __init__(self):
+            self._tell_audio_cooldown = TellAudioCooldown(
+                clock=lambda: now[0])
+            self.calls = []
+
+        def notify_event(self, route_key, semantic_text, **options):
+            self.calls.append((route_key, semantic_text, options))
+            return options.get("delivery_override")
+
+    host = Host()
+    ayla = classify_chat_notification(
+        "Ayla tells you, 'first'", "Mindflux")
+    borin = classify_chat_notification(
+        "Borin tells you, 'hello'", "Mindflux")
+    assert ayla is not None and borin is not None
+
+    VantageApp._deliver_chat_notification(
+        host, ayla, "Mindflux", "Green")
+    now[0] += 5
+    VantageApp._deliver_chat_notification(
+        host, ayla, "Mindflux", "Green")
+    VantageApp._deliver_chat_notification(
+        host, borin, "Mindflux", "Green")
+
+    assert [call[1] for call in host.calls] == [
+        "Tell from Ayla", "Tell from Ayla", "Tell from Borin"]
+    assert [call[2].get("delivery_override") for call in host.calls] == [
+        None, "off", None]
+    assert all(call[2]["overlay_id"] == "alerts" for call in host.calls)
+
+    now[0] = 530.0
+    VantageApp._deliver_chat_notification(
+        host, ayla, "Mindflux", "Green")
+    assert host.calls[-1][2].get("delivery_override") is None
 
 
 class _DispatchHost:

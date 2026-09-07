@@ -23,8 +23,8 @@ from vantage.helpers.log_archive import LogArchiveService
 from vantage.helpers.logreader import LogReaderSignals
 from vantage.helpers.notification_overlay import NotificationOverlayManager
 from vantage.helpers.notification_routes import (
-    NOTIFICATION_ROUTES, NotificationDeliveryResult, classify_chat_notification,
-    normalized_route_settings)
+    NOTIFICATION_ROUTES, NotificationDeliveryResult, TellAudioCooldown,
+    classify_chat_notification, normalized_route_settings)
 from vantage.helpers.portable import data_dir
 from vantage.helpers.splash import StartupSplash
 from vantage.helpers.updater import UpdateController
@@ -109,6 +109,7 @@ class VantageApp(QApplication):
         self._quickbar_notice_id = 0
         self._quickbar_notice = ""
         self._quickbar_notice_at = 0.0
+        self._tell_audio_cooldown = TellAudioCooldown()
         set_audio_muted(config.data['general'].get('audio_muted', False))
 
         # Load Signals
@@ -953,6 +954,20 @@ class VantageApp(QApplication):
         else:
             spells.set_camp_status(state, character)
 
+    def _deliver_chat_notification(self, chat_notice, character="", server=""):
+        """Keep every tell visible while rate-limiting only its audio/voice."""
+        delivery_override = None
+        if (chat_notice.route_key == "tell_message" and
+                not self._tell_audio_cooldown.allow(
+                    chat_notice.sender, character, server)):
+            delivery_override = "off"
+        return self.notify_event(
+            chat_notice.route_key, chat_notice.semantic_text,
+            voice_text=chat_notice.voice_text,
+            title="Vantage · Chat", overlay_id="alerts",
+            character=character, server=server, channel="quickbar",
+            delivery_override=delivery_override)
+
     def _parse(self, new_line):
         if new_line:
             timestamp, text = new_line[:2]
@@ -964,11 +979,8 @@ class VantageApp(QApplication):
                 text, active_character=character,
                 pet_names=(getattr(character_context, 'pet_name', ''),))
             if chat_notice is not None:
-                self.notify_event(
-                    chat_notice.route_key, chat_notice.semantic_text,
-                    voice_text=chat_notice.voice_text,
-                    title="Vantage · Chat", overlay_id="alerts",
-                    character=character, server=server, channel="quickbar")
+                self._deliver_chat_notification(
+                    chat_notice, character, server)
             self._camp_sessions.ingest(
                 text, timestamp, character, server)
             # Visibility and parsing are independent. Every parser is

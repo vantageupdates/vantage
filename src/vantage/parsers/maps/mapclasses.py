@@ -1,4 +1,5 @@
 import datetime
+import html
 
 import colorhash
 from PySide6.QtCore import Qt, QTimer, QPointF
@@ -46,23 +47,37 @@ class PointOfInterest:
         self.location = MapPoint()
         self.__dict__.update(kwargs)
         self.text = QGraphicsTextItem()
-        self.text.setHtml(
-            "<font color='{}' size='{}'>{}</font>".format(
-                self.location.color.name(),
-                1 + self.location.size,
-                self.location.text
-            )
-        )
-        self.text.setToolTip(self.location.text.replace('_', ' '))
+        self.label = self.location.text.replace('_', ' ')
+        self._font_size = 1 + self.location.size
+        self.set_z_state(current=True, layered=False)
         self.text.setZValue(2)
+        self.text.setFlag(
+            QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
         self.text.setPos(self.location.x, self.location.y)
 
-    def update_(self, scale):
-        self.text.setScale(scale)
-        self.text.setPos(
-            self.location.x - self.text.boundingRect().width() * 0.05 * scale,
-            self.location.y - self.text.boundingRect().height() / 2 * scale
-        )
+    def update_(self, _scale):
+        # The map position still follows the scene, while the label retains a
+        # readable device-pixel size at overview and close zoom levels.
+        self.text.setScale(1.0)
+        self.text.setPos(self.location.x, self.location.y)
+
+    def set_z_state(self, current, layered):
+        """Render readable text with a non-color cue for map Z context."""
+        state = (bool(current), bool(layered))
+        if getattr(self, '_z_state', None) == state:
+            return
+        self._z_state = state
+        marker = '' if not layered else ('● ' if current else '○ ')
+        style = 'font-weight: 700;' if current else 'font-style: italic;'
+        label = html.escape(f'{marker}{self.label}')
+        self.text.setHtml(
+            "<span style='color: #f4ead4; background-color: #071014; "
+            f"{style}'><font size='{self._font_size}'>{label}</font></span>")
+        if layered:
+            state = 'current Z layer' if current else 'other Z layer'
+            self.text.setToolTip(f'{self.label} · {state}')
+        else:
+            self.text.setToolTip(self.label)
 
 
 class DirectionArrow(QGraphicsPathItem):

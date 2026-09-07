@@ -4,15 +4,19 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QApplication, QGraphicsItem, QGraphicsPathItem, QGraphicsView)
 
 from vantage.helpers import config
 from vantage.parsers.maps.mapcanvas import MapCanvas
-from vantage.parsers.maps.mapclasses import MapPoint, Player, SpawnPoint
+from vantage.parsers.maps.mapclasses import (
+    MapPoint, Player, PointOfInterest, SpawnPoint)
 from vantage.parsers.maps.mapdata import MapData
 from vantage.parsers.maps.window import (
     detect_log_location, detect_log_zone, detect_who_player_count)
@@ -96,6 +100,91 @@ def test_map_uses_direct_pointer_drag_and_explains_controls():
     assert canvas.dragMode() == QGraphicsView.DragMode.ScrollHandDrag
     assert "Drag" in canvas.toolTip()
     assert "wheel" in canvas.toolTip()
+
+
+def test_poi_labels_remain_readable_in_overview_and_respect_toggle():
+    _app()
+    original = dict(config.data.setdefault("maps", {}))
+    canvas = MapCanvas()
+
+    class MapFixture(dict):
+        pass
+
+    point = PointOfInterest(location=MapPoint(
+        x=100, y=200, z=0, size=2, text="Bank",
+        color=QColor("#f0c765")))
+    upper_point = PointOfInterest(location=MapPoint(
+        x=120, y=220, z=100, size=2, text="Upper_floor",
+        color=QColor("#9bd7ff")))
+    paths = QGraphicsPathItem()
+    upper_paths = QGraphicsPathItem()
+    grid = QGraphicsPathItem()
+    data = MapFixture({
+        0: {"paths": paths, "poi": [point]},
+        100: {"paths": upper_paths, "poi": [upper_point]},
+    })
+    data.geometry = type("Geometry", (), {"z_groups": [0, 100]})()
+    data.players = {}
+    data.way_point = None
+    data.waypoints = {}
+    data.spawns = []
+    data.grid = grid
+    canvas._data = data
+    canvas._z_index = 0
+    canvas._scene.addItem(paths)
+    canvas._scene.addItem(upper_paths)
+    canvas._scene.addItem(point.text)
+    canvas._scene.addItem(upper_point.text)
+    canvas._scene.addItem(grid)
+
+    try:
+        config.data["maps"].update({
+            "show_poi": True, "use_z_layers": False,
+            "current_z_alpha": 85, "other_z_alpha": 25,
+            "closest_z_alpha": 55, "line_width": 1,
+            "show_grid": False, "grid_line_width": 1,
+        })
+        canvas._manual_view = False
+        canvas.update_(0.05)
+
+        assert point.text.opacity() == pytest.approx(1.0)
+        assert point.text.isVisible()
+        assert point.text.flags() & (
+            QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
+        assert point.text.scale() == pytest.approx(1.0)
+        assert point.text.deviceTransform(
+            canvas.viewportTransform()).m11() == pytest.approx(1.0)
+        assert '#f4ead4' in point.text.toHtml().lower()
+        assert '#071014' in point.text.toHtml().lower()
+        assert 'visible points of interest' in (
+            canvas.accessibleDescription().lower())
+        assert 'bank' in canvas.accessibleDescription().lower()
+
+        config.data["maps"]["use_z_layers"] = True
+        canvas.update_(2.0)
+        assert point.text.opacity() == pytest.approx(1.0)
+        assert upper_point.text.opacity() == pytest.approx(1.0)
+        assert point.text.deviceTransform(
+            canvas.viewportTransform()).m11() == pytest.approx(1.0)
+        assert '● bank' in point.text.toPlainText().lower()
+        assert '○ upper floor' in upper_point.text.toPlainText().lower()
+        assert 'current z layer points of interest: bank' in (
+            canvas.accessibleDescription().lower())
+        assert 'other z layer points of interest: upper floor' in (
+            canvas.accessibleDescription().lower())
+
+        config.data["maps"]["show_poi"] = False
+        canvas.update_(0.05)
+        assert point.text.opacity() == 0
+        assert upper_point.text.opacity() == 0
+        assert not point.text.isVisible()
+        assert not upper_point.text.isVisible()
+        assert 'points of interest are hidden' in (
+            canvas.accessibleDescription().lower())
+    finally:
+        config.data["maps"].clear()
+        config.data["maps"].update(original)
+        canvas.close()
 
 
 def test_location_hud_is_compact_click_through_and_updates():

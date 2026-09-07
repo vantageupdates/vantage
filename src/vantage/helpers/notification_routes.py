@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 from types import MappingProxyType
 import re
+import time
 
 
 @dataclass(frozen=True)
@@ -60,6 +62,8 @@ _INCOMING_HAIL = re.compile(
 _PET_REPLY = re.compile(r"^(?:Attacking .+ Master\.|Following you, Master\.|"
                         r"Guarding with my life\.?)$", re.IGNORECASE)
 _TIMER_SHARE = re.compile(r"\bVTS\d+:[A-Za-z0-9_-]{8,}\b", re.IGNORECASE)
+TELL_AUDIO_COOLDOWN_SECONDS = 30.0
+TELL_AUDIO_COOLDOWN_MAX_ENTRIES = 256
 
 
 @dataclass(frozen=True)
@@ -80,6 +84,43 @@ class NotificationDeliveryResult:
 
     def __bool__(self):
         return self.played
+
+
+class TellAudioCooldown:
+    """Bound repeated tell audio by sender and active character context."""
+
+    def __init__(self, clock=None, cooldown=TELL_AUDIO_COOLDOWN_SECONDS,
+                 max_entries=TELL_AUDIO_COOLDOWN_MAX_ENTRIES):
+        self._clock = clock or time.monotonic
+        self._cooldown = max(0.0, float(cooldown))
+        self._max_entries = max(1, int(max_entries))
+        self._last_audible = OrderedDict()
+
+    @staticmethod
+    def _part(value):
+        return " ".join(str(value or "").split()).casefold()
+
+    def allow(self, sender, character="", server=""):
+        """Return True once per cooldown; suppressed tells do not extend it."""
+        now = float(self._clock())
+        cutoff = now - self._cooldown
+        for key, heard_at in tuple(self._last_audible.items()):
+            if heard_at <= cutoff:
+                self._last_audible.pop(key, None)
+        key = (
+            self._part(server), self._part(character), self._part(sender))
+        heard_at = self._last_audible.get(key)
+        if heard_at is not None and now - heard_at < self._cooldown:
+            self._last_audible.move_to_end(key)
+            return False
+        self._last_audible[key] = now
+        self._last_audible.move_to_end(key)
+        while len(self._last_audible) > self._max_entries:
+            self._last_audible.popitem(last=False)
+        return True
+
+    def __len__(self):
+        return len(self._last_audible)
 
 
 def classify_chat_notification(text, active_character="", pet_names=()):

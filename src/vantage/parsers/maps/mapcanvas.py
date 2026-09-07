@@ -122,6 +122,8 @@ class MapCanvas(QGraphicsView):
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.setAccessibleName('EverQuest map')
+        self._poi_accessible_description = ''
         self.setToolTip(
             'Drag with the left button to pan · wheel to zoom · '
             'Ctrl+wheel to change the Z layer')
@@ -226,6 +228,7 @@ class MapCanvas(QGraphicsView):
             except:
                 pass
 
+        labels_visible = config.data['maps']['show_poi']
         for z in self._data.keys():
             alpha = current_alpha
             if config.data['maps']['use_z_layers']:
@@ -258,23 +261,23 @@ class MapCanvas(QGraphicsView):
 
             # points of interest
             for p in self._data[z]['poi']:
-                p.update_(min(5, self.to_scale()))
-                # Full-zone overviews become unreadable when every classic
-                # map label is painted at once. Reveal labels as the user
-                # zooms in; never prefix them with decorative glyphs.
-                labels_visible = (
-                    config.data['maps']['show_poi'] and
-                    self._manual_view and
-                    self._scale >= 0.18)
+                p.update_(self.to_scale())
+                # POI labels are an explicit user-selected layer. Keep them
+                # visible in the fitted overview as well as during manual zoom.
+                is_current_z = z == current_z_level
+                p.set_z_state(
+                    current=is_current_z,
+                    layered=config.data['maps']['use_z_layers'])
+                p.text.setVisible(labels_visible)
                 if not labels_visible:
                     p.text.setOpacity(0)
-                elif config.data['maps']['use_z_layers']:
-                    if z == current_z_level:
-                        p.text.setOpacity(current_alpha)
-                    else:
-                        p.text.setOpacity(other_alpha)
                 else:
-                    p.text.setOpacity(current_alpha)
+                    # Labels stay fully legible; map paths retain the exact
+                    # configured Z opacity and solid/open markers communicate
+                    # current/other Z without color or fading alone.
+                    p.text.setOpacity(1.0)
+
+        self._update_poi_accessibility(current_z_level, labels_visible)
 
         # players
         for player in self._data.players.values():
@@ -342,6 +345,39 @@ class MapCanvas(QGraphicsView):
 
     def to_scale(self, float_value=1.0):
         return float_value / self._scale
+
+    def _update_poi_accessibility(self, current_z_level, labels_visible):
+        """Expose POI names and Z relationships through the focusable canvas."""
+        if not labels_visible:
+            description = (
+                'Map points of interest are hidden. Enable Show POI to list '
+                'their names and Z-layer relationship.')
+        else:
+            current = []
+            other = []
+            for z in self._data.keys():
+                destination = current if z == current_z_level else other
+                for point in self._data[z]['poi']:
+                    label = str(point.label or '').strip()
+                    if label and label not in destination:
+                        destination.append(label)
+            current_text = ', '.join(current) or 'none listed'
+            if config.data['maps']['use_z_layers']:
+                other_text = ', '.join(other) or 'none listed'
+                description = (
+                    f'Current Z layer points of interest: {current_text}. '
+                    f'Other Z layer points of interest: {other_text}. '
+                    'Solid markers indicate the current layer; open markers '
+                    'indicate other layers.')
+            else:
+                all_points = current + [
+                    name for name in other if name not in current]
+                description = (
+                    'Visible points of interest: '
+                    f'{", ".join(all_points) or "none listed"}.')
+        if description != self._poi_accessible_description:
+            self._poi_accessible_description = description
+            self.setAccessibleDescription(description)
 
     def center(self):
         player = None
