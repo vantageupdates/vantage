@@ -13,7 +13,8 @@ from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QFileDialog, QFrame, QGridLayout, QLabel,
-    QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget)
+    QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
+    QVBoxLayout, QWidget)
 
 from vantage.helpers import config
 from vantage.helpers.icons import game_icon
@@ -24,7 +25,6 @@ from vantage.helpers import ui_skin_updater
 
 
 DEFAULT_EQ_ROOT = r"C:\Program Files (x86)\Sony\EverQuest"
-PENDING_POLL_MS = 3000
 AUTO_CHECK_MS = 5 * 60 * 1000
 
 
@@ -64,24 +64,20 @@ def elevated_updater_command(eq_root, *, current_executable=None,
                              frozen=None, source_script=None):
     """Return the safest available updater command for normal UAC launch."""
     current = Path(current_executable or sys.executable).resolve()
-    app_dir = current.parent
-    executable = app_dir / "VantageUI-Updater.exe"
-    if executable.is_file():
-        program = str(executable)
-        arguments = subprocess.list2cmdline(["--eq-dir", normalize_eq_root(eq_root)])
+    is_frozen = getattr(sys, "frozen", False) if frozen is None else bool(frozen)
+    if is_frozen and current.is_file():
+        program = str(current)
+        arguments = subprocess.list2cmdline([
+            "--vantage-ui-updater", "--allow-game-running",
+            "--eq-dir", normalize_eq_root(eq_root)])
         return program, arguments
     source = (Path(source_script) if source_script is not None else
               Path(__file__).resolve().parents[3] / "vantage_ui_updater.py")
     if source.is_file():
         program = sys.executable
         arguments = subprocess.list2cmdline(
-            [str(source), "--eq-dir", normalize_eq_root(eq_root)])
-        return program, arguments
-    is_frozen = getattr(sys, "frozen", False) if frozen is None else bool(frozen)
-    if is_frozen and current.is_file():
-        program = str(current)
-        arguments = subprocess.list2cmdline([
-            "--vantage-ui-updater", "--eq-dir", normalize_eq_root(eq_root)])
+            [str(source), "--allow-game-running",
+             "--eq-dir", normalize_eq_root(eq_root)])
         return program, arguments
     return None
 
@@ -103,6 +99,7 @@ class _WorkerSignals(QObject):
     completed = Signal(int, str, object)
     failed = Signal(int, str, object)
     log = Signal(int, str)
+    progress = Signal(int, str, int, int, int)
 
 
 class VantageUI(ParserWindow):
@@ -120,17 +117,16 @@ class VantageUI(ParserWindow):
         self._signals.completed.connect(self._operation_completed)
         self._signals.failed.connect(self._operation_failed)
         self._signals.log.connect(self._append_log)
+        self._signals.progress.connect(self._operation_progress)
         self._operation_token = 0
         self._busy = False
         self._loaded_once = False
         self._installed = ""
         self._release = None
-        self._pending_release = None
         self._install_after_check = False
         self._install_action = ""
-        self._pending_timer = QTimer(self)
-        self._pending_timer.setSingleShot(True)
-        self._pending_timer.timeout.connect(self._poll_pending_update)
+        self._progress_value = 0
+        self._progress_stage = "Ready"
         self._automatic_timer = QTimer(self)
         self._automatic_timer.setInterval(AUTO_CHECK_MS)
         self._automatic_timer.timeout.connect(self.check_for_updates)
@@ -231,31 +227,13 @@ class VantageUI(ParserWindow):
         QWidget.setTabOrder(self.check_button, self.update_button)
         QWidget.setTabOrder(self.update_button, self.restore_button)
 
-        self.pending_banner = QFrame()
-        self.pending_banner.setObjectName("VantageUICard")
-        self.pending_banner.setAccessibleName("VantageUI installation queued")
-        pending_layout = QVBoxLayout(self.pending_banner)
-        pending_layout.setContentsMargins(10, 8, 10, 8)
-        pending_layout.setSpacing(3)
-        pending_heading = QLabel("INSTALLATION QUEUED")
-        pending_font = pending_heading.font()
-        pending_font.setBold(True)
-        pending_heading.setFont(pending_font)
-        self.pending_message = QLabel()
-        self.pending_message.setWordWrap(True)
-        self.pending_message.setAccessibleName(
-            "Queued VantageUI installation instructions")
-        pending_layout.addWidget(pending_heading)
-        pending_layout.addWidget(self.pending_message)
-        self.pending_banner.hide()
-        layout.addWidget(self.pending_banner)
-
         self.auto_update = QCheckBox("Automatically check and update VantageUI")
         self.auto_update.setChecked(bool(
             config.data["vantage_ui"].get("auto_update", False)))
         self.auto_update.setAccessibleName("Automatic VantageUI updates")
         self.auto_update.setToolTip(
-            "Opt in to checks every five minutes; updates wait until EverQuest exits")
+            "Opt in to checks every five minutes and verified live installation; "
+            "reload VantageUI in EverQuest after an update")
         self.auto_update.toggled.connect(self._auto_update_changed)
         layout.addWidget(self.auto_update)
 
@@ -274,6 +252,18 @@ class VantageUI(ParserWindow):
         self.status.setWordWrap(True)
         self.status.setAccessibleName("VantageUI status")
         layout.addWidget(self.status)
+
+        self.progress = QProgressBar()
+        self.progress.setObjectName("UpdateProgress")
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setFormat("Ready · 0%")
+        self.progress.setAccessibleName("VantageUI operation progress")
+        self.progress.setAccessibleDescription(
+            "Ready. No VantageUI operation is running.")
+        self.progress.setToolTip(
+            "Progress for checking, installing, updating, repairing, or restoring VantageUI")
+        layout.addWidget(self.progress)
 
         self.log = QPlainTextEdit()
         self.log.setObjectName("VantageUILog")
@@ -349,21 +339,12 @@ class VantageUI(ParserWindow):
         return "update"
 
     def _refresh_primary_action(self):
-        if self._pending_release is not None:
-            text = "Waiting for EverQuest to close…"
-            self.update_button.setText(text)
-            self.update_button.setAccessibleName(
-                "Waiting for EverQuest to close before installing VantageUI")
-            self.update_button.setToolTip(
-                "Installation is queued. Close EverQuest normally and keep "
-                "Vantage open; Vantage will never close the game.")
-            return
         kind = self._primary_action_kind()
         if kind == "install":
             text = "Install VantageUI"
             tooltip = (
                 "Check for the verified release, then install only "
-                "uifiles\\VantageUI")
+                "uifiles\\VantageUI; if EverQuest is open, reload the skin afterward")
         elif kind == "repair":
             text = "Repair VantageUI"
             tooltip = (
@@ -383,8 +364,7 @@ class VantageUI(ParserWindow):
                 self.path_edit, self.browse_button, self.check_button,
                 self.restore_button, self.auto_update):
             control.setEnabled(not self._busy)
-        self.update_button.setEnabled(
-            not self._busy and self._pending_release is None)
+        self.update_button.setEnabled(not self._busy)
 
     def _save_settings(self):
         config.data["vantage_ui"]["eq_dir"] = normalize_eq_root(
@@ -398,7 +378,6 @@ class VantageUI(ParserWindow):
         self._release = None
         self._installed = ""
         self._install_after_check = False
-        self._clear_pending_wait()
         self._refresh_target()
         self._refresh_versions()
         self._save_settings()
@@ -418,14 +397,20 @@ class VantageUI(ParserWindow):
         self._busy = True
         self._operation_token += 1
         token = self._operation_token
+        self._progress_value = 0
+        self._progress_stage = status
+        self.progress.setValue(0)
+        self.progress.setFormat("Starting · 0%")
+        self.progress.setAccessibleDescription(f"{status} 0 percent.")
         self.elevation_button.hide()
         self._set_status(status)
         self._refresh_controls()
 
         def run():
             try:
-                result = callback(lambda message: self._signals.log.emit(
-                    token, str(message)))
+                result = callback(
+                    lambda message: self._signals.log.emit(token, str(message)),
+                    self._progress_callback(token))
             except BaseException as error:
                 self._signals.failed.emit(token, action, error)
             else:
@@ -435,12 +420,30 @@ class VantageUI(ParserWindow):
             target=run, name=f"VantageUI-{action}", daemon=True).start()
         return True
 
+    def _progress_callback(self, token):
+        return lambda stage, percent, received=0, total=0: self._signals.progress.emit(
+            token, str(stage), int(percent), int(received), int(total))
+
+    def _operation_progress(self, token, stage, percent, received, total):
+        if token != self._operation_token or not self._busy:
+            return
+        value = max(self._progress_value, min(100, max(0, int(percent))))
+        self._progress_value = value
+        self._progress_stage = str(stage)
+        self.progress.setValue(value)
+        self.progress.setFormat(f"{stage} · {value}%")
+        detail = f"{stage}. {value} percent."
+        if total > 0:
+            detail += f" {received} of {total} bytes received."
+        self.progress.setAccessibleDescription(detail)
+
     def refresh_local(self):
         eq_root = normalize_eq_root(self.path_edit.text())
 
-        def read_local(log):
+        def read_local(log, progress):
             ui_skin_updater.recover_pending(
-                eq_root, self.state_directory, log=log)
+                eq_root, self.state_directory, log=log,
+                allow_game_running=True, progress=progress)
             return ui_skin_updater.installed_version(eq_root)
 
         return self._start(
@@ -450,9 +453,9 @@ class VantageUI(ParserWindow):
     def check_for_updates(self):
         eq_root = normalize_eq_root(self.path_edit.text())
 
-        def check(_log):
-            release = ui_skin_updater.check_release()
+        def check(_log, progress):
             installed = ui_skin_updater.installed_version(eq_root)
+            release = ui_skin_updater.check_release(progress=progress)
             return release, installed
 
         return self._start(
@@ -469,7 +472,7 @@ class VantageUI(ParserWindow):
         return dialog.exec() == QMessageBox.StandardButton.Yes
 
     def update_skin(self, _checked=False, confirm=True):
-        if self._busy or self._pending_release is not None:
+        if self._busy:
             return False
         if self._release is None:
             # The primary first-install control is intentionally one action:
@@ -495,19 +498,12 @@ class VantageUI(ParserWindow):
         if confirm and not self._confirm(
                 title, prompt + "\n\n"
                 "Existing replaced files receive a recoverable backup. "
-                "EverQuest will never be closed by Vantage."):
+                "Vantage never closes or signals EverQuest. If EverQuest is open, "
+                "do not reload the UI during installation; after success, run "
+                "/loadskin VantageUI 1 to apply the new files."):
             self._set_status(f"VantageUI {action} cancelled. Nothing changed.")
             self._install_action = ""
             return False
-        try:
-            running = ui_skin_updater.game_running()
-        except Exception as error:
-            self._operation_failed(
-                self._operation_token, "update", error)
-            return False
-        if running:
-            self._queue_pending_update(self._release)
-            return True
         return self._install_release(self._release)
 
     def _install_release(self, release):
@@ -520,46 +516,11 @@ class VantageUI(ParserWindow):
         }[action]
         return self._start(
             "update",
-            lambda log: ui_skin_updater.install_release(
-                release, eq_root, self.state_directory, log=log),
-            f"Verifying, backing up, and {progress_verb} only VantageUI…")
-
-    def _queue_pending_update(self, release):
-        first_notice = self._pending_release is None
-        self._pending_release = release
-        self._pending_timer.start(PENDING_POLL_MS)
-        target = skin_target(self.path_edit.text())
-        message = (
-            f"Installation queued for {target}. Close EverQuest normally and "
-            "keep Vantage open; installation will continue automatically. "
-            "Vantage will never close the game.")
-        self.pending_message.setText(message)
-        self.pending_banner.setAccessibleDescription(message)
-        self.pending_banner.show()
-        if first_notice:
-            self._set_status(message)
-        self._refresh_controls()
-
-    def _clear_pending_wait(self):
-        self._pending_timer.stop()
-        self._pending_release = None
-        self.pending_banner.hide()
-
-    def _poll_pending_update(self):
-        if self._pending_release is None or self._busy:
-            return
-        release = self._pending_release
-        try:
-            if ui_skin_updater.game_running():
-                self._pending_timer.start(PENDING_POLL_MS)
-                return
-        except Exception as error:
-            self._clear_pending_wait()
-            self._install_action = ""
-            self._operation_failed(self._operation_token, "wait", error)
-            return
-        self._clear_pending_wait()
-        self._install_release(release)
+            lambda log, progress: ui_skin_updater.install_release(
+                release, eq_root, self.state_directory, log=log,
+                allow_game_running=True, progress=progress),
+            "Updating — do not reload the UI yet. "
+            f"Vantage is safely {progress_verb} only VantageUI…")
 
     def restore_skin(self):
         if self._busy:
@@ -581,14 +542,16 @@ class VantageUI(ParserWindow):
         eq_root = normalize_eq_root(self.path_edit.text())
         return self._start(
             "restore",
-            lambda log: ui_skin_updater.rollback_last(
-                eq_root, self.state_directory, log=log),
+            lambda log, progress: ui_skin_updater.rollback_last(
+                eq_root, self.state_directory, log=log, progress=progress),
             "Restoring the previous VantageUI files…")
 
     def _operation_completed(self, token, action, result):
         if token != self._operation_token:
             return
         self._busy = False
+        self._progress_value = 100
+        self.progress.setValue(100)
         if action == "local":
             self._installed = str(result or "")
             next_action = (
@@ -611,7 +574,6 @@ class VantageUI(ParserWindow):
         elif action == "update":
             completed_action = self._install_action or "update"
             self._installed = result.version
-            self._clear_pending_wait()
             self._set_status(
                 f"VantageUI {completed_action} complete. In EverQuest use "
                 "/loadskin VantageUI 1, "
@@ -622,6 +584,10 @@ class VantageUI(ParserWindow):
             self._set_status(
                 "Previous VantageUI restored. Verify it in game with "
                 "/loadskin VantageUI 1.")
+        final_text = self.status.text()
+        self.progress.setFormat(f"Complete · 100%")
+        self.progress.setAccessibleDescription(
+            f"VantageUI operation complete. 100 percent. {final_text}")
         self._refresh_versions()
         self._refresh_controls()
         if action == "check":
@@ -637,15 +603,23 @@ class VantageUI(ParserWindow):
         if action == "check":
             self._install_after_check = False
         message = str(error or "Unknown error")
+        sharing = (
+            getattr(error, "winerror", None) in (32, 33) or
+            any(term in message.casefold() for term in (
+                "being used by another process", "sharing violation",
+                "cannot access the file because it is being used")))
         permission = (
-            isinstance(error, PermissionError) or
+            not sharing and (isinstance(error, PermissionError) or
             getattr(error, "winerror", None) == 5 or
             any(term in message.casefold() for term in (
-                "permission denied", "access is denied")))
-        if action == "update" and "close everquest" in message.casefold():
-            self._queue_pending_update(self._release)
-            return
-        if permission:
+                "permission denied", "access is denied"))))
+        if sharing:
+            self._install_action = ""
+            self._set_status(
+                f"VantageUI update stopped safely because Windows locked a file: "
+                f"{message} Close any tool using that file and try again. "
+                "Do not reload the UI; installation did not complete.")
+        elif permission:
             self.elevation_button.show()
             self._set_status(
                 "Windows denied write access. Nothing unsafe was changed. "
@@ -658,6 +632,10 @@ class VantageUI(ParserWindow):
                 f"VantageUI {failed_action} failed safely: {message}. "
                 "Nothing else was changed.")
         self._append_log(token, message)
+        self.progress.setFormat(f"Failed · {self._progress_value}%")
+        self.progress.setAccessibleDescription(
+            f"VantageUI operation failed at {self._progress_value} percent. "
+            f"{self.status.text()}")
         self._refresh_controls()
 
     def _auto_update_changed(self, enabled):
@@ -667,7 +645,6 @@ class VantageUI(ParserWindow):
             self.check_for_updates()
         else:
             self._automatic_timer.stop()
-            self._clear_pending_wait()
             self._install_action = ""
             self._refresh_controls()
             self._set_status("Automatic VantageUI updates are off.")

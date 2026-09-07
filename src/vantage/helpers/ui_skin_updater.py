@@ -120,7 +120,8 @@ class _PinnedRedirects(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def _download(url, destination, limit, expected_hash=None, expected_size=None):
+def _download(url, destination, limit, expected_hash=None, expected_size=None,
+              progress=None):
     """HTTPS with bounded streaming, timeout, redirect policy and optional pin."""
     parts = _https_parts(url)
     _require(parts.hostname in {"api.github.com", "github.com"}, "Untrusted update host.")
@@ -135,6 +136,10 @@ def _download(url, destination, limit, expected_hash=None, expected_size=None):
         length = response.headers.get("Content-Length")
         if length is not None:
             _require(length.isdigit() and int(length) <= limit, "Update exceeds its download limit.")
+        total = expected_size if expected_size is not None else (
+            int(length) if length is not None else 0)
+        if progress is not None:
+            progress(0, total)
         with open(destination, "xb") as output:
             while True:
                 _require(time.monotonic() - started < NETWORK_DEADLINE, "Update download timed out.")
@@ -145,11 +150,46 @@ def _download(url, destination, limit, expected_hash=None, expected_size=None):
                 _require(count <= limit, "Update exceeds its download limit.")
                 digest.update(chunk)
                 output.write(chunk)
+                if progress is not None:
+                    progress(count, total)
             output.flush()
             os.fsync(output.fileno())
     _require(expected_size is None or count == expected_size, "Incomplete release asset download.")
     _require(expected_hash is None or digest.hexdigest() == expected_hash,
              "GitHub release asset SHA-256 verification failed.")
+
+
+def _emit_progress(callback, stage, percent, received=0, total=0):
+    """Report bounded progress without letting presentation code break safety."""
+    if callback is None:
+        return
+    try:
+        callback(str(stage), max(0, min(100, int(percent))),
+                 max(0, int(received)), max(0, int(total)))
+    except Exception:
+        pass
+
+
+def _monotonic_progress(callback):
+    if callback is None or getattr(callback, "_vantage_monotonic", False):
+        return callback
+    highest = 0
+
+    def report(stage, percent, received=0, total=0):
+        nonlocal highest
+        highest = max(highest, max(0, min(100, int(percent))))
+        callback(stage, highest, received, total)
+
+    report._vantage_monotonic = True
+    return report
+
+
+def _download_asset(url, destination, limit, expected_hash, expected_size,
+                    progress):
+    if progress is None:
+        return _download(url, destination, limit, expected_hash, expected_size)
+    return _download(url, destination, limit, expected_hash, expected_size,
+                     progress=progress)
 
 
 def parse_release_payload(payload):
@@ -190,23 +230,43 @@ def _has_ui_assets(payload):
                for asset in payload["assets"])
 
 
-def check_release():
+def check_release(progress=None):
     """Find the newest stable UI release, tolerating main-app-only releases.
 
     A release containing either UI asset is never silently skipped if malformed.
     Discovery is bounded to latest plus at most two pages of twenty releases.
     """
+    progress = _monotonic_progress(progress)
     with tempfile.TemporaryDirectory(prefix="vantage-ui-check-") as directory:
         path = Path(directory) / "release.json"
-        _download(LATEST_RELEASE_API, path, 4 * 1024 * 1024)
+        _emit_progress(progress, "Checking release", 0)
+        if progress is None:
+            _download(LATEST_RELEASE_API, path, 4 * 1024 * 1024)
+        else:
+            _download(LATEST_RELEASE_API, path, 4 * 1024 * 1024,
+                      progress=lambda count, total: _emit_progress(
+                          progress, "Downloading release information",
+                          5 if not total else 5 + round(25 * count / total),
+                          count, total))
         latest = _json(path.read_bytes())
         if _has_ui_assets(latest):
-            return parse_release_payload(latest)
+            result = parse_release_payload(latest)
+            _emit_progress(progress, "Release verified", 100)
+            return result
         _require(latest.get("draft") is False and latest.get("prerelease") is False,
                  "GitHub did not return a stable latest release.")
         for page in (1, 2):
             page_path = Path(directory) / f"releases-{page}.json"
-            _download(f"{RELEASES_API}?per_page=20&page={page}", page_path, 4 * 1024 * 1024)
+            url = f"{RELEASES_API}?per_page=20&page={page}"
+            if progress is None:
+                _download(url, page_path, 4 * 1024 * 1024)
+            else:
+                base = 35 + (page - 1) * 25
+                _download(url, page_path, 4 * 1024 * 1024,
+                          progress=lambda count, total, base=base: _emit_progress(
+                              progress, "Searching verified UI releases",
+                              base if not total else base + round(20 * count / total),
+                              count, total))
             releases = _json(page_path.read_bytes())
             _require(isinstance(releases, list) and len(releases) <= 20,
                      "Invalid GitHub release history response.")
@@ -215,7 +275,9 @@ def check_release():
                 if candidate.get("draft") is True or candidate.get("prerelease") is True:
                     continue
                 if _has_ui_assets(candidate):
-                    return parse_release_payload(candidate)
+                    result = parse_release_payload(candidate)
+                    _emit_progress(progress, "Release verified", 100)
+                    return result
             if len(releases) < 20:
                 break
         raise SkinUpdateError("No stable Vantage UI release was found in the latest 40 releases.")
@@ -402,6 +464,11 @@ def _require_game_closed():
     _require(not game_running(), "Close EverQuest before updating or restoring its UI. Nothing was stopped.")
 
 
+def _require_install_policy(allow_game_running=False):
+    if not allow_game_running:
+        _require_game_closed()
+
+
 @contextmanager
 def _target_lock(target):
     path = _plain_path(target / LOCK_NAME)
@@ -505,32 +572,38 @@ def _load_journal(path, target, state):
     return journal
 
 
-def _restore(journal, target, state, log, strict=False):
+def _restore(journal, target, state, log, strict=False,
+             allow_game_running=False, progress=None):
     """Preflight every hash before restoring; never overwrite new user edits."""
     for entry in journal["entries"]:
         current = _current_hash(target / entry["path"])
         accepted = (entry["new"],) if strict else (entry["old"], entry["new"])
         _require(current in accepted, f"UI file changed since the update: {entry['path']}. Recovery paused to preserve it.")
     backup = state / journal["transaction"]
-    for index in reversed(range(len(journal["entries"]))):
+    count = len(journal["entries"])
+    for restored, index in enumerate(reversed(range(count)), 1):
         entry = journal["entries"][index]
         path = target / entry["path"]
         current = _current_hash(path)
         _require(current in (entry["old"], entry["new"]), "UI file changed during recovery; stopping safely.")
         if current == entry["old"]:
             continue
-        _require_game_closed()
+        _require_install_policy(allow_game_running)
         _plain_path(target)
         if entry["old"] is None:
             path.unlink()
         else:
             data = _read_file(backup / f"{index:04d}.bin")
             _require(_digest(data) == entry["old"], "UI recovery backup changed; stopping safely.")
-            _atomic_bytes(path, data, before_replace=_require_game_closed)
+            _atomic_bytes(path, data, before_replace=lambda: _require_install_policy(
+                allow_game_running))
         log(f"Restored {entry['path']}")
+        _emit_progress(progress, "Restoring previous files",
+                       15 + round(75 * restored / max(1, count)))
 
 
-def _recover_pending(target, state, log):
+def _recover_pending(target, state, log, allow_game_running=False,
+                     progress=None):
     # This check MUST also run under the target lock: a different updater/profile
     # may have begun a transaction while this instance was downloading its assets.
     pending = _check_recovery_marker(target, state)
@@ -546,9 +619,11 @@ def _recover_pending(target, state, log):
     journal = _load_journal(active, target, state)
     _require(not pending or pending["transaction"] == journal["transaction"],
              "The UI transaction marker and recovery journal disagree. Manual recovery is required.")
-    _require_game_closed()
+    _require_install_policy(allow_game_running)
     log("Recovering an interrupted UI transaction before continuing.")
-    _restore(journal, target, state, log)
+    _emit_progress(progress, "Recovering interrupted update", 5)
+    _restore(journal, target, state, log,
+             allow_game_running=allow_game_running, progress=progress)
     last = _plain_path(state / "last.json")
     if last.exists() and _load_journal(last, target, state)["transaction"] == journal["transaction"]:
         last.unlink()
@@ -570,19 +645,26 @@ def installed_version(eq_dir):
     return version
 
 
-def recover_pending(eq_dir, state_dir, log=print):
+def recover_pending(eq_dir, state_dir, log=print, allow_game_running=False,
+                    progress=None):
     """Call at GUI startup after choosing EQ; no network or payload execution."""
+    progress = _monotonic_progress(progress)
     game, target = _target(eq_dir)
     if not target.exists():
         return False
     state = _state_directory(game, target, state_dir)
     with _target_lock(target):
-        return _recover_pending(target, state, log)
+        return _recover_pending(target, state, log,
+                                allow_game_running=allow_game_running,
+                                progress=progress)
 
 
-def install_release(release, eq_dir, state_dir, log=print):
+def install_release(release, eq_dir, state_dir, log=print,
+                    allow_game_running=False, progress=None):
+    progress = _monotonic_progress(progress)
     _validate_release(release)
-    _require_game_closed()
+    _require_install_policy(allow_game_running)
+    _emit_progress(progress, "Preparing verified update", 0)
     game, target = _target(eq_dir)
     state = _state_directory(game, target, state_dir)
     # Stage and verify the complete payload outside EQ before creating/mutating its skin.
@@ -590,18 +672,28 @@ def install_release(release, eq_dir, state_dir, log=print):
         temporary = Path(temporary)
         manifest_path, payload_path = temporary / "manifest.json", temporary / "payload.zip"
         log(f"Downloading verified Vantage UI {release.version}.")
-        _download(release.manifest_url, manifest_path, MAX_MANIFEST_BYTES,
-                  release.manifest_sha256, release.manifest_size)
+        manifest_progress = None if progress is None else lambda count, total: _emit_progress(
+            progress, "Downloading manifest", 3 + round(12 * count / max(1, total)), count, total)
+        _download_asset(release.manifest_url, manifest_path, MAX_MANIFEST_BYTES,
+                        release.manifest_sha256, release.manifest_size,
+                        manifest_progress)
+        _emit_progress(progress, "Verifying manifest", 17)
         entries = validate_manifest(manifest_path.read_bytes(), release.version)
-        _download(release.payload_url, payload_path, MAX_ARCHIVE_BYTES,
-                  release.payload_sha256, release.payload_size)
+        payload_progress = None if progress is None else lambda count, total: _emit_progress(
+            progress, "Downloading VantageUI files", 20 + round(35 * count / max(1, total)), count, total)
+        _download_asset(release.payload_url, payload_path, MAX_ARCHIVE_BYTES,
+                        release.payload_sha256, release.payload_size,
+                        payload_progress)
+        _emit_progress(progress, "Verifying downloaded files", 58)
         staging = temporary / "files"
         staging.mkdir()
         stage_archive(payload_path, entries, staging)
-        _require_game_closed()
+        _require_install_policy(allow_game_running)
         _, target = _target(eq_dir, create=True)
         with _target_lock(target):
-            _recover_pending(target, state, log)
+            _recover_pending(target, state, log,
+                             allow_game_running=allow_game_running,
+                             progress=progress)
             current_version = installed_version(eq_dir)
             _require(not current_version or tuple(map(int, release.version.split(".")))
                      >= tuple(map(int, current_version.split("."))),
@@ -615,6 +707,7 @@ def install_release(release, eq_dir, state_dir, log=print):
             files.append((VERSION_MARKER, marker))
             changes = [(name, data) for name, data in files if _current_hash(target / name) != _digest(data)]
             if not changes:
+                _emit_progress(progress, "VantageUI is current", 100)
                 return InstallResult(release.version, 0, "already-current")
             transaction = uuid.uuid4().hex
             backup = _plain_path(state / transaction)
@@ -622,6 +715,7 @@ def install_release(release, eq_dir, state_dir, log=print):
             journal = {"schema": 1, "transaction": transaction, "target": str(target),
                        "version": release.version, "entries": []}
             backup_total = 0
+            _emit_progress(progress, "Backing up replaced files", 65)
             for index, (name, data) in enumerate(changes):
                 old = _current_hash(target / name)
                 if old is not None:
@@ -637,18 +731,31 @@ def install_release(release, eq_dir, state_dir, log=print):
             try:
                 _write_json(target / RECOVERY_MARKER,
                             {"state": str(state), "transaction": transaction})
-                for (name, data), entry in zip(changes, journal["entries"]):
-                    _require_game_closed()
+                _emit_progress(progress, "Updating — do not reload the UI yet", 75)
+                for changed_index, ((name, data), entry) in enumerate(
+                        zip(changes, journal["entries"]), 1):
+                    _require_install_policy(allow_game_running)
                     _target(eq_dir)
                     _require(_current_hash(target / name) == entry["old"], "UI file changed before installation; stopping safely.")
-                    _atomic_bytes(target / name, data, before_replace=_require_game_closed)
+                    try:
+                        _atomic_bytes(target / name, data,
+                                      before_replace=lambda: _require_install_policy(
+                                          allow_game_running))
+                    except OSError as error:
+                        raise SkinUpdateError(
+                            f"Windows could not replace {name}: {error}. "
+                            "The update did not complete; do not reload the UI yet.") from error
                     log(f"Updated {name}")
+                    _emit_progress(progress, "Updating — do not reload the UI yet",
+                                   75 + round(20 * changed_index / len(changes)))
+                _emit_progress(progress, "Finalizing verified installation", 98)
                 _write_json(state / "last.json", journal)
                 active.unlink()
             except BaseException:
                 # An active game or conflicting file can defer rollback to the next launch.
                 try:
-                    _restore(journal, target, state, log)
+                    _restore(journal, target, state, log,
+                             allow_game_running=allow_game_running)
                     last_path = state / "last.json"
                     if last_path.exists():
                         last_value = _json(_read_file(last_path, 2 * 1024 * 1024))
@@ -668,16 +775,19 @@ def install_release(release, eq_dir, state_dir, log=print):
                 (target / RECOVERY_MARKER).unlink()
             except OSError:
                 log("UI installed. Its completed transaction marker will be cleaned on the next launch.")
+            _emit_progress(progress, "Installation complete", 100)
             return InstallResult(release.version, sum(name != VERSION_MARKER for name, _ in changes), "installed")
 
 
-def rollback_last(eq_dir, state_dir, log=print):
+def rollback_last(eq_dir, state_dir, log=print, progress=None):
+    progress = _monotonic_progress(progress)
     _require_game_closed()
+    _emit_progress(progress, "Preparing restore", 0)
     game, target = _target(eq_dir)
     _require(target.exists(), "The Vantage UI skin has not been installed.")
     state = _state_directory(game, target, state_dir)
     with _target_lock(target):
-        _recover_pending(target, state, log)
+        _recover_pending(target, state, log, progress=progress)
         last = _plain_path(state / "last.json")
         _require(last.exists(), "No previous UI installation is available to restore.")
         journal = _load_journal(last, target, state)
@@ -688,9 +798,11 @@ def rollback_last(eq_dir, state_dir, log=print):
         _write_json(state / "active.json", journal)
         _write_json(target / RECOVERY_MARKER,
                     {"state": str(state), "transaction": journal["transaction"]})
-        _restore(journal, target, state, log, strict=True)
+        _restore(journal, target, state, log, strict=True, progress=progress)
         last.unlink()
         (target / RECOVERY_MARKER).unlink()
         (state / "active.json").unlink()
-        return InstallResult(installed_version(eq_dir),
+        result = InstallResult(installed_version(eq_dir),
                              sum(entry["path"] != VERSION_MARKER for entry in journal["entries"]), "restored")
+        _emit_progress(progress, "Restore complete", 100)
+        return result

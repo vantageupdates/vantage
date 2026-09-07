@@ -45,6 +45,29 @@ def test_main_accepts_embedded_entrypoint_arguments(monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out)['version'] == '1.44.51'
 
 
+def test_live_embedded_window_forwards_explicit_opt_in(window, monkeypatch):
+    window.allow_game_running = True
+    window.release = SimpleNamespace(version='1.44.51')
+    prompts = []
+    monkeypatch.setattr(
+        window, '_confirm',
+        lambda title, text: prompts.append((title, text)) or True)
+    calls = []
+    monkeypatch.setattr(
+        gui.updater, 'install_release',
+        lambda *args, **kwargs: calls.append((args, kwargs)) or
+        SimpleNamespace(version='1.44.51'))
+    def immediate(action, callback):
+        assert action == 'install'
+        callback()
+    monkeypatch.setattr(window, '_work', immediate)
+    window.install()
+    assert calls[0][1]['allow_game_running'] is True
+    assert calls[0][1]['progress'] == window.worker_progress
+    assert '/loadskin VantageUI 1' in prompts[0][1]
+    assert 'No recargues' in prompts[0][1]
+
+
 def test_frozen_companion_uses_bundled_release_metadata(tmp_path, monkeypatch):
     (tmp_path / 'release.json').write_text(
         json.dumps({'version': '1.44.51'}), encoding='utf-8')
@@ -128,16 +151,30 @@ def test_error_reenables_controls_and_clears_pending(window):
     assert 'administrador' in window.logbox.get('1.0','end')
 
 
-def test_running_game_defers_automatic_install(window,monkeypatch):
+def test_check_error_does_not_start_auto_or_raise_unbound_local(window, monkeypatch):
+    window.busy = True
+    window.automatic.set(True)
+    starts = []
+    monkeypatch.setattr(window, 'install', lambda *args, **kwargs: starts.append(
+        (args, kwargs)))
+    window.events.put(('error', 'check', OSError('network unavailable')))
+    window._pump()
+    assert not window.busy
+    assert starts == []
+    assert window.progress_value.get() < 100
+    assert 'No se completó' in window.status.get()
+
+
+def test_automatic_update_starts_live_install_without_waiting(window,monkeypatch):
     window.busy=True
-    window.pending=True
     window.automatic.set(True)
     calls=[]
     monkeypatch.setattr(window,'_work',lambda *args:calls.append(args))
-    window.events.put(('done','wait',True))
+    release=SimpleNamespace(version='1.44.51')
+    window.events.put(('done','check',(release,'1.44.50')))
     window._pump()
-    assert window.pending and not calls
-    assert 'esperando' in window.status.get()
+    assert calls and calls[0][0] == 'install'
+    assert not window.pending
 
 
 def test_switching_auto_off_cancels_pending(window,monkeypatch):

@@ -60,7 +60,8 @@ def load_settings(path):
 
 
 class SkinWindow:
-    def __init__(self, root, settings_dir=None, eq_dir=None, test_mode=False):
+    def __init__(self, root, settings_dir=None, eq_dir=None, test_mode=False,
+                 allow_game_running=False):
         self.root = root
         self.settings_dir = Path(settings_dir) if settings_dir else state_root()
         self.settings_path = self.settings_dir / "settings.json"
@@ -71,6 +72,7 @@ class SkinWindow:
         self.installed = ""
         self.release = None
         self.pending = False
+        self.allow_game_running = bool(allow_game_running)
         self.busy = False
         self.confirming = False
         self.events = queue.Queue()
@@ -105,6 +107,8 @@ class SkinWindow:
                   foreground=[("disabled", "#78838b")], bordercolor=[("focus", GOLD)])
         style.configure("Primary.TButton", background="#3c493f", bordercolor="#6c826e")
         style.map("Primary.TButton", background=[("active", "#4a5c4e"), ("disabled", PANEL)])
+        style.configure("Update.Horizontal.TProgressbar", troughcolor="#0e1418",
+                        background=GOLD, bordercolor="#424d55")
         style.configure("TEntry", fieldbackground="#0e1418", foreground=TEXT,
                         insertcolor=TEXT, bordercolor="#424d55", padding=8)
         style.configure("TCheckbutton", background=BG, foreground=TEXT, font=("Segoe UI", 10))
@@ -112,7 +116,7 @@ class SkinWindow:
         outer = ttk.Frame(root, padding=24)
         outer.pack(fill="both", expand=True)
         outer.columnconfigure(0, weight=1)
-        outer.rowconfigure(9, weight=1)
+        outer.rowconfigure(11, weight=1)
         ttk.Label(outer, text="VANTAGE COMPANION", style="Gold.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(outer, text="Tu UI, siempre al día.", style="Title.TLabel").grid(row=1, column=0, sticky="w", pady=(3, 6))
         ttk.Label(outer, text="VantageUI para EverQuest Titanium / Project 1999", style="Muted.TLabel").grid(row=2, column=0, sticky="w", pady=(0, 20))
@@ -141,14 +145,22 @@ class SkinWindow:
         self.auto_button = ttk.Checkbutton(auto, text="Actualizar automáticamente mientras esta ventana esté abierta",
                                            variable=self.automatic, command=self.toggle_auto)
         self.auto_button.pack(anchor="w")
-        ttk.Label(auto, text="Comprueba cada 5 minutos. Si estás jugando, espera a que cierres EverQuest.",
+        ttk.Label(auto, text="Comprueba cada 5 minutos. Si EverQuest está abierto, recarga la skin al terminar.",
                   style="Muted.TLabel").pack(anchor="w", pady=(4, 0))
+        self.progress_value = tk.IntVar(root, 0)
+        self.progress_text = tk.StringVar(root, "Listo · 0%")
+        self.progressbar = ttk.Progressbar(
+            outer, variable=self.progress_value, maximum=100,
+            style="Update.Horizontal.TProgressbar")
+        self.progressbar.grid(row=9, column=0, sticky="ew", pady=(0, 4))
+        ttk.Label(outer, textvariable=self.progress_text,
+                  style="Muted.TLabel").grid(row=10, column=0, sticky="w")
         self.logbox = tk.Text(outer, height=6, bg="#10161a", fg=MUTED, font=("Segoe UI", 10),
                               relief="flat", borderwidth=0, padx=12, pady=10, wrap="word", state="disabled")
-        self.logbox.grid(row=9, column=0, sticky="nsew")
-        ttk.Label(outer, textvariable=self.status, wraplength=650).grid(row=10, column=0, sticky="w", pady=(12, 8))
+        self.logbox.grid(row=11, column=0, sticky="nsew")
+        ttk.Label(outer, textvariable=self.status, wraplength=650).grid(row=12, column=0, sticky="w", pady=(12, 8))
         ttk.Label(outer, text=f"Actualizador {app_version()}   ·   Tras actualizar: /loadskin VantageUI 1",
-                  style="Muted.TLabel").grid(row=11, column=0, sticky="w")
+                  style="Muted.TLabel").grid(row=13, column=0, sticky="w")
         self._controls()
 
     def _controls(self):
@@ -195,6 +207,8 @@ class SkinWindow:
         if self.busy:
             return
         self.busy = True
+        self.progress_value.set(0)
+        self.progress_text.set("Preparando · 0%")
         self._controls()
         def run():
             try:
@@ -210,37 +224,58 @@ class SkinWindow:
                 if kind == "log":
                     self._log(result)
                     continue
+                if kind == "progress":
+                    stage, percent, received, total = result
+                    value = max(self.progress_value.get(), min(100, int(percent)))
+                    self.progress_value.set(value)
+                    suffix = f" · {received}/{total} bytes" if total else ""
+                    self.progress_text.set(f"{stage} · {value}%{suffix}")
+                    continue
+                start_automatic_install = False
                 self.busy = False
                 if kind == "error":
                     self.pending = False
                     self.retry_at = time.monotonic() + CHECK_SECONDS
                     self.status.set("No se completó la operación. Revisa el registro.")
+                    self.progress_text.set(
+                        f"Falló · {self.progress_value.get()}%")
                     self._log(str(result))
-                    if isinstance(result, PermissionError):
+                    message = str(result).casefold()
+                    sharing = (
+                        getattr(result, "winerror", None) in (32, 33) or
+                        "being used by another process" in message or
+                        "sharing violation" in message)
+                    if sharing:
+                        self.status.set(
+                            f"La instalación se detuvo de forma segura: {result}. "
+                            "No recargues la UI; corrige el bloqueo y reintenta.")
+                        self._log(
+                            "Windows mantiene un archivo en uso. Cierra la herramienta "
+                            "que usa ese archivo y reintenta; no recargues la UI todavía.")
+                    elif isinstance(result, PermissionError):
                         self._log("Windows no permite escribir aquí. Cierra el actualizador y usa clic derecho → Ejecutar como administrador.")
                 elif action == "check":
                     self.release, self.installed = result
-                    self.pending = self.automatic.get() and update_available(self.installed, self.release.version)
+                    self.pending = False
+                    start_automatic_install = (
+                        self.automatic.get() and
+                        update_available(self.installed, self.release.version))
                     self.status.set("Hay una actualización disponible." if update_available(self.installed, self.release.version) else "Tu versión está al día. Puedes verificar/reparar con Actualizar UI.")
-                elif action == "wait":
-                    if result:
-                        self.status.set("Actualización pendiente: esperando a que cierres EverQuest.")
-                        self.retry_at = time.monotonic() + 15
-                    else:
-                        self.install(automatic=True)
                 else:
                     self.installed = result if action == "local" else result.version
                     self.status.set("Listo. Comprueba actualizaciones cuando quieras." if action == "local" else "Operación completada. En el juego: /loadskin VantageUI 1")
                     if action in ("install", "restore"):
                         self.pending = False
+                    self.progress_value.set(100)
+                    self.progress_text.set("Completado · 100%")
                 self._version_text()
                 self._controls()
+                if action == "check" and start_automatic_install:
+                    self.install(automatic=True)
         except queue.Empty:
             pass
         now = time.monotonic()
-        if not self.busy and not self.confirming and self.pending and self.automatic.get() and now >= self.retry_at:
-            self._work("wait", updater.game_running)
-        elif not self.busy and not self.confirming and self.automatic.get() and now >= self.next_check:
+        if not self.busy and not self.confirming and self.automatic.get() and now >= self.next_check:
             self.check()
         self.root.after(150, self._pump)
 
@@ -252,7 +287,10 @@ class SkinWindow:
         self.pending = False
         self._save()
         def run():
-            updater.recover_pending(eq, self.backups, log=self.worker_log)
+            updater.recover_pending(
+                eq, self.backups, log=self.worker_log,
+                allow_game_running=self.allow_game_running,
+                progress=self.worker_progress)
             return updater.installed_version(eq)
         self._work("local", run)
 
@@ -270,16 +308,29 @@ class SkinWindow:
         self.next_check = time.monotonic() + CHECK_SECONDS
         self.status.set("Consultando el release oficial de Vantage…")
         self._save()
-        self._work("check", lambda: (updater.check_release(), updater.installed_version(eq)))
+        def run():
+            installed = updater.installed_version(eq)
+            release = updater.check_release(progress=self.worker_progress)
+            return release, installed
+        self._work("check", run)
 
     def worker_log(self, message):
         self.events.put(("log", "", message))
+
+    def worker_progress(self, stage, percent, received=0, total=0):
+        self.events.put(("progress", "", (
+            str(stage), int(percent), int(received), int(total))))
 
     def install(self, automatic=False):
         if not self.release or self.busy:
             return
         if not automatic:
-            if not self._confirm("Actualizar VantageUI", "Se actualizará solo uifiles\\VantageUI.\nSe guardará una copia recuperable de los archivos reemplazados.\n\nEverQuest debe estar cerrado."):
+            live_copy = (
+                "Si EverQuest está abierto, la instalación continuará sin cerrarlo. "
+                "No recargues la UI durante la operación; tras el éxito usa "
+                "/loadskin VantageUI 1."
+                if self.allow_game_running else "EverQuest debe estar cerrado.")
+            if not self._confirm("Actualizar VantageUI", "Se actualizará solo uifiles\\VantageUI.\nSe guardará una copia recuperable de los archivos reemplazados.\n\n" + live_copy):
                 self.automatic.set(False)
                 self.pending = False
                 self._save()
@@ -289,8 +340,11 @@ class SkinWindow:
             return
         selected, eq = self.release, self.eq.get().strip()
         self.pending = False
-        self.status.set("Verificando y actualizando VantageUI. No cierres esta ventana.")
-        self._work("install", lambda: updater.install_release(selected, eq, self.backups, log=self.worker_log))
+        self.status.set("Actualizando — no recargues la UI todavía.")
+        self._work("install", lambda: updater.install_release(
+            selected, eq, self.backups, log=self.worker_log,
+            allow_game_running=self.allow_game_running,
+            progress=self.worker_progress))
 
     def restore(self):
         if self.busy or not self._confirm("Restaurar VantageUI", "Se restaurarán los archivos de la última actualización.\nNo se sobrescribirán cambios posteriores tuyos.\n\nEverQuest debe estar cerrado."):
@@ -302,7 +356,9 @@ class SkinWindow:
         self._save()
         eq = self.eq.get().strip()
         self.status.set("Restaurando la instalación anterior…")
-        self._work("restore", lambda: updater.rollback_last(eq, self.backups, log=self.worker_log))
+        self._work("restore", lambda: updater.rollback_last(
+            eq, self.backups, log=self.worker_log,
+            progress=self.worker_progress))
 
     def toggle_auto(self):
         self._save()
@@ -345,6 +401,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="VantageUI updater")
     parser.add_argument("--eq-dir", help="EverQuest folder containing eqgame.exe")
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--allow-game-running", action="store_true",
+                        help="Allow verified live install without closing EverQuest")
     parser.add_argument("--report", type=Path, help="Optional self-test JSON output")
     args = parser.parse_args(argv)
     if args.self_test:
@@ -359,7 +417,8 @@ def main(argv=None):
         except (AttributeError, OSError):
             pass
     root = tk.Tk()
-    SkinWindow(root, eq_dir=args.eq_dir)
+    SkinWindow(root, eq_dir=args.eq_dir,
+               allow_game_running=args.allow_game_running)
     root.mainloop()
     return 0
 

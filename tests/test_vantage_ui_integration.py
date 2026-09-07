@@ -39,7 +39,6 @@ def panel(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "save", lambda: None)
     widget = VantageUI()
     yield widget
-    widget._pending_timer.stop()
     widget._automatic_timer.stop()
     widget.close()
     config.data = original
@@ -59,7 +58,7 @@ def test_path_normalization_always_targets_flat_vantageui(chosen):
     assert "VantageUI\\VantageUI" not in skin_target(chosen)
 
 
-def test_elevation_command_prefers_separate_updater_candidate(tmp_path):
+def test_elevation_command_uses_current_companion_not_older_sibling(tmp_path):
     companion = tmp_path / "Vantage.exe"
     updater = tmp_path / "VantageUI-Updater.exe"
     companion.touch()
@@ -68,10 +67,10 @@ def test_elevation_command_prefers_separate_updater_candidate(tmp_path):
         r"D:\Games\EverQuest\eqgame.exe",
         current_executable=companion, frozen=True,
         source_script=tmp_path / "missing-updater.py")
-    assert Path(program) == updater
+    assert Path(program) == companion
     assert arguments == subprocess.list2cmdline([
-        "--eq-dir", os.path.normpath(r"D:\Games\EverQuest")])
-    assert "--vantage-ui-updater" not in arguments
+        "--vantage-ui-updater", "--allow-game-running", "--eq-dir",
+        os.path.normpath(r"D:\Games\EverQuest")])
 
 
 def test_elevation_command_falls_back_to_one_file_companion(tmp_path):
@@ -83,8 +82,31 @@ def test_elevation_command_falls_back_to_one_file_companion(tmp_path):
         source_script=tmp_path / "missing-updater.py")
     assert Path(program) == companion
     assert arguments == subprocess.list2cmdline([
-        "--vantage-ui-updater", "--eq-dir",
+        "--vantage-ui-updater", "--allow-game-running", "--eq-dir",
         os.path.normpath(r"D:\Games\EverQuest")])
+
+
+def test_source_elevation_command_opts_into_live_install(tmp_path):
+    script = tmp_path / "vantage_ui_updater.py"
+    script.touch()
+    program, arguments = elevated_updater_command(
+        r"D:\Games\EverQuest", current_executable=tmp_path / "python.exe",
+        frozen=False, source_script=script)
+    assert Path(program) == Path(sys.executable)
+    assert arguments == subprocess.list2cmdline([
+        str(script), "--allow-game-running", "--eq-dir",
+        os.path.normpath(r"D:\Games\EverQuest")])
+
+
+def test_live_install_code_has_no_process_termination_route():
+    root = Path(__file__).resolve().parents[1]
+    source = "\n".join((root / path).read_text(encoding="utf-8") for path in (
+        "src/vantage/helpers/ui_skin_updater.py",
+        "src/vantage/parsers/vantage_ui.py",
+        "src/vantage/ui_skin_app.py"))
+    for forbidden_call in ("TerminateProcess(", "taskkill ", ".terminate(",
+                           ".kill(", "os.kill("):
+        assert forbidden_call not in source
 
 
 def test_panel_title_copy_versions_and_accessibility(panel):
@@ -96,7 +118,7 @@ def test_panel_title_copy_versions_and_accessibility(panel):
     for control in (
             panel.path_edit, panel.browse_button, panel.check_button,
             panel.update_button, panel.restore_button, panel.auto_update,
-            panel.status, panel.log):
+            panel.status, panel.progress, panel.log):
         assert control.accessibleName()
         assert control.toolTip() or control is panel.status
 
@@ -189,12 +211,25 @@ def test_check_completion_displays_installed_available_and_status(panel):
     assert panel.update_button.isEnabled()
 
 
-def test_update_queues_while_eq_runs_then_installs_after_exit(
+def test_automatic_new_release_starts_live_install_without_confirmation(
         panel, monkeypatch):
+    panel.auto_update.blockSignals(True)
+    panel.auto_update.setChecked(True)
+    panel.auto_update.blockSignals(False)
+    calls = []
+    monkeypatch.setattr(
+        panel, "update_skin",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or True)
+    panel._operation_token = 5
+    panel._busy = True
+    panel._operation_completed(
+        5, "check", (SimpleNamespace(version="2.0.0"), "1.0.0"))
+    assert calls == [((), {"confirm": False})]
+
+
+def test_update_proceeds_immediately_while_eq_runs(panel, monkeypatch):
     release = SimpleNamespace(version="2.0.0")
     panel._release = release
-    running = iter((True, False))
-    monkeypatch.setattr(ui_skin_updater, "game_running", lambda: next(running))
     installs = []
     def complete_install(selected):
         installs.append(selected)
@@ -204,79 +239,35 @@ def test_update_queues_while_eq_runs_then_installs_after_exit(
         return True
     monkeypatch.setattr(panel, "_install_release", complete_install)
     assert panel.update_skin(confirm=False) is True
-    assert panel._pending_release is release
-    assert "queued" in panel.status.text().casefold()
-    assert "Close EverQuest normally" in panel.pending_message.text()
-    assert "keep Vantage open" in panel.pending_message.text()
-    assert "never close the game" in panel.pending_message.text()
-    assert skin_target(panel.path_edit.text()) in panel.pending_message.text()
-    assert not panel.pending_banner.isHidden()
-    assert panel.update_button.text() == "Waiting for EverQuest to close…"
-    assert "Waiting for EverQuest" in panel.update_button.accessibleName()
-    assert "never close the game" in panel.update_button.toolTip()
-    assert not panel.update_button.isEnabled()
-    assert installs == []
-    panel._pending_timer.stop()
-    panel._poll_pending_update()
     assert installs == [release]
-    assert panel._pending_release is None
-    assert panel.pending_banner.isHidden()
     assert panel._installed == release.version
     assert panel.update_button.text() == "Repair VantageUI"
     assert "install complete" in panel.status.text()
 
 
-def test_queue_is_one_notice_and_never_changes_files_while_eq_is_open(
-        panel, monkeypatch, tmp_path):
-    eq_root = tmp_path / "EverQuest"
-    target = Path(skin_target(eq_root))
-    target.mkdir(parents=True)
-    existing = target / "EQUI.xml"
-    existing.write_bytes(b"existing skin remains untouched")
-    before = {path.name: path.read_bytes() for path in target.iterdir()}
-    panel.path_edit.setText(str(eq_root))
-    panel._refresh_target()
+def test_panel_install_invokes_core_with_live_opt_in_and_progress(
+        panel, monkeypatch):
     panel._release = SimpleNamespace(version="1.44.51")
-    announcements = []
-    monkeypatch.setattr(panel, "_announce", announcements.append)
-    monkeypatch.setattr(ui_skin_updater, "game_running", lambda: True)
-    monkeypatch.setattr(
-        ui_skin_updater, "install_release",
-        lambda *_args, **_kwargs: pytest.fail(
-            "installer must not run while EverQuest is open"))
-
+    calls = []
+    def install(*args, **kwargs):
+        calls.append((args, kwargs))
+        kwargs["progress"]("Updating", 75, 3, 4)
+        return SimpleNamespace(version="1.44.51")
+    monkeypatch.setattr(ui_skin_updater, "install_release", install)
+    def immediate(action, callback, _status):
+        panel._busy = True
+        panel._operation_token += 1
+        result = callback(lambda _line: None, panel._progress_callback(
+            panel._operation_token))
+        QApplication.processEvents()
+        panel._operation_completed(panel._operation_token, action, result)
+        return True
+    monkeypatch.setattr(panel, "_start", immediate)
     assert panel.update_skin(confirm=False)
-    panel._poll_pending_update()
-    panel._queue_pending_update(panel._release)
-
-    after = {path.name: path.read_bytes() for path in target.iterdir()}
-    assert after == before
-    assert len(announcements) == 1
-    assert announcements[0] == panel.pending_message.text()
-    assert panel._pending_timer.isActive()
-
-
-def test_pending_poll_failure_restores_usable_install_action(panel, monkeypatch):
-    panel._release = SimpleNamespace(version="1.44.51")
-    calls = 0
-
-    def game_state():
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            return True
-        raise OSError("process check unavailable")
-
-    monkeypatch.setattr(ui_skin_updater, "game_running", game_state)
-    assert panel.update_skin(confirm=False)
-    panel._pending_timer.stop()
-    panel._poll_pending_update()
-
-    assert panel._pending_release is None
-    assert panel.pending_banner.isHidden()
-    assert panel.update_button.text() == "Install VantageUI"
-    assert panel.update_button.isEnabled()
-    assert "failed safely" in panel.status.text()
+    assert calls[0][1]["allow_game_running"] is True
+    assert calls[0][1]["progress"] is not None
+    assert panel.progress.value() == 100
+    assert "/loadskin VantageUI 1" in panel.status.text()
 
 
 def test_check_update_restore_and_auto_use_verified_shared_core(
@@ -285,20 +276,21 @@ def test_check_update_restore_and_auto_use_verified_shared_core(
     calls = []
 
     def immediate(action, callback, _status):
-        result = callback(lambda line: calls.append(("log", line)))
+        result = callback(lambda line: calls.append(("log", line)),
+                          lambda *_args: None)
         calls.append((action, result))
         return True
 
     monkeypatch.setattr(panel, "_start", immediate)
-    monkeypatch.setattr(ui_skin_updater, "check_release", lambda: release)
+    monkeypatch.setattr(ui_skin_updater, "check_release", lambda **_kwargs: release)
     monkeypatch.setattr(ui_skin_updater, "installed_version", lambda _path: "2.0.0")
     monkeypatch.setattr(ui_skin_updater, "game_running", lambda: False)
     monkeypatch.setattr(
         ui_skin_updater, "install_release",
-        lambda selected, root, state, log: (selected, root, state))
+        lambda selected, root, state, **_kwargs: (selected, root, state))
     monkeypatch.setattr(
         ui_skin_updater, "rollback_last",
-        lambda root, state, log: (root, state))
+        lambda root, state, **_kwargs: (root, state))
     panel._release = release
     assert panel.check_for_updates()
     assert panel.update_skin(confirm=False)
@@ -331,6 +323,22 @@ def test_permission_denial_offers_only_normal_windows_uac(panel, monkeypatch):
     panel._request_elevation()
     assert requested == [panel.path_edit.text()]
     assert "Companion remains installed and open" in panel.status.text()
+
+
+def test_locked_file_failure_is_truthful_and_never_shows_full_progress(panel):
+    panel._operation_token = 9
+    panel._busy = True
+    panel._progress_value = 81
+    panel.progress.setValue(81)
+    error = ui_skin_updater.SkinUpdateError(
+        "Windows could not replace EQUI_Test.xml: sharing violation. "
+        "The update did not complete; do not reload the UI yet.")
+    panel._operation_failed(9, "update", error)
+    assert panel.progress.value() == 81
+    assert "Failed" in panel.progress.text()
+    assert "locked a file" in panel.status.text()
+    assert "do not reload" in panel.status.text().casefold()
+    assert panel.elevation_button.isHidden()
 
 
 def test_quickbar_and_tray_toggle_vantageui(tmp_path):
