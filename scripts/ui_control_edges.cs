@@ -7,6 +7,28 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 
 public static class VantageControlEdgesRenderer {
+    // Native attack drawing owns visibility and tint. Only a tiny, rounded LED
+    // exists in the atlas: never an outline surrounding the character name.
+    public static void RenderAttack(string destination) {
+        if(Path.GetFileName(destination)!="AttackIndicator.tga")
+            throw new ArgumentException("Only the attack indicator atlas is supported.");
+        using(var atlas=new Bitmap(256,256,PixelFormat.Format32bppArgb)) {
+            using(var g=Graphics.FromImage(atlas))
+            using(var brush=new SolidBrush(Color.White)) {
+                g.SmoothingMode=SmoothingMode.AntiAlias;
+                g.FillEllipse(brush, 0.5f, 7, 3, 5);
+            }
+            using(var output=new BinaryWriter(File.Create(destination))) {
+                byte[] header=new byte[18]; header[2]=2;
+                header[13]=1; header[15]=1; header[16]=32; header[17]=40;
+                output.Write(header);
+                for(int y=0;y<256;y++) for(int x=0;x<256;x++) {
+                    Color c=atlas.GetPixel(x,y);
+                    output.Write(c.B); output.Write(c.G); output.Write(c.R); output.Write(c.A);
+                }
+            }
+        }
+    }
     static GraphicsPath Round(float x,float y,float w,float h,float r) {
         var p=new GraphicsPath(); float d=2*r;
         p.AddArc(x,y,d,d,180,90); p.AddArc(x+w-d,y,d,d,270,90);

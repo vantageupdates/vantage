@@ -1,5 +1,30 @@
 # VantageUI releases
 
+## 1.44.57
+
+Install folder: `VantageUI-v1.44.57`.
+
+- Follows the user's final compact inventory screenshot: the original two-by-five
+  hotbuttons, equipment grid and eight small bag cells, all visible in a 215px
+  high window. No extra pages or scrollbars. Removes the old one-pixel cell
+  overlaps; preserves every equipment, bag and hotbutton binding.
+- Matches the Actions/Camp/Sit window height to the compact inventory so their
+  frames can form a level bottom row. Does not change saved window positions,
+  other skins or character INIs. Keeps Actions width unchanged.
+- Restores 120px spell gems with 24px icons, two-pixel row gaps and smaller
+  centered labels that wrap to two lines instead of widening the spell bar.
+- Removes the player-name rectangle from the attack artwork itself, retaining
+  only a tiny rounded indicator under native client attack-state control.
+  AutoDraw alone did not remove the white rim in 1.44.56.
+- Removes the floating HP tick overlays, including markers in empty group slots,
+  and reverts the extra 5-percent color layers to the previous native palette.
+  Retains HP/mana separation, fine gold borders and the 1.44.55 XML/resist fixes.
+
+Static geometry and package tests do not prove Titanium's item rendering inside
+the compact cells. Reload in game and check small bag/item icons, wrapped names,
+both attack states and the bottom-row frames. School-dependent cast-bar color
+remains pending a supported client/Companion integration; it is not implemented.
+
 ## 1.44.56
 
 Install folder: `VantageUI-v1.44.56`.

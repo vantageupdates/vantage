@@ -35,7 +35,7 @@
       <Y>1</Y>
     </Location>
     <Size>
-      <CX>192</CX>
+      <CX>120</CX>
       <CY>14</CY>
     </Size>
     <Style_Transparent>false</Style_Transparent>
@@ -62,7 +62,7 @@
       <Y>18</Y>
     </Location>
     <Size>
-      <CX>192</CX>
+      <CX>120</CX>
       <CY>28</CY>
     </Size>
     <SpellGemDrawTemplate>
@@ -70,7 +70,7 @@
       <Background>V3_CastBackground</Background>
       <Highlight>V3_CastHighlight</Highlight>
     </SpellGemDrawTemplate>
-    <SpellIconOffsetX>10</SpellIconOffsetX>
+    <SpellIconOffsetX>4</SpellIconOffsetX>
     <SpellIconOffsetY>2</SpellIconOffsetY>
   </SpellGem>
   <Label item="CSPW_Spell0_Name">
@@ -78,12 +78,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>48</X>
-      <Y>26</Y>
+      <X>32</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>140</CX>
-      <CY>12</CY>
+      <CX>85</CX>
+      <CY>24</CY>
     </Size>
     <EQType>60</EQType>
     <TextColor>
@@ -91,7 +91,7 @@
       <G>228</G>
       <B>222</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
+    <NoWrap>false</NoWrap>
     <AlignCenter>true</AlignCenter>
     <AlignRight>false</AlignRight>
   </Label>
@@ -103,7 +103,7 @@
       <Y>48</Y>
     </Location>
     <Size>
-      <CX>192</CX>
+      <CX>120</CX>
       <CY>28</CY>
     </Size>
     <SpellGemDrawTemplate>
@@ -111,7 +111,7 @@
       <Background>V3_CastBackground</Background>
       <Highlight>V3_CastHighlight</Highlight>
     </SpellGemDrawTemplate>
-    <SpellIconOffsetX>10</SpellIconOffsetX>
+    <SpellIconOffsetX>4</SpellIconOffsetX>
     <SpellIconOffsetY>2</SpellIconOffsetY>
   </SpellGem>
   <Label item="CSPW_Spell1_Name">
@@ -119,12 +119,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>48</X>
-      <Y>56</Y>
+      <X>32</X>
+      <Y>50</Y>
     </Location>
     <Size>
-      <CX>140</CX>
-      <CY>12</CY>
+      <CX>85</CX>
+      <CY>24</CY>
     </Size>
     <EQType>61</EQType>
     <TextColor>
@@ -132,7 +132,7 @@
       <G>228</G>
       <B>222</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
+    <NoWrap>false</NoWrap>
     <AlignCenter>true</AlignCenter>
     <AlignRight>false</AlignRight>
   </Label>
@@ -144,7 +144,7 @@
       <Y>78</Y>
     </Location>
     <Size>
-      <CX>192</CX>
+      <CX>120</CX>
       <CY>28</CY>
     </Size>
     <SpellGemDrawTemplate>
@@ -152,7 +152,7 @@
       <Background>V3_CastBackground</Background>
       <Highlight>V3_CastHighlight</Highlight>
     </SpellGemDrawTemplate>
-    <SpellIconOffsetX>10</SpellIconOffsetX>
+    <SpellIconOffsetX>4</SpellIconOffsetX>
     <SpellIconOffsetY>2</SpellIconOffsetY>
   </SpellGem>
   <Label item="CSPW_Spell2_Name">
@@ -160,12 +160,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>48</X>
-      <Y>86</Y>
+      <X>32</X>
+      <Y>80</Y>
     </Location>
     <Size>
-      <CX>140</CX>
-      <CY>12</CY>
+      <CX>85</CX>
+      <CY>24</CY>
     </Size>
     <EQType>62</EQType>
     <TextColor>
@@ -173,7 +173,7 @@
       <G>228</G>
       <B>222</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
+    <NoWrap>false</NoWrap>
     <AlignCenter>true</AlignCenter>
     <AlignRight>false</AlignRight>
   </Label>
@@ -185,7 +185,7 @@
       <Y>108</Y>
     </Location>
     <Size>
-      <CX>192</CX>
+      <CX>120</CX>
       <CY>28</CY>
     </Size>
     <SpellGemDrawTemplate>
@@ -193,7 +193,7 @@
       <Background>V3_CastBackground</Background>
       <Highlight>V3_CastHighlight</Highlight>
     </SpellGemDrawTemplate>
-    <SpellIconOffsetX>10</SpellIconOffsetX>
+    <SpellIconOffsetX>4</SpellIconOffsetX>
     <SpellIconOffsetY>2</SpellIconOffsetY>
   </SpellGem>
   <Label item="CSPW_Spell3_Name">
@@ -201,12 +201,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>48</X>
-      <Y>116</Y>
+      <X>32</X>
+      <Y>110</Y>
     </Location>
     <Size>
-      <CX>140</CX>
-      <CY>12</CY>
+      <CX>85</CX>
+      <CY>24</CY>
     </Size>
     <EQType>63</EQType>
     <TextColor>
@@ -214,7 +214,7 @@
       <G>228</G>
       <B>222</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
+    <NoWrap>false</NoWrap>
     <AlignCenter>true</AlignCenter>
     <AlignRight>false</AlignRight>
   </Label>
@@ -226,7 +226,7 @@
       <Y>138</Y>
     </Location>
     <Size>
-      <CX>192</CX>
+      <CX>120</CX>
       <CY>28</CY>
     </Size>
     <SpellGemDrawTemplate>
@@ -234,7 +234,7 @@
       <Background>V3_CastBackground</Background>
       <Highlight>V3_CastHighlight</Highlight>
     </SpellGemDrawTemplate>
-    <SpellIconOffsetX>10</SpellIconOffsetX>
+    <SpellIconOffsetX>4</SpellIconOffsetX>
     <SpellIconOffsetY>2</SpellIconOffsetY>
   </SpellGem>
   <Label item="CSPW_Spell4_Name">
@@ -242,12 +242,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>48</X>
-      <Y>146</Y>
+      <X>32</X>
+      <Y>140</Y>
     </Location>
     <Size>
-      <CX>140</CX>
-      <CY>12</CY>
+      <CX>85</CX>
+      <CY>24</CY>
     </Size>
     <EQType>64</EQType>
     <TextColor>
@@ -255,7 +255,7 @@
       <G>228</G>
       <B>222</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
+    <NoWrap>false</NoWrap>
     <AlignCenter>true</AlignCenter>
     <AlignRight>false</AlignRight>
   </Label>
@@ -267,7 +267,7 @@
       <Y>168</Y>
     </Location>
     <Size>
-      <CX>192</CX>
+      <CX>120</CX>
       <CY>28</CY>
     </Size>
     <SpellGemDrawTemplate>
@@ -275,7 +275,7 @@
       <Background>V3_CastBackground</Background>
       <Highlight>V3_CastHighlight</Highlight>
     </SpellGemDrawTemplate>
-    <SpellIconOffsetX>10</SpellIconOffsetX>
+    <SpellIconOffsetX>4</SpellIconOffsetX>
     <SpellIconOffsetY>2</SpellIconOffsetY>
   </SpellGem>
   <Label item="CSPW_Spell5_Name">
@@ -283,12 +283,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>48</X>
-      <Y>176</Y>
+      <X>32</X>
+      <Y>170</Y>
     </Location>
     <Size>
-      <CX>140</CX>
-      <CY>12</CY>
+      <CX>85</CX>
+      <CY>24</CY>
     </Size>
     <EQType>65</EQType>
     <TextColor>
@@ -296,7 +296,7 @@
       <G>228</G>
       <B>222</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
+    <NoWrap>false</NoWrap>
     <AlignCenter>true</AlignCenter>
     <AlignRight>false</AlignRight>
   </Label>
@@ -308,7 +308,7 @@
       <Y>198</Y>
     </Location>
     <Size>
-      <CX>192</CX>
+      <CX>120</CX>
       <CY>28</CY>
     </Size>
     <SpellGemDrawTemplate>
@@ -316,7 +316,7 @@
       <Background>V3_CastBackground</Background>
       <Highlight>V3_CastHighlight</Highlight>
     </SpellGemDrawTemplate>
-    <SpellIconOffsetX>10</SpellIconOffsetX>
+    <SpellIconOffsetX>4</SpellIconOffsetX>
     <SpellIconOffsetY>2</SpellIconOffsetY>
   </SpellGem>
   <Label item="CSPW_Spell6_Name">
@@ -324,12 +324,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>48</X>
-      <Y>206</Y>
+      <X>32</X>
+      <Y>200</Y>
     </Location>
     <Size>
-      <CX>140</CX>
-      <CY>12</CY>
+      <CX>85</CX>
+      <CY>24</CY>
     </Size>
     <EQType>66</EQType>
     <TextColor>
@@ -337,7 +337,7 @@
       <G>228</G>
       <B>222</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
+    <NoWrap>false</NoWrap>
     <AlignCenter>true</AlignCenter>
     <AlignRight>false</AlignRight>
   </Label>
@@ -349,7 +349,7 @@
       <Y>228</Y>
     </Location>
     <Size>
-      <CX>192</CX>
+      <CX>120</CX>
       <CY>28</CY>
     </Size>
     <SpellGemDrawTemplate>
@@ -357,7 +357,7 @@
       <Background>V3_CastBackground</Background>
       <Highlight>V3_CastHighlight</Highlight>
     </SpellGemDrawTemplate>
-    <SpellIconOffsetX>10</SpellIconOffsetX>
+    <SpellIconOffsetX>4</SpellIconOffsetX>
     <SpellIconOffsetY>2</SpellIconOffsetY>
   </SpellGem>
   <Label item="CSPW_Spell7_Name">
@@ -365,12 +365,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>48</X>
-      <Y>236</Y>
+      <X>32</X>
+      <Y>230</Y>
     </Location>
     <Size>
-      <CX>140</CX>
-      <CY>12</CY>
+      <CX>85</CX>
+      <CY>24</CY>
     </Size>
     <EQType>67</EQType>
     <TextColor>
@@ -378,7 +378,7 @@
       <G>228</G>
       <B>222</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
+    <NoWrap>false</NoWrap>
     <AlignCenter>true</AlignCenter>
     <AlignRight>false</AlignRight>
   </Label>
@@ -400,7 +400,7 @@
       <Y>25</Y>
     </Location>
     <Size>
-      <CX>202</CX>
+      <CX>130</CX>
       <CY>266</CY>
     </Size>
     <Text>Spells</Text>

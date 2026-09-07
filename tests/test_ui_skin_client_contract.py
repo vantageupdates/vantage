@@ -94,18 +94,19 @@ def test_spell_gems_have_room_for_names_inset_icons_and_row_gaps(index):
     gem = item(xml, 'SpellGem', f'CSPW_Spell{index}')
     label = item(xml, 'Label', f'CSPW_Spell{index}_Name')
     window = item(xml, 'Screen', 'CastSpellWnd')
-    assert rect(gem) == (1, 18 + 30 * index, 192, 28)
-    assert rect(label) == (48, 26 + 30 * index, 140, 12)
+    assert rect(gem) == (1, 18 + 30 * index, 120, 28)
+    assert rect(label) == (32, 20 + 30 * index, 85, 24)
     assert label.findtext('Font') == '1'
+    assert label.findtext('NoWrap') == 'false'
     assert label.findtext('EQType') == str(60 + index)
     assert label.findtext('AlignCenter') == 'true'
     assert gem.findtext('ScreenID') == f'CSPW_Spell{index}'
-    assert gem.findtext('SpellIconOffsetX') == '10'
+    assert gem.findtext('SpellIconOffsetX') == '4'
     assert gem.findtext('SpellIconOffsetY') == '2'
     gx, gy, gw, gh = rect(gem)
     lx, ly, lw, lh = rect(label)
     # Titanium icons are 24px. Never enlarge the art or use newer-client tags.
-    assert gx + 10 + 24 + 8 <= lx
+    assert gx + 4 + 24 + 3 <= lx
     assert gy + 2 + 24 <= gy + gh - 2
     assert lx + lw <= gx + gw - 4
     assert ly + lh / 2 == gy + gh / 2
@@ -117,7 +118,7 @@ def test_spell_gems_have_room_for_names_inset_icons_and_row_gaps(index):
         following = item(xml, 'SpellGem', f'CSPW_Spell{index + 1}')
         assert rect(following)[1] - (gy + gh) == 2
     header = item(xml, 'Button', 'CSPW_SpellBook')
-    assert rect(header) == (1, 1, 192, 14)
+    assert rect(header) == (1, 1, 120, 14)
 
 
 def test_player_name_hp_and_mana_do_not_overlap():
@@ -133,7 +134,7 @@ def test_player_name_hp_and_mana_do_not_overlap():
     assert value[1] == mana[1]
     assert mana[1] + mana[3] <= int(window.findtext('Size/CY')) - 8
     order = {node.get('item'): n for n, node in enumerate(xml)}
-    assert order['Player_HP_VantageTicks'] < order['PlayerWindow']
+    assert not any((p.text or '').endswith('_HP_VantageTicks') for p in window.findall('Pieces'))
 
 
 def test_attack_rim_is_client_drawn_not_a_permanent_decoration():
@@ -147,7 +148,7 @@ def test_attack_rim_is_client_drawn_not_a_permanent_decoration():
     assert len(animation.findall('Frames')) == 1
     pieces = [p.text for p in item(xml, 'Screen', 'PlayerWindow').findall('Pieces')]
     assert pieces.count('A_AttackIndicatorAnim') == 1
-    # Omitting AutoDraw was the regression: the client's SIDL defaults to true.
+    # Keep AutoDraw disabled, but the pixel test below is what excludes a rim.
     schema = root('SIDL.xml')
     default = schema.find(".//{*}ElementType[@name='StaticScreenPiece']/{*}element[@name='AutoDraw']/{*}default")
     assert default is not None and default.text == 'true'
@@ -159,32 +160,27 @@ def test_attack_rim_is_client_drawn_not_a_permanent_decoration():
     ('EQUI_PetInfoWindow.xml', ['Pet']),
     ('EQUI_TargetWindow.xml', ['VantageTarget']),
 ])
-def test_health_intermediate_layers_preserve_native_bindings_and_clip_bounds(filename, prefixes):
-    import importlib.util
-    path = SKIN.parents[1] / 'scripts' / 'ui_health_palette.py'
-    spec = importlib.util.spec_from_file_location('health_palette', path)
-    palette = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(palette)
+def test_health_reverts_extra_layers_and_removes_floating_ticks(filename, prefixes):
     xml = root(filename)
     assert forward_screen_references(xml) == []
     for prefix in prefixes:
-        base = item(xml, 'Gauge', prefix + '_HP_0')
-        x, y, width, height = rect(base)
-        for threshold in (p for p in range(5, 80, 5) if p % 20):
-            name = f'{prefix}_HP_S{threshold:02}'
-            a, b = (item(xml, 'Gauge', name + suffix) for suffix in ('A', 'B'))
-            clip = item(xml, 'Screen', name + 'A_X')
-            cut = width * threshold // 100
-            assert rect(clip) == (x, y, cut, height)
-            assert rect(b) == (x + cut, y, width - cut, height)
-            assert int(b.findtext('GaugeOffsetX')) == -cut
-            assert int(a.findtext('GaugeOffsetX')) == -100 * threshold
-            assert int(a.findtext('Size/CX')) == 10000 - 100 * threshold
-            for gauge in (a, b):
-                assert gauge.findtext('EQType') == base.findtext('EQType')
-                assert tuple(int(gauge.findtext('FillTint/' + c)) for c in 'RGB') == palette.color_at(threshold)
-    original = (SKIN / filename).read_text(encoding='ascii')
-    assert palette.refine(original, filename) == original
+        gauges = [n for n in xml.findall('Gauge') if (n.get('item') or '').startswith(prefix + '_HP_')]
+        expected = {prefix + '_HP_' + suffix for suffix in ('0','1A','1B','2A','2B','3A','3B','4A','4B')}
+        if prefix != 'VantageTarget':
+            expected.add(prefix + '_HP_BG')
+        assert {n.get('item') for n in gauges} == expected
+        assert not any((p.text or '') == prefix + '_HP_VantageTicks' for p in xml.iter('Pieces'))
+
+
+def test_attack_art_contains_only_a_small_led_not_a_name_outline():
+    data = (SKIN / 'AttackIndicator.tga').read_bytes()
+    assert data[2] == 2 and data[16:18] == bytes((32,40))
+    assert int.from_bytes(data[12:14], 'little') == 256
+    assert int.from_bytes(data[14:16], 'little') == 256
+    assert len(data) == 18 + 256*256*4
+    visible = [(i % 256, i // 256) for i, a in enumerate(data[21::4]) if a]
+    assert visible
+    assert all(0 <= x <= 4 and 6 <= y <= 13 for x,y in visible)
 
 
 def test_native_edge_atlas_has_light_one_pixel_separators_and_fine_gold():

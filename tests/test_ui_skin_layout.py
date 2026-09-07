@@ -176,7 +176,11 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
     root = _root("EQUI_HotButtonWnd.xml")
     window = _item(root, "Screen", "HotButtonWnd")
     window_size = _pair(window, "Size", "CX", "CY")
-    assert window_size == (226, 386)
+    assert window_size == (215, 215)
+    actions = _item(_root("EQUI_ActionsWindow.xml"), "Screen", "ActionsWindow")
+    assert window_size[1] == _pair(actions, "Size", "CX", "CY")[1]
+    assert window.findtext("Style_VScroll") == "false"
+    assert window.findtext("Style_HScroll") == "false"
     assert window.findtext("Style_Sizable") == "false"
     pieces = [piece.text.strip() for piece in window.findall("Pieces")]
 
@@ -222,27 +226,27 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
         "Wrist2": 10,
     }
     gear_locations = {
-        "Head": (88, 1),
-        "Face": (88, 43),
-        "Neck": (88, 85),
-        "Shoulder": (88, 127),
-        "Arms": (88, 169),
-        "Hands": (88, 211),
-        "Back": (88, 253),
-        "Earring1": (130, 1),
-        "Earring2": (130, 43),
-        "Wrist1": (130, 85),
-        "Wrist2": (130, 127),
-        "Ring1": (130, 169),
-        "Ring2": (130, 211),
-        "Belt": (130, 253),
-        "Prim": (1, 211),
-        "Sec": (42, 211),
-        "Ranged": (1, 253),
-        "Ammo": (42, 253),
-        "Chest": (1, 295),
-        "Legs": (42, 295),
-        "Boots": (1, 337),
+        "Head": (115, 32),
+        "Face": (115, 61),
+        "Neck": (144, 61),
+        "Shoulder": (86, 90),
+        "Arms": (144, 90),
+        "Hands": (115, 119),
+        "Back": (86, 61),
+        "Earring1": (86, 32),
+        "Earring2": (144, 32),
+        "Wrist1": (86, 119),
+        "Wrist2": (144, 119),
+        "Ring1": (86, 148),
+        "Ring2": (144, 148),
+        "Belt": (115, 148),
+        "Prim": (83, 0),
+        "Sec": (114, 0),
+        "Ranged": (145, 0),
+        "Ammo": (176, 0),
+        "Chest": (115, 90),
+        "Legs": (115, 177),
+        "Boots": (86, 177),
     }
     inventory = {}
     for name, eq_type in gear_types.items():
@@ -250,7 +254,8 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
         assert slot.findtext("ScreenID") == name
         assert int(slot.findtext("EQType")) == eq_type
         rect = _rect(slot)
-        assert rect == (*gear_locations[name], 40, 40)
+        size = 31 if name in ("Prim", "Sec", "Ranged", "Ammo") else 29
+        assert rect == (*gear_locations[name], size, size)
         _assert_in_bounds(rect, window_size)
         assert pieces.count(name) == 1
         inventory[name] = rect
@@ -262,8 +267,8 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
         assert slot.findtext("ScreenID") == name
         assert int(slot.findtext("EQType")) == 21 + index
         rect = _rect(slot)
-        expected_location = (176, 1 + 41 * (index - 1))
-        assert rect == (*expected_location, 40, 40)
+        expected_location = (180, 31 + 22 * (index - 1))
+        assert rect == (*expected_location, 22, 22)
         _assert_in_bounds(rect, window_size)
         assert pieces.count(name) == 1
         inventory[name] = rect
@@ -355,7 +360,7 @@ def test_gold_slot_edge_and_health_tick_resources_are_complete_and_in_bounds():
         assert border.findtext(role) == f"A_VantageSlotGold{role}"
 
 
-def test_health_layers_keep_native_bindings_palette_and_tick_overlays():
+def test_health_layers_keep_native_bindings_without_floating_tick_overlays():
     palette = {
         "0": (239, 68, 68),
         "1": (249, 115, 22),
@@ -387,7 +392,7 @@ def test_health_layers_keep_native_bindings_palette_and_tick_overlays():
         assert _pair(ticks, "Size", "CX", "CY") == (width, 20)
         assert ticks.findtext("Animation") == f"A_VantageHP{width}Lines"
         assert ticks.findtext("AutoDraw") == "true"
-        assert pieces.count(ticks.attrib["item"]) == 1
+        assert pieces.count(ticks.attrib["item"]) == 0
 
     auxiliary_pet = _item(_root("EQUI_PlayerWindow.xml"), "Gauge", "Pet_HP")
     assert int(auxiliary_pet.findtext("EQType")) == 16
@@ -451,7 +456,7 @@ def test_target_threshold_layers_are_native_player_clones_with_target_binding():
 def test_actions_alias_rows_have_real_gaps_and_clipping_safe_page_height():
     root = _root("EQUI_ActionsWindow.xml")
     window = _item(root, "Screen", "ActionsWindow")
-    assert _pair(window, "Size", "CX", "CY") == (144, 182)
+    assert _pair(window, "Size", "CX", "CY") == (144, 215)
     assert window.findtext("Style_Sizable") == "false"
     page = _item(root, "Page", "ActionsMainPage")
     pieces = [piece.text.strip() for piece in page.findall("Pieces")]
@@ -503,7 +508,7 @@ def test_actions_alias_rows_have_real_gaps_and_clipping_safe_page_height():
             icon = _item(animations, "Ui2DAnimation", tab_page.findtext(field))
             tab_heights.add(_pair(_only_frame(icon), "Size", "CX", "CY")[1])
     assert tab_heights == {18}
-    conservative_page_height = 182 - top_height - bottom_height - 18
+    conservative_page_height = 215 - top_height - bottom_height - 18
     assert conservative_page_height - (130 + 20) >= 4
 
 
