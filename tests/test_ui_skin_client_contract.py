@@ -89,15 +89,20 @@ def test_reproduces_ui54_resistance_icon_overlap(school):
 
 
 def assert_two_line_spell_name_room(gem, label):
-    """Reserve two 12px line boxes plus descent slack, inside the gem.
+    """Retain both native line boxes; distinguish layout from visible ink.
 
-    This is a conservative geometry budget, not a simulation of EQ's renderer.
-    Checking only containment previously allowed a clipped 20px label to pass.
+    User captures show 8-9px glyphs at a 12px wrapped-line pitch. Budget a
+    2px glyph inset and 9px ink height. The transparent layout tail may extend
+    into the row gap, but the modeled two-line ink must stay inside the gem.
+    This is a screenshot-based budget, not verification of native rendering.
+    Keep 26px layout height: shrinking to 20px previously caused truncation.
     """
     gx, gy, gw, gh = rect(gem)
     lx, ly, lw, lh = rect(label)
     assert lh >= 2 * 12 + 2, 'Two-line spell name needs descent slack'
-    assert gy + 1 <= ly and ly + lh <= gy + gh - 1
+    assert gy + 1 <= ly
+    assert ly + 2 + 12 + 9 <= gy + gh - 1, 'Wrapped glyphs must stay inside gem'
+    assert ly + lh <= gy + gh + 2, 'Transparent layout tail exceeds row gap'
     assert gx + 31 <= lx and lx + lw <= gx + gw - 4
 
 
@@ -108,7 +113,7 @@ def test_spell_gems_have_room_for_names_inset_icons_and_row_gaps(index):
     label = item(xml, 'Label', f'CSPW_Spell{index}_Name')
     window = item(xml, 'Screen', 'CastSpellWnd')
     assert rect(gem) == (1, 18 + 32 * index, 120, 28)
-    assert rect(label) == (32, 19 + 32 * index, 85, 26)
+    assert rect(label) == (32, 22 + 32 * index, 85, 26)
     assert_two_line_spell_name_room(gem, label)
     assert label.findtext('Font') == '1'
     assert label.findtext('NoWrap') == 'false'
@@ -123,8 +128,8 @@ def test_spell_gems_have_room_for_names_inset_icons_and_row_gaps(index):
     assert gx + 4 + 24 + 3 <= lx
     assert 2 + 24 + 2 == gh
     assert lx + lw <= gx + gw - 4
-    assert ly == gy + 1
-    assert ly + lh <= gy + gh - 1
+    assert ly == gy + 4
+    assert ly + lh == gy + gh + 2
     assert gx + gw <= int(window.findtext('Size/CX')) - 8
     assert gy + gh <= int(window.findtext('Size/CY')) - 8
     assert gem.find('SpellIconSizeX') is None
@@ -132,10 +137,21 @@ def test_spell_gems_have_room_for_names_inset_icons_and_row_gaps(index):
     if index < 7:
         following = item(xml, 'SpellGem', f'CSPW_Spell{index + 1}')
         assert rect(following)[1] - (gy + gh) == 4
+        assert ly + lh <= rect(following)[1] - 2
     header = item(xml, 'Button', 'CSPW_SpellBook')
     assert rect(header) == (1, 1, 120, 14)
     assert window.findtext('Size/CX') == '130'
     assert window.findtext('Size/CY') == '280'
+
+
+@pytest.mark.parametrize('index', range(8))
+def test_rejects_lowering_both_wrapped_lines_to_single_line_center(index):
+    xml = root('EQUI_CastSpellWnd.xml')
+    gem = item(xml, 'SpellGem', f'CSPW_Spell{index}')
+    label = deepcopy(item(xml, 'Label', f'CSPW_Spell{index}_Name'))
+    label.find('Location/Y').text = str(rect(gem)[1] + 8)
+    with pytest.raises(AssertionError, match='Wrapped glyphs'):
+        assert_two_line_spell_name_room(gem, label)
 
 
 @pytest.mark.parametrize('index', range(8))

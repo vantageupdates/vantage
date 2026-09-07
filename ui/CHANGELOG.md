@@ -1,5 +1,24 @@
 # VantageUI releases
 
+## 1.44.62
+
+Install folder: `VantageUI-v1.44.62`.
+
+- Lowers all eight spell-name labels by 3px without changing font, wrapping,
+  horizontal centering, gem dimensions, icon positions or the 4px row gaps.
+- Retains the full 26px native text-layout height. Its transparent bottom tail
+  extends 2px into the gap, stopping 2px before the next button; it is not a
+  painted surface. Tests separately budget two lines of visible glyphs inside
+  the gem using the 8-9px glyphs / 12px line pitch observed in user captures.
+- This is a bounded downward alignment correction, not automatic vertical
+  centering by name length. Titanium's Label schema has no such option; pushing
+  every label to the ideal single-line position risks overflowing wrapped names.
+- Preserves all health colors, artwork, inventory, bags and Actions. No changes
+  to character INIs or Companion. Uses the same published update locally.
+
+Load manually with `/loadskin VantageUI-v1.44.62 1`. Native visual confirmation
+is still required for both single-line and wrapped spell names.
+
 ## 1.44.61
 
 Install folder: `VantageUI-v1.44.61`.
