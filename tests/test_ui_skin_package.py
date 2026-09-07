@@ -20,8 +20,8 @@ def candidate(tmp_path):
     (skin / "EQUI_Test.xml").write_bytes(b'<XML><Screen item="Test" /></XML>\r\n')
     (skin / "Colors.TGA").write_bytes(b"fixture image bytes\x00\xff")
     release = tmp_path / "release.json"
-    release.write_text(json.dumps({"schema": 1, "version": "1.44.51",
-                                   "skin_folder": package.SKIN_FOLDER}), encoding="utf-8")
+    release.write_text(json.dumps({"schema": 2, "version": "1.44.52",
+                                   "skin_folder": "VantageUI-v1.44.52"}), encoding="utf-8")
     return skin, release, tmp_path / "output"
 
 
@@ -31,8 +31,9 @@ def test_manifest_exact_bytes_flat_entries_and_deterministic_archive(candidate):
     zip_bytes = (output / package.PAYLOAD_NAME).read_bytes()
     manifest_bytes = (output / package.MANIFEST_NAME).read_bytes()
     assert json.loads(manifest_bytes) == manifest
-    assert manifest["version"] == "1.44.51"
-    assert manifest["skin_folder"] == package.SKIN_FOLDER
+    assert manifest["schema"] == 2
+    assert manifest["version"] == "1.44.52"
+    assert manifest["skin_folder"] == "VantageUI-v1.44.52"
     assert [item["path"] for item in manifest["files"]] == ["Colors.TGA", "EQUI_Test.xml"]
     with zipfile.ZipFile(output / package.PAYLOAD_NAME) as archive:
         assert archive.namelist() == [item["path"] for item in manifest["files"]]
@@ -130,9 +131,18 @@ def test_rejects_empty_snapshot(tmp_path):
         package.collect_assets(tmp_path)
 
 
-@pytest.mark.parametrize("change", [{"schema": True}, {"schema": 2}, {"version": "1.2.3-beta"},
-                                    {"version": "01.2.3"}, {"skin_folder": "default"}])
-def test_release_contract_is_fixed(candidate, change):
+@pytest.mark.parametrize("change", [
+    {"schema": True},
+    {"schema": 1},
+    {"schema": 3},
+    {"version": "1.2.3-beta", "skin_folder": "VantageUI-v1.2.3-beta"},
+    {"version": "01.2.3", "skin_folder": "VantageUI-v01.2.3"},
+    {"skin_folder": "default"},
+    {"skin_folder": "VantageUI"},
+    {"skin_folder": "VantageUI-v1.44.51"},
+    {"skin_folder": "vantageui-v1.44.52"},
+])
+def test_release_contract_requires_schema_two_and_exact_versioned_folder(candidate, change):
     skin, release, output = candidate
     data = json.loads(release.read_text(encoding="utf-8"))
     data.update(change)
@@ -174,4 +184,5 @@ def test_repository_snapshot_parses_and_matches_release_contract():
     assert "EQUI_CastSpellWnd.xml" in assets
     assert "SIDL.xml" in assets
     release = package.load_release(root / "ui" / "release.json")
-    assert release["skin_folder"] == package.SKIN_FOLDER
+    assert release == {"schema": 2, "version": "1.44.52",
+                       "skin_folder": "VantageUI-v1.44.52"}

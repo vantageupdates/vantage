@@ -1,8 +1,9 @@
 # UI asset provenance and notices
 
 The skin snapshot in `ui/skin` originates from the user-supplied `rustle2.rar`
-and its locally maintained `rustle2-repaired-v3` derivative, now permanently
-named `VantageUI` at the user's request. It combines
+and its locally maintained `rustle2-repaired-v3` derivative, whose legacy
+working folder is named `VantageUI`. New published installations use
+`VantageUI-v<major.minor.patch>` at the user's request. It combines
 third-party EverQuest-compatible XML and artwork with subsequent compatibility
 repairs and visual modifications. Original contributors retain their rights.
 

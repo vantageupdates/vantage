@@ -119,11 +119,23 @@ Distribuido bajo GNU GPL v3; consulta `LICENSE` y `SOURCE-NOTICE.md` para los av
 ## VantageUI
 
 Companion incluye un panel independiente **VantageUI** para instalar y mantener
-la skin opcional incluida en este repositorio. Administra únicamente
-`EverQuest\uifiles\VantageUI`, verifica los archivos publicados y conserva una
-copia recuperable antes de reemplazarlos. Si EverQuest está abierto, la
-actualización queda pendiente hasta que el juego se cierre; Vantage nunca
-termina el proceso ni modifica otras skins, archivos INI, binarios del juego o
-la instalación de Companion. Tras instalar, usa `/loadskin VantageUI 1` y
-verifica la interfaz dentro del juego. Consulta [la documentación de
+la skin opcional incluida en este repositorio. Cada lanzamiento UI se instala en
+una carpeta propia como `EverQuest\uifiles\VantageUI-v1.44.52`; la carpeta
+legada `VantageUI` permanece intacta. El actualizador verifica los archivos,
+conserva la selección activa y una anterior incluso si el usuario las edita, y
+solo elimina versiones administradas más antiguas que sigan intactas. Las
+carpetas modificadas se conservan con aviso y las no administradas no se adoptan
+ni se inspeccionan. Por defecto EverQuest debe estar cerrado; el modo opcional
+para instalar una carpeta nueva con el juego abierto siempre difiere la limpieza.
+Vantage nunca termina el proceso ni modifica otras skins, enlaces, archivos INI,
+binarios del juego o la instalación de Companion. “Activa” es la selección del
+actualizador, no la skin cargada por EverQuest: después de instalar, copia el
+comando mostrado, por ejemplo `/loadskin VantageUI-v1.44.52 1`, y verifica la
+interfaz dentro del juego. Restaurar solo selecciona una versión anterior que
+siga íntegra; nunca sobrescribe sus archivos. Consulta [la documentación de
 VantageUI](ui/README.md) para detalles técnicos y avisos.
+
+Antes de publicar esta versión independiente, la skin visual revisada debe
+sincronizarse explícitamente con `ui/skin` y el panel dinámico de VantageUI en
+Companion debe completar sus pruebas con el mismo núcleo. Estas dependencias no
+implican compilar ni publicar un nuevo `Vantage.exe`.

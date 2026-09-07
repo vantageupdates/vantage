@@ -51,12 +51,14 @@ def panel(tmp_path, monkeypatch):
     r"D:\Games\EverQuest\eqgame.exe",
     r"D:\Games\EverQuest\uifiles",
     r"D:\Games\EverQuest\uifiles\VantageUI",
+    r"D:\Games\EverQuest\uifiles\VantageUI-v1.44.52",
 ])
-def test_path_normalization_always_targets_flat_vantageui(chosen):
+def test_path_normalization_always_targets_flat_versioned_vantageui(chosen):
     root = normalize_eq_root(chosen)
     assert Path(root).name == "EverQuest"
-    assert Path(skin_target(chosen)).parts[-2:] == ("uifiles", "VantageUI")
-    assert "VantageUI\\VantageUI" not in skin_target(chosen)
+    target = skin_target(chosen, "1.44.52")
+    assert Path(target).parts[-2:] == ("uifiles", "VantageUI-v1.44.52")
+    assert "VantageUI-v1.44.52\\VantageUI" not in target
 
 
 def test_elevation_command_uses_current_companion_not_older_sibling(tmp_path):
@@ -112,16 +114,40 @@ def test_live_install_code_has_no_process_termination_route():
 
 def test_panel_title_copy_versions_and_accessibility(panel):
     assert panel.windowTitle() == panel._title.text() == "VantageUI"
-    assert panel.target_value.text().endswith(r"uifiles\VantageUI")
+    assert panel.target_value.text() == (
+        "Selected: Not installed\nNext install: Not checked")
     assert panel.installed_value.text() == "Not installed"
     assert panel.available_value.text() == "Not checked"
-    assert "/loadskin VantageUI 1" in panel.instruction.text()
+    assert panel.available_value.accessibleDescription() == (
+        "The available VantageUI version has not been checked.")
+    assert "exact <b>/loadskin</b> command" in panel.instruction.text()
     for control in (
             panel.path_edit, panel.browse_button, panel.check_button,
-            panel.update_button, panel.restore_button, panel.auto_update,
+            panel.update_button, panel.restore_button,
+            panel.copy_command_button, panel.auto_update,
             panel.status, panel.progress, panel.log):
         assert control.accessibleName()
         assert control.toolTip() or control is panel.status
+
+
+def test_selected_and_available_folders_and_copy_command_are_exact(
+        panel, monkeypatch):
+    panel._installed = "1.44.51"
+    panel._installed_folder = "VantageUI-v1.44.51"
+    panel._release = SimpleNamespace(version="1.44.52")
+    panel._refresh_versions()
+    panel._refresh_controls()
+    assert r"uifiles\VantageUI-v1.44.51" in panel.target_value.text()
+    assert r"uifiles\VantageUI-v1.44.52" in panel.target_value.text()
+    assert "/loadskin VantageUI-v1.44.51 1" in panel.instruction.text()
+    assert panel.copy_command_button.isEnabled()
+
+    monkeypatch.setattr(
+        ui_skin_updater, "loadskin_command",
+        lambda _root: "/loadskin VantageUI-v1.44.51 1")
+    assert panel.copy_loadskin_command() is True
+    assert QApplication.clipboard().text() == "/loadskin VantageUI-v1.44.51 1"
+    assert "Copied /loadskin VantageUI-v1.44.51 1" in panel.status.text()
 
 
 def test_fresh_install_button_checks_then_continues_verified_flow(
@@ -163,9 +189,11 @@ def test_fresh_install_button_checks_then_continues_verified_flow(
     assert panel._install_after_check is True
     assert not panel.update_button.isEnabled()
     release = SimpleNamespace(version="1.44.51")
-    panel._operation_completed(panel._operation_token, "check", (release, ""))
+    panel._operation_completed(
+        panel._operation_token, "check", (release, "", ""))
     assert confirmations[0][0] == "Install VantageUI"
-    assert confirmations[0][1].startswith("Install only")
+    assert confirmations[0][1].startswith(
+        "Install verified release files in uifiles\\VantageUI-v1.44.51")
     assert installs == [release]
 
 
@@ -201,7 +229,7 @@ def test_fresh_install_check_defers_confirmation_when_focus_leaves(
     QApplication.processEvents()
     panel._operation_completed(
         panel._operation_token, "check",
-        (SimpleNamespace(version="1.44.51"), ""))
+        (SimpleNamespace(version="1.44.51"), "", ""))
     QApplication.processEvents()
     QApplication.processEvents()
 
@@ -216,8 +244,9 @@ def test_fresh_install_check_defers_confirmation_when_focus_leaves(
     external.close()
 
 
-def test_installed_action_labels_update_and_current_repair(panel):
+def test_installed_action_labels_update_and_current(panel):
     panel._installed = "1.44.50"
+    panel._installed_folder = "VantageUI-v1.44.50"
     panel._release = None
     panel._refresh_controls()
     assert panel.update_button.text() == "Update VantageUI"
@@ -226,14 +255,14 @@ def test_installed_action_labels_update_and_current_repair(panel):
     panel._release = SimpleNamespace(version="1.44.51")
     panel._refresh_controls()
     assert panel.update_button.text() == "Update VantageUI"
-    assert "back up" in panel.update_button.toolTip()
+    assert "new verified versioned folder" in panel.update_button.toolTip()
 
     panel._release = SimpleNamespace(version="1.44.50")
     panel._refresh_controls()
-    assert panel.update_button.text() == "Repair VantageUI"
-    assert panel.update_button.accessibleName() == "Repair VantageUI"
-    assert "repair" in panel.update_button.toolTip().casefold()
-    assert panel.update_button.isEnabled()
+    assert panel.update_button.text() == "VantageUI is current"
+    assert panel.update_button.accessibleName() == "VantageUI is current"
+    assert "matches" in panel.update_button.toolTip().casefold()
+    assert not panel.update_button.isEnabled()
 
 
 def test_primary_action_keeps_native_keyboard_order_and_activation(panel):
@@ -242,6 +271,15 @@ def test_primary_action_keeps_native_keyboard_order_and_activation(panel):
     app.processEvents()
     assert panel.check_button.nextInFocusChain() is panel.update_button
     assert panel.update_button.nextInFocusChain() is panel.restore_button
+    def next_focusable(control):
+        candidate = control.nextInFocusChain()
+        while candidate.focusPolicy() == Qt.FocusPolicy.NoFocus:
+            candidate = candidate.nextInFocusChain()
+        return candidate
+
+    assert next_focusable(panel.browse_button) is panel.target_value
+    assert next_focusable(panel.target_value) is panel.check_button
+    assert panel.target_value.focusPolicy() == Qt.FocusPolicy.StrongFocus
     assert panel.update_button.focusPolicy() != Qt.FocusPolicy.NoFocus
     activated = []
     panel.update_button.clicked.connect(lambda: activated.append(True))
@@ -257,11 +295,15 @@ def test_check_completion_displays_installed_available_and_status(panel):
     panel._operation_token = 4
     panel._busy = True
     release = SimpleNamespace(version="2.3.4")
-    panel._operation_completed(4, "check", (release, "2.3.3"))
+    panel._operation_completed(
+        4, "check", (release, "2.3.3", "VantageUI-v2.3.3"))
     assert panel.installed_value.text() == "2.3.3"
     assert panel.available_value.text() == "2.3.4"
+    assert panel.available_value.accessibleDescription() == (
+        "Available VantageUI version 2.3.4.")
     assert "available" in panel.status.text().casefold()
     assert panel.update_button.isEnabled()
+    assert "VantageUI-v2.3.3" in panel.target_value.text()
 
 
 def test_automatic_new_release_starts_live_install_without_confirmation(
@@ -276,7 +318,8 @@ def test_automatic_new_release_starts_live_install_without_confirmation(
     panel._operation_token = 5
     panel._busy = True
     panel._operation_completed(
-        5, "check", (SimpleNamespace(version="2.0.0"), "1.0.0"))
+        5, "check", (SimpleNamespace(version="2.0.0"), "1.0.0",
+                     "VantageUI-v1.0.0"))
     assert calls == [((), {"confirm": False, "background": True})]
 
 
@@ -288,13 +331,18 @@ def test_update_proceeds_immediately_while_eq_runs(panel, monkeypatch):
         installs.append(selected)
         panel._busy = True
         panel._operation_token += 1
-        panel._operation_completed(panel._operation_token, "update", selected)
+        panel._operation_completed(
+            panel._operation_token, "update",
+            ui_skin_updater.InstallResult(
+                selected.version, 5, "installed",
+                ui_skin_updater.folder_name(selected.version)))
         return True
     monkeypatch.setattr(panel, "_install_release", complete_install)
     assert panel.update_skin(confirm=False) is True
     assert installs == [release]
     assert panel._installed == release.version
-    assert panel.update_button.text() == "Repair VantageUI"
+    assert panel._installed_folder == "VantageUI-v2.0.0"
+    assert panel.update_button.text() == "VantageUI is current"
     assert "install complete" in panel.status.text()
 
 
@@ -305,7 +353,8 @@ def test_panel_install_invokes_core_with_live_opt_in_and_progress(
     def install(*args, **kwargs):
         calls.append((args, kwargs))
         kwargs["progress"]("Updating", 75, 3, 4)
-        return SimpleNamespace(version="1.44.51")
+        return ui_skin_updater.InstallResult(
+            "1.44.51", 5, "installed", "VantageUI-v1.44.51")
     monkeypatch.setattr(ui_skin_updater, "install_release", install)
     def immediate(action, callback, _status, **_options):
         panel._busy = True
@@ -320,7 +369,37 @@ def test_panel_install_invokes_core_with_live_opt_in_and_progress(
     assert calls[0][1]["allow_game_running"] is True
     assert calls[0][1]["progress"] is not None
     assert panel.progress.value() == 100
-    assert "/loadskin VantageUI 1" in panel.status.text()
+    assert "/loadskin VantageUI-v1.44.51 1" in panel.status.text()
+
+
+def test_install_result_shows_real_folder_and_preservation_warnings(panel):
+    panel._release = SimpleNamespace(version="1.44.52")
+    panel._operation_token = 7
+    panel._busy = True
+    result = ui_skin_updater.InstallResult(
+        "1.44.52", 12, "installed", "VantageUI-v1.44.52",
+        ("Preserved local changes in VantageUI-v1.44.50.",))
+    panel._operation_completed(7, "update", result)
+    assert panel._installed == "1.44.52"
+    assert panel._installed_folder == "VantageUI-v1.44.52"
+    assert "/loadskin VantageUI-v1.44.52 1" in panel.status.text()
+    assert "preserved" in panel.status.text().casefold()
+    assert "VantageUI-v1.44.50" in panel.log.toPlainText()
+    assert panel.update_snapshot()["warnings"] == result.warnings
+
+
+def test_restore_result_selects_previous_folder_and_exact_command(panel):
+    panel._release = SimpleNamespace(version="1.44.52")
+    panel._operation_token = 8
+    panel._busy = True
+    result = ui_skin_updater.InstallResult(
+        "1.44.51", 0, "restored", "VantageUI-v1.44.51")
+    panel._operation_completed(8, "restore", result)
+    assert panel._installed == "1.44.51"
+    assert panel._installed_folder == "VantageUI-v1.44.51"
+    assert panel.update_snapshot()["loadskin_command"] == (
+        "/loadskin VantageUI-v1.44.51 1")
+    assert "/loadskin VantageUI-v1.44.51 1" in panel.status.text()
 
 
 def test_progress_announces_stage_changes_and_quarter_milestones_once(
@@ -359,7 +438,7 @@ def test_progress_announces_stage_changes_and_quarter_milestones_once(
     assert panel.progress.accessibleDescription() == "Finalizing. 100 percent."
 
 
-def test_success_focuses_enabled_primary_action(panel, monkeypatch):
+def test_success_preserves_current_enabled_focus(panel, monkeypatch):
     class DormantThread:
         def __init__(self, *args, **kwargs):
             pass
@@ -371,16 +450,17 @@ def test_success_focuses_enabled_primary_action(panel, monkeypatch):
     panel.activateWindow()
     QApplication.processEvents()
     panel.check_button.setFocus(Qt.FocusReason.OtherFocusReason)
-    assert panel._start("local", lambda *_args: "", "Reading local state")
-    panel._operation_completed(panel._operation_token, "local", "")
+    assert panel._start(
+        "local", lambda *_args: ("", ""), "Reading local state")
+    panel._operation_completed(panel._operation_token, "local", ("", ""))
     QApplication.processEvents()
     QApplication.processEvents()
     assert panel.update_button.isEnabled()
-    assert panel._surface.focusWidget() is panel.update_button
-    assert panel.update_button.hasFocus()
+    assert panel._surface.focusWidget() is panel.log
+    assert panel.log.hasFocus()
 
 
-def test_non_permission_failure_focuses_initiating_retry_action(
+def test_non_permission_failure_preserves_current_enabled_focus(
         panel, monkeypatch):
     class DormantThread:
         def __init__(self, *args, **kwargs):
@@ -399,8 +479,8 @@ def test_non_permission_failure_focuses_initiating_retry_action(
     QApplication.processEvents()
     QApplication.processEvents()
     assert panel.check_button.isEnabled()
-    assert panel._surface.focusWidget() is panel.check_button
-    assert panel.check_button.hasFocus()
+    assert panel._surface.focusWidget() is panel.log
+    assert panel.log.hasFocus()
 
 
 def test_background_check_completion_never_activates_or_moves_focus(
@@ -422,7 +502,8 @@ def test_background_check_completion_never_activates_or_moves_focus(
     assert panel._initiating_control is None
     panel._operation_completed(
         panel._operation_token, "check",
-        (SimpleNamespace(version="2.0.0"), "1.0.0"))
+        (SimpleNamespace(version="2.0.0"), "1.0.0",
+         "VantageUI-v1.0.0"))
     QApplication.processEvents()
     QApplication.processEvents()
     assert QApplication.activeWindow() is external
@@ -480,17 +561,30 @@ def test_background_heartbeat_is_silent_but_manual_check_announces(
     monkeypatch.setattr(vantage_ui_module.threading, "Thread", DormantThread)
     monkeypatch.setattr(vantage_ui_module, "QAccessible", AccessibleRecorder)
 
+    panel.progress.setValue(37)
+    panel.progress.setFormat("Previous manual operation · 37%")
+    panel.progress.setAccessibleDescription(
+        "Previous manual operation. 37 percent.")
+    prior_progress = (
+        panel.progress.value(), panel.progress.format(),
+        panel.progress.accessibleDescription())
+
     assert panel.check_for_updates(background=True)
     token = panel._operation_token
     panel._operation_progress(token, "Downloading", 25, 25, 100)
     panel._operation_completed(
-        token, "check", (SimpleNamespace(version="1.0.0"), "1.0.0"))
+        token, "check", (SimpleNamespace(version="1.0.0"), "1.0.0",
+                         "VantageUI-v1.0.0"))
     assert announcements == []
+    assert (panel.progress.value(), panel.progress.format(),
+            panel.progress.accessibleDescription()) == prior_progress
 
     assert panel.check_for_updates(background=True)
     token = panel._operation_token
     panel._operation_failed(token, "check", RuntimeError("offline"))
     assert announcements == []
+    assert (panel.progress.value(), panel.progress.format(),
+            panel.progress.accessibleDescription()) == prior_progress
 
     assert panel.check_for_updates(background=False)
     token = panel._operation_token
@@ -500,6 +594,31 @@ def test_background_heartbeat_is_silent_but_manual_check_announces(
                for text in announcements)
     assert any("Downloading" in text for text in announcements)
     assert any("failed safely" in text for text in announcements)
+
+
+def test_completion_preserves_focus_when_user_moves_to_log(panel, monkeypatch):
+    class DormantThread:
+        def __init__(self, *args, **kwargs):
+            pass
+        def start(self):
+            pass
+
+    monkeypatch.setattr(vantage_ui_module.threading, "Thread", DormantThread)
+    panel.show()
+    panel.activateWindow()
+    QApplication.processEvents()
+    panel.check_button.setFocus(Qt.FocusReason.OtherFocusReason)
+    assert panel._start(
+        "local", lambda *_args: ("", ""), "Reading local state")
+    panel.log.setFocus(Qt.FocusReason.OtherFocusReason)
+    QApplication.processEvents()
+    assert panel._surface.focusWidget() is panel.log
+
+    panel._operation_completed(panel._operation_token, "local", ("", ""))
+    QApplication.processEvents()
+    QApplication.processEvents()
+    assert panel._surface.focusWidget() is panel.log
+    assert panel.log.hasFocus()
 
 
 def test_manual_completion_does_not_steal_focus_after_user_leaves_panel(
@@ -515,7 +634,8 @@ def test_manual_completion_does_not_steal_focus_after_user_leaves_panel(
     panel.activateWindow()
     QApplication.processEvents()
     panel.check_button.setFocus(Qt.FocusReason.OtherFocusReason)
-    assert panel._start("local", lambda *_args: "", "Reading local state")
+    assert panel._start(
+        "local", lambda *_args: ("", ""), "Reading local state")
     assert panel._initiating_control is panel.check_button
 
     external = QLineEdit()
@@ -523,7 +643,7 @@ def test_manual_completion_does_not_steal_focus_after_user_leaves_panel(
     external.activateWindow()
     external.setFocus(Qt.FocusReason.OtherFocusReason)
     QApplication.processEvents()
-    panel._operation_completed(panel._operation_token, "local", "")
+    panel._operation_completed(panel._operation_token, "local", ("", ""))
     QApplication.processEvents()
     QApplication.processEvents()
     assert QApplication.activeWindow() is external
@@ -585,6 +705,9 @@ def test_check_update_restore_and_auto_use_verified_shared_core(
 
     monkeypatch.setattr(panel, "_start", immediate)
     monkeypatch.setattr(ui_skin_updater, "check_release", lambda **_kwargs: release)
+    monkeypatch.setattr(
+        ui_skin_updater, "installed_folder",
+        lambda _path: "VantageUI-v2.0.0")
     monkeypatch.setattr(ui_skin_updater, "installed_version", lambda _path: "2.0.0")
     monkeypatch.setattr(ui_skin_updater, "game_running", lambda: False)
     monkeypatch.setattr(

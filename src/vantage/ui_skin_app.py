@@ -48,6 +48,18 @@ def update_available(installed, available):
     return bool(available) and (not installed or version_key(available) > version_key(installed))
 
 
+def local_selection(eq_dir):
+    """Read one folder selection, so its version and command cannot disagree."""
+    folder = updater.installed_folder(eq_dir)
+    if not folder:
+        return "", ""
+    prefix = updater.SKIN_FOLDER + "-v"
+    version = folder[len(prefix):] if folder.startswith(prefix) else ""
+    if not version or updater.folder_name(version) != folder:
+        raise updater.SkinUpdateError("La carpeta seleccionada de VantageUI no es válida.")
+    return version, folder
+
+
 def load_settings(path):
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -70,6 +82,9 @@ class SkinWindow:
         self.eq = tk.StringVar(root, eq_dir or settings["eq_dir"])
         self.automatic = tk.BooleanVar(root, settings["automatic"])
         self.installed = ""
+        self.folder = ""
+        self.known_eq = ""
+        self.operation_eq = ""
         self.release = None
         self.pending = False
         self.allow_game_running = bool(allow_game_running)
@@ -81,7 +96,10 @@ class SkinWindow:
         self.test_mode = test_mode
         self.status = tk.StringVar(root, "Selecciona tu carpeta de EverQuest para empezar.")
         self.versions = tk.StringVar(root, "Instalada: sin registrar     Disponible: por comprobar")
+        self.destination = tk.StringVar(root)
+        self.command = tk.StringVar(root)
         self._build()
+        self.eq.trace_add("write", self._path_changed)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         if not test_mode:
             self.root.after(100, self._pump)
@@ -91,8 +109,8 @@ class SkinWindow:
         root = self.root
         root.title("VantageUI · EverQuest")
         root.configure(bg=BG)
-        root.geometry("760x580")
-        root.minsize(680, 550)
+        root.geometry("800x650")
+        root.minsize(720, 650)
         style = ttk.Style(root)
         style.theme_use("clam")
         style.configure("TFrame", background=BG)
@@ -129,8 +147,8 @@ class SkinWindow:
         self.path_entry.bind("<Return>", lambda event: self.refresh_local())
         self.browse_button = ttk.Button(path_row, text="Elegir…", command=self.browse)
         self.browse_button.grid(row=0, column=1)
-        ttk.Label(outer, text="Destino fijo: uifiles\\VantageUI · No se modifican otras skins ni INI.",
-                  style="Muted.TLabel").grid(row=5, column=0, sticky="w", pady=(7, 17))
+        ttk.Label(outer, textvariable=self.destination, wraplength=650,
+                  style="Muted.TLabel").grid(row=5, column=0, sticky="w", pady=(7, 12))
         ttk.Label(outer, textvariable=self.versions, style="Gold.TLabel").grid(row=6, column=0, sticky="w", pady=(0, 12))
         actions = ttk.Frame(outer)
         actions.grid(row=7, column=0, sticky="w")
@@ -145,8 +163,12 @@ class SkinWindow:
         self.auto_button = ttk.Checkbutton(auto, text="Actualizar automáticamente mientras esta ventana esté abierta",
                                            variable=self.automatic, command=self.toggle_auto)
         self.auto_button.pack(anchor="w")
-        ttk.Label(auto, text="Comprueba cada 5 minutos. Si EverQuest está abierto, recarga la skin al terminar.",
-                  style="Muted.TLabel").pack(anchor="w", pady=(4, 0))
+        auto_hint = (
+            "Comprueba cada 5 minutos. Puede instalar con EQ abierto; la limpieza espera a que cierre."
+            if self.allow_game_running else
+            "Comprueba cada 5 minutos. Cierra EverQuest antes de instalar o volver a la versión anterior.")
+        self.auto_hint = ttk.Label(auto, text=auto_hint, wraplength=650, style="Muted.TLabel")
+        self.auto_hint.pack(anchor="w", pady=(4, 0))
         self.progress_value = tk.IntVar(root, 0)
         self.progress_text = tk.StringVar(root, "Listo · 0%")
         self.progressbar = ttk.Progressbar(
@@ -156,17 +178,41 @@ class SkinWindow:
         ttk.Label(outer, textvariable=self.progress_text,
                   style="Muted.TLabel").grid(row=10, column=0, sticky="w")
         self.logbox = tk.Text(outer, height=6, bg="#10161a", fg=MUTED, font=("Segoe UI", 10),
-                              relief="flat", borderwidth=0, padx=12, pady=10, wrap="word", state="disabled")
+                              relief="flat", borderwidth=0, padx=12, pady=4, wrap="word", state="disabled")
         self.logbox.grid(row=11, column=0, sticky="nsew")
         ttk.Label(outer, textvariable=self.status, wraplength=650).grid(row=12, column=0, sticky="w", pady=(12, 8))
-        ttk.Label(outer, text=f"Actualizador {app_version()}   ·   Tras actualizar: /loadskin VantageUI 1",
-                  style="Muted.TLabel").grid(row=13, column=0, sticky="w")
+        command_row = ttk.Frame(outer)
+        command_row.grid(row=13, column=0, sticky="ew")
+        command_row.columnconfigure(0, weight=1)
+        ttk.Label(command_row, textvariable=self.command, wraplength=490,
+                  style="Gold.TLabel").grid(row=0, column=0, sticky="w")
+        self.copy_button = ttk.Button(command_row, text="Copiar comando", command=self.copy_command)
+        self.copy_button.grid(row=0, column=1, padx=(10, 0))
+        ttk.Label(outer, text=f"Actualizador {app_version()} · No cambia otras skins ni INI.",
+                  style="Muted.TLabel").grid(row=14, column=0, sticky="w", pady=(6, 0))
+        self._version_text()
         self._controls()
 
     def _controls(self):
         for widget in (self.browse_button, self.check_button, self.restore_button, self.path_entry, self.auto_button):
             widget.configure(state="disabled" if self.busy or self.confirming else "normal")
         self.install_button.configure(state="normal" if self.release and not self.busy and not self.confirming else "disabled")
+        self.copy_button.configure(state="normal" if self.folder and self.known_eq == self.eq.get().strip()
+                                   and not self.busy and not self.confirming else "disabled")
+
+    def _path_changed(self, *args):
+        self.installed = self.folder = self.known_eq = ""
+        self.release = None
+        self.pending = False
+        self._version_text()
+        self._controls()
+
+    def copy_command(self):
+        if self.busy or self.confirming or not self.folder or self.known_eq != self.eq.get().strip():
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(f"/loadskin {self.folder} 1")
+        self.status.set("Comando copiado. Pégalo en EverQuest para cargar esta carpeta.")
 
     def _save(self):
         try:
@@ -202,11 +248,16 @@ class SkinWindow:
     def _version_text(self):
         available = self.release.version if self.release else "por comprobar"
         self.versions.set(f"Instalada: {self.installed or 'sin registrar'}     Disponible: {available}")
+        selected = self.folder or "sin carpeta versionada seleccionada"
+        next_folder = updater.folder_name(self.release.version) if self.release else "por comprobar"
+        self.destination.set(f"Seleccionada: {selected}\nPróxima instalación: uifiles\\{next_folder}")
+        self.command.set(f"/loadskin {self.folder} 1" if self.folder else "Instala o comprueba una versión para obtener su comando.")
 
     def _work(self, action, callback):
         if self.busy:
             return
         self.busy = True
+        self.operation_eq = self.eq.get().strip()
         self.progress_value.set(0)
         self.progress_text.set("Preparando · 0%")
         self._controls()
@@ -233,7 +284,15 @@ class SkinWindow:
                     continue
                 start_automatic_install = False
                 self.busy = False
+                if self.operation_eq and self.operation_eq != self.eq.get().strip():
+                    self.operation_eq = ""
+                    self._path_changed()
+                    self.status.set("La carpeta cambió. Comprueba la selección actual; la operación usó la carpeta anterior.")
+                    continue
+                self.operation_eq = ""
                 if kind == "error":
+                    self.installed = self.folder = self.known_eq = ""
+                    self.release = None
                     self.pending = False
                     self.retry_at = time.monotonic() + CHECK_SECONDS
                     self.status.set("No se completó la operación. Revisa el registro.")
@@ -255,15 +314,28 @@ class SkinWindow:
                     elif isinstance(result, PermissionError):
                         self._log("Windows no permite escribir aquí. Cierra el actualizador y usa clic derecho → Ejecutar como administrador.")
                 elif action == "check":
-                    self.release, self.installed = result
+                    self.release, selection = result
+                    self.installed, self.folder = selection
+                    self.known_eq = self.eq.get().strip()
                     self.pending = False
                     start_automatic_install = (
                         self.automatic.get() and
                         update_available(self.installed, self.release.version))
-                    self.status.set("Hay una actualización disponible." if update_available(self.installed, self.release.version) else "Tu versión está al día. Puedes verificar/reparar con Actualizar UI.")
+                    self.status.set("Hay una actualización disponible." if update_available(self.installed, self.release.version) else "Tu versión está al día. Se conservarán tus cambios locales.")
                 else:
-                    self.installed = result if action == "local" else result.version
-                    self.status.set("Listo. Comprueba actualizaciones cuando quieras." if action == "local" else "Operación completada. En el juego: /loadskin VantageUI 1")
+                    if action == "local":
+                        self.installed, self.folder = result
+                    else:
+                        self.installed, self.folder = result.version, result.folder
+                    self.known_eq = self.eq.get().strip()
+                    if action == "local":
+                        self.status.set("Selección comprobada. La carpeta antigua VantageUI se conserva intacta; no se considera una instalación versionada.")
+                    else:
+                        self.status.set(f"Operación completada. En el juego: /loadskin {self.folder} 1")
+                        for warning in result.warnings:
+                            self._log(warning)
+                        if result.warnings:
+                            self.status.set(f"Instalación seleccionada: {self.folder}. Hay carpetas protegidas o limpieza pendiente; revisa el registro.")
                     if action in ("install", "restore"):
                         self.pending = False
                     self.progress_value.set(100)
@@ -291,7 +363,7 @@ class SkinWindow:
                 eq, self.backups, log=self.worker_log,
                 allow_game_running=self.allow_game_running,
                 progress=self.worker_progress)
-            return updater.installed_version(eq)
+            return local_selection(eq)
         self._work("local", run)
 
     def browse(self):
@@ -309,9 +381,8 @@ class SkinWindow:
         self.status.set("Consultando el release oficial de Vantage…")
         self._save()
         def run():
-            installed = updater.installed_version(eq)
             release = updater.check_release(progress=self.worker_progress)
-            return release, installed
+            return release, local_selection(eq)
         self._work("check", run)
 
     def worker_log(self, message):
@@ -325,12 +396,13 @@ class SkinWindow:
         if not self.release or self.busy:
             return
         if not automatic:
+            next_folder = updater.folder_name(self.release.version)
             live_copy = (
                 "Si EverQuest está abierto, la instalación continuará sin cerrarlo. "
                 "No recargues la UI durante la operación; tras el éxito usa "
-                "/loadskin VantageUI 1."
+                f"/loadskin {next_folder} 1. La limpieza de versiones antiguas esperará a que cierres el juego."
                 if self.allow_game_running else "EverQuest debe estar cerrado.")
-            if not self._confirm("Actualizar VantageUI", "Se actualizará solo uifiles\\VantageUI.\nSe guardará una copia recuperable de los archivos reemplazados.\n\n" + live_copy):
+            if not self._confirm("Actualizar VantageUI", f"Se instalará uifiles\\{next_folder}.\nSe conservarán la versión seleccionada y una anterior.\nLas carpetas modificadas, no administradas y VantageUI antigua no se borran.\n\n" + live_copy):
                 self.automatic.set(False)
                 self.pending = False
                 self._save()
@@ -347,7 +419,7 @@ class SkinWindow:
             progress=self.worker_progress))
 
     def restore(self):
-        if self.busy or not self._confirm("Restaurar VantageUI", "Se restaurarán los archivos de la última actualización.\nNo se sobrescribirán cambios posteriores tuyos.\n\nEverQuest debe estar cerrado."):
+        if self.busy or not self._confirm("Restaurar VantageUI", "Se seleccionará la carpeta de la versión anterior conservada.\nNo se sobrescribirán archivos ni se cambiarán tus INI.\nDespués deberás cargar su comando en EverQuest.\n\nEverQuest debe estar cerrado."):
             return
         if self.busy:
             return
@@ -381,6 +453,7 @@ class SkinWindow:
 def self_test():
     """Offline portable check: no network, process changes or live skin writes."""
     assert updater.SKIN_FOLDER == "VantageUI"
+    assert updater.folder_name(app_version()) == "VantageUI-v" + app_version()
     assert update_available("1.2.3", "1.2.4")
     assert not update_available("1.2.4", "1.2.3")
     with tempfile.TemporaryDirectory(prefix="vantage-ui-self-test-") as temporary:
@@ -390,9 +463,18 @@ def self_test():
         root.update_idletasks()
         assert str(app.install_button["state"]) == "disabled"
         assert not app.automatic.get()
+        assert str(app.copy_button["state"]) == "disabled"
+        app.installed = app_version()
+        app.folder = updater.folder_name(app.installed)
+        app.known_eq = app.eq.get().strip()
+        app._version_text()
+        app._controls()
+        assert app.command.get() == f"/loadskin {app.folder} 1"
+        assert str(app.copy_button["state"]) == "normal"
         app.busy = True
         app._controls()
         assert str(app.restore_button["state"]) == "disabled"
+        assert str(app.copy_button["state"]) == "disabled"
         root.destroy()
     return {"status": "PASS", "version": app_version(), "network": False, "live_skin_writes": False}
 

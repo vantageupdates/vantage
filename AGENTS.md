@@ -12,3 +12,21 @@ For every completed user-facing Vantage change made in this repository:
 8. Verify the public Release, asset size, and GitHub SHA-256 digest against the tested candidate.
 
 The update repository is only for Vantage. Do not add unrelated organization, project, or account branding to the application or release metadata.
+
+## Independent VantageUI release exception
+
+The policy above continues to govern Companion changes and `Vantage.exe`.
+A UI-only change is released independently and must not increment the Companion
+version, build `Vantage.exe`, or publish a Companion `vX.Y.Z` release.
+
+For a UI-only release:
+
+1. Increment `ui/release.json` independently and keep schema 2 with
+   `skin_folder` exactly `VantageUI-v<major.minor.patch>`.
+2. Run focused UI-updater/package tests and the complete test suite.
+3. Build and self-test only `VantageUI-Updater.exe` plus the deterministic UI
+   manifest and payload. Candidate builds are allowed before publication approval.
+4. Coordinate publication under a new, matching
+   `vantage-ui-v<major.minor.patch>` stable tag; never overwrite or reuse a tag.
+5. Verify the published UI assets and SHA-256 digests against the tested
+   candidates. Do not publish `Vantage.exe` as part of the UI-only release.

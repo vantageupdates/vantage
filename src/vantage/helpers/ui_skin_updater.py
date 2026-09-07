@@ -39,6 +39,9 @@ EXTENSIONS = {".xml", ".tga", ".png", ".bmp", ".jpg", ".jpeg", ".dds"}
 VERSION_MARKER = ".vantage-ui-installed.json"
 LOCK_NAME = ".vantage-ui-update.lock"
 RECOVERY_MARKER = ".vantage-ui-recovery.json"
+REGISTRY_NAME = ".vantage-ui-registry.json"
+_STAGE = re.compile(r"\.vantage-ui-publish-[a-f0-9]{32}\Z")
+_QUARANTINE = re.compile(r"\.vantage-ui-retired-[a-f0-9]{32}\Z")
 _VERSION = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
 _HASH = re.compile(r"[a-f0-9]{64}\Z")
 _ASSET_HOSTS = {"release-assets.githubusercontent.com", "objects.githubusercontent.com",
@@ -67,6 +70,8 @@ class InstallResult:
     version: str
     changed_files: int
     action: str
+    folder: str = ""
+    warnings: tuple[str, ...] = ()
 
 
 def _require(condition, message):
@@ -304,11 +309,27 @@ def _safe_name(name, metadata=False):
     return name
 
 
+def folder_name(version):
+    """Canonical, case-sensitive folder for a strict numeric UI version."""
+    _require(isinstance(version, str) and bool(_VERSION.fullmatch(version)),
+             "Invalid Vantage UI folder version.")
+    return f"{SKIN_FOLDER}-v{version}"
+
+
+def _folder_version(name):
+    prefix = SKIN_FOLDER + "-v"
+    version = name[len(prefix):] if isinstance(name, str) and name.startswith(prefix) else ""
+    _require(folder_name(version) == name, "Invalid managed Vantage UI folder name.")
+    return version
+
+
 def validate_manifest(data, version):
+    folder_name(version)
     _require(len(data) <= MAX_MANIFEST_BYTES, "UI manifest is too large.")
     manifest = _json(data)
     _require(isinstance(manifest, dict) and type(manifest.get("schema")) is int
-             and manifest["schema"] == 1 and manifest.get("skin_folder") == SKIN_FOLDER
+             and ((manifest["schema"] == 1 and manifest.get("skin_folder") == SKIN_FOLDER)
+                  or (manifest["schema"] == 2 and manifest.get("skin_folder") == folder_name(version)))
              and manifest.get("version") == version, "UI manifest does not match this release or skin.")
     entries = manifest.get("files")
     _require(isinstance(entries, list) and 0 < len(entries) <= MAX_FILES, "Invalid UI file count.")
@@ -379,47 +400,47 @@ def _plain_path(path):
 
 
 def _target(eq_dir, create=False):
+    """The shared namespace is uifiles; never create or modify legacy VantageUI."""
     game = _plain_path(eq_dir)
     _require(game.is_dir() and (game / "eqgame.exe").is_file()
-             and (game / "uifiles").is_dir(), "Select the EverQuest folder containing eqgame.exe and uifiles.")
+             and (game / "uifiles").is_dir(),
+             "Select the EverQuest folder containing eqgame.exe and uifiles.")
     _plain_path(game / "eqgame.exe")
-    target = _plain_path(game / "uifiles" / SKIN_FOLDER)
-    if create and not target.exists():
-        target.mkdir()
-    if target.exists():
-        _require(target.is_dir(), "The UI skin target is not a directory.")
-        names = set()
-        for entry in target.iterdir():
-            _plain_path(entry)
-            key = entry.name.casefold()
-            _require(key not in names, "Case-duplicate files exist in the installed skin.")
-            names.add(key)
+    target = _plain_path(game / "uifiles")
+    _exact_child(target, LOCK_NAME)
+    _exact_child(target, REGISTRY_NAME)
     return game, target
+
+
+def _exact_child(parent, name):
+    """Reject Windows case aliases even when tests run on a case-sensitive host."""
+    matches = [entry.name for entry in parent.iterdir()
+               if entry.name.casefold() == name.casefold()]
+    _require(not matches or matches == [name], f"Case-alias collision: {name}.")
+    return _plain_path(parent / name)
 
 
 def _state_directory(game, target, state_dir):
     state = _plain_path(state_dir)
     _require(state != game and game not in state.parents,
-             "Updater backups must be stored outside the EverQuest folder.")
+             "Updater downloads must be stored outside the EverQuest folder.")
     state.mkdir(parents=True, exist_ok=True)
     key = hashlib.sha256(os.path.normcase(str(target)).encode("utf-8")).hexdigest()[:24]
     state = _plain_path(state / key)
     state.mkdir(exist_ok=True)
-    _check_recovery_marker(target, state)
     return state
 
 
-def _check_recovery_marker(target, state):
-    marker = _plain_path(target / RECOVERY_MARKER)
-    if marker.exists():
-        pending = _json(_read_file(marker, 16 * 1024))
-        _require(isinstance(pending, dict) and pending.get("state") == str(state)
-                 and isinstance(pending.get("transaction"), str)
-                 and re.fullmatch(r"[a-f0-9]{32}", pending["transaction"]),
-                 "This skin has a pending transaction from another updater state directory. "
-                 "Open the original updater/profile to recover it before installing again.")
-        return pending
-    return None
+def _legacy_notice(target, log):
+    # Legacy recovery journals refer to in-place edits. Never resume or erase them
+    # from the new updater: this also avoids accessing paths from untrusted JSON.
+    legacy = target / SKIN_FOLDER
+    if os.path.lexists(legacy):
+        log("Legacy VantageUI is preserved; its version and in-game selection are unknown.")
+        if os.path.lexists(legacy / RECOVERY_MARKER):
+            log("Legacy VantageUI has an old recovery marker. Preserve its original "
+                "backups and use the original updater for manual recovery. "
+                "The versioned updater does not change that folder.")
 
 
 def game_running():
@@ -500,15 +521,6 @@ def _target_lock(target):
         os.close(descriptor)
 
 
-def _read_file(path, maximum=MAX_FILE_BYTES):
-    _plain_path(path)
-    _require(path.is_file() and path.stat().st_size <= maximum, f"Unsafe or oversized file: {path.name}")
-    with open(path, "rb") as source:
-        data = source.read(maximum + 1)
-    _require(len(data) <= maximum, "File grew beyond its safety limit.")
-    return data
-
-
 def _current_hash(path):
     _plain_path(path)
     return _digest(_read_file(path)) if path.exists() else None
@@ -543,117 +555,486 @@ def _write_json(path, value):
     _atomic_bytes(path, json.dumps(value, sort_keys=True, indent=2).encode("utf-8"))
 
 
-def _load_journal(path, target, state):
-    journal = _json(_read_file(path, 2 * 1024 * 1024))
-    _require(isinstance(journal, dict) and journal.get("schema") == 1
-             and journal.get("target") == str(target)
-             and isinstance(journal.get("transaction"), str)
-             and re.fullmatch(r"[a-f0-9]{32}", journal["transaction"]), "Invalid UI recovery journal. Manual review is required.")
-    entries = journal.get("entries")
-    _require(isinstance(entries, list) and 0 < len(entries) <= MAX_FILES + 1, "Invalid UI recovery file list.")
-    seen = set()
-    backup = _plain_path(state / journal["transaction"])
-    _require(backup.is_dir(), "UI recovery backups are missing.")
-    total = 0
-    for index, entry in enumerate(entries):
-        _require(isinstance(entry, dict), "Invalid UI recovery entry.")
-        name = _safe_name(entry.get("path"), metadata=True)
-        _require(name.casefold() not in seen and _valid_hash(entry.get("new"))
-                 and (entry.get("old") is None or _valid_hash(entry["old"])), "Invalid UI recovery hashes.")
-        seen.add(name.casefold())
-        if entry["old"] is not None:
-            data = _read_file(backup / f"{index:04d}.bin")
-            total += len(data)
-            _require(total <= MAX_TOTAL_BYTES + MAX_MANIFEST_BYTES, "UI recovery backups exceed their safety limit.")
-            _require(_digest(data) == entry["old"], "UI recovery backup verification failed.")
-    return journal
+def _write_new_bytes(path, data):
+    """A fresh stage never overwrites a file added by another process."""
+    _plain_path(path)
+    with open(path, "xb") as output:
+        output.write(data)
+        output.flush()
+        os.fsync(output.fileno())
 
 
-def _restore(journal, target, state, log, strict=False,
-             allow_game_running=False, progress=None):
-    """Preflight every hash before restoring; never overwrite new user edits."""
-    for entry in journal["entries"]:
-        current = _current_hash(target / entry["path"])
-        accepted = (entry["new"],) if strict else (entry["old"], entry["new"])
-        _require(current in accepted, f"UI file changed since the update: {entry['path']}. Recovery paused to preserve it.")
-    backup = state / journal["transaction"]
-    count = len(journal["entries"])
-    for restored, index in enumerate(reversed(range(count)), 1):
-        entry = journal["entries"][index]
-        path = target / entry["path"]
-        current = _current_hash(path)
-        _require(current in (entry["old"], entry["new"]), "UI file changed during recovery; stopping safely.")
-        if current == entry["old"]:
-            continue
-        _require_install_policy(allow_game_running)
-        _plain_path(target)
-        if entry["old"] is None:
-            path.unlink()
-        else:
-            data = _read_file(backup / f"{index:04d}.bin")
-            _require(_digest(data) == entry["old"], "UI recovery backup changed; stopping safely.")
-            _atomic_bytes(path, data, before_replace=lambda: _require_install_policy(
-                allow_game_running))
-        log(f"Restored {entry['path']}")
-        _emit_progress(progress, "Restoring previous files",
-                       15 + round(75 * restored / max(1, count)))
+@contextmanager
+def _directory_guard(path, deleting=False):
+    """On Windows, hold ancestors open without delete sharing during mutations.
+
+    This prevents replacing uifiles or its parents with a junction while a
+    checked path is being used. Managed files receive their own handle checks.
+    """
+    path = _plain_path(path)
+    handles = []
+    if os.name == "nt":
+        from ctypes import wintypes
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD,
+            wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD,
+            wintypes.HANDLE]
+        kernel.CreateFileW.restype = wintypes.HANDLE
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        try:
+            for part in reversed((path,) + tuple(path.parents)):
+                before = part.lstat()
+                access = 0x80 | (0x10000 if deleting and part == path else 0)
+                handle = kernel.CreateFileW(str(part), access, 3, None, 3,
+                                            0x02000000 | 0x00200000, None)
+                if handle in (None, ctypes.c_void_p(-1).value):
+                    raise ctypes.WinError(ctypes.get_last_error())
+                handles.append(handle)
+                _plain_path(part)
+                after = part.lstat()
+                _require((before.st_dev, before.st_ino) == (after.st_dev, after.st_ino)
+                         and stat.S_ISDIR(after.st_mode), "UI directory changed during access.")
+            yield handles[-1]
+        finally:
+            for handle in reversed(handles):
+                kernel.CloseHandle(handle)
+    else:
+        yield None
 
 
-def _recover_pending(target, state, log, allow_game_running=False,
-                     progress=None):
-    # This check MUST also run under the target lock: a different updater/profile
-    # may have begun a transaction while this instance was downloading its assets.
-    pending = _check_recovery_marker(target, state)
-    active = _plain_path(state / "active.json")
-    if not active.exists():
-        if pending:
-            last = _plain_path(state / "last.json")
-            _require(last.exists() and _load_journal(last, target, state)["transaction"] == pending["transaction"],
-                     "The pending UI recovery journal is missing. Preserve this skin and its backups for manual recovery.")
-            # Only a matching committed journal proves this marker harmless.
-            (target / RECOVERY_MARKER).unlink()
-        return False
-    journal = _load_journal(active, target, state)
-    _require(not pending or pending["transaction"] == journal["transaction"],
-             "The UI transaction marker and recovery journal disagree. Manual recovery is required.")
-    _require_install_policy(allow_game_running)
-    log("Recovering an interrupted UI transaction before continuing.")
-    _emit_progress(progress, "Recovering interrupted update", 5)
-    _restore(journal, target, state, log,
-             allow_game_running=allow_game_running, progress=progress)
-    last = _plain_path(state / "last.json")
-    if last.exists() and _load_journal(last, target, state)["transaction"] == journal["transaction"]:
-        last.unlink()
-    marker = _plain_path(target / RECOVERY_MARKER)
-    if marker.exists():
-        marker.unlink()
-    active.unlink()
-    return True
+@contextmanager
+def _file_source(path, deleting=False):
+    """Open the exact regular file; Windows denies concurrent writes/replacement."""
+    path = _plain_path(path)
+    before = path.lstat()
+    _require(stat.S_ISREG(before.st_mode) and before.st_nlink == 1,
+             f"Unsafe or hard-linked file: {path.name}")
+    if os.name == "nt":
+        from ctypes import wintypes
+        import msvcrt
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD,
+            wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD,
+            wintypes.HANDLE]
+        kernel.CreateFileW.restype = wintypes.HANDLE
+        handle = kernel.CreateFileW(str(path), 0x80000000 | (0x10000 if deleting else 0),
+                                    1, None, 3, 0x00200000, None)
+        if handle in (None, ctypes.c_void_p(-1).value):
+            raise ctypes.WinError(ctypes.get_last_error())
+        descriptor = msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
+    else:
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    with os.fdopen(descriptor, "rb") as source:
+        current = os.fstat(source.fileno())
+        _require(stat.S_ISREG(current.st_mode) and current.st_nlink == 1
+                 and (before.st_dev, before.st_ino) == (current.st_dev, current.st_ino),
+                 f"UI file changed during access: {path.name}")
+        _plain_path(path)
+        yield source
+        if not deleting:
+            after = path.lstat()
+            _require((after.st_dev, after.st_ino) == (current.st_dev, current.st_ino)
+                     and after.st_nlink == 1, f"UI file changed during access: {path.name}")
+
+
+def _read_file(path, maximum=MAX_FILE_BYTES):
+    with _file_source(Path(path)) as source:
+        _require(os.fstat(source.fileno()).st_size <= maximum,
+                 f"Unsafe or oversized file: {Path(path).name}")
+        data = source.read(maximum + 1)
+    _require(len(data) <= maximum, "File grew beyond its safety limit.")
+    return data
+
+
+def _directory_id(path):
+    path = _plain_path(path)
+    info = path.lstat()
+    _require(stat.S_ISDIR(info.st_mode), "Managed UI folder is not a regular directory.")
+    return [info.st_dev, info.st_ino]
+
+
+def _empty_registry():
+    return {"schema": 2, "revision": 0, "active": "", "previous": "",
+            "managed": {}, "pending": None}
+
+
+def _validate_record(name, record):
+    version = _folder_version(name)
+    _require(isinstance(record, dict) and set(record) ==
+             {"version", "marker_sha256", "directory_id", "quarantine"}
+             and record["version"] == version and _valid_hash(record["marker_sha256"])
+             and isinstance(record["directory_id"], list)
+             and len(record["directory_id"]) == 2
+             and all(type(value) is int and value >= 0 for value in record["directory_id"])
+             and record["directory_id"][1] != 0
+             and isinstance(record["quarantine"], str)
+             and (not record["quarantine"] or _QUARANTINE.fullmatch(record["quarantine"])),
+             "Invalid managed UI registration. Preserve folders for manual review.")
+
+
+def _validate_registry(value):
+    _require(isinstance(value, dict) and set(value) ==
+             {"schema", "revision", "active", "previous", "managed", "pending"}
+             and type(value["schema"]) is int and value["schema"] == 2
+             and type(value["revision"]) is int and value["revision"] >= 0
+             and isinstance(value["managed"], dict) and len(value["managed"]) <= 1000,
+             "Invalid shared UI registry. Preserve folders for manual review.")
+    for name, record in value["managed"].items():
+        _validate_record(name, record)
+    for key in ("active", "previous"):
+        name = value[key]
+        _require(isinstance(name, str) and (not name or name in value["managed"]),
+                 "Invalid selected UI folder.")
+        if name:
+            _require(not value["managed"][name]["quarantine"],
+                     "Selected UI folder is unexpectedly quarantined.")
+    _require(not value["active"] or value["active"] != value["previous"],
+             "Active and previous UI folders must be distinct.")
+    _require(not value["managed"] or value["active"],
+             "Registered UI folders require a selected active folder.")
+    pending = value["pending"]
+    if pending is not None:
+        _require(isinstance(pending, dict) and set(pending) == {"folder", "stage", "record"}
+                 and isinstance(pending["stage"], str) and _STAGE.fullmatch(pending["stage"])
+                 and isinstance(pending["folder"], str)
+                 and pending["folder"] not in value["managed"],
+                 "Invalid shared UI publication journal.")
+        _validate_record(pending["folder"], pending["record"])
+        _require(not pending["record"]["quarantine"], "Invalid pending UI folder.")
+    return value
+
+
+def _registry(target):
+    path = _exact_child(target, REGISTRY_NAME)
+    if not path.exists():
+        return _empty_registry(), None
+    data = _read_file(path, MAX_MANIFEST_BYTES)
+    return _validate_registry(_json(data)), data
+
+
+def _registry_unchanged(target, expected):
+    path = _exact_child(target, REGISTRY_NAME)
+    current = _read_file(path, MAX_MANIFEST_BYTES) if path.exists() else None
+    _require(current == expected, "The shared UI registry changed concurrently; stopping safely.")
+
+
+def _save_registry(target, registry, expected):
+    registry["revision"] += 1
+    _validate_registry(registry)
+    data = json.dumps(registry, sort_keys=True, indent=2).encode("utf-8")
+    _require(len(data) <= MAX_MANIFEST_BYTES, "The shared UI registry is full; manual review is required.")
+    _atomic_bytes(_exact_child(target, REGISTRY_NAME), data,
+                  before_replace=lambda: _registry_unchanged(target, expected))
+    return data
+
+
+def _trusted_marker(path, folder, record):
+    """Trust the selected folder's identity, without claiming pristine payloads."""
+    _validate_record(folder, record)
+    _require(_directory_id(path) == record["directory_id"],
+             f"Managed folder identity changed: {folder}.")
+    with _directory_guard(path):
+        marker_path = _exact_child(path, VERSION_MARKER)
+        marker_data = _read_file(marker_path, MAX_MANIFEST_BYTES)
+        _require(_digest(marker_data) == record["marker_sha256"],
+                 f"Managed marker changed: {folder}.")
+        marker = _json(marker_data)
+        _require(isinstance(marker, dict) and marker.get("schema") == 2
+                 and marker.get("folder") == folder
+                 and marker.get("version") == record["version"]
+                 and type(marker.get("release_id")) is int and marker["release_id"] > 0
+                 and _valid_hash(marker.get("manifest_sha256"))
+                 and _valid_hash(marker.get("payload_sha256")),
+                 f"Invalid managed marker: {folder}.")
+        validate_manifest(json.dumps({
+            "schema": 2, "skin_folder": folder, "version": record["version"],
+            "files": marker.get("files")}).encode(), record["version"])
+        seen = set()
+        for child in path.iterdir():
+            _plain_path(child)
+            info = child.lstat()
+            _require((stat.S_ISREG(info.st_mode) and info.st_nlink == 1)
+                     or stat.S_ISDIR(info.st_mode),
+                     f"Unsafe or hard-linked path in selected folder: {folder}/{child.name}")
+            _require(child.name.casefold() not in seen,
+                     f"Case-alias collision in selected folder: {folder}.")
+            seen.add(child.name.casefold())
+        _require(_directory_id(path) == record["directory_id"]
+                 and _read_file(marker_path, MAX_MANIFEST_BYTES) == marker_data,
+                 f"Managed UI metadata changed during verification: {folder}.")
+        return marker
+
+
+def _verified_tree(path, folder, record):
+    """Require exact flat bytes and directory identity, including the full marker."""
+    with _directory_guard(path):
+        marker = _trusted_marker(path, folder, record)
+        expected = {entry["path"]: entry for entry in marker["files"]}
+        names = [entry.name for entry in path.iterdir()]
+        _require(len(names) == len(expected) + 1
+                 and set(names) == set(expected) | {VERSION_MARKER},
+                 f"Extra, missing or renamed files in {folder}; preserving it.")
+        files = {}
+        for name, entry in expected.items():
+            data = _read_file(path / name)
+            _require(len(data) == entry["size"] and _digest(data) == entry["sha256"],
+                     f"UI file changed: {folder}/{name}; preserving it.")
+            files[name] = entry["sha256"]
+        _require(_directory_id(path) == record["directory_id"]
+                 and _digest(_read_file(path / VERSION_MARKER, MAX_MANIFEST_BYTES))
+                     == record["marker_sha256"]
+                 and {entry.name for entry in path.iterdir()} == set(names),
+                 f"Managed UI folder changed during verification: {folder}.")
+        files[VERSION_MARKER] = record["marker_sha256"]
+        return marker, files
+
+
+def _rename_no_replace(source, destination):
+    _plain_path(source)
+    _exact_child(destination.parent, destination.name)
+    _require(not os.path.lexists(destination), f"UI folder collision: {destination.name}; preserved.")
+    if os.name == "nt":
+        # MoveFile semantics used by os.rename on Windows never replace a target.
+        os.rename(source, destination)
+    else:
+        # Linux's no-replace rename also keeps empty collision folders untouched.
+        kernel = ctypes.CDLL(None, use_errno=True)
+        rename = getattr(kernel, "renameat2", None)
+        _require(rename is not None, "Atomic no-replace folder publication is unavailable on this host.")
+        rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int,
+                           ctypes.c_char_p, ctypes.c_uint]
+        if rename(-100, os.fsencode(source), -100, os.fsencode(destination), 1) != 0:
+            raise OSError(ctypes.get_errno(), "Could not publish UI folder without replacement")
+
+
+def _sync_directory(path):
+    if os.name != "nt":
+        descriptor = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+
+def _selected_trusted(target, registry):
+    name = registry["active"]
+    if name:
+        _trusted_marker(_exact_child(target, name), name, registry["managed"][name])
+    return name
+
+
+def _selection_warnings(target, registry, name, log):
+    if name:
+        try:
+            _verified_tree(_exact_child(target, name), name, registry["managed"][name])
+        except (SkinUpdateError, OSError) as error:
+            message = f"Preserved local changes in {name}; its files will not be overwritten: {error}"
+            log(message)
+            return (message,)
+    return ()
+
+
+def installed_folder(eq_dir):
+    """Return the updater-selected folder, not the skin actually loaded by EQ."""
+    _, target = _target(eq_dir)
+    with _directory_guard(target):
+        registry, snapshot = _registry(target)
+        name = _selected_trusted(target, registry)
+        _registry_unchanged(target, snapshot)
+        return name
 
 
 def installed_version(eq_dir):
-    _, target = _target(eq_dir)
-    path = target / VERSION_MARKER
-    if not path.exists():
-        return ""
-    marker = _json(_read_file(path, MAX_MANIFEST_BYTES))
-    version = marker.get("version", "") if isinstance(marker, dict) else ""
-    _require(isinstance(version, str) and bool(_VERSION.fullmatch(version)), "Invalid installed UI version marker.")
-    return version
+    name = installed_folder(eq_dir)
+    return _folder_version(name) if name else ""
+
+
+def loadskin_command(eq_dir):
+    name = installed_folder(eq_dir)
+    return f"/loadskin {name} 1" if name else ""
+
+
+def _finish_pending(target, registry, snapshot, log, allow_game_running=False,
+                    progress=None):
+    pending = registry["pending"]
+    if pending is None:
+        return registry, snapshot, False
+    _require_install_policy(allow_game_running)
+    name, record = pending["folder"], pending["record"]
+    stage = _exact_child(target, pending["stage"])
+    destination = _exact_child(target, name)
+    stage_exists = os.path.lexists(stage)
+    destination_exists = os.path.lexists(destination)
+    _require(not (stage_exists and destination_exists),
+             f"Interrupted publication has a folder collision: {name}. Both folders are preserved.")
+    if not stage_exists and not destination_exists:
+        log("Interrupted preparation left no UI folder; the previous selection is preserved.")
+        registry["pending"] = None
+        return registry, _save_registry(target, registry, snapshot), True
+    if stage_exists:
+        try:
+            _verified_tree(stage, name, record)
+        except (SkinUpdateError, OSError) as error:
+            # Never recursively clean an incomplete or changed stage. Remove only
+            # the pending pointer so a later update can proceed in a fresh folder.
+            log(f"Incomplete staging folder preserved at {stage}: {error}")
+            registry["pending"] = None
+            return registry, _save_registry(target, registry, snapshot), True
+        _registry_unchanged(target, snapshot)
+        _require_install_policy(allow_game_running)
+        _rename_no_replace(stage, destination)
+        _sync_directory(target)
+    _verified_tree(destination, name, record)
+    old = _selected_trusted(target, registry)
+    _selection_warnings(target, registry, old, log)
+    _registry_unchanged(target, snapshot)
+    registry["managed"][name] = record
+    registry["previous"] = old
+    registry["active"] = name
+    registry["pending"] = None
+    _require_install_policy(allow_game_running)
+    snapshot = _save_registry(target, registry, snapshot)
+    log(f"Selected {name}. In EverQuest, use /loadskin {name} 1.")
+    _emit_progress(progress, "Verified folder selected", 98)
+    return registry, snapshot, True
+
+
+def _delete_verified_file(path, expected_hash):
+    """Delete the exact reverified file, never a path that was swapped in."""
+    with _file_source(path, deleting=True) as source:
+        data = source.read(MAX_FILE_BYTES + 1)
+        _require(len(data) <= MAX_FILE_BYTES and _digest(data) == expected_hash,
+                 f"File changed before cleanup: {path.name}; preserving it.")
+        info = os.fstat(source.fileno())
+        current = path.lstat()
+        _require((current.st_dev, current.st_ino) == (info.st_dev, info.st_ino)
+                 and current.st_nlink == 1, "File identity changed before cleanup.")
+        if os.name == "nt":
+            import msvcrt
+            _delete_on_close(msvcrt.get_osfhandle(source.fileno()), path.name)
+        else:
+            # The containing directory is a private, verified quarantine; check
+            # the open inode immediately before this single-file operation.
+            path.unlink()
+
+
+def _delete_on_close(handle, name):
+    from ctypes import wintypes
+    class Disposition(ctypes.Structure):
+        _fields_ = [("DeleteFile", ctypes.c_ubyte)]
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.SetFileInformationByHandle.argtypes = [
+        wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD]
+    disposition = Disposition(True)
+    _require(bool(kernel.SetFileInformationByHandle(
+        handle, 4, ctypes.byref(disposition), ctypes.sizeof(disposition))),
+        f"Windows could not retire {name}.")
+
+
+def _delete_empty_directory(path, expected_id, before_delete):
+    with _directory_guard(path, deleting=True) as handle:
+        _require(_directory_id(path) == expected_id and not list(path.iterdir()),
+                 "Retired UI folder changed or is no longer empty; preserving it.")
+        before_delete()
+        if os.name == "nt":
+            _delete_on_close(handle, path.name)
+        else:
+            path.rmdir()
+
+
+def _prune(target, registry, snapshot, log):
+    """Best effort after commit. Only registered, exact older folders qualify."""
+    warnings = []
+    def warn(message):
+        warnings.append(message)
+        log(message)
+    try:
+        if game_running():
+            warn("Older managed UI folder cleanup is deferred while EverQuest is running.")
+            return registry, snapshot, tuple(warnings)
+    except Exception as error:
+        warn(f"UI installed; cleanup deferred because the game state is unknown: {error}")
+        return registry, snapshot, tuple(warnings)
+    keep = {registry["active"], registry["previous"]}
+    for name in list(registry["managed"]):
+        if name in keep:
+            continue
+        if (tuple(map(int, _folder_version(name).split("."))) >=
+                tuple(map(int, _folder_version(registry["active"]).split(".")))):
+            warn(f"Preserved newer registered folder {name}; only older versions qualify for cleanup.")
+            continue
+        record = registry["managed"][name]
+        try:
+            _registry_unchanged(target, snapshot)
+            _require(not game_running(), "EverQuest opened; cleanup is deferred.")
+            original = _exact_child(target, name)
+            quarantine = (_exact_child(target, record["quarantine"])
+                          if record["quarantine"] else None)
+            if quarantine is not None and os.path.lexists(quarantine):
+                _require(not os.path.lexists(original),
+                         f"Both retired and original folders exist for {name}; preserving both.")
+                path = quarantine
+            else:
+                path = original
+            _, hashes = _verified_tree(path, name, record)
+            if path == original:
+                if quarantine is None:
+                    record["quarantine"] = ".vantage-ui-retired-" + uuid.uuid4().hex
+                    snapshot = _save_registry(target, registry, snapshot)
+                    quarantine = _exact_child(target, record["quarantine"])
+                _registry_unchanged(target, snapshot)
+                _verified_tree(original, name, record)
+                _require(not game_running(), "EverQuest opened; cleanup is deferred.")
+                _rename_no_replace(original, quarantine)
+                _sync_directory(target)
+                path = quarantine
+            # Recheck the whole tree after quarantine. A moved replacement, extra
+            # file, private edit, hard link, or reparse point is never unlinked.
+            with _directory_guard(path):
+                _, hashes = _verified_tree(path, name, record)
+                remaining = set(hashes)
+                for filename in sorted(hashes, key=lambda item: item == VERSION_MARKER):
+                    _registry_unchanged(target, snapshot)
+                    _require(not game_running(), "EverQuest opened; remaining cleanup is deferred.")
+                    _require(_directory_id(path) == record["directory_id"],
+                             "Retired UI directory changed; preserving it.")
+                    _require({entry.name for entry in path.iterdir()} == remaining,
+                             "Retired UI folder contents changed; preserving remaining files.")
+                    _delete_verified_file(_exact_child(path, filename), hashes[filename])
+                    remaining.remove(filename)
+            def before_directory_delete():
+                _registry_unchanged(target, snapshot)
+                _require(not game_running(), "EverQuest opened; remaining cleanup is deferred.")
+            _delete_empty_directory(path, record["directory_id"], before_directory_delete)
+            _sync_directory(target)
+            del registry["managed"][name]
+            snapshot = _save_registry(target, registry, snapshot)
+            log(f"Removed unchanged older managed folder {name}.")
+        except Exception as error:
+            warn(f"UI selection is saved. Preserved older folder {name}; cleanup needs review: {error}")
+            # A concurrent registry writer invalidates the whole remaining plan.
+            try:
+                _registry_unchanged(target, snapshot)
+            except Exception:
+                break
+    return registry, snapshot, tuple(warnings)
 
 
 def recover_pending(eq_dir, state_dir, log=print, allow_game_running=False,
                     progress=None):
-    """Call at GUI startup after choosing EQ; no network or payload execution."""
+    """Recover shared publication from any profile; never replay legacy edits."""
     progress = _monotonic_progress(progress)
     game, target = _target(eq_dir)
-    if not target.exists():
-        return False
-    state = _state_directory(game, target, state_dir)
-    with _target_lock(target):
-        return _recover_pending(target, state, log,
-                                allow_game_running=allow_game_running,
-                                progress=progress)
+    _state_directory(game, target, state_dir)
+    _legacy_notice(target, log)
+    with _directory_guard(target), _target_lock(target):
+        registry, snapshot = _registry(target)
+        registry, snapshot, recovered = _finish_pending(
+            target, registry, snapshot, log, allow_game_running, progress)
+        _, _, warnings = _prune(target, registry, snapshot, log)
+        if recovered:
+            _emit_progress(progress, "Recovery complete", 100)
+        return recovered
 
 
 def install_release(release, eq_dir, state_dir, log=print,
@@ -664,7 +1045,10 @@ def install_release(release, eq_dir, state_dir, log=print,
     _emit_progress(progress, "Preparing verified update", 0)
     game, target = _target(eq_dir)
     state = _state_directory(game, target, state_dir)
-    # Stage and verify the complete payload outside EQ before creating/mutating its skin.
+    _legacy_notice(target, log)
+    name = folder_name(release.version)
+    # Verify complete downloads outside EQ, then copy verified bytes to a fresh
+    # same-volume staging directory. Existing versioned folders are never written.
     with tempfile.TemporaryDirectory(prefix="download-", dir=state) as temporary:
         temporary = Path(temporary)
         manifest_path, payload_path = temporary / "manifest.json", temporary / "payload.zip"
@@ -672,134 +1056,102 @@ def install_release(release, eq_dir, state_dir, log=print,
         manifest_progress = None if progress is None else lambda count, total: _emit_progress(
             progress, "Downloading manifest", 3 + round(12 * count / max(1, total)), count, total)
         _download_asset(release.manifest_url, manifest_path, MAX_MANIFEST_BYTES,
-                        release.manifest_sha256, release.manifest_size,
-                        manifest_progress)
+                        release.manifest_sha256, release.manifest_size, manifest_progress)
         _emit_progress(progress, "Verifying manifest", 17)
         entries = validate_manifest(manifest_path.read_bytes(), release.version)
         payload_progress = None if progress is None else lambda count, total: _emit_progress(
             progress, "Downloading VantageUI files", 20 + round(35 * count / max(1, total)), count, total)
         _download_asset(release.payload_url, payload_path, MAX_ARCHIVE_BYTES,
-                        release.payload_sha256, release.payload_size,
-                        payload_progress)
+                        release.payload_sha256, release.payload_size, payload_progress)
         _emit_progress(progress, "Verifying downloaded files", 58)
         staging = temporary / "files"
         staging.mkdir()
         stage_archive(payload_path, entries, staging)
+        marker = {"schema": 2, "version": release.version, "folder": name,
+                  "release_id": release.release_id,
+                  "manifest_sha256": release.manifest_sha256,
+                  "payload_sha256": release.payload_sha256, "files": entries}
+        marker_data = json.dumps(marker, sort_keys=True, indent=2).encode("utf-8")
+        _require(len(marker_data) <= MAX_MANIFEST_BYTES, "Installed UI marker is too large.")
         _require_install_policy(allow_game_running)
-        _, target = _target(eq_dir, create=True)
-        with _target_lock(target):
-            _recover_pending(target, state, log,
-                             allow_game_running=allow_game_running,
-                             progress=progress)
-            current_version = installed_version(eq_dir)
-            _require(not current_version or tuple(map(int, release.version.split(".")))
-                     >= tuple(map(int, current_version.split("."))),
-                     "An older release cannot overwrite a newer installed UI. Use Restore previous UI instead.")
-            # Keep spelling of existing Windows filenames, but reject aliases elsewhere.
-            installed = {entry.name.casefold(): entry.name for entry in target.iterdir()}
-            files = [(installed.get(entry["path"].casefold(), entry["path"]),
-                      _read_file(staging / entry["path"])) for entry in entries]
-            marker = json.dumps({"schema": 1, "version": release.version,
-                                 "release_id": release.release_id}, sort_keys=True).encode("utf-8")
-            files.append((VERSION_MARKER, marker))
-            changes = [(name, data) for name, data in files if _current_hash(target / name) != _digest(data)]
-            if not changes:
+        with _directory_guard(target), _target_lock(target):
+            registry, snapshot = _registry(target)
+            registry, snapshot, _ = _finish_pending(
+                target, registry, snapshot, log, allow_game_running, progress)
+            current = _selected_trusted(target, registry)
+            selection_warnings = _selection_warnings(target, registry, current, log)
+            _require(not current or tuple(map(int, release.version.split("."))) >=
+                     tuple(map(int, _folder_version(current).split("."))),
+                     "An older release cannot replace a newer selected UI. Use Restore previous UI instead.")
+            destination = _exact_child(target, name)
+            if os.path.lexists(destination):
+                record = registry["managed"].get(name)
+                _require(record is not None and not record["quarantine"],
+                         f"Unmanaged UI folder collision: {name}. The existing folder is preserved.")
+                existing, _ = _verified_tree(destination, name, record)
+                _require(existing == marker and record["marker_sha256"] == _digest(marker_data),
+                         f"The published bytes for {name} differ from its installed release; preserved.")
+                if current != name:
+                    registry["previous"], registry["active"] = current, name
+                    snapshot = _save_registry(target, registry, snapshot)
+                registry, snapshot, warnings = _prune(target, registry, snapshot, log)
                 _emit_progress(progress, "VantageUI is current", 100)
-                return InstallResult(release.version, 0, "already-current")
-            transaction = uuid.uuid4().hex
-            backup = _plain_path(state / transaction)
-            backup.mkdir()
-            journal = {"schema": 1, "transaction": transaction, "target": str(target),
-                       "version": release.version, "entries": []}
-            backup_total = 0
-            _emit_progress(progress, "Backing up replaced files", 65)
-            for index, (name, data) in enumerate(changes):
-                old = _current_hash(target / name)
-                if old is not None:
-                    original = _read_file(target / name)
-                    backup_total += len(original)
-                    _require(backup_total <= MAX_TOTAL_BYTES + MAX_MANIFEST_BYTES,
-                             "Existing skin files exceed the safe backup size. Nothing has been replaced.")
-                    _require(_digest(original) == old, "UI file changed while preparing its backup.")
-                    _atomic_bytes(backup / f"{index:04d}.bin", original)
-                journal["entries"].append({"path": name, "old": old, "new": _digest(data)})
-            active = state / "active.json"
-            _write_json(active, journal)
-            try:
-                _write_json(target / RECOVERY_MARKER,
-                            {"state": str(state), "transaction": transaction})
-                _emit_progress(progress, "Updating — do not reload the UI yet", 75)
-                for changed_index, ((name, data), entry) in enumerate(
-                        zip(changes, journal["entries"]), 1):
+                return InstallResult(release.version, 0, "already-current", name,
+                                     selection_warnings + warnings)
+            _require(name not in registry["managed"],
+                     f"Registered UI folder {name} is missing or retired; manual review is required.")
+            stage_name = ".vantage-ui-publish-" + uuid.uuid4().hex
+            publish_stage = _exact_child(target, stage_name)
+            _registry_unchanged(target, snapshot)
+            _require_install_policy(allow_game_running)
+            publish_stage.mkdir(mode=0o700)
+            record = {"version": release.version, "marker_sha256": _digest(marker_data),
+                      "directory_id": _directory_id(publish_stage), "quarantine": ""}
+            registry["pending"] = {"folder": name, "stage": stage_name, "record": record}
+            snapshot = _save_registry(target, registry, snapshot)
+            _emit_progress(progress, "Preparing new folder — do not reload it yet", 65)
+            for index, entry in enumerate(entries, 1):
+                _registry_unchanged(target, snapshot)
+                _require_install_policy(allow_game_running)
+                _require(_directory_id(publish_stage) == record["directory_id"],
+                         "UI staging folder changed; stopping safely.")
+                data = _read_file(staging / entry["path"])
+                _require(len(data) == entry["size"] and _digest(data) == entry["sha256"],
+                         "Verified UI staging file changed before publication.")
+                with _directory_guard(publish_stage):
                     _require_install_policy(allow_game_running)
-                    _target(eq_dir)
-                    _require(_current_hash(target / name) == entry["old"], "UI file changed before installation; stopping safely.")
-                    try:
-                        _atomic_bytes(target / name, data,
-                                      before_replace=lambda: _require_install_policy(
-                                          allow_game_running))
-                    except OSError as error:
-                        raise SkinUpdateError(
-                            f"Windows could not replace {name}: {error}. "
-                            "The update did not complete; do not reload the UI yet.") from error
-                    log(f"Updated {name}")
-                    _emit_progress(progress, "Updating — do not reload the UI yet",
-                                   75 + round(20 * changed_index / len(changes)))
-                _emit_progress(progress, "Finalizing verified installation", 98)
-                _write_json(state / "last.json", journal)
-                active.unlink()
-            except BaseException:
-                # An active game or conflicting file can defer rollback to the next launch.
-                try:
-                    _restore(journal, target, state, log,
-                             allow_game_running=allow_game_running)
-                    last_path = state / "last.json"
-                    if last_path.exists():
-                        last_value = _json(_read_file(last_path, 2 * 1024 * 1024))
-                        if isinstance(last_value, dict) and last_value.get("transaction") == transaction:
-                            last_path.unlink()
-                    marker_path = _plain_path(target / RECOVERY_MARKER)
-                    if marker_path.exists():
-                        marker_path.unlink()
-                    if active.exists():
-                        active.unlink()
-                except BaseException as recovery_error:
-                    log(f"Recovery is pending; do not reload this skin yet: {recovery_error}")
-                raise
-            # Payload and last.json are committed. A leftover marker is cleared on
-            # the next launch; its cleanup failure must never undo a good commit.
-            try:
-                (target / RECOVERY_MARKER).unlink()
-            except OSError:
-                log("UI installed. Its completed transaction marker will be cleaned on the next launch.")
+                    _write_new_bytes(publish_stage / entry["path"], data)
+                _emit_progress(progress, "Preparing new folder — do not reload it yet",
+                               65 + round(28 * index / len(entries)))
+            with _directory_guard(publish_stage):
+                _write_new_bytes(publish_stage / VERSION_MARKER, marker_data)
+            registry, snapshot, _ = _finish_pending(
+                target, registry, snapshot, log, allow_game_running, progress)
+            _require(registry["active"] == name, "New UI folder was preserved for review; installation did not finish.")
+            registry, snapshot, warnings = _prune(target, registry, snapshot, log)
             _emit_progress(progress, "Installation complete", 100)
-            return InstallResult(release.version, sum(name != VERSION_MARKER for name, _ in changes), "installed")
+            return InstallResult(release.version, len(entries), "installed", name,
+                                 selection_warnings + warnings)
 
 
 def rollback_last(eq_dir, state_dir, log=print, progress=None):
+    """Swap updater selections only; no UI files or INIs are overwritten."""
     progress = _monotonic_progress(progress)
     _require_game_closed()
     _emit_progress(progress, "Preparing restore", 0)
     game, target = _target(eq_dir)
-    _require(target.exists(), "The Vantage UI skin has not been installed.")
-    state = _state_directory(game, target, state_dir)
-    with _target_lock(target):
-        _recover_pending(target, state, log, progress=progress)
-        last = _plain_path(state / "last.json")
-        _require(last.exists(), "No previous UI installation is available to restore.")
-        journal = _load_journal(last, target, state)
-        # Check before publishing an active rollback journal; conflicts do not block later installs.
-        for entry in journal["entries"]:
-            _require(_current_hash(target / entry["path"]) == entry["new"],
-                     f"UI file changed since the update: {entry['path']}. Restore would overwrite your edits.")
-        _write_json(state / "active.json", journal)
-        _write_json(target / RECOVERY_MARKER,
-                    {"state": str(state), "transaction": journal["transaction"]})
-        _restore(journal, target, state, log, strict=True, progress=progress)
-        last.unlink()
-        (target / RECOVERY_MARKER).unlink()
-        (state / "active.json").unlink()
-        result = InstallResult(installed_version(eq_dir),
-                             sum(entry["path"] != VERSION_MARKER for entry in journal["entries"]), "restored")
+    _state_directory(game, target, state_dir)
+    _legacy_notice(target, log)
+    with _directory_guard(target), _target_lock(target):
+        registry, snapshot = _registry(target)
+        registry, snapshot, _ = _finish_pending(target, registry, snapshot, log, progress=progress)
+        active = _selected_trusted(target, registry)
+        previous = registry["previous"]
+        _require(previous, "No previous versioned UI installation is available to restore.")
+        _verified_tree(_exact_child(target, previous), previous, registry["managed"][previous])
+        _require_game_closed()
+        registry["active"], registry["previous"] = previous, active
+        snapshot = _save_registry(target, registry, snapshot)
+        log(f"Selected {previous}. In EverQuest, use /loadskin {previous} 1.")
         _emit_progress(progress, "Restore complete", 100)
-        return result
+        return InstallResult(_folder_version(previous), 0, "restored", previous)

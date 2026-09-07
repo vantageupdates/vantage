@@ -48,15 +48,17 @@ def fixture(tmp_path, monkeypatch):
     return game, target, state
 
 
-def _release(tmp_path, monkeypatch, files=None, manifest=None):
+def _release(tmp_path, monkeypatch, files=None, manifest=None, version="1.2.3", schema=1):
     files = files or {"EQUI_Test.xml": b"<XML>new</XML>", "button.tga": b"new pixels"}
     archive = tmp_path / "fixture.zip"
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as payload:
         for name, data in files.items():
             payload.writestr(name, data)
-    manifest = manifest or _manifest([_entry(name, data) for name, data in files.items()])
+    manifest = manifest or _manifest([_entry(name, data) for name, data in files.items()],
+        version=version, schema=schema,
+        skin_folder=updater.SKIN_FOLDER if schema == 1 else updater.folder_name(version))
     data = archive.read_bytes()
-    release = updater.parse_release_payload(_api(manifest, data))
+    release = updater.parse_release_payload(_retag(_api(manifest, data), "vantage-ui-v" + version))
     assets = {release.manifest_url: manifest, release.payload_url: data}
 
     def download(url, destination, limit, expected_hash=None, expected_size=None,
@@ -156,31 +158,6 @@ def test_archive_validation_before_any_install(tmp_path, attack):
         updater.stage_archive(archive, [entry], staging)
 
 
-def test_install_and_restore_preserve_unknown_files_and_other_skins(fixture, tmp_path, monkeypatch):
-    game, target, state = fixture
-    original = b"<XML>old</XML>"
-    (target / "EQUI_Test.xml").write_bytes(original)
-    (target / "personal.xml").write_bytes(b"my modification")
-    (game / "UI_MyCharacter.ini").write_bytes(b"personal layout")
-    default = game / "uifiles" / "default"
-    default.mkdir()
-    (default / "EQUI_Test.xml").write_bytes(b"default UI")
-    release = _release(tmp_path, monkeypatch)
-    result = updater.install_release(release, game, state, log=lambda message: None)
-    assert result.action == "installed" and result.changed_files == 2
-    assert updater.installed_version(game) == "1.2.3"
-    assert (target / "button.tga").read_bytes() == b"new pixels"
-    assert updater.install_release(release, game, state, log=lambda message: None).action == "already-current"
-    restored = updater.rollback_last(game, state, log=lambda message: None)
-    assert restored.action == "restored"
-    assert (target / "EQUI_Test.xml").read_bytes() == original
-    assert not (target / "button.tga").exists()
-    assert updater.installed_version(game) == ""
-    assert (target / "personal.xml").read_bytes() == b"my modification"
-    assert (game / "UI_MyCharacter.ini").read_bytes() == b"personal layout"
-    assert (default / "EQUI_Test.xml").read_bytes() == b"default UI"
-
-
 def test_active_game_refuses_before_network_or_mutation(fixture, tmp_path, monkeypatch):
     game, target, state = fixture
     release = _release(tmp_path, monkeypatch)
@@ -202,28 +179,6 @@ def test_failed_payload_hash_does_not_mutate_skin(fixture, tmp_path, monkeypatch
     assert (target / "EQUI_Test.xml").read_bytes() == b"old"
 
 
-def test_injected_write_failure_restores_every_replacement(fixture, tmp_path, monkeypatch):
-    game, target, state = fixture
-    (target / "EQUI_Test.xml").write_bytes(b"old")
-    release = _release(tmp_path, monkeypatch)
-    actual = updater._atomic_bytes
-    failed = False
-
-    def fail_once(path, data, **kwargs):
-        nonlocal failed
-        if path == target / "button.tga" and not failed:
-            failed = True
-            raise OSError("injected disk failure")
-        return actual(path, data, **kwargs)
-
-    monkeypatch.setattr(updater, "_atomic_bytes", fail_once)
-    with pytest.raises(updater.SkinUpdateError, match="button.tga.*injected"):
-        updater.install_release(release, game, state, log=lambda message: None)
-    assert (target / "EQUI_Test.xml").read_bytes() == b"old"
-    assert not (target / "button.tga").exists()
-    assert not list(state.rglob("active.json"))
-
-
 def test_live_install_is_explicit_opt_in_and_reports_monotonic_progress(
         fixture, tmp_path, monkeypatch):
     game, target, state = fixture
@@ -242,130 +197,6 @@ def test_live_install_is_explicit_opt_in_and_reports_monotonic_progress(
     assert any(event[3] > 0 for event in events)
 
 
-def test_live_install_failure_rolls_back_and_never_reports_success(
-        fixture, tmp_path, monkeypatch):
-    game, target, state = fixture
-    (target / "EQUI_Test.xml").write_bytes(b"old")
-    release = _release(tmp_path, monkeypatch)
-    monkeypatch.setattr(updater, "game_running", lambda: True)
-    actual = updater._atomic_bytes
-
-    def locked(path, data, **kwargs):
-        if path == target / "button.tga":
-            error = PermissionError("file is being used by another process")
-            error.winerror = 32
-            raise error
-        return actual(path, data, **kwargs)
-
-    monkeypatch.setattr(updater, "_atomic_bytes", locked)
-    events = []
-    with pytest.raises(updater.SkinUpdateError, match="button.tga"):
-        updater.install_release(
-            release, game, state, allow_game_running=True,
-            progress=lambda *event: events.append(event), log=lambda _line: None)
-    assert (target / "EQUI_Test.xml").read_bytes() == b"old"
-    assert not (target / "button.tga").exists()
-    assert all(event[1] < 100 for event in events)
-    assert not list(state.rglob("active.json"))
-
-
-def test_live_install_lock_before_first_replacement_changes_nothing(
-        fixture, tmp_path, monkeypatch):
-    game, target, state = fixture
-    (target / "EQUI_Test.xml").write_bytes(b"old")
-    release = _release(tmp_path, monkeypatch)
-    monkeypatch.setattr(updater, "game_running", lambda: True)
-    actual = updater._atomic_bytes
-
-    def locked(path, data, **kwargs):
-        if path == target / "EQUI_Test.xml":
-            raise OSError("sharing violation before first replacement")
-        return actual(path, data, **kwargs)
-
-    monkeypatch.setattr(updater, "_atomic_bytes", locked)
-    with pytest.raises(updater.SkinUpdateError, match="EQUI_Test.xml"):
-        updater.install_release(
-            release, game, state, allow_game_running=True,
-            log=lambda _line: None)
-    assert (target / "EQUI_Test.xml").read_bytes() == b"old"
-    assert not (target / "button.tga").exists()
-    assert not list(state.rglob("active.json"))
-
-
-def test_live_partial_rollback_retains_journal_then_recovers_while_eq_open(
-        fixture, tmp_path, monkeypatch):
-    game, target, state = fixture
-    (target / "EQUI_Test.xml").write_bytes(b"old")
-    release = _release(tmp_path, monkeypatch)
-    monkeypatch.setattr(updater, "game_running", lambda: True)
-    actual = updater._atomic_bytes
-
-    def blocked(path, data, **kwargs):
-        if path == target / "button.tga":
-            raise OSError("button sharing violation")
-        if path == target / "EQUI_Test.xml" and data == b"old":
-            raise OSError("rollback remains locked")
-        return actual(path, data, **kwargs)
-
-    monkeypatch.setattr(updater, "_atomic_bytes", blocked)
-    events = []
-    with pytest.raises(updater.SkinUpdateError, match="button.tga"):
-        updater.install_release(
-            release, game, state, allow_game_running=True,
-            progress=lambda *event: events.append(event), log=lambda _line: None)
-    assert (target / "EQUI_Test.xml").read_bytes() == b"<XML>new</XML>"
-    assert len(list(state.rglob("active.json"))) == 1
-    assert (target / updater.RECOVERY_MARKER).exists()
-    assert all(event[1] < 100 for event in events)
-
-    monkeypatch.setattr(updater, "_atomic_bytes", actual)
-    assert updater.recover_pending(
-        game, state, allow_game_running=True, log=lambda _line: None)
-    assert (target / "EQUI_Test.xml").read_bytes() == b"old"
-    assert not (target / updater.RECOVERY_MARKER).exists()
-    assert not list(state.rglob("active.json"))
-
-
-def test_interruption_leaves_journal_and_next_launch_recovers(fixture, tmp_path, monkeypatch):
-    game, target, state = fixture
-    (target / "EQUI_Test.xml").write_bytes(b"old")
-    release = _release(tmp_path, monkeypatch)
-    actual = updater._atomic_bytes
-
-    def interrupt(path, data, **kwargs):
-        if path == target / "button.tga":
-            monkeypatch.setattr(updater, "game_running", lambda: True)
-            raise KeyboardInterrupt()
-        return actual(path, data, **kwargs)
-
-    monkeypatch.setattr(updater, "_atomic_bytes", interrupt)
-    with pytest.raises(KeyboardInterrupt):
-        updater.install_release(release, game, state, log=lambda message: None)
-    assert (target / "EQUI_Test.xml").read_bytes() == b"<XML>new</XML>"
-    assert len(list(state.rglob("active.json"))) == 1
-    assert (target / updater.RECOVERY_MARKER).exists()
-    monkeypatch.setattr(updater, "game_running", lambda: False)
-    monkeypatch.setattr(updater, "_atomic_bytes", actual)
-    with pytest.raises(updater.SkinUpdateError, match="another updater state"):
-        updater.recover_pending(game, tmp_path / "different-profile")
-    assert updater.recover_pending(game, state, log=lambda message: None)
-    assert (target / "EQUI_Test.xml").read_bytes() == b"old"
-    assert not list(state.rglob("active.json"))
-    assert not (target / updater.RECOVERY_MARKER).exists()
-
-
-def test_rollback_refuses_to_overwrite_user_edit(fixture, tmp_path, monkeypatch):
-    game, target, state = fixture
-    release = _release(tmp_path, monkeypatch)
-    updater.install_release(release, game, state, log=lambda message: None)
-    (target / "EQUI_Test.xml").write_bytes(b"new user edit")
-    with pytest.raises(updater.SkinUpdateError, match="overwrite your edits"):
-        updater.rollback_last(game, state)
-    assert (target / "EQUI_Test.xml").read_bytes() == b"new user edit"
-    assert (target / "button.tga").exists()
-    assert not list(state.rglob("active.json"))
-
-
 def test_second_instance_cannot_acquire_same_target_lock(fixture):
     _, target, _ = fixture
     with updater._target_lock(target):
@@ -381,20 +212,6 @@ def test_state_inside_game_and_invalid_game_directory_refused(fixture, tmp_path,
         updater.install_release(release, game, game / "backups")
     with pytest.raises(updater.SkinUpdateError, match="eqgame.exe"):
         updater.install_release(release, tmp_path, state)
-
-
-def test_symlink_target_entry_refused(fixture, tmp_path, monkeypatch):
-    game, target, state = fixture
-    outside = tmp_path / "outside.xml"
-    outside.write_bytes(b"never touch")
-    try:
-        (target / "a.xml").symlink_to(outside)
-    except OSError:
-        pytest.skip("Windows symlink privilege unavailable")
-    release = _release(tmp_path, monkeypatch)
-    with pytest.raises(updater.SkinUpdateError, match="Links and junctions"):
-        updater.install_release(release, game, state)
-    assert outside.read_bytes() == b"never touch"
 
 
 @pytest.mark.parametrize("url", ["http://github.com/x", "https://github.com.evil.example/x",
@@ -417,7 +234,8 @@ def test_release_asset_redirect_is_allowed():
 
 
 def test_reparse_point_is_rejected_without_requiring_symlink_privileges(fixture, monkeypatch):
-    game, target, _ = fixture
+    game, legacy, _ = fixture
+    target = game / "uifiles"
     actual = Path.lstat
 
     def attributes(path, *args, **kwargs):
@@ -470,18 +288,6 @@ def test_network_stream_is_bounded_and_hash_pinned(tmp_path, monkeypatch, attack
                           tmp_path / "download", limit, expected_hash, expected_size)
 
 
-def test_corrupted_recovery_backup_refuses_restore(fixture, tmp_path, monkeypatch):
-    game, target, state = fixture
-    (target / "EQUI_Test.xml").write_bytes(b"original")
-    release = _release(tmp_path, monkeypatch)
-    updater.install_release(release, game, state, log=lambda message: None)
-    backup = next(state.rglob("0000.bin"))
-    backup.write_bytes(b"corrupted backup")
-    with pytest.raises(updater.SkinUpdateError, match="backup verification"):
-        updater.rollback_last(game, state)
-    assert (target / "EQUI_Test.xml").read_bytes() == b"<XML>new</XML>"
-
-
 def test_game_opened_immediately_before_replace_is_refused(fixture, monkeypatch):
     _, target, _ = fixture
     path = target / "a.xml"
@@ -491,43 +297,6 @@ def test_game_opened_immediately_before_replace_is_refused(fixture, monkeypatch)
         updater._atomic_bytes(path, b"update", before_replace=updater._require_game_closed)
     assert path.read_bytes() == b"original"
     assert not list(target.glob(".vantage-ui-stage-*"))
-
-
-def test_older_release_cannot_downgrade_installed_skin(fixture, tmp_path, monkeypatch):
-    game, target, state = fixture
-    release = _release(tmp_path, monkeypatch)
-    (target / updater.VERSION_MARKER).write_text(json.dumps({"schema": 1, "version": "2.0.0"}))
-    with pytest.raises(updater.SkinUpdateError, match="older release"):
-        updater.install_release(release, game, state, log=lambda message: None)
-    assert not (target / "EQUI_Test.xml").exists()
-    assert updater.installed_version(game) == "2.0.0"
-
-
-def test_foreign_transaction_started_during_download_is_not_bypassed(fixture, tmp_path, monkeypatch):
-    game, target, state = fixture
-    release = _release(tmp_path, monkeypatch)
-    actual = updater.stage_archive
-    foreign = {"state": str(tmp_path / "foreign-profile"), "transaction": "a" * 32}
-
-    def concurrent_transaction(*args):
-        actual(*args)
-        (target / updater.RECOVERY_MARKER).write_text(json.dumps(foreign))
-
-    monkeypatch.setattr(updater, "stage_archive", concurrent_transaction)
-    with pytest.raises(updater.SkinUpdateError, match="another updater state"):
-        updater.install_release(release, game, state, log=lambda message: None)
-    assert not (target / "EQUI_Test.xml").exists()
-    assert json.loads((target / updater.RECOVERY_MARKER).read_text()) == foreign
-
-
-def test_missing_active_and_committed_journals_do_not_erase_recovery_marker(fixture):
-    game, target, state = fixture
-    resolved = updater._state_directory(game, target, state)
-    marker = {"state": str(resolved), "transaction": "a" * 32}
-    (target / updater.RECOVERY_MARKER).write_text(json.dumps(marker))
-    with pytest.raises(updater.SkinUpdateError, match="journal is missing"):
-        updater.recover_pending(game, state)
-    assert (target / updater.RECOVERY_MARKER).exists()
 
 
 def test_hardlinked_lock_cannot_write_outside_skin(fixture, tmp_path):
