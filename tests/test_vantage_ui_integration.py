@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QApplication
 
 from vantage.helpers import config, ui_skin_updater
 from vantage.helpers.application import SettingsSignals
+from vantage.parsers import vantage_ui as vantage_ui_module
 from vantage.parsers.vantage_ui import (
     DEFAULT_EQ_ROOT, VantageUI, elevated_updater_command, normalize_eq_root,
     skin_target)
@@ -268,6 +269,84 @@ def test_panel_install_invokes_core_with_live_opt_in_and_progress(
     assert calls[0][1]["progress"] is not None
     assert panel.progress.value() == 100
     assert "/loadskin VantageUI 1" in panel.status.text()
+
+
+def test_progress_announces_stage_changes_and_quarter_milestones_once(
+        panel, monkeypatch):
+    class DormantThread:
+        def __init__(self, *args, **kwargs):
+            pass
+        def start(self):
+            pass
+
+    monkeypatch.setattr(vantage_ui_module.threading, "Thread", DormantThread)
+    announced = []
+    monkeypatch.setattr(panel, "_announce", announced.append)
+    assert panel._start("check", lambda *_args: None, "Starting check")
+    token = panel._operation_token
+    assert panel._announced_progress_milestone == 0
+
+    for event in (
+            ("Downloading", 5), ("Downloading", 10),
+            ("Downloading", 25), ("Downloading", 25),
+            ("Verifying", 25), ("Verifying", 51),
+            ("Applying", 80), ("Applying", 80),
+            ("Finalizing", 100)):
+        panel._operation_progress(token, *event, 0, 0)
+
+    assert announced == [
+        "Starting check",
+        "Downloading",
+        "Downloading · 25%",
+        "Verifying",
+        "Verifying · 50%",
+        "Applying · 75%",
+        "Finalizing · 100%",
+    ]
+    assert panel.status.text() == "Finalizing · 100%"
+    assert panel.progress.accessibleDescription() == "Finalizing. 100 percent."
+
+
+def test_success_focuses_enabled_primary_action(panel, monkeypatch):
+    class DormantThread:
+        def __init__(self, *args, **kwargs):
+            pass
+        def start(self):
+            pass
+
+    monkeypatch.setattr(vantage_ui_module.threading, "Thread", DormantThread)
+    panel.show()
+    QApplication.processEvents()
+    panel.check_button.setFocus(Qt.FocusReason.OtherFocusReason)
+    assert panel._start("local", lambda *_args: "", "Reading local state")
+    panel._operation_completed(panel._operation_token, "local", "")
+    QApplication.processEvents()
+    QApplication.processEvents()
+    assert panel.update_button.isEnabled()
+    assert panel._surface.focusWidget() is panel.update_button
+    assert panel.update_button.hasFocus()
+
+
+def test_non_permission_failure_focuses_initiating_retry_action(
+        panel, monkeypatch):
+    class DormantThread:
+        def __init__(self, *args, **kwargs):
+            pass
+        def start(self):
+            pass
+
+    monkeypatch.setattr(vantage_ui_module.threading, "Thread", DormantThread)
+    panel.show()
+    QApplication.processEvents()
+    panel.check_button.setFocus(Qt.FocusReason.OtherFocusReason)
+    assert panel._start("check", lambda *_args: None, "Checking")
+    panel._operation_failed(
+        panel._operation_token, "check", RuntimeError("network unavailable"))
+    QApplication.processEvents()
+    QApplication.processEvents()
+    assert panel.check_button.isEnabled()
+    assert panel._surface.focusWidget() is panel.check_button
+    assert panel.check_button.hasFocus()
 
 
 def test_check_update_restore_and_auto_use_verified_shared_core(

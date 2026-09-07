@@ -40,13 +40,29 @@ class Controller(QObject):
         self.downloaded = info
         return True
 
-    def launch_installer(self, info, path):
-        self.installed = [str(info.version), path]
+    def launch_installer(self, info, path, **options):
+        self.installed = [str(info.version), path, options]
+
+class VantageUI(QObject):
+    update_state_changed = Signal(object)
+    _busy = False
+    def __init__(self):
+        super().__init__()
+        self.checks = 0
+    def update_snapshot(self):
+        return {'installed': '1.44.51', 'available': '1.44.51', 'busy': False}
+    def check_for_updates(self):
+        self.checks += 1
+        return True
 
 
 app = QApplication([])
 controller = Controller()
-dialog = UpdateDialog(controller)
+ui = VantageUI()
+opened = []
+dialog = UpdateDialog(
+    controller, vantage_ui=ui,
+    open_vantage_ui=lambda: opened.append(True))
 info = SimpleNamespace(
     version=semver.VersionInfo.parse('1.0.1'),
     size=1000,
@@ -58,7 +74,21 @@ before = {
     'enabled': dialog.download_button.isEnabled(),
     'accessible': dialog.download_button.accessibleName(),
     'tooltip': dialog.download_button.toolTip(),
+    'opt_in': dialog.open_ui_after_restart.isChecked(),
+    'opt_accessible': dialog.open_ui_after_restart.accessibleDescription(),
+    'ui_versions': dialog.ui_version.text(),
+    'tab_order': (
+        dialog.open_ui_after_restart.nextInFocusChain() is dialog.check_button
+        and dialog.check_button.nextInFocusChain() is dialog.open_ui_button
+        and dialog.open_ui_button.nextInFocusChain() is dialog.download_button),
 }
+dialog.open_ui_button.click()
+dialog.open_and_check()
+ui.update_state_changed.emit({
+    'installed': '1.44.51', 'available': '1.44.52', 'busy': False})
+app.processEvents()
+ui_updated = dialog.ui_version.text()
+dialog.open_ui_after_restart.setChecked(True)
 dialog.download_button.click()
 controller.download_progress.emit(500, 1000)
 app.processEvents()
@@ -79,7 +109,7 @@ after = {
 }
 
 class FailingController(Controller):
-    def launch_installer(self, info, path):
+    def launch_installer(self, info, path, **options):
         raise RuntimeError(
             'The update was cancelled and Vantage remains open.')
 
@@ -98,7 +128,9 @@ failure = {
     'later_enabled': failure_dialog.close_button.isEnabled(),
 }
 print(json.dumps({
-    'before': before, 'during': during, 'after': after, 'failure': failure}))
+    'before': before, 'during': during, 'after': after, 'failure': failure,
+    'opened': opened, 'ui_checks': ui.checks,
+    'ui_updated': ui_updated}))
 failure_dialog.close()
 dialog.close()
 """
@@ -119,6 +151,15 @@ def test_update_dialog_has_one_download_verify_install_action(tmp_path):
     assert result['before']['accessible'] == (
         'Download, verify, install, and restart Vantage')
     assert 'EverQuest and WinEQ remain open' in result['before']['tooltip']
+    assert result['before']['opt_in'] is False
+    assert 'does not install' in result['before']['opt_accessible']
+    assert result['before']['ui_versions'] == (
+        'Installed: 1.44.51 · Available: 1.44.51')
+    assert result['before']['tab_order'] is True
+    assert result['opened'] == [True]
+    assert result['ui_checks'] == 1
+    assert result['ui_updated'] == (
+        'Installed: 1.44.51 · Available: 1.44.52')
     assert result['during'] == {
         'downloaded': True,
         'text': 'Downloading…',
@@ -126,10 +167,11 @@ def test_update_dialog_has_one_download_verify_install_action(tmp_path):
         'later_enabled': False,
         'progress': 50,
         'accessible_status': (
-            'Update status: Downloading and verifying Vantage.exe…'),
+            'Update status: Downloading and verifying Vantage.exe · 50%'),
     }
     assert result['after'] == {
-        'installed': ['1.0.1', 'verified-Vantage.exe'],
+        'installed': ['1.0.1', 'verified-Vantage.exe',
+                      {'open_vantage_ui': True}],
         'progress': 100,
         'active': False,
     }

@@ -554,26 +554,39 @@ def _release_lookup(monkeypatch, responses):
     return calls
 
 
-def test_latest_ui_release_needs_only_one_discovery_request(monkeypatch):
-    calls = _release_lookup(monkeypatch, {updater.LATEST_RELEASE_API: _api()})
-    assert updater.check_release().version == "1.2.3"
-    assert calls == [updater.LATEST_RELEASE_API]
+def _retag(payload, tag):
+    payload = json.loads(json.dumps(payload))
+    old_tag = payload["tag_name"]
+    payload["tag_name"] = tag
+    for asset in payload["assets"]:
+        asset["browser_download_url"] = asset["browser_download_url"].replace(
+            f"/{old_tag}/", f"/{tag}/")
+    return payload
 
 
-def test_main_only_latest_falls_back_to_newest_stable_paired_ui_release(monkeypatch):
-    main_only = dict(_api(), tag_name="v1.2.4", assets=[])
-    prerelease = dict(_api(), prerelease=True)
-    draft = dict(_api(), draft=True)
+def test_legacy_ui_release_works_from_bounded_history(monkeypatch):
     page = f"{updater.RELEASES_API}?per_page=20&page=1"
-    calls = _release_lookup(monkeypatch, {updater.LATEST_RELEASE_API: main_only,
-                                        page: [main_only, prerelease, draft, _api()]})
+    calls = _release_lookup(monkeypatch, {page: [_api()]})
     assert updater.check_release().version == "1.2.3"
-    assert calls == [updater.LATEST_RELEASE_API, page]
+    assert calls == [page]
+
+
+def test_new_namespaced_ui_tag_wins_by_semantic_version(monkeypatch):
+    main_only = dict(_api(), tag_name="v9.0.0", assets=[])
+    future = _retag(_api(), "vantage-ui-v2.0.0")
+    page = f"{updater.RELEASES_API}?per_page=20&page=1"
+    calls = _release_lookup(monkeypatch, {
+        page: [_api(), main_only, future]})
+    result = updater.check_release()
+    assert result.version == "2.0.0"
+    assert result.tag == "vantage-ui-v2.0.0"
+    assert f"/{result.tag}/" in result.payload_url
+    assert calls == [page]
 
 
 @pytest.mark.parametrize("broken", ["missing-pair", "bad-digest", "duplicate", "cross-release"])
-def test_malformed_latest_ui_release_never_silently_falls_back(monkeypatch, broken):
-    latest = _api()
+def test_malformed_recognized_ui_release_never_silently_falls_back(monkeypatch, broken):
+    latest = _retag(_api(), "vantage-ui-v2.0.0")
     if broken == "missing-pair":
         latest["assets"].pop()
     elif broken == "bad-digest":
@@ -582,39 +595,36 @@ def test_malformed_latest_ui_release_never_silently_falls_back(monkeypatch, brok
         latest["assets"].append(latest["assets"][0].copy())
     else:
         latest["assets"][0]["browser_download_url"] = "https://github.com/another/repo/asset"
-    calls = _release_lookup(monkeypatch, {updater.LATEST_RELEASE_API: latest})
+    page = f"{updater.RELEASES_API}?per_page=20&page=1"
+    calls = _release_lookup(monkeypatch, {page: [latest, _api()]})
     with pytest.raises(updater.SkinUpdateError):
         updater.check_release()
-    assert calls == [updater.LATEST_RELEASE_API]
+    assert calls == [page]
 
 
 def test_broken_ui_release_in_history_is_not_skipped_for_older_good_one(monkeypatch):
-    main_only = dict(_api(), assets=[])
     broken = _api()
     broken["assets"].pop()
     page = f"{updater.RELEASES_API}?per_page=20&page=1"
-    _release_lookup(monkeypatch, {updater.LATEST_RELEASE_API: main_only,
-                                 page: [main_only, broken, _api()]})
+    _release_lookup(monkeypatch, {page: [broken, _api()]})
     with pytest.raises(updater.SkinUpdateError, match="exactly one"):
         updater.check_release()
 
 
 def test_ui_release_discovery_is_bounded_to_two_twenty_item_pages(monkeypatch):
     main_only = dict(_api(), assets=[])
-    responses = {updater.LATEST_RELEASE_API: main_only}
-    responses.update({f"{updater.RELEASES_API}?per_page=20&page={page}": [main_only] * 20
-                      for page in (1, 2)})
+    responses = {f"{updater.RELEASES_API}?per_page=20&page={page}": [main_only] * 20
+                 for page in (1, 2)}
     calls = _release_lookup(monkeypatch, responses)
     with pytest.raises(updater.SkinUpdateError, match="latest 40 releases"):
         updater.check_release()
-    assert len(calls) == 3
+    assert len(calls) == 2
 
 
 def test_second_history_page_can_supply_paired_ui_release(monkeypatch):
     main_only = dict(_api(), assets=[])
-    responses = {updater.LATEST_RELEASE_API: main_only,
-                 f"{updater.RELEASES_API}?per_page=20&page=1": [main_only] * 20,
+    responses = {f"{updater.RELEASES_API}?per_page=20&page=1": [main_only] * 20,
                  f"{updater.RELEASES_API}?per_page=20&page=2": [_api()]}
     calls = _release_lookup(monkeypatch, responses)
     assert updater.check_release().version == "1.2.3"
-    assert len(calls) == 3
+    assert len(calls) == 2

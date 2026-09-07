@@ -106,6 +106,7 @@ class VantageUI(ParserWindow):
     """Independent, non-blocking VantageUI management surface."""
 
     name = "vantage_ui"
+    update_state_changed = Signal(object)
     _allow_clickthrough = False
     _minimum_scale = 0.80
 
@@ -127,6 +128,9 @@ class VantageUI(ParserWindow):
         self._install_action = ""
         self._progress_value = 0
         self._progress_stage = "Ready"
+        self._announced_progress_stage = ""
+        self._announced_progress_milestone = 0
+        self._initiating_control = None
         self._automatic_timer = QTimer(self)
         self._automatic_timer.setInterval(AUTO_CHECK_MS)
         self._automatic_timer.timeout.connect(self.check_for_updates)
@@ -162,9 +166,13 @@ class VantageUI(ParserWindow):
         self.path_edit = QLineEdit(normalize_eq_root(
             config.data["vantage_ui"].get("eq_dir", DEFAULT_EQ_ROOT)))
         self.path_edit.setAccessibleName("Selected EverQuest folder")
+        self.path_edit.setAccessibleDescription(
+            "EverQuest root containing eqgame.exe and uifiles; VantageUI is "
+            "always installed in its own VantageUI folder")
         self.path_edit.setToolTip(
             "EverQuest root containing eqgame.exe and the uifiles folder")
         self.path_edit.editingFinished.connect(self._path_edited)
+        path_label.setBuddy(self.path_edit)
         self.browse_button = QPushButton("Browse…")
         self.browse_button.setIcon(game_icon("ph-folder-open"))
         self.browse_button.setAccessibleName("Browse for EverQuest folder")
@@ -315,6 +323,7 @@ class VantageUI(ParserWindow):
     def _set_status(self, text, announce=True):
         self.status.setText(str(text))
         self.status.setAccessibleDescription(str(text))
+        self.update_state_changed.emit(self.update_snapshot())
         if announce:
             self._announce(text)
 
@@ -329,6 +338,16 @@ class VantageUI(ParserWindow):
         self.installed_value.setText(self._installed or "Not installed")
         self.available_value.setText(
             self._release.version if self._release else "Not checked")
+        self.update_state_changed.emit(self.update_snapshot())
+
+    def update_snapshot(self):
+        """Small read-only bridge for the independent Companion update dialog."""
+        return {
+            "installed": self._installed or "",
+            "available": self._release.version if self._release else "",
+            "busy": bool(self._busy),
+            "status": self.status.text() if hasattr(self, "status") else "",
+        }
 
     def _primary_action_kind(self):
         if not self._installed:
@@ -394,11 +413,17 @@ class VantageUI(ParserWindow):
     def _start(self, action, callback, status):
         if self._busy:
             return False
+        focused = self._surface.focusWidget() or QApplication.focusWidget()
+        self._initiating_control = (
+            focused if focused is not None and
+            (focused is self or self.isAncestorOf(focused)) else None)
         self._busy = True
         self._operation_token += 1
         token = self._operation_token
         self._progress_value = 0
         self._progress_stage = status
+        self._announced_progress_stage = str(status).strip().casefold()
+        self._announced_progress_milestone = 0
         self.progress.setValue(0)
         self.progress.setFormat("Starting · 0%")
         self.progress.setAccessibleDescription(f"{status} 0 percent.")
@@ -427,15 +452,82 @@ class VantageUI(ParserWindow):
     def _operation_progress(self, token, stage, percent, received, total):
         if token != self._operation_token or not self._busy:
             return
+        stage = str(stage).strip() or "Working"
         value = max(self._progress_value, min(100, max(0, int(percent))))
         self._progress_value = value
-        self._progress_stage = str(stage)
+        self._progress_stage = stage
         self.progress.setValue(value)
         self.progress.setFormat(f"{stage} · {value}%")
         detail = f"{stage}. {value} percent."
         if total > 0:
             detail += f" {received} of {total} bytes received."
         self.progress.setAccessibleDescription(detail)
+        stage_key = stage.casefold()
+        stage_changed = stage_key != self._announced_progress_stage
+        milestone = min(100, (value // 25) * 25)
+        milestone_changed = (
+            milestone >= 25 and
+            milestone > self._announced_progress_milestone)
+        if stage_changed or milestone_changed:
+            self._announced_progress_stage = stage_key
+            if milestone_changed:
+                self._announced_progress_milestone = milestone
+            status = stage
+            if milestone_changed:
+                status += f" · {milestone}%"
+            self._set_status(status, announce=True)
+
+    def _focus_after_operation(self, preferred=None):
+        """Return keyboard focus after an asynchronous panel operation."""
+        candidates = (
+            preferred, self.update_button, self.check_button,
+            self.restore_button, self.path_edit)
+
+        def restore():
+            if not self.isVisible():
+                return
+            for control in candidates:
+                if (control is not None and control.isVisibleTo(self) and
+                        control.isEnabled() and
+                        control.focusPolicy() != Qt.FocusPolicy.NoFocus):
+                    self._surface.setFocusProxy(control)
+                    self._scale_view.setFocus(
+                        Qt.FocusReason.OtherFocusReason)
+                    self._scale_scene.setFocus(
+                        Qt.FocusReason.OtherFocusReason)
+                    self._scale_proxy.setFocusPolicy(
+                        Qt.FocusPolicy.StrongFocus)
+                    self._scale_scene.setActivePanel(self._scale_proxy)
+                    self._scale_scene.setFocusItem(
+                        self._scale_proxy,
+                        Qt.FocusReason.OtherFocusReason)
+                    self._scale_proxy.setFocus(
+                        Qt.FocusReason.OtherFocusReason)
+                    self._surface.setFocus(
+                        Qt.FocusReason.OtherFocusReason)
+                    control.setFocus(Qt.FocusReason.OtherFocusReason)
+                    return
+
+        def activate():
+            if not self.isVisible():
+                return
+            self.raise_()
+            self.activateWindow()
+            self._scale_view.setFocus(Qt.FocusReason.OtherFocusReason)
+            QTimer.singleShot(0, restore)
+
+        QTimer.singleShot(0, activate)
+
+    def _retry_control(self, action):
+        initiating = self._initiating_control
+        if (initiating is not None and initiating in (
+                self.check_button, self.update_button, self.restore_button)):
+            return initiating
+        return {
+            "check": self.check_button,
+            "restore": self.restore_button,
+            "update": self.update_button,
+        }.get(action, self.update_button)
 
     def refresh_local(self):
         eq_root = normalize_eq_root(self.path_edit.text())
@@ -595,6 +687,10 @@ class VantageUI(ParserWindow):
                 self.update_skin(confirm=True)
             elif newer and self.auto_update.isChecked():
                 self.update_skin(confirm=False)
+            else:
+                self._focus_after_operation(self.update_button)
+        else:
+            self._focus_after_operation(self.update_button)
 
     def _operation_failed(self, token, action, error):
         if token != self._operation_token:
@@ -625,6 +721,8 @@ class VantageUI(ParserWindow):
                 "Windows denied write access. Nothing unsafe was changed. "
                 "Use the normal UAC button below or choose another valid installation; "
                 "Vantage will not change folder permissions.")
+            if self.isVisible():
+                self._focus_after_operation(self.elevation_button)
         else:
             failed_action = self._install_action or action
             self._install_action = ""
@@ -637,6 +735,8 @@ class VantageUI(ParserWindow):
             f"VantageUI operation failed at {self._progress_value} percent. "
             f"{self.status.text()}")
         self._refresh_controls()
+        if not permission:
+            self._focus_after_operation(self._retry_control(action))
 
     def _auto_update_changed(self, enabled):
         self._save_settings()

@@ -27,7 +27,6 @@ REPOSITORY = "vantageupdates/vantage"
 SKIN_FOLDER = "VantageUI"
 MANIFEST_ASSET = "VantageUI-manifest.json"
 PAYLOAD_ASSET = "VantageUI-payload.zip"
-LATEST_RELEASE_API = f"https://api.github.com/repos/{REPOSITORY}/releases/latest"
 RELEASES_API = f"https://api.github.com/repos/{REPOSITORY}/releases"
 MAX_FILES = 2000
 MAX_FILE_BYTES = 32 * 1024 * 1024
@@ -197,7 +196,10 @@ def parse_release_payload(payload):
     _require(isinstance(payload, dict) and payload.get("draft") is False
              and payload.get("prerelease") is False, "A stable Vantage release is required.")
     tag = payload.get("tag_name", "")
-    version = tag[1:] if isinstance(tag, str) and tag.startswith("v") else ""
+    if isinstance(tag, str) and tag.startswith("vantage-ui-v"):
+        version = tag[len("vantage-ui-v"):]
+    else:
+        version = tag[1:] if isinstance(tag, str) and tag.startswith("v") else ""
     _require(bool(_VERSION.fullmatch(version)), "Invalid stable Vantage version.")
     release_id = payload.get("id")
     _require(type(release_id) is int and release_id > 0, "Missing GitHub release identity.")
@@ -223,49 +225,34 @@ def parse_release_payload(payload):
 
 
 def _has_ui_assets(payload):
-    _require(isinstance(payload, dict) and isinstance(payload.get("assets"), list),
-             "Invalid GitHub release metadata.")
+    if not isinstance(payload, dict) or not isinstance(payload.get("assets"), list):
+        return False
     names = {MANIFEST_ASSET.casefold(), PAYLOAD_ASSET.casefold()}
     return any(isinstance(asset, dict) and str(asset.get("name", "")).casefold() in names
                for asset in payload["assets"])
 
 
 def check_release(progress=None):
-    """Find the newest stable UI release, tolerating main-app-only releases.
+    """Find the newest semantic UI release in bounded release history.
 
     A release containing either UI asset is never silently skipped if malformed.
-    Discovery is bounded to latest plus at most two pages of twenty releases.
+    Legacy v<semver> asset releases and vantage-ui-v<semver> are recognized.
     """
     progress = _monotonic_progress(progress)
     with tempfile.TemporaryDirectory(prefix="vantage-ui-check-") as directory:
-        path = Path(directory) / "release.json"
         _emit_progress(progress, "Checking release", 0)
-        if progress is None:
-            _download(LATEST_RELEASE_API, path, 4 * 1024 * 1024)
-        else:
-            _download(LATEST_RELEASE_API, path, 4 * 1024 * 1024,
-                      progress=lambda count, total: _emit_progress(
-                          progress, "Downloading release information",
-                          5 if not total else 5 + round(25 * count / total),
-                          count, total))
-        latest = _json(path.read_bytes())
-        if _has_ui_assets(latest):
-            result = parse_release_payload(latest)
-            _emit_progress(progress, "Release verified", 100)
-            return result
-        _require(latest.get("draft") is False and latest.get("prerelease") is False,
-                 "GitHub did not return a stable latest release.")
+        candidates = []
         for page in (1, 2):
             page_path = Path(directory) / f"releases-{page}.json"
             url = f"{RELEASES_API}?per_page=20&page={page}"
             if progress is None:
                 _download(url, page_path, 4 * 1024 * 1024)
             else:
-                base = 35 + (page - 1) * 25
+                base = 5 + (page - 1) * 40
                 _download(url, page_path, 4 * 1024 * 1024,
                           progress=lambda count, total, base=base: _emit_progress(
                               progress, "Searching verified UI releases",
-                              base if not total else base + round(20 * count / total),
+                              base if not total else base + round(35 * count / total),
                               count, total))
             releases = _json(page_path.read_bytes())
             _require(isinstance(releases, list) and len(releases) <= 20,
@@ -274,12 +261,22 @@ def check_release(progress=None):
                 _require(isinstance(candidate, dict), "Invalid GitHub release history entry.")
                 if candidate.get("draft") is True or candidate.get("prerelease") is True:
                     continue
-                if _has_ui_assets(candidate):
-                    result = parse_release_payload(candidate)
-                    _emit_progress(progress, "Release verified", 100)
-                    return result
+                tag = candidate.get("tag_name", "")
+                namespaced = isinstance(tag, str) and tag.startswith("vantage-ui-v")
+                has_assets = _has_ui_assets(candidate)
+                if namespaced or has_assets:
+                    # Parse every recognized candidate now. A broken newest or
+                    # older UI publication is never silently treated as valid.
+                    release = parse_release_payload(candidate)
+                    candidates.append(release)
             if len(releases) < 20:
                 break
+        if candidates:
+            result = max(
+                candidates,
+                key=lambda release: tuple(map(int, release.version.split("."))))
+            _emit_progress(progress, "Release verified", 100)
+            return result
         raise SkinUpdateError("No stable Vantage UI release was found in the latest 40 releases.")
 
 

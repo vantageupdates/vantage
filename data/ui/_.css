@@ -1267,6 +1267,16 @@ QWidget[ResponsiveViewport="true"], QWidget[ResponsivePage="true"] {
     font-weight: bold;
     letter-spacing: 2px;
 }
+#UpdateProducts {
+    background-color: #11151A;
+    border: 1px solid #30363D;
+    border-radius: 7px;
+}
+#UpdateProductName {
+    color: #E5E0D5;
+    font-size: 11px;
+    font-weight: bold;
+}
 #UpdateVersion {
     color: #C2A868;
     font-family: "Cascadia Mono", "Consolas";

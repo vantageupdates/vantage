@@ -60,14 +60,18 @@ def schedule_update_cleanup(path, delay=4.0):
         target=clean, name="VantageUpdateCleanup", daemon=True).start()
 
 
-def _launch_target(target, *, updated_from="", error="", cleanup=""):
+def _launch_target(target, *, updated_from="", error="", cleanup="",
+                   open_vantage_ui=False):
     environment = os.environ.copy()
+    environment.pop("VANTAGE_OPEN_UI_AFTER_UPDATE", None)
     if updated_from:
         environment["VANTAGE_UPDATED_FROM"] = updated_from
     if error:
         environment["VANTAGE_UPDATE_ERROR"] = str(error)[:1000]
     if cleanup:
         environment["VANTAGE_UPDATE_CLEANUP"] = cleanup
+    if updated_from and open_vantage_ui:
+        environment["VANTAGE_OPEN_UI_AFTER_UPDATE"] = "1"
     flags = 0
     if os.name == "nt":
         flags = 0x00000008 | 0x00000200  # DETACHED_PROCESS | NEW_PROCESS_GROUP
@@ -88,6 +92,7 @@ def apply_staged_update(arguments=None):
     parser.add_argument("--wait-pid", required=True, type=int)
     parser.add_argument("--digest", required=True)
     parser.add_argument("--from-version", default="")
+    parser.add_argument("--open-vantage-ui", action="store_true")
     options, _unknown = parser.parse_known_args(arguments)
 
     source = Path(sys.executable).resolve()
@@ -127,7 +132,8 @@ def apply_staged_update(arguments=None):
 
         _launch_target(
             target, updated_from=options.from_version,
-            cleanup=cleanup_dir)
+            cleanup=cleanup_dir,
+            open_vantage_ui=options.open_vantage_ui)
         return 0
     except Exception as error:
         try:

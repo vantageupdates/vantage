@@ -20,7 +20,9 @@ from vantage.helpers.application import (
 config.data['general']['startup_window_state'] = 'normal'
 config.data['general']['update_check'] = True
 os.environ['VANTAGE_UPDATED_FROM'] = '1.44.44'
+os.environ['VANTAGE_OPEN_UI_AFTER_UPDATE'] = '1'
 app = VantageApp([])
+app.processEvents()
 bar = app._parsers_dict['quickbar']
 button = bar._buttons['updates']
 
@@ -31,6 +33,7 @@ initial = {
     'update_toast_visible': app._update_toast.isVisible(),
     'rail_text': bar.notification_rail._label.text(),
     'rail_pending': list(bar.notification_rail._pending),
+    'vantage_ui_visible': app._parsers_dict['vantage_ui'].isVisible(),
 }
 
 app._update_heartbeat.stop()
@@ -88,9 +91,10 @@ def test_update_heartbeat_starts_fast_retries_and_updates_quickbar(tmp_path):
     assert result['initial']['interval'] == 3000
     assert 'every minute' in result['initial']['tooltip']
     assert result['initial']['update_toast_visible'] is False
-    update_message = 'Vantage updated · 1.44.44 → 1.44.54'
+    update_message = 'Vantage updated · 1.44.44 → 1.44.55'
     assert update_message in (
         [result['initial']['rail_text']] + result['initial']['rail_pending'])
+    assert result['initial']['vantage_ui_visible'] is True
     assert result['busy'] == 15000
     assert result['checking'] == {
         'state': 'checking',

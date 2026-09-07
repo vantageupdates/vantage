@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -18,8 +19,8 @@ from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtNetwork import (
     QNetworkAccessManager, QNetworkReply, QNetworkRequest)
 from PySide6.QtWidgets import (
-    QApplication, QHBoxLayout, QLabel, QPlainTextEdit, QProgressBar,
-    QPushButton, QVBoxLayout)
+    QApplication, QCheckBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
+    QPlainTextEdit, QProgressBar, QPushButton, QVBoxLayout, QWidget)
 import semver
 
 from vantage.helpers.icons import game_icon
@@ -27,11 +28,13 @@ from vantage.helpers.scaled_dialog import UniformScaleDialog
 
 
 REPOSITORY = "vantageupdates/vantage"
-LATEST_RELEASE_API = (
-    f"https://api.github.com/repos/{REPOSITORY}/releases/latest")
+RELEASE_HISTORY_API = (
+    f"https://api.github.com/repos/{REPOSITORY}/releases?per_page=40&page=1")
 RELEASES_URL = f"https://github.com/{REPOSITORY}/releases"
 ASSET_NAME = "Vantage.exe"
-USER_AGENT = "Vantage/1.44.54"
+USER_AGENT = "Vantage/1.44.55"
+_COMPANION_TAG = re.compile(
+    r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
 
 
 def file_sha256(path):
@@ -63,27 +66,36 @@ def parse_release_payload(payload):
     if payload.get("draft") or payload.get("prerelease"):
         raise ValueError("The latest Vantage release is not a stable release.")
     tag = str(payload.get("tag_name") or "").strip()
+    if not _COMPANION_TAG.fullmatch(tag):
+        raise ValueError("The Companion release tag must be exact v<semver>.")
     try:
-        version = semver.VersionInfo.parse(tag.lstrip("vV"))
+        version = semver.VersionInfo.parse(tag[1:])
     except (TypeError, ValueError) as error:
         raise ValueError("The latest release has an invalid version tag.") from error
-    asset = next((
-        item for item in payload.get("assets", [])
-        if isinstance(item, dict) and
-        str(item.get("name") or "").casefold() == ASSET_NAME.casefold()), None)
-    if not asset:
-        raise ValueError(f"Release {tag} does not contain {ASSET_NAME}.")
+    assets = payload.get("assets", [])
+    if not isinstance(assets, list):
+        raise ValueError("The Companion release assets are invalid.")
+    matches = [
+        item for item in assets
+        if isinstance(item, dict) and item.get("name") == ASSET_NAME]
+    if len(matches) != 1:
+        raise ValueError(
+            f"Release {tag} must contain exactly one {ASSET_NAME}.")
+    asset = matches[0]
     digest = str(asset.get("digest") or "").strip().casefold()
-    if not digest.startswith("sha256:") or len(digest) != 71:
+    if (not digest.startswith("sha256:") or
+            not re.fullmatch(r"[a-f0-9]{64}", digest[7:])):
         raise ValueError(
             f"Release {tag} is missing its GitHub SHA-256 digest.")
     size = int(asset.get("size") or 0)
     if size < 1024 * 1024:
         raise ValueError(f"Release {tag} contains an incomplete executable.")
     download_url = str(asset.get("browser_download_url") or "").strip()
-    if not download_url.startswith(
-            f"https://github.com/{REPOSITORY}/releases/download/"):
-        raise ValueError("The release download does not belong to Vantage.")
+    expected_url = (
+        f"https://github.com/{REPOSITORY}/releases/download/"
+        f"{tag}/{ASSET_NAME}")
+    if download_url != expected_url:
+        raise ValueError("The release download does not match its exact tag.")
     return ReleaseInfo(
         version=version,
         tag=tag,
@@ -94,6 +106,33 @@ def parse_release_payload(payload):
         download_url=download_url,
         size=size,
         digest=digest)
+
+
+def select_companion_release(payload):
+    """Choose the newest stable exact Companion release from bounded history."""
+    if not isinstance(payload, list) or len(payload) > 40:
+        raise ValueError("GitHub returned invalid bounded release history.")
+    candidates = []
+    for release in payload:
+        if not isinstance(release, dict):
+            raise ValueError("GitHub returned an invalid release entry.")
+        if release.get("draft") or release.get("prerelease"):
+            continue
+        tag = str(release.get("tag_name") or "").strip()
+        if not _COMPANION_TAG.fullmatch(tag):
+            continue
+        assets = release.get("assets", [])
+        has_companion = any(
+            isinstance(asset, dict) and
+            asset.get("name") == ASSET_NAME
+            for asset in (assets if isinstance(assets, list) else []))
+        if has_companion:
+            candidates.append((semver.VersionInfo.parse(tag[1:]), release))
+    if not candidates:
+        return None
+    # Parse only the newest matching release. If it advertises Vantage.exe but
+    # its metadata is unsafe, failing is safer than silently downgrading.
+    return parse_release_payload(max(candidates, key=lambda item: item[0])[1])
 
 
 class UpdateController(QObject):
@@ -152,7 +191,7 @@ class UpdateController(QObject):
         if self.busy:
             return False
         self.check_started.emit()
-        self._reply = self._network.get(self._request(LATEST_RELEASE_API))
+        self._reply = self._network.get(self._request(RELEASE_HISTORY_API))
         self._reply.finished.connect(self._check_finished)
         return True
 
@@ -176,13 +215,18 @@ class UpdateController(QObject):
             self.failed.emit(message)
             return
         try:
-            info = parse_release_payload(json.loads(payload.decode("utf-8")))
+            info = select_companion_release(
+                json.loads(payload.decode("utf-8")))
         except (UnicodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
             message = str(exc)
             self.check_failed.emit(message)
             self.failed.emit(message)
             return
         self.latest_info = info
+        if info is None:
+            self.check_finished.emit(
+                None, "No verified Companion release was found in recent history.")
+            return
         if info.version > self.current_version:
             message = f"Vantage {info.version} is ready to download."
             self.check_finished.emit(info, message)
@@ -260,7 +304,7 @@ class UpdateController(QObject):
             return
         self.download_ready.emit(info, str(self._staged_path))
 
-    def launch_installer(self, info, staged_path):
+    def launch_installer(self, info, staged_path, *, open_vantage_ui=False):
         if not getattr(sys, "frozen", False):
             raise RuntimeError("Updates can be installed only from Vantage.exe.")
         candidate = Path(staged_path).resolve()
@@ -283,13 +327,18 @@ class UpdateController(QObject):
         flags = 0
         if os.name == "nt":
             flags = 0x00000008 | 0x00000200
-        subprocess.Popen([
+        command = [
             str(candidate), "--apply-update",
             "--target", str(target),
             "--wait-pid", str(os.getpid()),
             "--digest", info.digest,
             "--from-version", str(self.current_version),
-        ], cwd=str(target.parent), close_fds=True, creationflags=flags)
+        ]
+        if open_vantage_ui:
+            command.append("--open-vantage-ui")
+        subprocess.Popen(
+            command, cwd=str(target.parent), close_fds=True,
+            creationflags=flags)
         self._preserve_staged = True
 
     def cleanup(self):
@@ -311,16 +360,20 @@ class UpdateController(QObject):
 class UpdateDialog(UniformScaleDialog):
     """Compact, keyboard-operable update status and download surface."""
 
-    def __init__(self, controller, parent=None):
+    def __init__(self, controller, parent=None, *, vantage_ui=None,
+                 open_vantage_ui=None):
         super().__init__(
-            QSize(520, 350), parent, minimum_size=QSize(286, 193),
-            initial_size=QSize(520, 350), lock_aspect=True)
+            QSize(560, 430), parent, minimum_size=QSize(430, 340),
+            initial_size=QSize(560, 430), lock_aspect=False)
         self.setWindowTitle("Vantage Update")
         self.setObjectName("UpdateDialog")
         self.controller = controller
+        self.vantage_ui = vantage_ui
+        self._open_vantage_ui = open_vantage_ui
         self.info = None
         self.staged_path = ""
         self._one_click_active = False
+        self._last_progress_announcement = 0
 
         layout = QVBoxLayout(self.scaled_surface)
         layout.setContentsMargins(18, 15, 18, 16)
@@ -328,9 +381,40 @@ class UpdateDialog(UniformScaleDialog):
         title = QLabel("VANTAGE UPDATE")
         title.setObjectName("UpdateTitle")
         layout.addWidget(title)
+        products = QFrame()
+        products.setObjectName("UpdateProducts")
+        products.setAccessibleName("Independent update products")
+        products.setAccessibleDescription(
+            "Vantage Companion and VantageUI have separate installed and available versions")
+        product_layout = QGridLayout(products)
+        product_layout.setContentsMargins(9, 7, 9, 7)
+        product_layout.setHorizontalSpacing(12)
+        product_layout.setVerticalSpacing(3)
+        companion_name = QLabel("Vantage Companion")
+        companion_name.setObjectName("UpdateProductName")
+        companion_name.setAccessibleName("Vantage Companion update information")
+        companion_name.setToolTip("Vantage Companion application updates")
+        product_layout.addWidget(companion_name, 0, 0)
         self.version = QLabel()
         self.version.setObjectName("UpdateVersion")
-        layout.addWidget(self.version)
+        self.version.setAccessibleName("Vantage Companion versions")
+        self.version.setToolTip("Installed and available Companion versions")
+        product_layout.addWidget(self.version, 0, 1)
+        ui_name = QLabel("VantageUI")
+        ui_name.setObjectName("UpdateProductName")
+        ui_name.setAccessibleName("VantageUI update information")
+        ui_name.setToolTip("Independent optional EverQuest skin updates")
+        product_layout.addWidget(ui_name, 1, 0)
+        self.ui_version = QLabel("Installed: checking · Available: checking")
+        self.ui_version.setObjectName("UpdateVersion")
+        self.ui_version.setAccessibleName("VantageUI versions")
+        self.ui_version.setAccessibleDescription(
+            "Installed and independently available VantageUI versions")
+        self.ui_version.setToolTip(
+            "Installed and available versions of the optional VantageUI skin")
+        product_layout.addWidget(self.ui_version, 1, 1)
+        product_layout.setColumnStretch(1, 1)
+        layout.addWidget(products)
         self.status = QLabel("Ready to check GitHub Releases.")
         self.status.setObjectName("UpdateStatus")
         self.status.setWordWrap(True)
@@ -357,15 +441,40 @@ class UpdateDialog(UniformScaleDialog):
             "Download progress; the file is verified before installation")
         layout.addWidget(self.progress)
 
+        self.open_ui_after_restart = QCheckBox(
+            "After restart, open VantageUI")
+        self.open_ui_after_restart.setChecked(False)
+        self.open_ui_after_restart.setAccessibleName(
+            "After Companion restarts, open VantageUI")
+        self.open_ui_after_restart.setAccessibleDescription(
+            "One-time option. Opens the VantageUI installer after a successful "
+            "Companion update; it does not install the skin.")
+        self.open_ui_after_restart.setToolTip(
+            "One-time option: open the separate VantageUI installer after a "
+            "successful Companion restart; this never installs the skin automatically")
+        layout.addWidget(self.open_ui_after_restart)
+
         actions = QHBoxLayout()
         actions.setContentsMargins(0, 0, 0, 0)
         actions.setSpacing(5)
         self.check_button = QPushButton("Check again")
         self.check_button.setIcon(game_icon("refresh"))
+        self.check_button.setAccessibleName("Check for Companion updates")
+        self.check_button.setAccessibleDescription(
+            "Checks recent verified Companion releases; VantageUI is checked independently")
         self.check_button.setToolTip(
             "Check the official vantageupdates/vantage GitHub Releases page")
         self.check_button.clicked.connect(self.check)
         actions.addWidget(self.check_button)
+        self.open_ui_button = QPushButton("Open VantageUI installer")
+        self.open_ui_button.setAccessibleName("Open VantageUI installer")
+        self.open_ui_button.setAccessibleDescription(
+            "Opens the independent VantageUI area without installing anything")
+        self.open_ui_button.setToolTip(
+            "Open the separate VantageUI installer and update controls")
+        self.open_ui_button.setEnabled(callable(open_vantage_ui))
+        self.open_ui_button.clicked.connect(self._open_ui_panel)
+        actions.addWidget(self.open_ui_button)
         actions.addStretch(1)
         self.download_button = QPushButton("Download and install update")
         self.download_button.setObjectName("PrimaryAction")
@@ -379,6 +488,7 @@ class UpdateDialog(UniformScaleDialog):
         self.download_button.clicked.connect(self.download_and_install)
         actions.addWidget(self.download_button)
         self.close_button = QPushButton("Later")
+        self.close_button.setAccessibleName("Update Vantage later")
         self.close_button.setToolTip(
             "Close this dialog without changing Vantage")
         self.close_button.clicked.connect(self.close)
@@ -389,14 +499,42 @@ class UpdateDialog(UniformScaleDialog):
         controller.failed.connect(self._failed)
         controller.download_progress.connect(self._download_progress)
         controller.download_ready.connect(self._download_ready)
+        if vantage_ui is not None:
+            signal = getattr(vantage_ui, "update_state_changed", None)
+            if signal is not None:
+                signal.connect(self._ui_state_changed)
+        QWidget.setTabOrder(self.open_ui_after_restart, self.check_button)
+        QWidget.setTabOrder(self.check_button, self.open_ui_button)
+        QWidget.setTabOrder(self.open_ui_button, self.download_button)
+        QWidget.setTabOrder(self.download_button, self.close_button)
         self._show_current()
+        self._ui_state_changed(self._ui_snapshot())
 
     def _show_current(self):
         self.version.setText(
-            f"INSTALLED  {self.controller.current_version}   ·   "
-            f"SOURCE  {REPOSITORY}")
+            f"Installed: {self.controller.current_version} · Available: checking")
+
+    def _ui_snapshot(self):
+        getter = getattr(self.vantage_ui, "update_snapshot", None)
+        return getter() if callable(getter) else {}
+
+    def _ui_state_changed(self, state):
+        state = state if isinstance(state, dict) else {}
+        installed = str(state.get("installed") or "Not installed")
+        available = str(state.get("available") or (
+            "checking" if state.get("busy") else "Not checked"))
+        text = f"Installed: {installed} · Available: {available}"
+        self.ui_version.setText(text)
+        self.ui_version.setAccessibleDescription(
+            f"VantageUI. {text}. Updates are managed independently.")
+
+    def _open_ui_panel(self):
+        if callable(self._open_vantage_ui):
+            self._open_vantage_ui()
 
     def open_and_check(self):
+        if not self.isVisible():
+            self.open_ui_after_restart.setChecked(False)
         self.show()
         self.raise_()
         self.activateWindow()
@@ -404,6 +542,10 @@ class UpdateDialog(UniformScaleDialog):
             self._checked(
                 self.controller.latest_info,
                 f"Latest published version: {self.controller.latest_info.version}")
+        self._ui_state_changed(self._ui_snapshot())
+        if self.vantage_ui is not None and not getattr(
+                self.vantage_ui, "_busy", False):
+            self.vantage_ui.check_for_updates()
         self.check()
 
     def check(self):
@@ -419,8 +561,8 @@ class UpdateDialog(UniformScaleDialog):
         self.info = info
         if info:
             self.version.setText(
-                f"INSTALLED  {self.controller.current_version}   ·   "
-                f"LATEST  {info.version}")
+                f"Installed: {self.controller.current_version} · "
+                f"Available: {info.version}")
             self.notes.setPlainText(info.notes or "No release notes provided.")
             available = info.version > self.controller.current_version
             self.download_button.setEnabled(available)
@@ -454,6 +596,7 @@ class UpdateDialog(UniformScaleDialog):
                 "Another update operation is already running.", announce=True)
             return
         self._one_click_active = True
+        self._last_progress_announcement = 0
         self._set_status(
             "Downloading and verifying Vantage.exe…", announce=True)
         self.progress.setValue(0)
@@ -468,8 +611,14 @@ class UpdateDialog(UniformScaleDialog):
         if not self._one_click_active:
             return
         total = total if total > 0 else (self.info.size if self.info else 0)
-        self.progress.setValue(
-            max(0, min(100, round(received / total * 100))) if total else 0)
+        value = max(0, min(100, round(received / total * 100))) if total else 0
+        self.progress.setValue(value)
+        milestone = min(100, (value // 25) * 25)
+        if milestone >= 25 and milestone > self._last_progress_announcement:
+            self._last_progress_announcement = milestone
+            self._set_status(
+                f"Downloading and verifying Vantage.exe · {milestone}%",
+                announce=True)
 
     def _download_ready(self, info, path):
         if not self._one_click_active:
@@ -490,7 +639,9 @@ class UpdateDialog(UniformScaleDialog):
         self._set_status(
             "Closing Vantage and applying the verified update…", announce=True)
         try:
-            self.controller.launch_installer(self.info, self.staged_path)
+            self.controller.launch_installer(
+                self.info, self.staged_path,
+                open_vantage_ui=self.open_ui_after_restart.isChecked())
         except (OSError, RuntimeError, ValueError) as error:
             self._failed(f"Update could not start: {error}")
             return

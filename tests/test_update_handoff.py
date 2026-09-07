@@ -83,6 +83,7 @@ updater.subprocess.Popen = lambda command, **kwargs: spawned.append(command)
 dialog = UpdateDialog(app._update_controller)
 dialog.info = info
 dialog.staged_path = str(staged)
+dialog.open_ui_after_restart.setChecked(True)
 QTimer.singleShot(0, dialog.install)
 app.exec()
 
@@ -91,6 +92,7 @@ with open(config._filename, encoding='utf-8') as source:
 rows = persisted['spells']['active_timer_state']
 print(json.dumps({
     'spawned': len(spawned),
+    'open_ui_flag': '--open-vantage-ui' in spawned[0],
     'names_after_quit': sorted(row['spell']['name'] for row in rows),
     'rows_after_quit': rows,
 }))
@@ -146,6 +148,7 @@ def test_real_update_dialog_quit_and_fresh_process_restore_all_active_spells(
     installed = _run(INSTALL_SCRIPT, profile)
 
     assert installed['spawned'] == 1
+    assert installed['open_ui_flag'] is True
     assert installed['names_after_quit'] == [
         'Update Mob Debuff', 'Update Self Buff']
     assert {row['target'] for row in installed['rows_after_quit']} == {
@@ -207,6 +210,93 @@ def test_checkpoint_verification_rejects_stale_disk_without_spawning(
     assert spawned == []
     assert 'cancelled' in message
     assert 'remains open' in message
+
+
+def test_launch_installer_forwards_one_shot_vantageui_handoff(
+        monkeypatch, tmp_path):
+    from vantage.helpers import updater
+    from vantage.helpers.updater import UpdateController
+
+    candidate = tmp_path / 'new.exe'
+    target = tmp_path / 'Vantage.exe'
+    candidate.write_bytes(b'MZnew')
+    target.write_bytes(b'MZold')
+    digest = hashlib.sha256(candidate.read_bytes()).hexdigest()
+    info = SimpleNamespace(digest='sha256:' + digest)
+
+    class _Signal:
+        def connect(self, _callback):
+            pass
+    class _App:
+        aboutToQuit = _Signal()
+        def checkpoint_for_update(self):
+            return True
+
+    spawned = []
+    monkeypatch.setattr(updater.sys, 'frozen', True, raising=False)
+    monkeypatch.setattr(updater.sys, 'executable', str(target))
+    monkeypatch.setattr(
+        updater.QApplication, 'instance', staticmethod(lambda: _App()))
+    monkeypatch.setattr(
+        updater.subprocess, 'Popen',
+        lambda command, **kwargs: spawned.append((command, kwargs)))
+    controller = UpdateController('1.0.0')
+    controller.launch_installer(
+        info, candidate, open_vantage_ui=True)
+    assert '--open-vantage-ui' in spawned[0][0]
+
+
+def test_update_apply_sets_handoff_only_for_successful_swap(monkeypatch, tmp_path):
+    from vantage.helpers import update_apply
+
+    target = tmp_path / 'Vantage.exe'
+    target.write_bytes(b'MZtarget')
+    launches = []
+    monkeypatch.setattr(
+        update_apply.subprocess, 'Popen',
+        lambda command, **kwargs: launches.append((command, kwargs)))
+    monkeypatch.setenv('VANTAGE_OPEN_UI_AFTER_UPDATE', 'stale')
+    update_apply._launch_target(
+        target, updated_from='1.0.0', open_vantage_ui=True)
+    assert launches[-1][1]['env']['VANTAGE_OPEN_UI_AFTER_UPDATE'] == '1'
+
+    launches.clear()
+    update_apply._launch_target(
+        target, error='failed', open_vantage_ui=True)
+    assert 'VANTAGE_OPEN_UI_AFTER_UPDATE' not in launches[-1][1]['env']
+
+
+def test_update_apply_parser_forwards_handoff_only_after_verified_success(
+        monkeypatch, tmp_path):
+    from vantage.helpers import update_apply
+
+    source = tmp_path / 'staged' / 'Vantage.exe'
+    source.parent.mkdir()
+    source.write_bytes(b'MZverified-new')
+    target = tmp_path / 'installed' / 'Vantage.exe'
+    target.parent.mkdir()
+    target.write_bytes(b'MZold')
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    launches = []
+    monkeypatch.setattr(update_apply.sys, 'executable', str(source))
+    monkeypatch.setattr(
+        update_apply, '_launch_target',
+        lambda path, **kwargs: launches.append((path, kwargs)))
+    result = update_apply.apply_staged_update([
+        '--apply-update', '--target', str(target), '--wait-pid', '0',
+        '--digest', 'sha256:' + digest, '--from-version', '1.44.54',
+        '--open-vantage-ui'])
+    assert result == 0
+    assert launches[0][1]['open_vantage_ui'] is True
+    assert launches[0][1]['updated_from'] == '1.44.54'
+
+    launches.clear()
+    result = update_apply.apply_staged_update([
+        '--apply-update', '--target', str(target), '--wait-pid', '0',
+        '--digest', 'sha256:' + '0' * 64, '--from-version', '1.44.54',
+        '--open-vantage-ui'])
+    assert result == 1
+    assert launches and launches[0][1].get('open_vantage_ui', False) is False
 
 
 def test_checkpoint_does_not_report_success_when_fresh_process_would_read_stale(

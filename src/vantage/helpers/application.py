@@ -50,7 +50,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=54,
+    patch=55,
     build=""
 )
 
@@ -200,11 +200,15 @@ class VantageApp(QApplication):
         self._splash.complete()
 
         updated_from = os.environ.pop("VANTAGE_UPDATED_FROM", "").strip()
+        open_ui_after_update = (
+            os.environ.pop("VANTAGE_OPEN_UI_AFTER_UPDATE", "").strip() == "1")
         update_error = os.environ.pop("VANTAGE_UPDATE_ERROR", "").strip()
         if updated_from:
             self._queue_quickbar_notice(
                 "Vantage updated",
                 f"{updated_from} → {CURRENT_VERSION}")
+            if open_ui_after_update:
+                QTimer.singleShot(0, self.open_vantage_ui)
         elif update_error:
             self.show_overlay_notification(
                 "Vantage update",
@@ -1230,9 +1234,25 @@ class VantageApp(QApplication):
     def show_update_dialog(self):
         if self._update_dialog_instance is None:
             from vantage.helpers.updater import UpdateDialog
+            vantage_ui = self._parsers_dict.get("vantage_ui")
             self._update_dialog_instance = UpdateDialog(
-                self._update_controller)
+                self._update_controller, vantage_ui=vantage_ui,
+                open_vantage_ui=self.open_vantage_ui)
         self._update_dialog_instance.open_and_check()
+
+    def open_vantage_ui(self):
+        """Open, never toggle closed, the independent VantageUI surface."""
+        panel = self._parsers_dict.get("vantage_ui")
+        if panel is None:
+            return False
+        if not panel.isVisible():
+            panel.toggle()
+        else:
+            panel.raise_()
+            panel.activateWindow()
+            QTimer.singleShot(0, lambda: panel.path_edit.setFocus(
+                Qt.FocusReason.OtherFocusReason))
+        return True
 
     def new_version_available(self):
         latest = getattr(self, '_update_controller', None)
