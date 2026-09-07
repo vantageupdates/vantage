@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLineEdit
 
 from vantage.helpers import config, ui_skin_updater
 from vantage.helpers.application import SettingsSignals
@@ -134,12 +134,17 @@ def test_fresh_install_button_checks_then_continues_verified_flow(
     assert "verified release" in panel.update_button.toolTip()
     assert not panel.update_button.isHidden()
     assert panel.update_button.isEnabled()
+    panel.show()
+    panel.activateWindow()
+    QApplication.processEvents()
+    panel.update_button.setFocus(Qt.FocusReason.OtherFocusReason)
 
     checks = []
     def begin_check():
         checks.append(True)
         panel._busy = True
         panel._operation_token += 1
+        panel._initiating_control = panel.update_button
         panel._refresh_controls()
         return True
     monkeypatch.setattr(panel, "check_for_updates", begin_check)
@@ -162,6 +167,53 @@ def test_fresh_install_button_checks_then_continues_verified_flow(
     assert confirmations[0][0] == "Install VantageUI"
     assert confirmations[0][1].startswith("Install only")
     assert installs == [release]
+
+
+def test_fresh_install_check_defers_confirmation_when_focus_leaves(
+        panel, monkeypatch):
+    panel._installed = ""
+    panel._release = None
+    panel._refresh_controls()
+    panel.show()
+    panel.activateWindow()
+    QApplication.processEvents()
+    panel.update_button.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def begin_check():
+        panel._busy = True
+        panel._operation_token += 1
+        panel._initiating_control = panel.update_button
+        panel._refresh_controls()
+        return True
+
+    monkeypatch.setattr(panel, "check_for_updates", begin_check)
+    confirmations = []
+    monkeypatch.setattr(
+        panel, "_confirm",
+        lambda *_args: confirmations.append(True) or True)
+    panel.update_button.click()
+    assert panel._install_after_check is True
+
+    external = QLineEdit()
+    external.show()
+    external.activateWindow()
+    external.setFocus(Qt.FocusReason.OtherFocusReason)
+    QApplication.processEvents()
+    panel._operation_completed(
+        panel._operation_token, "check",
+        (SimpleNamespace(version="1.44.51"), ""))
+    QApplication.processEvents()
+    QApplication.processEvents()
+
+    assert confirmations == []
+    assert QApplication.activeWindow() is external
+    assert QApplication.focusWidget() is external
+    assert panel._install_after_check is False
+    assert panel._initiating_control is None
+    assert panel.update_button.isEnabled()
+    assert panel.update_button.text() == "Install VantageUI"
+    assert "Click Install VantageUI" in panel.status.text()
+    external.close()
 
 
 def test_installed_action_labels_update_and_current_repair(panel):
@@ -225,7 +277,7 @@ def test_automatic_new_release_starts_live_install_without_confirmation(
     panel._busy = True
     panel._operation_completed(
         5, "check", (SimpleNamespace(version="2.0.0"), "1.0.0"))
-    assert calls == [((), {"confirm": False})]
+    assert calls == [((), {"confirm": False, "background": True})]
 
 
 def test_update_proceeds_immediately_while_eq_runs(panel, monkeypatch):
@@ -255,7 +307,7 @@ def test_panel_install_invokes_core_with_live_opt_in_and_progress(
         kwargs["progress"]("Updating", 75, 3, 4)
         return SimpleNamespace(version="1.44.51")
     monkeypatch.setattr(ui_skin_updater, "install_release", install)
-    def immediate(action, callback, _status):
+    def immediate(action, callback, _status, **_options):
         panel._busy = True
         panel._operation_token += 1
         result = callback(lambda _line: None, panel._progress_callback(
@@ -316,6 +368,7 @@ def test_success_focuses_enabled_primary_action(panel, monkeypatch):
 
     monkeypatch.setattr(vantage_ui_module.threading, "Thread", DormantThread)
     panel.show()
+    panel.activateWindow()
     QApplication.processEvents()
     panel.check_button.setFocus(Qt.FocusReason.OtherFocusReason)
     assert panel._start("local", lambda *_args: "", "Reading local state")
@@ -337,6 +390,7 @@ def test_non_permission_failure_focuses_initiating_retry_action(
 
     monkeypatch.setattr(vantage_ui_module.threading, "Thread", DormantThread)
     panel.show()
+    panel.activateWindow()
     QApplication.processEvents()
     panel.check_button.setFocus(Qt.FocusReason.OtherFocusReason)
     assert panel._start("check", lambda *_args: None, "Checking")
@@ -349,12 +403,110 @@ def test_non_permission_failure_focuses_initiating_retry_action(
     assert panel.check_button.hasFocus()
 
 
+def test_background_check_completion_never_activates_or_moves_focus(
+        panel, monkeypatch):
+    class DormantThread:
+        def __init__(self, *args, **kwargs):
+            pass
+        def start(self):
+            pass
+
+    monkeypatch.setattr(vantage_ui_module.threading, "Thread", DormantThread)
+    panel.show()
+    external = QLineEdit()
+    external.show()
+    external.activateWindow()
+    external.setFocus(Qt.FocusReason.OtherFocusReason)
+    QApplication.processEvents()
+    assert panel.check_for_updates(background=True)
+    assert panel._initiating_control is None
+    panel._operation_completed(
+        panel._operation_token, "check",
+        (SimpleNamespace(version="2.0.0"), "1.0.0"))
+    QApplication.processEvents()
+    QApplication.processEvents()
+    assert QApplication.activeWindow() is external
+    assert QApplication.focusWidget() is external
+    assert panel._initiating_control is None
+    external.close()
+
+
+def test_manual_completion_does_not_steal_focus_after_user_leaves_panel(
+        panel, monkeypatch):
+    class DormantThread:
+        def __init__(self, *args, **kwargs):
+            pass
+        def start(self):
+            pass
+
+    monkeypatch.setattr(vantage_ui_module.threading, "Thread", DormantThread)
+    panel.show()
+    panel.activateWindow()
+    QApplication.processEvents()
+    panel.check_button.setFocus(Qt.FocusReason.OtherFocusReason)
+    assert panel._start("local", lambda *_args: "", "Reading local state")
+    assert panel._initiating_control is panel.check_button
+
+    external = QLineEdit()
+    external.show()
+    external.activateWindow()
+    external.setFocus(Qt.FocusReason.OtherFocusReason)
+    QApplication.processEvents()
+    panel._operation_completed(panel._operation_token, "local", "")
+    QApplication.processEvents()
+    QApplication.processEvents()
+    assert QApplication.activeWindow() is external
+    assert QApplication.focusWidget() is external
+    assert panel._initiating_control is None
+    external.close()
+
+
+def test_permission_failure_does_not_steal_focus_after_user_leaves_panel(
+        panel, monkeypatch):
+    class DormantThread:
+        def __init__(self, *args, **kwargs):
+            pass
+        def start(self):
+            pass
+
+    monkeypatch.setattr(vantage_ui_module.threading, "Thread", DormantThread)
+    panel.show()
+    panel.activateWindow()
+    QApplication.processEvents()
+    panel.update_button.setFocus(Qt.FocusReason.OtherFocusReason)
+    assert panel._start("update", lambda *_args: None, "Installing")
+
+    external = QLineEdit()
+    external.show()
+    external.activateWindow()
+    external.setFocus(Qt.FocusReason.OtherFocusReason)
+    QApplication.processEvents()
+    panel._operation_failed(
+        panel._operation_token, "update", PermissionError("access denied"))
+    QApplication.processEvents()
+    QApplication.processEvents()
+    assert not panel.elevation_button.isHidden()
+    assert QApplication.activeWindow() is external
+    assert QApplication.focusWidget() is external
+    assert panel._initiating_control is None
+    external.close()
+
+
+def test_automatic_timer_always_requests_background_check(panel, monkeypatch):
+    checks = []
+    monkeypatch.setattr(
+        panel, "check_for_updates",
+        lambda **options: checks.append(options))
+    panel._automatic_timer.timeout.emit()
+    assert checks == [{"background": True}]
+
+
 def test_check_update_restore_and_auto_use_verified_shared_core(
         panel, monkeypatch):
     release = SimpleNamespace(version="3.0.0")
     calls = []
 
-    def immediate(action, callback, _status):
+    def immediate(action, callback, _status, **_options):
         result = callback(lambda line: calls.append(("log", line)),
                           lambda *_args: None)
         calls.append((action, result))
@@ -381,10 +533,12 @@ def test_check_update_restore_and_auto_use_verified_shared_core(
     assert calls[1][1][1].endswith("EverQuest")
 
     checked = []
-    monkeypatch.setattr(panel, "check_for_updates", lambda: checked.append(True))
+    monkeypatch.setattr(
+        panel, "check_for_updates",
+        lambda **kwargs: checked.append(kwargs))
     panel.auto_update.setChecked(True)
     assert panel._automatic_timer.isActive()
-    assert checked == [True]
+    assert checked == [{"background": True}]
     assert config.data["vantage_ui"]["auto_update"] is True
 
 

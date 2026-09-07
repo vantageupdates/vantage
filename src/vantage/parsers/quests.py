@@ -939,7 +939,7 @@ class Quests(ParserWindow):
         request = QNetworkRequest(url)
         request.setTransferTimeout(NETWORK_TIMEOUT_MS)
         request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader,
-                          "Vantage/1.44.55 (vantagecompanion@gmail.com)")
+                          "Vantage/1.44.56 (vantagecompanion@gmail.com)")
         return self._network.get(request)
 
     @staticmethod

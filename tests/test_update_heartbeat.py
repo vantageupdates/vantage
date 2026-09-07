@@ -91,7 +91,7 @@ def test_update_heartbeat_starts_fast_retries_and_updates_quickbar(tmp_path):
     assert result['initial']['interval'] == 3000
     assert 'every minute' in result['initial']['tooltip']
     assert result['initial']['update_toast_visible'] is False
-    update_message = 'Vantage updated · 1.44.44 → 1.44.55'
+    update_message = 'Vantage updated · 1.44.44 → 1.44.56'
     assert update_message in (
         [result['initial']['rail_text']] + result['initial']['rail_pending'])
     assert result['initial']['vantage_ui_visible'] is True
