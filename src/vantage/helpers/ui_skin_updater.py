@@ -237,52 +237,53 @@ def _has_ui_assets(payload):
                for asset in payload["assets"])
 
 
-def check_release(progress=None):
-    """Find the newest semantic UI release in bounded release history.
+def select_release_history(payload):
+    """Purely select the newest verified UI release from bounded history.
 
     A release containing either UI asset is never silently skipped if malformed.
     Legacy v<semver> asset releases and vantage-ui-v<semver> are recognized.
     """
+    _require(isinstance(payload, list) and len(payload) <= 40,
+             "Invalid bounded GitHub release history response.")
+    candidates = []
+    for candidate in payload:
+        _require(isinstance(candidate, dict),
+                 "Invalid GitHub release history entry.")
+        if candidate.get("draft") is True or candidate.get("prerelease") is True:
+            continue
+        tag = candidate.get("tag_name", "")
+        namespaced = (
+            isinstance(tag, str) and tag.startswith("vantage-ui-v"))
+        if namespaced or _has_ui_assets(candidate):
+            # Parse every recognized candidate now. A broken newest or older
+            # UI publication is never silently treated as valid.
+            candidates.append(parse_release_payload(candidate))
+    if candidates:
+        return max(
+            candidates,
+            key=lambda release: tuple(map(int, release.version.split("."))))
+    raise SkinUpdateError(
+        "No stable Vantage UI release was found in the latest 40 releases.")
+
+
+def check_release(progress=None):
+    """Fetch one bounded release history and select its verified UI release."""
     progress = _monotonic_progress(progress)
     with tempfile.TemporaryDirectory(prefix="vantage-ui-check-") as directory:
         _emit_progress(progress, "Checking release", 0)
-        candidates = []
-        for page in (1, 2):
-            page_path = Path(directory) / f"releases-{page}.json"
-            url = f"{RELEASES_API}?per_page=20&page={page}"
-            if progress is None:
-                _download(url, page_path, 4 * 1024 * 1024)
-            else:
-                base = 5 + (page - 1) * 40
-                _download(url, page_path, 4 * 1024 * 1024,
-                          progress=lambda count, total, base=base: _emit_progress(
-                              progress, "Searching verified UI releases",
-                              base if not total else base + round(35 * count / total),
-                              count, total))
-            releases = _json(page_path.read_bytes())
-            _require(isinstance(releases, list) and len(releases) <= 20,
-                     "Invalid GitHub release history response.")
-            for candidate in releases:
-                _require(isinstance(candidate, dict), "Invalid GitHub release history entry.")
-                if candidate.get("draft") is True or candidate.get("prerelease") is True:
-                    continue
-                tag = candidate.get("tag_name", "")
-                namespaced = isinstance(tag, str) and tag.startswith("vantage-ui-v")
-                has_assets = _has_ui_assets(candidate)
-                if namespaced or has_assets:
-                    # Parse every recognized candidate now. A broken newest or
-                    # older UI publication is never silently treated as valid.
-                    release = parse_release_payload(candidate)
-                    candidates.append(release)
-            if len(releases) < 20:
-                break
-        if candidates:
-            result = max(
-                candidates,
-                key=lambda release: tuple(map(int, release.version.split("."))))
-            _emit_progress(progress, "Release verified", 100)
-            return result
-        raise SkinUpdateError("No stable Vantage UI release was found in the latest 40 releases.")
+        history_path = Path(directory) / "releases.json"
+        url = f"{RELEASES_API}?per_page=40&page=1"
+        if progress is None:
+            _download(url, history_path, 4 * 1024 * 1024)
+        else:
+            _download(
+                url, history_path, 4 * 1024 * 1024,
+                progress=lambda count, total: _emit_progress(
+                    progress, "Searching verified UI releases", 5 if not total
+                    else 5 + round(85 * count / total), count, total))
+        result = select_release_history(_json(history_path.read_bytes()))
+        _emit_progress(progress, "Release verified", 100)
+        return result
 
 
 def _validate_release(release):

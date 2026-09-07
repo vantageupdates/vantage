@@ -161,10 +161,10 @@ class VantageUI(ParserWindow):
         self._progress_updates_enabled = True
         self._initiating_control = None
         self._last_warnings = ()
+        self._shared_update_controller = None
         self._automatic_timer = QTimer(self)
         self._automatic_timer.setInterval(AUTO_CHECK_MS)
-        self._automatic_timer.timeout.connect(
-            lambda: self.check_for_updates(background=True))
+        self._automatic_timer.timeout.connect(self._automatic_check)
         self._build_ui()
         if self.auto_update.isChecked():
             self._automatic_timer.start()
@@ -455,6 +455,73 @@ class VantageUI(ParserWindow):
             "warnings": self._last_warnings,
         }
 
+    def use_shared_update_controller(self, controller):
+        """Use one Companion-owned release feed for integrated background work."""
+        if controller is self._shared_update_controller:
+            return True
+        previous = self._shared_update_controller
+        if previous is not None:
+            for name, callback in (
+                    ("release_history_ready", self.consume_release_history),
+                    ("check_failed", self.shared_release_history_failed)):
+                try:
+                    getattr(previous, name).disconnect(callback)
+                except (AttributeError, RuntimeError, TypeError):
+                    pass
+        if (controller is None or
+                getattr(controller, "release_history_ready", None) is None or
+                getattr(controller, "check_failed", None) is None or
+                not callable(getattr(controller, "check", None))):
+            self._shared_update_controller = None
+            if self.auto_update.isChecked():
+                self._automatic_timer.start()
+            return False
+        self._shared_update_controller = controller
+        controller.release_history_ready.connect(self.consume_release_history)
+        controller.check_failed.connect(self.shared_release_history_failed)
+        # The integrated Companion heartbeat owns periodic discovery. Keeping
+        # this independent timer running would double-hit the same GitHub API.
+        self._automatic_timer.stop()
+        description = (
+            "Uses the Companion's shared periodic release check and installs "
+            "verified VantageUI updates; no second background request is made")
+        self.auto_update.setToolTip(description)
+        self.auto_update.setAccessibleDescription(description)
+        return True
+
+    def consume_release_history(self, payload, background=True):
+        """Select VantageUI from a shared history without network activity."""
+        if self._busy:
+            return False
+        eq_root = normalize_eq_root(self.path_edit.text())
+        try:
+            release = ui_skin_updater.select_release_history(payload)
+            installed, folder = _installed_selection(eq_root)
+        except (OSError, TypeError, ValueError,
+                ui_skin_updater.SkinUpdateError) as error:
+            self.shared_release_history_failed(str(error))
+            return False
+        self._release = release
+        self._installed = installed
+        self._installed_folder = folder
+        self._update_check_error = ""
+        self._refresh_versions()
+        self._refresh_controls()
+        if (self.auto_update.isChecked() and
+                version_is_newer(installed, release.version)):
+            return self.update_skin(confirm=False, background=True)
+        return True
+
+    def shared_release_history_failed(self, message):
+        """Record a background feed failure without focus or live announcements."""
+        self._update_check_error = " ".join(str(message or "").split())
+        self.update_state_changed.emit(self.update_snapshot())
+
+    def _automatic_check(self):
+        if self._shared_update_controller is not None:
+            return self._shared_update_controller.check()
+        return self.check_for_updates(background=True)
+
     def _primary_action_kind(self):
         if not self._installed:
             return "install"
@@ -703,6 +770,8 @@ class VantageUI(ParserWindow):
             "Checking the selected EverQuest folder and recovery state…")
 
     def check_for_updates(self, *, background=False):
+        if background and self._shared_update_controller is not None:
+            return self._shared_update_controller.check()
         eq_root = normalize_eq_root(self.path_edit.text())
 
         def check(_log, progress):
@@ -955,8 +1024,12 @@ class VantageUI(ParserWindow):
     def _auto_update_changed(self, enabled):
         self._save_settings()
         if enabled:
-            self._automatic_timer.start()
-            self.check_for_updates(background=True)
+            if self._shared_update_controller is not None:
+                self._automatic_timer.stop()
+                self._shared_update_controller.check()
+            else:
+                self._automatic_timer.start()
+                self.check_for_updates(background=True)
         else:
             self._automatic_timer.stop()
             self._install_action = ""

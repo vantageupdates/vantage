@@ -9,12 +9,14 @@ import sys
 from types import SimpleNamespace
 
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QByteArray, QObject, Qt, Signal
+from PySide6.QtNetwork import QNetworkReply, QNetworkRequest
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit
 
 from vantage.helpers import config, ui_skin_updater
 from vantage.helpers.application import SettingsSignals
+from vantage.helpers.updater import RELEASE_HISTORY_API, UpdateController
 from vantage.parsers import vantage_ui as vantage_ui_module
 from vantage.parsers.vantage_ui import (
     DEFAULT_EQ_ROOT, VantageUI, elevated_updater_command, normalize_eq_root,
@@ -44,6 +46,231 @@ def panel(tmp_path, monkeypatch):
     widget.close()
     config.data = original
     config._filename = original_filename
+
+
+def _shared_release_history(*, malformed_ui=False):
+    companion_tag = "v9.8.7"
+    ui_tag = "vantage-ui-v2.3.4"
+    companion = {
+        "id": 901, "tag_name": companion_tag,
+        "name": "Vantage 9.8.7", "body": "Shared history test.",
+        "published_at": "2026-09-07T12:00:00Z",
+        "html_url": (
+            "https://github.com/vantageupdates/vantage/releases/tag/" +
+            companion_tag),
+        "draft": False, "prerelease": False,
+        "assets": [{
+            "name": "Vantage.exe", "size": 2 * 1024 * 1024,
+            "digest": "sha256:" + "a" * 64,
+            "browser_download_url": (
+                "https://github.com/vantageupdates/vantage/releases/download/"
+                f"{companion_tag}/Vantage.exe"),
+        }],
+    }
+    ui_assets = []
+    for name, size, digest in (
+            (ui_skin_updater.MANIFEST_ASSET, 128, "b" * 64),
+            (ui_skin_updater.PAYLOAD_ASSET, 4096, "c" * 64)):
+        ui_assets.append({
+            "name": name, "size": size,
+            "digest": "" if malformed_ui and not ui_assets else
+            "sha256:" + digest,
+            "browser_download_url": (
+                "https://github.com/vantageupdates/vantage/releases/download/"
+                f"{ui_tag}/{name}"),
+        })
+    ui = {
+        "id": 902, "tag_name": ui_tag, "name": "VantageUI 2.3.4",
+        "body": "Independent UI release.",
+        "published_at": "2026-09-07T12:01:00Z",
+        "html_url": (
+            "https://github.com/vantageupdates/vantage/releases/tag/" +
+            ui_tag),
+        "draft": False, "prerelease": False, "assets": ui_assets,
+    }
+    return [ui, companion]
+
+
+class _HistoryReply(QObject):
+    finished = Signal()
+
+    def __init__(self, payload):
+        super().__init__()
+        self._payload = QByteArray(json.dumps(payload).encode("utf-8"))
+
+    def attribute(self, attribute):
+        if attribute == QNetworkRequest.Attribute.HttpStatusCodeAttribute:
+            return 200
+        return None
+
+    def readAll(self):
+        return self._payload
+
+    def error(self):
+        return QNetworkReply.NetworkError.NoError
+
+    def errorString(self):
+        return ""
+
+    def deleteLater(self):
+        pass
+
+
+class _HistoryNetwork:
+    def __init__(self, payload):
+        self.payload = payload
+        self.requests = []
+        self.reply = None
+
+    def get(self, request):
+        self.requests.append(request.url().toString())
+        self.reply = _HistoryReply(self.payload)
+        return self.reply
+
+
+def test_shared_history_selects_both_products_with_one_network_start(
+        panel, monkeypatch):
+    history = _shared_release_history()
+    network = _HistoryNetwork(history)
+    controller = UpdateController("1.0.0")
+    controller._network = network
+    monkeypatch.setattr(
+        vantage_ui_module, "_installed_selection",
+        lambda _root: ("2.3.3", "VantageUI-v2.3.3"))
+    monkeypatch.setattr(
+        ui_skin_updater, "check_release",
+        lambda **_kwargs: pytest.fail("shared consumption started a UI request"))
+    emitted = []
+    controller.release_history_ready.connect(emitted.append)
+    panel._automatic_timer.start()
+    assert panel.use_shared_update_controller(controller)
+    assert not panel._automatic_timer.isActive()
+
+    assert controller.check()
+    assert controller.check() is False
+    assert network.requests == [RELEASE_HISTORY_API]
+    network.reply.finished.emit()
+
+    assert network.requests == [RELEASE_HISTORY_API]
+    assert len(emitted) == 1
+    assert str(controller.latest_info.version) == "9.8.7"
+    assert panel._release.version == "2.3.4"
+    assert panel._installed == "2.3.3"
+    assert panel._installed_folder == "VantageUI-v2.3.3"
+    assert panel.update_snapshot()["update_available"] is True
+
+
+def test_malformed_shared_ui_candidate_does_not_block_companion_selection(
+        panel, monkeypatch):
+    history = _shared_release_history(malformed_ui=True)
+    network = _HistoryNetwork(history)
+    controller = UpdateController("1.0.0")
+    controller._network = network
+    monkeypatch.setattr(
+        vantage_ui_module, "_installed_selection",
+        lambda _root: ("2.3.3", "VantageUI-v2.3.3"))
+    announcements = []
+
+    class AccessibleRecorder:
+        @staticmethod
+        def updateAccessibility(event):
+            announcements.append(event.message())
+
+    monkeypatch.setattr(vantage_ui_module, "QAccessible", AccessibleRecorder)
+    companion_results = []
+    controller.check_finished.connect(
+        lambda info, _message: companion_results.append(info))
+    assert panel.use_shared_update_controller(controller)
+
+    assert controller.check()
+    network.reply.finished.emit()
+
+    assert network.requests == [RELEASE_HISTORY_API]
+    assert len(companion_results) == 1
+    assert str(companion_results[0].version) == "9.8.7"
+    assert panel._release is None
+    assert "sha-256" in panel.update_snapshot()["check_error"].casefold()
+    assert announcements == []
+
+
+def test_integrated_auto_update_uses_shared_controller_without_own_timer(panel):
+    class SharedController(QObject):
+        release_history_ready = Signal(object)
+        check_failed = Signal(str)
+
+        def __init__(self):
+            super().__init__()
+            self.checks = 0
+
+        def check(self):
+            self.checks += 1
+            return True
+
+    controller = SharedController()
+    assert panel.use_shared_update_controller(controller)
+    panel.auto_update.setChecked(True)
+
+    assert controller.checks == 1
+    assert not panel._automatic_timer.isActive()
+    assert "no second background request" in panel.auto_update.toolTip()
+
+
+def test_shared_history_preserves_opt_in_auto_install(panel, monkeypatch):
+    class SharedController(QObject):
+        release_history_ready = Signal(object)
+        check_failed = Signal(str)
+
+        def check(self):
+            return True
+
+    controller = SharedController()
+    monkeypatch.setattr(
+        vantage_ui_module, "_installed_selection",
+        lambda _root: ("2.3.3", "VantageUI-v2.3.3"))
+    installs = []
+    monkeypatch.setattr(
+        panel, "update_skin",
+        lambda **options: installs.append(options) or True)
+    panel.auto_update.blockSignals(True)
+    panel.auto_update.setChecked(True)
+    panel.auto_update.blockSignals(False)
+    assert panel.use_shared_update_controller(controller)
+
+    controller.release_history_ready.emit(_shared_release_history())
+
+    assert installs == [{"confirm": False, "background": True}]
+    assert panel._release.version == "2.3.4"
+
+
+def test_shared_network_failure_is_quiet_and_does_not_replace_busy_state(
+        panel, monkeypatch):
+    class SharedController(QObject):
+        release_history_ready = Signal(object)
+        check_failed = Signal(str)
+
+        def check(self):
+            return True
+
+    announcements = []
+
+    class AccessibleRecorder:
+        @staticmethod
+        def updateAccessibility(event):
+            announcements.append(event.message())
+
+    monkeypatch.setattr(vantage_ui_module, "QAccessible", AccessibleRecorder)
+    controller = SharedController()
+    assert panel.use_shared_update_controller(controller)
+    current_release = SimpleNamespace(version="2.3.3")
+    panel._release = current_release
+    panel._busy = True
+
+    controller.release_history_ready.emit(_shared_release_history())
+    controller.check_failed.emit("GitHub update check failed: rate limited")
+
+    assert panel._release is current_release
+    assert "rate limited" in panel.update_snapshot()["check_error"]
+    assert announcements == []
 
 
 @pytest.mark.parametrize("chosen", [

@@ -32,7 +32,7 @@ RELEASE_HISTORY_API = (
     f"https://api.github.com/repos/{REPOSITORY}/releases?per_page=40&page=1")
 RELEASES_URL = f"https://github.com/{REPOSITORY}/releases"
 ASSET_NAME = "Vantage.exe"
-USER_AGENT = "Vantage/1.44.59"
+USER_AGENT = "Vantage/1.44.60"
 _COMPANION_TAG = re.compile(
     r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
 
@@ -108,14 +108,19 @@ def parse_release_payload(payload):
         digest=digest)
 
 
-def select_companion_release(payload):
-    """Choose the newest stable exact Companion release from bounded history."""
+def _validated_release_history(payload):
+    """Validate and return one decoded, bounded GitHub release-history list."""
     if not isinstance(payload, list) or len(payload) > 40:
         raise ValueError("GitHub returned invalid bounded release history.")
-    candidates = []
     for release in payload:
         if not isinstance(release, dict):
             raise ValueError("GitHub returned an invalid release entry.")
+    return payload
+
+
+def _select_companion_release(payload):
+    candidates = []
+    for release in payload:
         if release.get("draft") or release.get("prerelease"):
             continue
         tag = str(release.get("tag_name") or "").strip()
@@ -135,10 +140,16 @@ def select_companion_release(payload):
     return parse_release_payload(max(candidates, key=lambda item: item[0])[1])
 
 
+def select_companion_release(payload):
+    """Choose the newest stable exact Companion release from bounded history."""
+    return _select_companion_release(_validated_release_history(payload))
+
+
 class UpdateController(QObject):
     check_started = Signal()
     check_finished = Signal(object, str)
     check_failed = Signal(str)
+    release_history_ready = Signal(object)
     update_available = Signal(object)
     failed = Signal(str)
     download_progress = Signal(int, int)
@@ -215,9 +226,20 @@ class UpdateController(QObject):
             self.failed.emit(message)
             return
         try:
-            info = select_companion_release(
+            history = _validated_release_history(
                 json.loads(payload.decode("utf-8")))
         except (UnicodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            message = str(exc)
+            self.check_failed.emit(message)
+            self.failed.emit(message)
+            return
+        # Every update product consumes this exact decoded response. VantageUI
+        # validates its own candidate independently, so malformed UI metadata
+        # cannot prevent Companion selection from the same bounded history.
+        self.release_history_ready.emit(history)
+        try:
+            info = _select_companion_release(history)
+        except (TypeError, ValueError) as exc:
             message = str(exc)
             self.check_failed.emit(message)
             self.failed.emit(message)
@@ -373,6 +395,7 @@ class UpdateDialog(UniformScaleDialog):
         self.info = None
         self.staged_path = ""
         self._one_click_active = False
+        self._manual_check_pending = False
         self._last_progress_announcement = 0
 
         layout = QVBoxLayout(self.scaled_surface)
@@ -459,9 +482,10 @@ class UpdateDialog(UniformScaleDialog):
         actions.setSpacing(5)
         self.check_button = QPushButton("Check again")
         self.check_button.setIcon(game_icon("refresh"))
-        self.check_button.setAccessibleName("Check for Companion updates")
+        self.check_button.setAccessibleName(
+            "Check for Vantage Companion and VantageUI updates")
         self.check_button.setAccessibleDescription(
-            "Checks recent verified Companion releases; VantageUI is checked independently")
+            "Uses one bounded GitHub release-history request for both update products")
         self.check_button.setToolTip(
             "Check the official vantageupdates/vantage GitHub Releases page")
         self.check_button.clicked.connect(self.check)
@@ -543,21 +567,22 @@ class UpdateDialog(UniformScaleDialog):
                 self.controller.latest_info,
                 f"Latest published version: {self.controller.latest_info.version}")
         self._ui_state_changed(self._ui_snapshot())
-        if self.vantage_ui is not None and not getattr(
-                self.vantage_ui, "_busy", False):
-            self.vantage_ui.check_for_updates()
         self.check()
 
     def check(self):
         self._set_status("Checking the official GitHub Release…", announce=True)
         self.check_button.setEnabled(False)
+        self._manual_check_pending = True
         if not self.controller.check():
+            self._manual_check_pending = False
             self._set_status(
                 "Another update operation is already running.", announce=True)
 
     def _checked(self, info, message):
+        manual_check = self._manual_check_pending
+        self._manual_check_pending = False
         self.check_button.setEnabled(True)
-        self._set_status(message, announce=True)
+        self._set_status(message, announce=manual_check)
         self.info = info
         if info:
             self.version.setText(
@@ -573,14 +598,17 @@ class UpdateDialog(UniformScaleDialog):
                 "The repository is connected, but it does not have a published Release yet.")
 
     def _failed(self, message):
+        interactive = self._manual_check_pending or self._one_click_active
+        self._manual_check_pending = False
         self._one_click_active = False
         self.check_button.setEnabled(True)
         self.download_button.setEnabled(bool(
             self.info and self.info.version > self.controller.current_version))
-        self.download_button.setText("Try again")
+        if interactive:
+            self.download_button.setText("Try again")
         self.close_button.setEnabled(True)
-        self._set_status(message, announce=True)
-        if self.isVisible():
+        self._set_status(message, announce=interactive)
+        if interactive and self.isVisible():
             QTimer.singleShot(0, lambda: self.download_button.setFocus(
                 Qt.FocusReason.OtherFocusReason))
 

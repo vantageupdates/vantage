@@ -50,7 +50,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=59,
+    patch=60,
     build=""
 )
 
@@ -175,6 +175,8 @@ class VantageApp(QApplication):
             self._update_controller, self)
         vantage_ui = self._parsers_dict.get("vantage_ui")
         if vantage_ui is not None:
+            vantage_ui.use_shared_update_controller(
+                self._update_controller)
             vantage_ui.update_state_changed.connect(
                 self._vantage_ui_update_state_changed)
             self._vantage_ui_update_state_changed(
@@ -1175,17 +1177,10 @@ class VantageApp(QApplication):
             return
         companion_started = self._update_controller.check()
         vantage_ui = self._parsers_dict.get("vantage_ui")
-        ui_started = bool(
-            vantage_ui is not None and
-            vantage_ui.check_for_updates(background=True))
         if not companion_started:
             self._schedule_update_check(UPDATE_BUSY_RETRY_MS)
         elif vantage_ui is None:
             self._vantage_ui_update_state = "unavailable"
-        elif not ui_started and not getattr(vantage_ui, "_busy", False):
-            # A checker that declined to start without being busy should be
-            # retried soon even though the Companion request is in flight.
-            self._schedule_update_check(UPDATE_BUSY_RETRY_MS)
 
     def _maybe_check_updates(self):
         """Backward-compatible entry point for an immediate heartbeat."""

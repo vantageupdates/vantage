@@ -16,6 +16,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QApplication
 import semver
 
+from vantage.helpers import updater as updater_module
 from vantage.helpers.updater import UpdateDialog
 
 
@@ -32,8 +33,10 @@ class Controller(QObject):
         self.busy = False
         self.downloaded = None
         self.installed = None
+        self.checks = 0
 
     def check(self):
+        self.checks += 1
         return True
 
     def download(self, info):
@@ -117,6 +120,7 @@ failing_controller = FailingController()
 failure_dialog = UpdateDialog(failing_controller)
 failure_dialog.info = info
 failure_dialog.staged_path = 'verified-Vantage.exe'
+failure_dialog._one_click_active = True
 failure_dialog.show()
 failure_dialog.install()
 app.processEvents()
@@ -127,10 +131,44 @@ failure = {
     'try_again': failure_dialog.download_button.text(),
     'later_enabled': failure_dialog.close_button.isEnabled(),
 }
+announcements = []
+class AccessibleRecorder:
+    @staticmethod
+    def updateAccessibility(event):
+        announcements.append(event.message())
+
+updater_module.QAccessible = AccessibleRecorder
+background_controller = Controller()
+background_dialog = UpdateDialog(background_controller)
+background_dialog.show()
+background_dialog.raise_()
+background_dialog.activateWindow()
+app.processEvents()
+background_dialog.notes.setFocus()
+app.processEvents()
+focus_before = QApplication.focusWidget()
+background_dialog._checked(info, 'Heartbeat found the current release.')
+app.processEvents()
+success_focus_preserved = QApplication.focusWidget() is focus_before
+background_dialog._failed('Heartbeat could not reach GitHub.')
+app.processEvents()
+app.processEvents()
+background = {
+    'announcements': announcements,
+    'focus_was_set': focus_before is not None,
+    'success_focus_preserved': success_focus_preserved,
+    'failure_focus_preserved': (
+        QApplication.focusWidget() is focus_before),
+    'status': background_dialog.status.text(),
+    'button': background_dialog.download_button.text(),
+}
 print(json.dumps({
     'before': before, 'during': during, 'after': after, 'failure': failure,
-    'opened': opened, 'ui_checks': ui.checks,
+    'background': background,
+    'opened': opened, 'controller_checks': controller.checks,
+    'ui_checks': ui.checks,
     'ui_updated': ui_updated}))
+background_dialog.close()
 failure_dialog.close()
 dialog.close()
 """
@@ -157,7 +195,8 @@ def test_update_dialog_has_one_download_verify_install_action(tmp_path):
         'Installed: 1.44.51 · Available: 1.44.51')
     assert result['before']['tab_order'] is True
     assert result['opened'] == [True]
-    assert result['ui_checks'] == 1
+    assert result['controller_checks'] == 1
+    assert result['ui_checks'] == 0
     assert result['ui_updated'] == (
         'Installed: 1.44.51 · Available: 1.44.52')
     assert result['during'] == {
@@ -183,4 +222,12 @@ def test_update_dialog_has_one_download_verify_install_action(tmp_path):
             'remains open.'),
         'try_again': 'Try again',
         'later_enabled': True,
+    }
+    assert result['background'] == {
+        'announcements': [],
+        'focus_was_set': True,
+        'success_focus_preserved': True,
+        'failure_focus_preserved': True,
+        'status': 'Heartbeat could not reach GitHub.',
+        'button': 'Download and install update',
     }
