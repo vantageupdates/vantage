@@ -7,22 +7,23 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 
 public static class VantageControlEdgesRenderer {
-    // Native attack drawing owns visibility and tint. Only a tiny, rounded LED
-    // exists in the atlas: never an outline surrounding the character name.
+    // Native attack drawing owns visibility/red tint. Outline the full client
+    // area, not the name row; retain a transparent interior and a subpixel rim.
     public static void RenderAttack(string destination) {
         if(Path.GetFileName(destination)!="AttackIndicator.tga")
             throw new ArgumentException("Only the attack indicator atlas is supported.");
-        using(var atlas=new Bitmap(256,256,PixelFormat.Format32bppArgb)) {
+        using(var atlas=new Bitmap(512,128,PixelFormat.Format32bppArgb)) {
             using(var g=Graphics.FromImage(atlas))
-            using(var brush=new SolidBrush(Color.White)) {
+            using(var path=Round(0.7f,0.7f,259.6f,54.6f,5.5f))
+            using(var pen=new Pen(Color.FromArgb(210,255,255,255),0.75f)) {
                 g.SmoothingMode=SmoothingMode.AntiAlias;
-                g.FillEllipse(brush, 0.5f, 7, 3, 5);
+                g.DrawPath(pen,path);
             }
             using(var output=new BinaryWriter(File.Create(destination))) {
                 byte[] header=new byte[18]; header[2]=2;
-                header[13]=1; header[15]=1; header[16]=32; header[17]=40;
+                header[13]=2; header[14]=128; header[16]=32; header[17]=40;
                 output.Write(header);
-                for(int y=0;y<256;y++) for(int x=0;x<256;x++) {
+                for(int y=0;y<128;y++) for(int x=0;x<512;x++) {
                     Color c=atlas.GetPixel(x,y);
                     output.Write(c.B); output.Write(c.G); output.Write(c.R); output.Write(c.A);
                 }
@@ -62,11 +63,24 @@ public static class VantageControlEdgesRenderer {
                     atlas.SetPixel(slices[n,0]+x,slices[n,1]+y,
                         frame.GetPixel(slices[n,4]+x,slices[n,5]+y));
             {
-                Color tick=Color.FromArgb(225,170,160,138);
                 int[,] strips={{2,240},{246,100}};
-                for(int n=0;n<2;n++) for(int i=1;i<5;i++)
-                    for(int y=15;y<29;y++)
-                        atlas.SetPixel(strips[n,0]+i*strips[n,1]/5-1,y,tick);
+                // Neutral transparent relief, clipped by a live HP gauge.
+                // No static marks remain visible when a party slot is empty.
+                for(int n=0;n<2;n++) {
+                    int start=strips[n,0], width=strips[n,1];
+                    for(int y=3;y<18;y++) for(int x=1;x<width-1;x++) {
+                        float edge=Math.Min(x,width-1-x);
+                        float curve=Math.Max(0,7-edge);
+                        float dy=y-10;
+                        if(curve*curve+dy*dy>49 && edge<7) continue;
+                        int alpha=y<=9 ? (int)Math.Round(50.0*(10-y)/7) : (int)Math.Round(38.0*(y-10)/7);
+                        int rgb=y<=9 ? 255 : 0;
+                        bool divider=false;
+                        for(int i=1;i<5;i++) if(x==i*width/5-1) divider=true;
+                        if(divider) { alpha=26; rgb=255; }
+                        atlas.SetPixel(start+x,12+y,Color.FromArgb(alpha,rgb,rgb,rgb));
+                    }
+                }
             }
             using(var output=new BinaryWriter(File.Create(destination))) {
                 byte[] header=new byte[18]; header[2]=2; header[13]=2;

@@ -516,29 +516,30 @@ def test_actions_alias_rows_have_real_gaps_and_clipping_safe_page_height():
     assert conservative_page_height - (130 + 20) <= 6
 
 
-def test_attack_indicator_crop_retains_native_binding_and_title_clearance():
+def test_attack_indicator_follows_full_client_perimeter_not_the_name_row():
     root = _root("EQUI_PlayerWindow.xml")
     window = _item(root, "Screen", "PlayerWindow")
     window_size = _pair(window, "Size", "CX", "CY")
     texture = _item(root, "TextureInfo", "AttackIndicator.tga")
     texture_size = _pair(texture, "Size", "CX", "CY")
-    assert texture_size == (256, 256)
+    assert texture_size == (512, 128)
 
     animation = _item(root, "Ui2DAnimation", "A_AttackIndicator")
     assert animation.findtext("Cycle") == "false"
     frame = _only_frame(animation)
     assert frame.findtext("Texture") == "AttackIndicator.tga"
-    assert _rect(frame) == (0, 0, 256, 20)
+    assert _rect(frame) == (0, 0, 262, 57)
     _assert_in_bounds(_rect(frame), texture_size)
 
     indicator = _item(root, "StaticAnimation", "A_AttackIndicatorAnim")
     assert indicator.findtext("ScreenID") == "A_AttackIndicatorAnim"
     assert indicator.findtext("Animation") == "A_AttackIndicator"
     assert indicator.findtext("RelativePosition") == "true"
-    assert _rect(indicator) == (0, 0, 256, 20)
+    assert _rect(indicator) == (0, 0, 262, 57)
     _assert_in_bounds(_rect(indicator), window_size)
     pieces = [piece.text.strip() for piece in window.findall("Pieces")]
     assert pieces.count("A_AttackIndicatorAnim") == 1
 
-    hp = _item(root, "Gauge", "Player_HP_0")
-    assert _rect(indicator)[1] + _rect(indicator)[3] <= _rect(hp)[1]
+    assert _rect(indicator)[2:] == (window_size[0] - 8, window_size[1] - 8)
+    mana = _item(root, "Gauge", "Player_Mana")
+    assert _rect(mana)[1] + _rect(mana)[3] < _rect(indicator)[3] - 1

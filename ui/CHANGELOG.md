@@ -10,7 +10,16 @@ Install folder: `VantageUI-v1.44.58`.
 - Moves Ranged into the lower-right equipment cell below Ring2. Widens the bag
   column from 22px to 31px and aligns it with Ammo above, retaining the existing
   eight-row height and compact outer frame. Every native binding is preserved.
-- Keeps all other 1.44.57 skin assets unchanged.
+- Replaces the attack dot with a thin, rounded perimeter around the whole player
+  window's client area. Native attack control retains red tint and blink timing;
+  the center is fully transparent and no separate name rectangle is drawn.
+- Adds low-alpha HP dividers and soft highlight/shadow relief to live health
+  fills. Unlike the removed static tick overlays, these follow HP values and
+  are not permanently painted across empty group positions. Keeps HP colors.
+- Lowers spell-name padding for improved single-line centering, retaining the
+  narrow gems and two-line wrapping. Titanium has no conditional vertical-center
+  label field; this is a fixed inset, not automatic per-name layout.
+- Keeps unrelated skin assets unchanged.
 - Adds a regression limit on the spare space below the Actions buttons. Actions
   sizing is independent of inventory sizing; do not enlarge it to match.
 

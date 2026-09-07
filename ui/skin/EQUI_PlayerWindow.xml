@@ -3,8 +3,8 @@
   <Schema xmlns="EverQuestData" xmlns:dt="EverQuestDataTypes" />
   <TextureInfo item="AttackIndicator.tga">
     <Size>
-      <CX>256</CX>
-      <CY>256</CY>
+      <CX>512</CX>
+      <CY>128</CY>
     </Size>
   </TextureInfo>
   <Ui2DAnimation item="A_AttackIndicator">
@@ -16,8 +16,8 @@
         <Y>0</Y>
       </Location>
       <Size>
-        <CX>256</CX>
-        <CY>20</CY>
+        <CX>262</CX>
+        <CY>57</CY>
       </Size>
     </Frames>
   </Ui2DAnimation>
@@ -25,8 +25,8 @@
     <ScreenID>A_AttackIndicatorAnim</ScreenID>
     <Animation>A_AttackIndicator</Animation>
     <Size>
-      <CX>256</CX>
-      <CY>20</CY>
+      <CX>262</CX>
+      <CY>57</CY>
     </Size>
     <Location>
       <X>0</X>
@@ -753,6 +753,35 @@
       <Lines>A_dzThinLongLines</Lines>
     </GaugeDrawTemplate>
   </Gauge>-->
+  <Gauge item="Player_HealthDetail">
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>20</X>
+      <Y>21</Y>
+    </Location>
+    <Size>
+      <CX>240</CX>
+      <CY>20</CY>
+    </Size>
+    <GaugeOffsetX>0</GaugeOffsetX>
+    <GaugeOffsetY>0</GaugeOffsetY>
+    <Text />
+    <TextOffsetX>8000</TextOffsetX>
+    <Style_VScroll>false</Style_VScroll>
+    <Style_HScroll>false</Style_HScroll>
+    <Style_Transparent>true</Style_Transparent>
+    <DrawLinesFill>false</DrawLinesFill>
+    <EQType>1</EQType>
+    <FillTint>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </FillTint>
+    <GaugeDrawTemplate>
+      <Fill>A_VantageHP240Lines</Fill>
+    </GaugeDrawTemplate>
+  </Gauge>
+
   <Screen item="PlayerWindow">
     <RelativePosition>false</RelativePosition>
     <Location>
@@ -782,6 +811,7 @@
     <Pieces>Player_HP_3B</Pieces>
     <Pieces>Player_HP_4A_X</Pieces>
     <Pieces>Player_HP_4B</Pieces>
+    <Pieces>Player_HealthDetail</Pieces>
 
     <Pieces>Player_Name</Pieces>
     <Pieces>Player_Mana</Pieces>

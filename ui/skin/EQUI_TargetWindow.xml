@@ -682,6 +682,35 @@
     <AutoDraw>true</AutoDraw>
     <Animation>A_VantageHP240Lines</Animation>
   </StaticAnimation>
+  <Gauge item="VantageTarget_HealthDetail">
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>20</X>
+      <Y>21</Y>
+    </Location>
+    <Size>
+      <CX>240</CX>
+      <CY>20</CY>
+    </Size>
+    <GaugeOffsetX>0</GaugeOffsetX>
+    <GaugeOffsetY>0</GaugeOffsetY>
+    <Text />
+    <TextOffsetX>8000</TextOffsetX>
+    <Style_VScroll>false</Style_VScroll>
+    <Style_HScroll>false</Style_HScroll>
+    <Style_Transparent>true</Style_Transparent>
+    <DrawLinesFill>false</DrawLinesFill>
+    <EQType>6</EQType>
+    <FillTint>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </FillTint>
+    <GaugeDrawTemplate>
+      <Fill>A_VantageHP240Lines</Fill>
+    </GaugeDrawTemplate>
+  </Gauge>
+
   <Screen item="TargetWindow">
     <ScreenID />
     <RelativePosition>false</RelativePosition>
@@ -714,6 +743,7 @@
     <Pieces>VantageTarget_HP_3B</Pieces>
     <Pieces>VantageTarget_HP_4A_X</Pieces>
     <Pieces>VantageTarget_HP_4B</Pieces>
+    <Pieces>VantageTarget_HealthDetail</Pieces>
 
     <Pieces>Target_HPLabel</Pieces>
     <Pieces>Target_HPPercLabel</Pieces>

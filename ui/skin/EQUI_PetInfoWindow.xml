@@ -1187,6 +1187,35 @@
     <LeftAnchorOffset>-3</LeftAnchorOffset>
     <TopAnchorOffset>0</TopAnchorOffset>
   </Screen>
+  <Gauge item="Pet_HealthDetail">
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>28</X>
+      <Y>19</Y>
+    </Location>
+    <Size>
+      <CX>100</CX>
+      <CY>20</CY>
+    </Size>
+    <GaugeOffsetX>0</GaugeOffsetX>
+    <GaugeOffsetY>0</GaugeOffsetY>
+    <Text />
+    <TextOffsetX>8000</TextOffsetX>
+    <Style_VScroll>false</Style_VScroll>
+    <Style_HScroll>false</Style_HScroll>
+    <Style_Transparent>true</Style_Transparent>
+    <DrawLinesFill>false</DrawLinesFill>
+    <EQType>16</EQType>
+    <FillTint>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </FillTint>
+    <GaugeDrawTemplate>
+      <Fill>A_VantageHP100Lines</Fill>
+    </GaugeDrawTemplate>
+  </Gauge>
+
   <Screen item="PetInfoWindow">
     <RelativePosition>false</RelativePosition>
     <Location>
@@ -1226,6 +1255,7 @@
     <Pieces>Pet_HP_3B</Pieces>
     <Pieces>Pet_HP_4A_X</Pieces>
     <Pieces>Pet_HP_4B</Pieces>
+    <Pieces>Pet_HealthDetail</Pieces>
 
     <Pieces>PIW_Pet_HPLabel</Pieces>
     <Pieces>PIW_Pet_HPPercLabel</Pieces>

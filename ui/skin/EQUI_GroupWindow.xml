@@ -3858,6 +3858,151 @@
     <AlignRight>false</AlignRight>
     <Text>255</Text>
   </Label>
+  <Gauge item="Party1_HealthDetail">
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>20</X>
+      <Y>11</Y>
+    </Location>
+    <Size>
+      <CX>100</CX>
+      <CY>20</CY>
+    </Size>
+    <GaugeOffsetX>0</GaugeOffsetX>
+    <GaugeOffsetY>0</GaugeOffsetY>
+    <Text />
+    <TextOffsetX>8000</TextOffsetX>
+    <Style_VScroll>false</Style_VScroll>
+    <Style_HScroll>false</Style_HScroll>
+    <Style_Transparent>true</Style_Transparent>
+    <DrawLinesFill>false</DrawLinesFill>
+    <EQType>11</EQType>
+    <FillTint>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </FillTint>
+    <GaugeDrawTemplate>
+      <Fill>A_VantageHP100Lines</Fill>
+    </GaugeDrawTemplate>
+  </Gauge>
+
+  <Gauge item="Party2_HealthDetail">
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>20</X>
+      <Y>52</Y>
+    </Location>
+    <Size>
+      <CX>100</CX>
+      <CY>20</CY>
+    </Size>
+    <GaugeOffsetX>0</GaugeOffsetX>
+    <GaugeOffsetY>0</GaugeOffsetY>
+    <Text />
+    <TextOffsetX>8000</TextOffsetX>
+    <Style_VScroll>false</Style_VScroll>
+    <Style_HScroll>false</Style_HScroll>
+    <Style_Transparent>true</Style_Transparent>
+    <DrawLinesFill>false</DrawLinesFill>
+    <EQType>12</EQType>
+    <FillTint>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </FillTint>
+    <GaugeDrawTemplate>
+      <Fill>A_VantageHP100Lines</Fill>
+    </GaugeDrawTemplate>
+  </Gauge>
+
+  <Gauge item="Party3_HealthDetail">
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>20</X>
+      <Y>93</Y>
+    </Location>
+    <Size>
+      <CX>100</CX>
+      <CY>20</CY>
+    </Size>
+    <GaugeOffsetX>0</GaugeOffsetX>
+    <GaugeOffsetY>0</GaugeOffsetY>
+    <Text />
+    <TextOffsetX>8000</TextOffsetX>
+    <Style_VScroll>false</Style_VScroll>
+    <Style_HScroll>false</Style_HScroll>
+    <Style_Transparent>true</Style_Transparent>
+    <DrawLinesFill>false</DrawLinesFill>
+    <EQType>13</EQType>
+    <FillTint>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </FillTint>
+    <GaugeDrawTemplate>
+      <Fill>A_VantageHP100Lines</Fill>
+    </GaugeDrawTemplate>
+  </Gauge>
+
+  <Gauge item="Party4_HealthDetail">
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>20</X>
+      <Y>135</Y>
+    </Location>
+    <Size>
+      <CX>100</CX>
+      <CY>20</CY>
+    </Size>
+    <GaugeOffsetX>0</GaugeOffsetX>
+    <GaugeOffsetY>0</GaugeOffsetY>
+    <Text />
+    <TextOffsetX>8000</TextOffsetX>
+    <Style_VScroll>false</Style_VScroll>
+    <Style_HScroll>false</Style_HScroll>
+    <Style_Transparent>true</Style_Transparent>
+    <DrawLinesFill>false</DrawLinesFill>
+    <EQType>14</EQType>
+    <FillTint>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </FillTint>
+    <GaugeDrawTemplate>
+      <Fill>A_VantageHP100Lines</Fill>
+    </GaugeDrawTemplate>
+  </Gauge>
+
+  <Gauge item="Party5_HealthDetail">
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>20</X>
+      <Y>177</Y>
+    </Location>
+    <Size>
+      <CX>100</CX>
+      <CY>20</CY>
+    </Size>
+    <GaugeOffsetX>0</GaugeOffsetX>
+    <GaugeOffsetY>0</GaugeOffsetY>
+    <Text />
+    <TextOffsetX>8000</TextOffsetX>
+    <Style_VScroll>false</Style_VScroll>
+    <Style_HScroll>false</Style_HScroll>
+    <Style_Transparent>true</Style_Transparent>
+    <DrawLinesFill>false</DrawLinesFill>
+    <EQType>15</EQType>
+    <FillTint>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </FillTint>
+    <GaugeDrawTemplate>
+      <Fill>A_VantageHP100Lines</Fill>
+    </GaugeDrawTemplate>
+  </Gauge>
+
   <Screen item="GroupWindow">
     <ScreenID />
     <RelativePosition>false</RelativePosition>
@@ -3895,6 +4040,7 @@
     <Pieces>Party1_HP_3B</Pieces>
     <Pieces>Party1_HP_4A_X</Pieces>
     <Pieces>Party1_HP_4B</Pieces>
+    <Pieces>Party1_HealthDetail</Pieces>
 
     <Pieces>GW_PetGauge1</Pieces>
     <Pieces>PW_LineDivider1</Pieces>
@@ -3908,6 +4054,7 @@
     <Pieces>Party2_HP_3B</Pieces>
     <Pieces>Party2_HP_4A_X</Pieces>
     <Pieces>Party2_HP_4B</Pieces>
+    <Pieces>Party2_HealthDetail</Pieces>
 
     <Pieces>GW_PetGauge2</Pieces>
     <Pieces>PW_LineDivider2</Pieces>
@@ -3921,6 +4068,7 @@
     <Pieces>Party3_HP_3B</Pieces>
     <Pieces>Party3_HP_4A_X</Pieces>
     <Pieces>Party3_HP_4B</Pieces>
+    <Pieces>Party3_HealthDetail</Pieces>
 
     <Pieces>GW_PetGauge3</Pieces>
     <Pieces>PW_LineDivider3</Pieces>
@@ -3934,6 +4082,7 @@
     <Pieces>Party4_HP_3B</Pieces>
     <Pieces>Party4_HP_4A_X</Pieces>
     <Pieces>Party4_HP_4B</Pieces>
+    <Pieces>Party4_HealthDetail</Pieces>
 
     <Pieces>GW_PetGauge4</Pieces>
     <Pieces>PW_LineDivider4</Pieces>
@@ -3947,6 +4096,7 @@
     <Pieces>Party5_HP_3B</Pieces>
     <Pieces>Party5_HP_4A_X</Pieces>
     <Pieces>Party5_HP_4B</Pieces>
+    <Pieces>Party5_HealthDetail</Pieces>
 
     <Pieces>GW_PetGauge5</Pieces>
     <Pieces>GW_HPLabel1</Pieces>

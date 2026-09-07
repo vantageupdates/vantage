@@ -79,11 +79,11 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>32</X>
-      <Y>20</Y>
+      <Y>24</Y>
     </Location>
     <Size>
       <CX>85</CX>
-      <CY>24</CY>
+      <CY>20</CY>
     </Size>
     <EQType>60</EQType>
     <TextColor>
@@ -120,11 +120,11 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>32</X>
-      <Y>50</Y>
+      <Y>54</Y>
     </Location>
     <Size>
       <CX>85</CX>
-      <CY>24</CY>
+      <CY>20</CY>
     </Size>
     <EQType>61</EQType>
     <TextColor>
@@ -161,11 +161,11 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>32</X>
-      <Y>80</Y>
+      <Y>84</Y>
     </Location>
     <Size>
       <CX>85</CX>
-      <CY>24</CY>
+      <CY>20</CY>
     </Size>
     <EQType>62</EQType>
     <TextColor>
@@ -202,11 +202,11 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>32</X>
-      <Y>110</Y>
+      <Y>114</Y>
     </Location>
     <Size>
       <CX>85</CX>
-      <CY>24</CY>
+      <CY>20</CY>
     </Size>
     <EQType>63</EQType>
     <TextColor>
@@ -243,11 +243,11 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>32</X>
-      <Y>140</Y>
+      <Y>144</Y>
     </Location>
     <Size>
       <CX>85</CX>
-      <CY>24</CY>
+      <CY>20</CY>
     </Size>
     <EQType>64</EQType>
     <TextColor>
@@ -284,11 +284,11 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>32</X>
-      <Y>170</Y>
+      <Y>174</Y>
     </Location>
     <Size>
       <CX>85</CX>
-      <CY>24</CY>
+      <CY>20</CY>
     </Size>
     <EQType>65</EQType>
     <TextColor>
@@ -325,11 +325,11 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>32</X>
-      <Y>200</Y>
+      <Y>204</Y>
     </Location>
     <Size>
       <CX>85</CX>
-      <CY>24</CY>
+      <CY>20</CY>
     </Size>
     <EQType>66</EQType>
     <TextColor>
@@ -366,11 +366,11 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>32</X>
-      <Y>230</Y>
+      <Y>234</Y>
     </Location>
     <Size>
       <CX>85</CX>
-      <CY>24</CY>
+      <CY>20</CY>
     </Size>
     <EQType>67</EQType>
     <TextColor>

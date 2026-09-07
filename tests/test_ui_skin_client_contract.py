@@ -95,7 +95,7 @@ def test_spell_gems_have_room_for_names_inset_icons_and_row_gaps(index):
     label = item(xml, 'Label', f'CSPW_Spell{index}_Name')
     window = item(xml, 'Screen', 'CastSpellWnd')
     assert rect(gem) == (1, 18 + 30 * index, 120, 28)
-    assert rect(label) == (32, 20 + 30 * index, 85, 24)
+    assert rect(label) == (32, 24 + 30 * index, 85, 20)
     assert label.findtext('Font') == '1'
     assert label.findtext('NoWrap') == 'false'
     assert label.findtext('EQType') == str(60 + index)
@@ -109,7 +109,8 @@ def test_spell_gems_have_room_for_names_inset_icons_and_row_gaps(index):
     assert gx + 4 + 24 + 3 <= lx
     assert gy + 2 + 24 <= gy + gh - 2
     assert lx + lw <= gx + gw - 4
-    assert ly + lh / 2 == gy + gh / 2
+    assert ly == gy + 6
+    assert ly + lh <= gy + gh - 2
     assert gx + gw <= int(window.findtext('Size/CX')) - 8
     assert gy + gh <= int(window.findtext('Size/CY')) - 8
     assert gem.find('SpellIconSizeX') is None
@@ -148,7 +149,7 @@ def test_attack_rim_is_client_drawn_not_a_permanent_decoration():
     assert len(animation.findall('Frames')) == 1
     pieces = [p.text for p in item(xml, 'Screen', 'PlayerWindow').findall('Pieces')]
     assert pieces.count('A_AttackIndicatorAnim') == 1
-    # Keep AutoDraw disabled, but the pixel test below is what excludes a rim.
+    # Native attack control remains responsible for blink timing/red tint.
     schema = root('SIDL.xml')
     default = schema.find(".//{*}ElementType[@name='StaticScreenPiece']/{*}element[@name='AutoDraw']/{*}default")
     assert default is not None and default.text == 'true'
@@ -172,18 +173,24 @@ def test_health_reverts_extra_layers_and_removes_floating_ticks(filename, prefix
         assert not any((p.text or '') == prefix + '_HP_VantageTicks' for p in xml.iter('Pieces'))
 
 
-def test_attack_art_contains_only_a_small_led_not_a_name_outline():
+def test_attack_art_is_a_fine_rounded_outer_rim_with_transparent_interior():
     data = (SKIN / 'AttackIndicator.tga').read_bytes()
     assert data[2] == 2 and data[16:18] == bytes((32,40))
-    assert int.from_bytes(data[12:14], 'little') == 256
-    assert int.from_bytes(data[14:16], 'little') == 256
-    assert len(data) == 18 + 256*256*4
-    visible = [(i % 256, i // 256) for i, a in enumerate(data[21::4]) if a]
+    assert int.from_bytes(data[12:14], 'little') == 512
+    assert int.from_bytes(data[14:16], 'little') == 128
+    assert len(data) == 18 + 512*128*4
+    visible = [(i % 512, i // 512) for i, a in enumerate(data[21::4]) if a]
     assert visible
-    assert all(0 <= x <= 4 and 6 <= y <= 13 for x,y in visible)
+    assert all(0 <= x < 262 and 0 <= y < 57 for x,y in visible)
+    assert not any(7 <= x <= 254 and 3 <= y <= 53 for x,y in visible)
+    assert any(x == 130 and y <= 2 for x,y in visible)
+    assert any(x == 130 and y >= 55 for x,y in visible)
+    assert any(x <= 2 and y == 28 for x,y in visible)
+    assert any(x >= 260 and y == 28 for x,y in visible)
+    assert (0,0) not in visible and (261,56) not in visible
 
 
-def test_native_edge_atlas_has_light_one_pixel_separators_and_fine_gold():
+def test_native_edge_atlas_has_transparent_hp_relief_and_fine_gold():
     data = (SKIN / 'VantageControlEdges.tga').read_bytes()
     assert (data[2], data[16], data[17]) == (2, 32, 40)
     width = int.from_bytes(data[12:14], 'little')
@@ -197,9 +204,41 @@ def test_native_edge_atlas_has_light_one_pixel_separators_and_fine_gold():
         for x in range(origin, origin + bar_width):
             for y in range(12, 32):
                 color = pixel(x, y)
-                if x in columns and 15 <= y < 29:
-                    assert color == (138, 160, 170, 225)
-                else:
+                if x in columns and 15 <= y < 30:
+                    assert color == (255, 255, 255, 26)
+                assert color[3] <= 50
+                if y < 15 or y >= 30:
                     assert color[3] == 0
+        assert pixel(origin+10,15) == (255,255,255,50)
+        assert pixel(origin+10,29) == (0,0,0,38)
+        assert pixel(origin,15)[3] == 0
     alphas = [pixel(x, y)[3] for y in range(2, 4) for x in range(2, 44)]
     assert 0 < max(alphas) < 110
+
+
+@pytest.mark.parametrize('filename,parent,prefixes', [
+    ('EQUI_PlayerWindow.xml','PlayerWindow',['Player']),
+    ('EQUI_GroupWindow.xml','GroupWindow',[f'Party{i}' for i in range(1,6)]),
+    ('EQUI_PetInfoWindow.xml','PetInfoWindow',['Pet']),
+    ('EQUI_TargetWindow.xml','TargetWindow',['VantageTarget']),
+])
+def test_health_detail_is_a_live_fill_not_static_empty_slot_markers(filename,parent,prefixes):
+    xml=root(filename)
+    pieces=[p.text for p in item(xml,'Screen',parent).findall('Pieces')]
+    order={n.get('item'):i for i,n in enumerate(xml)}
+    for prefix in prefixes:
+        name=prefix+'_HealthDetail'
+        detail=item(xml,'Gauge',name)
+        base=item(xml,'Gauge',prefix+'_HP_0')
+        assert rect(detail)==rect(base)
+        assert detail.findtext('EQType')==base.findtext('EQType')
+        assert detail.findtext('GaugeOffsetX')=='0'
+        assert detail.findtext('GaugeOffsetY')=='0'
+        assert detail.findtext('Style_Transparent')=='true'
+        draw=detail.find('GaugeDrawTemplate')
+        assert [n.tag for n in draw]==['Fill']
+        assert draw.findtext('Fill')=='A_VantageHP'+base.findtext('Size/CX')+'Lines'
+        assert all(detail.findtext('FillTint/'+c)=='255' for c in 'RGB')
+        assert pieces.count(name)==1
+        assert pieces.index(name)>pieces.index(prefix+'_HP_4B')
+        assert order[name]<order[parent]
