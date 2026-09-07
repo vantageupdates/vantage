@@ -82,3 +82,68 @@ def test_reproduces_ui54_resistance_icon_overlap(school):
     icon = item(xml, 'StaticAnimation', f'IW_Resist{school}Icon')
     icon.find('Location/X').text = '231'
     assert bag_intrusions(xml, icon), 'The previous four-pixel intrusion must be caught'
+
+
+@pytest.mark.parametrize('index', range(8))
+def test_spell_gems_have_room_for_names_inset_icons_and_row_gaps(index):
+    xml = root('EQUI_CastSpellWnd.xml')
+    gem = item(xml, 'SpellGem', f'CSPW_Spell{index}')
+    label = item(xml, 'Label', f'CSPW_Spell{index}_Name')
+    window = item(xml, 'Screen', 'CastSpellWnd')
+    assert rect(gem) == (1, 18 + 30 * index, 192, 28)
+    assert rect(label) == (48, 26 + 30 * index, 140, 12)
+    assert label.findtext('Font') == '1'
+    assert label.findtext('EQType') == str(60 + index)
+    assert label.findtext('AlignCenter') == 'true'
+    assert gem.findtext('ScreenID') == f'CSPW_Spell{index}'
+    assert gem.findtext('SpellIconOffsetX') == '10'
+    assert gem.findtext('SpellIconOffsetY') == '2'
+    gx, gy, gw, gh = rect(gem)
+    lx, ly, lw, lh = rect(label)
+    # Titanium icons are 24px. Never enlarge the art or use newer-client tags.
+    assert gx + 10 + 24 + 8 <= lx
+    assert gy + 2 + 24 <= gy + gh - 2
+    assert lx + lw <= gx + gw - 4
+    assert ly + lh / 2 == gy + gh / 2
+    assert gx + gw <= int(window.findtext('Size/CX')) - 8
+    assert gy + gh <= int(window.findtext('Size/CY')) - 8
+    assert gem.find('SpellIconSizeX') is None
+    assert gem.find('SpellIconSizeY') is None
+    if index < 7:
+        following = item(xml, 'SpellGem', f'CSPW_Spell{index + 1}')
+        assert rect(following)[1] - (gy + gh) == 2
+    header = item(xml, 'Button', 'CSPW_SpellBook')
+    assert rect(header) == (1, 1, 192, 14)
+
+
+def test_player_name_hp_and_mana_do_not_overlap():
+    xml = root('EQUI_PlayerWindow.xml')
+    name = rect(item(xml, 'Label', 'Player_Name'))
+    hp = rect(item(xml, 'Gauge', 'Player_HP_0'))
+    mana = rect(item(xml, 'Gauge', 'Player_Mana'))
+    value = rect(item(xml, 'Label', 'Player_ManaLabel'))
+    window = item(xml, 'Screen', 'PlayerWindow')
+    assert name[1] + name[3] <= hp[1] - 1
+    assert hp[1] + hp[3] + 3 == mana[1]
+    assert (mana[0], mana[2]) == (hp[0], hp[2])
+    assert value[1] == mana[1]
+    assert mana[1] + mana[3] <= int(window.findtext('Size/CY')) - 8
+    order = {node.get('item'): n for n, node in enumerate(xml)}
+    assert order['Player_HP_VantageTicks'] < order['PlayerWindow']
+
+
+def test_attack_rim_is_client_drawn_not_a_permanent_decoration():
+    xml = root('EQUI_PlayerWindow.xml')
+    indicator = item(xml, 'StaticAnimation', 'A_AttackIndicatorAnim')
+    assert indicator.findtext('AutoDraw') == 'false'
+    assert indicator.findtext('ScreenID') == 'A_AttackIndicatorAnim'
+    assert indicator.findtext('Animation') == 'A_AttackIndicator'
+    animation = item(xml, 'Ui2DAnimation', 'A_AttackIndicator')
+    assert animation.findtext('Cycle') == 'false'
+    assert len(animation.findall('Frames')) == 1
+    pieces = [p.text for p in item(xml, 'Screen', 'PlayerWindow').findall('Pieces')]
+    assert pieces.count('A_AttackIndicatorAnim') == 1
+    # Omitting AutoDraw was the regression: the client's SIDL defaults to true.
+    schema = root('SIDL.xml')
+    default = schema.find(".//{*}ElementType[@name='StaticScreenPiece']/{*}element[@name='AutoDraw']/{*}default")
+    assert default is not None and default.text == 'true'

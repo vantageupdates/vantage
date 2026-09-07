@@ -23,6 +23,8 @@
   </Ui2DAnimation>
   <StaticAnimation item="A_AttackIndicatorAnim">
     <ScreenID>A_AttackIndicatorAnim</ScreenID>
+    <!-- The client draws this only during auto-attack; never paint a permanent rim. -->
+    <AutoDraw>false</AutoDraw>
     <Animation>A_AttackIndicator</Animation>
     <Size>
       <CX>256</CX>
@@ -508,7 +510,7 @@
     </Location>
     <Size>
       <CX>226</CX>
-      <CY>23</CY>
+      <CY>20</CY>
     </Size>
     <Text>Playername</Text>
     <TextColor>
@@ -615,7 +617,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>20</X>
-      <Y>38</Y>
+      <Y>44</Y>
     </Location>
     <Size>
       <CX>240</CX>
@@ -651,7 +653,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>1</X>
-      <Y>38</Y>
+      <Y>44</Y>
     </Location>
     <Size>
       <CX>18</CX>
@@ -754,6 +756,19 @@
       <Lines>A_dzThinLongLines</Lines>
     </GaugeDrawTemplate>
   </Gauge>-->
+  <StaticAnimation item="Player_HP_VantageTicks">
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>20</X>
+      <Y>21</Y>
+    </Location>
+    <Size>
+      <CX>240</CX>
+      <CY>20</CY>
+    </Size>
+    <AutoDraw>true</AutoDraw>
+    <Animation>A_VantageHP240Lines</Animation>
+  </StaticAnimation>
   <Screen item="PlayerWindow">
     <RelativePosition>false</RelativePosition>
     <Location>
@@ -792,17 +807,4 @@
     <Pieces>F1</Pieces>
     <Pieces>A_AttackIndicatorAnim</Pieces>
   </Screen>
-  <StaticAnimation item="Player_HP_VantageTicks">
-    <RelativePosition>true</RelativePosition>
-    <Location>
-      <X>20</X>
-      <Y>21</Y>
-    </Location>
-    <Size>
-      <CX>240</CX>
-      <CY>20</CY>
-    </Size>
-    <AutoDraw>true</AutoDraw>
-    <Animation>A_VantageHP240Lines</Animation>
-  </StaticAnimation>
 </XML>

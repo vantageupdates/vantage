@@ -35,7 +35,7 @@
       <Y>1</Y>
     </Location>
     <Size>
-      <CX>120</CX>
+      <CX>192</CX>
       <CY>14</CY>
     </Size>
     <Style_Transparent>false</Style_Transparent>
@@ -62,7 +62,7 @@
       <Y>18</Y>
     </Location>
     <Size>
-      <CX>120</CX>
+      <CX>192</CX>
       <CY>28</CY>
     </Size>
     <SpellGemDrawTemplate>
@@ -70,7 +70,7 @@
       <Background>V3_CastBackground</Background>
       <Highlight>V3_CastHighlight</Highlight>
     </SpellGemDrawTemplate>
-    <SpellIconOffsetX>4</SpellIconOffsetX>
+    <SpellIconOffsetX>10</SpellIconOffsetX>
     <SpellIconOffsetY>2</SpellIconOffsetY>
   </SpellGem>
   <Label item="CSPW_Spell0_Name">
@@ -78,11 +78,11 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>32</X>
+      <X>48</X>
       <Y>26</Y>
     </Location>
     <Size>
-      <CX>88</CX>
+      <CX>140</CX>
       <CY>12</CY>
     </Size>
     <EQType>60</EQType>
@@ -100,10 +100,10 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>1</X>
-      <Y>46</Y>
+      <Y>48</Y>
     </Location>
     <Size>
-      <CX>120</CX>
+      <CX>192</CX>
       <CY>28</CY>
     </Size>
     <SpellGemDrawTemplate>
@@ -111,7 +111,7 @@
       <Background>V3_CastBackground</Background>
       <Highlight>V3_CastHighlight</Highlight>
     </SpellGemDrawTemplate>
-    <SpellIconOffsetX>4</SpellIconOffsetX>
+    <SpellIconOffsetX>10</SpellIconOffsetX>
     <SpellIconOffsetY>2</SpellIconOffsetY>
   </SpellGem>
   <Label item="CSPW_Spell1_Name">
@@ -119,11 +119,11 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>32</X>
-      <Y>54</Y>
+      <X>48</X>
+      <Y>56</Y>
     </Location>
     <Size>
-      <CX>88</CX>
+      <CX>140</CX>
       <CY>12</CY>
     </Size>
     <EQType>61</EQType>
@@ -141,10 +141,10 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>1</X>
-      <Y>74</Y>
+      <Y>78</Y>
     </Location>
     <Size>
-      <CX>120</CX>
+      <CX>192</CX>
       <CY>28</CY>
     </Size>
     <SpellGemDrawTemplate>
@@ -152,7 +152,7 @@
       <Background>V3_CastBackground</Background>
       <Highlight>V3_CastHighlight</Highlight>
     </SpellGemDrawTemplate>
-    <SpellIconOffsetX>4</SpellIconOffsetX>
+    <SpellIconOffsetX>10</SpellIconOffsetX>
     <SpellIconOffsetY>2</SpellIconOffsetY>
   </SpellGem>
   <Label item="CSPW_Spell2_Name">
@@ -160,11 +160,11 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>32</X>
-      <Y>82</Y>
+      <X>48</X>
+      <Y>86</Y>
     </Location>
     <Size>
-      <CX>88</CX>
+      <CX>140</CX>
       <CY>12</CY>
     </Size>
     <EQType>62</EQType>
@@ -182,10 +182,10 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>1</X>
-      <Y>102</Y>
+      <Y>108</Y>
     </Location>
     <Size>
-      <CX>120</CX>
+      <CX>192</CX>
       <CY>28</CY>
     </Size>
     <SpellGemDrawTemplate>
@@ -193,7 +193,7 @@
       <Background>V3_CastBackground</Background>
       <Highlight>V3_CastHighlight</Highlight>
     </SpellGemDrawTemplate>
-    <SpellIconOffsetX>4</SpellIconOffsetX>
+    <SpellIconOffsetX>10</SpellIconOffsetX>
     <SpellIconOffsetY>2</SpellIconOffsetY>
   </SpellGem>
   <Label item="CSPW_Spell3_Name">
@@ -201,11 +201,11 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>32</X>
-      <Y>110</Y>
+      <X>48</X>
+      <Y>116</Y>
     </Location>
     <Size>
-      <CX>88</CX>
+      <CX>140</CX>
       <CY>12</CY>
     </Size>
     <EQType>63</EQType>
@@ -223,10 +223,10 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>1</X>
-      <Y>130</Y>
+      <Y>138</Y>
     </Location>
     <Size>
-      <CX>120</CX>
+      <CX>192</CX>
       <CY>28</CY>
     </Size>
     <SpellGemDrawTemplate>
@@ -234,7 +234,7 @@
       <Background>V3_CastBackground</Background>
       <Highlight>V3_CastHighlight</Highlight>
     </SpellGemDrawTemplate>
-    <SpellIconOffsetX>4</SpellIconOffsetX>
+    <SpellIconOffsetX>10</SpellIconOffsetX>
     <SpellIconOffsetY>2</SpellIconOffsetY>
   </SpellGem>
   <Label item="CSPW_Spell4_Name">
@@ -242,11 +242,11 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>32</X>
-      <Y>138</Y>
+      <X>48</X>
+      <Y>146</Y>
     </Location>
     <Size>
-      <CX>88</CX>
+      <CX>140</CX>
       <CY>12</CY>
     </Size>
     <EQType>64</EQType>
@@ -264,10 +264,10 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>1</X>
-      <Y>158</Y>
+      <Y>168</Y>
     </Location>
     <Size>
-      <CX>120</CX>
+      <CX>192</CX>
       <CY>28</CY>
     </Size>
     <SpellGemDrawTemplate>
@@ -275,7 +275,7 @@
       <Background>V3_CastBackground</Background>
       <Highlight>V3_CastHighlight</Highlight>
     </SpellGemDrawTemplate>
-    <SpellIconOffsetX>4</SpellIconOffsetX>
+    <SpellIconOffsetX>10</SpellIconOffsetX>
     <SpellIconOffsetY>2</SpellIconOffsetY>
   </SpellGem>
   <Label item="CSPW_Spell5_Name">
@@ -283,11 +283,11 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>32</X>
-      <Y>166</Y>
+      <X>48</X>
+      <Y>176</Y>
     </Location>
     <Size>
-      <CX>88</CX>
+      <CX>140</CX>
       <CY>12</CY>
     </Size>
     <EQType>65</EQType>
@@ -305,10 +305,10 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>1</X>
-      <Y>186</Y>
+      <Y>198</Y>
     </Location>
     <Size>
-      <CX>120</CX>
+      <CX>192</CX>
       <CY>28</CY>
     </Size>
     <SpellGemDrawTemplate>
@@ -316,7 +316,7 @@
       <Background>V3_CastBackground</Background>
       <Highlight>V3_CastHighlight</Highlight>
     </SpellGemDrawTemplate>
-    <SpellIconOffsetX>4</SpellIconOffsetX>
+    <SpellIconOffsetX>10</SpellIconOffsetX>
     <SpellIconOffsetY>2</SpellIconOffsetY>
   </SpellGem>
   <Label item="CSPW_Spell6_Name">
@@ -324,11 +324,11 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>32</X>
-      <Y>194</Y>
+      <X>48</X>
+      <Y>206</Y>
     </Location>
     <Size>
-      <CX>88</CX>
+      <CX>140</CX>
       <CY>12</CY>
     </Size>
     <EQType>66</EQType>
@@ -346,10 +346,10 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>1</X>
-      <Y>214</Y>
+      <Y>228</Y>
     </Location>
     <Size>
-      <CX>120</CX>
+      <CX>192</CX>
       <CY>28</CY>
     </Size>
     <SpellGemDrawTemplate>
@@ -357,7 +357,7 @@
       <Background>V3_CastBackground</Background>
       <Highlight>V3_CastHighlight</Highlight>
     </SpellGemDrawTemplate>
-    <SpellIconOffsetX>4</SpellIconOffsetX>
+    <SpellIconOffsetX>10</SpellIconOffsetX>
     <SpellIconOffsetY>2</SpellIconOffsetY>
   </SpellGem>
   <Label item="CSPW_Spell7_Name">
@@ -365,11 +365,11 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>32</X>
-      <Y>222</Y>
+      <X>48</X>
+      <Y>236</Y>
     </Location>
     <Size>
-      <CX>88</CX>
+      <CX>140</CX>
       <CY>12</CY>
     </Size>
     <EQType>67</EQType>
@@ -400,8 +400,8 @@
       <Y>25</Y>
     </Location>
     <Size>
-      <CX>130</CX>
-      <CY>252</CY>
+      <CX>202</CX>
+      <CY>266</CY>
     </Size>
     <Text>Spells</Text>
     <Style_Transparent>false</Style_Transparent>

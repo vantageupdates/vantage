@@ -1,5 +1,23 @@
 # VantageUI releases
 
+## 1.44.56
+
+Install folder: `VantageUI-v1.44.56`.
+
+- Widens the eight spell gems from 120 to 192px, with 140px centered name
+  labels, native-sized icons inset inside their wells and 2px between rows.
+  Keeps the original textures, spell bindings, font and school colors.
+- Separates player HP and mana by 3px instead of overlapping them by 3px.
+  Keeps the name clear of HP, and declares the HP separators before the window.
+- Disables automatic drawing of the native attack indicator so it no longer
+  paints a permanent white outline. The client still controls attack blinking;
+  no artificial animation loop or attack-state binding is added.
+- Adds geometry, spacing and native attack-draw regression coverage.
+
+The 1.44.55 client log confirms its fatal XML load error is gone. This new
+version still needs manual `/loadskin VantageUI-v1.44.56 1` verification for
+spell fitting and both attack states; static tests are not an in-game render.
+
 ## 1.44.55
 
 Install folder: `VantageUI-v1.44.55`.
