@@ -135,7 +135,8 @@ interfaz dentro del juego. Restaurar solo selecciona una versión anterior que
 siga íntegra; nunca sobrescribe sus archivos. Consulta [la documentación de
 VantageUI](ui/README.md) para detalles técnicos y avisos.
 
-Antes de publicar esta versión independiente, la skin visual revisada debe
-sincronizarse explícitamente con `ui/skin` y el panel dinámico de VantageUI en
-Companion debe completar sus pruebas con el mismo núcleo. Estas dependencias no
-implican compilar ni publicar un nuevo `Vantage.exe`.
+La skin visual actual ya está sincronizada byte por byte con `ui/skin`. Antes
+de publicar esta versión independiente, el panel dinámico de VantageUI en
+Companion debe completar sus pruebas con el mismo núcleo. Los controles de
+archivos y geometría no sustituyen la comprobación visual dentro de EverQuest.
+La publicación UI no incluye un nuevo `Vantage.exe`.

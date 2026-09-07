@@ -7,6 +7,11 @@ working folder is named `VantageUI`. New published installations use
 third-party EverQuest-compatible XML and artwork with subsequent compatibility
 repairs and visual modifications. Original contributors retain their rights.
 
+The subdued equipment silhouettes in `VantageSlotHints.tga` were created with
+AI assistance for this VantageUI polish pass and fitted inside the native slot
+cells. That pass does not replace the existing spell/buff or resistance artwork.
+This addition does not change the provenance or rights of the other assets.
+
 EverQuest names, spell/buff artwork, interface resources, and other game-related
 content may be copyrighted by their respective owners. EverQuest is a trademark
 of its respective owner. Vantage is independent and does not claim endorsement

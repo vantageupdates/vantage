@@ -42,9 +42,9 @@
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Spells</Text>
     <TextColor>
-      <R>240</R>
-      <G>243</G>
-      <B>247</B>
+      <R>231</R>
+      <G>228</G>
+      <B>222</B>
     </TextColor>
     <ButtonDrawTemplate>
       <Normal>V3_CastHeaderNormal</Normal>
@@ -87,9 +87,9 @@
     </Size>
     <EQType>60</EQType>
     <TextColor>
-      <R>240</R>
-      <G>243</G>
-      <B>247</B>
+      <R>231</R>
+      <G>228</G>
+      <B>222</B>
     </TextColor>
     <NoWrap>true</NoWrap>
     <AlignCenter>true</AlignCenter>
@@ -128,9 +128,9 @@
     </Size>
     <EQType>61</EQType>
     <TextColor>
-      <R>240</R>
-      <G>243</G>
-      <B>247</B>
+      <R>231</R>
+      <G>228</G>
+      <B>222</B>
     </TextColor>
     <NoWrap>true</NoWrap>
     <AlignCenter>true</AlignCenter>
@@ -169,9 +169,9 @@
     </Size>
     <EQType>62</EQType>
     <TextColor>
-      <R>240</R>
-      <G>243</G>
-      <B>247</B>
+      <R>231</R>
+      <G>228</G>
+      <B>222</B>
     </TextColor>
     <NoWrap>true</NoWrap>
     <AlignCenter>true</AlignCenter>
@@ -210,9 +210,9 @@
     </Size>
     <EQType>63</EQType>
     <TextColor>
-      <R>240</R>
-      <G>243</G>
-      <B>247</B>
+      <R>231</R>
+      <G>228</G>
+      <B>222</B>
     </TextColor>
     <NoWrap>true</NoWrap>
     <AlignCenter>true</AlignCenter>
@@ -251,9 +251,9 @@
     </Size>
     <EQType>64</EQType>
     <TextColor>
-      <R>240</R>
-      <G>243</G>
-      <B>247</B>
+      <R>231</R>
+      <G>228</G>
+      <B>222</B>
     </TextColor>
     <NoWrap>true</NoWrap>
     <AlignCenter>true</AlignCenter>
@@ -292,9 +292,9 @@
     </Size>
     <EQType>65</EQType>
     <TextColor>
-      <R>240</R>
-      <G>243</G>
-      <B>247</B>
+      <R>231</R>
+      <G>228</G>
+      <B>222</B>
     </TextColor>
     <NoWrap>true</NoWrap>
     <AlignCenter>true</AlignCenter>
@@ -333,9 +333,9 @@
     </Size>
     <EQType>66</EQType>
     <TextColor>
-      <R>240</R>
-      <G>243</G>
-      <B>247</B>
+      <R>231</R>
+      <G>228</G>
+      <B>222</B>
     </TextColor>
     <NoWrap>true</NoWrap>
     <AlignCenter>true</AlignCenter>
@@ -374,9 +374,9 @@
     </Size>
     <EQType>67</EQType>
     <TextColor>
-      <R>240</R>
-      <G>243</G>
-      <B>247</B>
+      <R>231</R>
+      <G>228</G>
+      <B>222</B>
     </TextColor>
     <NoWrap>true</NoWrap>
     <AlignCenter>true</AlignCenter>

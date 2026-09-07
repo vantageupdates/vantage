@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="us-ascii"?>
 <XML ID="EQInterfaceDefinitionLanguage">
   <Schema xmlns="EverQuestData" xmlns:dt="EverQuestDataTypes" />
+  <TextureInfo item="VantageSlotHints.tga">
+    <Size>
+      <CX>256</CX>
+      <CY>256</CY>
+    </Size>
+  </TextureInfo>
   <TextureInfo item="quickbar_frames.tga">
     <Size>
       <CX>512</CX>
@@ -3077,10 +3083,10 @@
   <Ui2DAnimation item="A_SquareBtnPressed">
     <Cycle>true</Cycle>
     <Frames>
-      <Texture>classic_pieces01.tga</Texture>
+      <Texture>window_pieces03_modern.png</Texture>
       <Location>
-        <X>0</X>
-        <Y>117</Y>
+        <X>80</X>
+        <Y>120</Y>
       </Location>
       <Size>
         <CX>40</CX>
@@ -3096,10 +3102,10 @@
   <Ui2DAnimation item="A_SquareBtnPressedFlyby">
     <Cycle>true</Cycle>
     <Frames>
-      <Texture>classic_pieces01.tga</Texture>
+      <Texture>window_pieces03_modern.png</Texture>
       <Location>
-        <X>0</X>
-        <Y>117</Y>
+        <X>120</X>
+        <Y>120</Y>
       </Location>
       <Size>
         <CX>40</CX>
@@ -8519,10 +8525,10 @@
   </Ui2DAnimation>
   <Ui2DAnimation item="A_InvEar">
     <Frames>
-      <Texture>classic_pieces01.tga</Texture>
+      <Texture>VantageSlotHints.tga</Texture>
       <Location>
-        <X>0</X>
-        <Y>0</Y>
+        <X>2</X>
+        <Y>2</Y>
       </Location>
       <Size>
         <CX>40</CX>
@@ -8536,10 +8542,10 @@
   </Ui2DAnimation>
   <Ui2DAnimation item="A_InvNeck">
     <Frames>
-      <Texture>classic_pieces01.tga</Texture>
+      <Texture>VantageSlotHints.tga</Texture>
       <Location>
-        <X>39</X>
-        <Y>0</Y>
+        <X>128</X>
+        <Y>2</Y>
       </Location>
       <Size>
         <CX>40</CX>
@@ -8553,10 +8559,10 @@
   </Ui2DAnimation>
   <Ui2DAnimation item="A_InvHead">
     <Frames>
-      <Texture>classic_pieces01.tga</Texture>
+      <Texture>VantageSlotHints.tga</Texture>
       <Location>
-        <X>78</X>
-        <Y>0</Y>
+        <X>44</X>
+        <Y>2</Y>
       </Location>
       <Size>
         <CX>40</CX>
@@ -8570,10 +8576,10 @@
   </Ui2DAnimation>
   <Ui2DAnimation item="A_InvFace">
     <Frames>
-      <Texture>classic_pieces01.tga</Texture>
+      <Texture>VantageSlotHints.tga</Texture>
       <Location>
-        <X>117</X>
-        <Y>0</Y>
+        <X>86</X>
+        <Y>2</Y>
       </Location>
       <Size>
         <CX>40</CX>
@@ -8587,10 +8593,10 @@
   </Ui2DAnimation>
   <Ui2DAnimation item="A_InvChest">
     <Frames>
-      <Texture>classic_pieces01.tga</Texture>
+      <Texture>VantageSlotHints.tga</Texture>
       <Location>
-        <X>156</X>
-        <Y>0</Y>
+        <X>44</X>
+        <Y>86</Y>
       </Location>
       <Size>
         <CX>40</CX>
@@ -8604,10 +8610,10 @@
   </Ui2DAnimation>
   <Ui2DAnimation item="A_InvAboutBody">
     <Frames>
-      <Texture>classic_pieces01.tga</Texture>
+      <Texture>VantageSlotHints.tga</Texture>
       <Location>
-        <X>0</X>
-        <Y>39</Y>
+        <X>2</X>
+        <Y>44</Y>
       </Location>
       <Size>
         <CX>40</CX>
@@ -8621,10 +8627,10 @@
   </Ui2DAnimation>
   <Ui2DAnimation item="A_InvArms">
     <Frames>
-      <Texture>classic_pieces01.tga</Texture>
+      <Texture>VantageSlotHints.tga</Texture>
       <Location>
-        <X>39</X>
-        <Y>39</Y>
+        <X>212</X>
+        <Y>2</Y>
       </Location>
       <Size>
         <CX>40</CX>
@@ -8638,10 +8644,10 @@
   </Ui2DAnimation>
   <Ui2DAnimation item="A_InvShoulders">
     <Frames>
-      <Texture>classic_pieces01.tga</Texture>
+      <Texture>VantageSlotHints.tga</Texture>
       <Location>
-        <X>78</X>
-        <Y>39</Y>
+        <X>170</X>
+        <Y>2</Y>
       </Location>
       <Size>
         <CX>40</CX>
@@ -8655,10 +8661,10 @@
   </Ui2DAnimation>
   <Ui2DAnimation item="A_InvWrist">
     <Frames>
-      <Texture>classic_pieces01.tga</Texture>
+      <Texture>VantageSlotHints.tga</Texture>
       <Location>
-        <X>117</X>
-        <Y>39</Y>
+        <X>44</X>
+        <Y>44</Y>
       </Location>
       <Size>
         <CX>40</CX>
@@ -8672,10 +8678,10 @@
   </Ui2DAnimation>
   <Ui2DAnimation item="A_InvWaist">
     <Frames>
-      <Texture>classic_pieces01.tga</Texture>
+      <Texture>VantageSlotHints.tga</Texture>
       <Location>
-        <X>156</X>
-        <Y>39</Y>
+        <X>170</X>
+        <Y>86</Y>
       </Location>
       <Size>
         <CX>40</CX>
@@ -8689,10 +8695,10 @@
   </Ui2DAnimation>
   <Ui2DAnimation item="A_InvHands">
     <Frames>
-      <Texture>classic_pieces01.tga</Texture>
+      <Texture>VantageSlotHints.tga</Texture>
       <Location>
-        <X>0</X>
-        <Y>78</Y>
+        <X>128</X>
+        <Y>44</Y>
       </Location>
       <Size>
         <CX>40</CX>
@@ -8706,10 +8712,10 @@
   </Ui2DAnimation>
   <Ui2DAnimation item="A_InvRing">
     <Frames>
-      <Texture>classic_pieces01.tga</Texture>
+      <Texture>VantageSlotHints.tga</Texture>
       <Location>
-        <X>39</X>
-        <Y>78</Y>
+        <X>2</X>
+        <Y>86</Y>
       </Location>
       <Size>
         <CX>40</CX>
@@ -8723,10 +8729,10 @@
   </Ui2DAnimation>
   <Ui2DAnimation item="A_InvLegs">
     <Frames>
-      <Texture>classic_pieces01.tga</Texture>
+      <Texture>VantageSlotHints.tga</Texture>
       <Location>
-        <X>78</X>
-        <Y>78</Y>
+        <X>86</X>
+        <Y>86</Y>
       </Location>
       <Size>
         <CX>40</CX>
@@ -8740,10 +8746,10 @@
   </Ui2DAnimation>
   <Ui2DAnimation item="A_InvFeet">
     <Frames>
-      <Texture>classic_pieces01.tga</Texture>
+      <Texture>VantageSlotHints.tga</Texture>
       <Location>
-        <X>117</X>
-        <Y>78</Y>
+        <X>128</X>
+        <Y>86</Y>
       </Location>
       <Size>
         <CX>40</CX>
@@ -8757,10 +8763,10 @@
   </Ui2DAnimation>
   <Ui2DAnimation item="A_InvPrimary">
     <Frames>
-      <Texture>classic_pieces01.tga</Texture>
+      <Texture>VantageSlotHints.tga</Texture>
       <Location>
-        <X>156</X>
-        <Y>78</Y>
+        <X>170</X>
+        <Y>44</Y>
       </Location>
       <Size>
         <CX>40</CX>
@@ -8774,10 +8780,10 @@
   </Ui2DAnimation>
   <Ui2DAnimation item="A_InvSecondary">
     <Frames>
-      <Texture>classic_pieces01.tga</Texture>
+      <Texture>VantageSlotHints.tga</Texture>
       <Location>
-        <X>195</X>
-        <Y>0</Y>
+        <X>212</X>
+        <Y>44</Y>
       </Location>
       <Size>
         <CX>40</CX>
@@ -8791,10 +8797,10 @@
   </Ui2DAnimation>
   <Ui2DAnimation item="A_InvRange">
     <Frames>
-      <Texture>classic_pieces01.tga</Texture>
+      <Texture>VantageSlotHints.tga</Texture>
       <Location>
-        <X>195</X>
-        <Y>39</Y>
+        <X>86</X>
+        <Y>44</Y>
       </Location>
       <Size>
         <CX>40</CX>
@@ -8808,10 +8814,10 @@
   </Ui2DAnimation>
   <Ui2DAnimation item="A_InvAmmo">
     <Frames>
-      <Texture>classic_pieces01.tga</Texture>
+      <Texture>VantageSlotHints.tga</Texture>
       <Location>
-        <X>195</X>
-        <Y>78</Y>
+        <X>212</X>
+        <Y>86</Y>
       </Location>
       <Size>
         <CX>40</CX>

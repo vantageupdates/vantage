@@ -21,9 +21,13 @@ directory. Neither packaging nor updating changes character INIs or another
 skin. The matching Titanium/Project 1999 client default skin is still required
 for inherited resources; this is not a modern Live-client UI.
 
-The current polished live source has not yet been synchronized into `ui/skin`.
-That reviewed export and its resulting asset diff are release dependencies; do
-not package or publish the candidate from a stale repository snapshot.
+The current polished live source was exported byte for byte into `ui/skin`:
+175 flat XML/image assets, with private updater state, cursors, and historical
+notes excluded. The export does not modify the live source. Its reviewed changes
+include darker opaque surfaces, restrained gold, smoother button shading,
+subdued equipment-slot silhouettes, a non-overlapping native inventory grid,
+and restored native container geometry. Keep future exports explicit and review
+their asset diffs before packaging or publication.
 
 The latest conservative pass restores opaque native window backgrounds after
 the transparent-background experiment failed in game. Spell spacing, subdued

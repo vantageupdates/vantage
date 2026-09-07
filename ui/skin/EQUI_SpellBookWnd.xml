@@ -1164,16 +1164,13 @@
       <CX>1</CX>
       <CY>1</CY>
     </Size>
-    <!--<Location><X>6</X><Y>185</Y></Location>-->
-    <!--<Size><CX>30</CX><CY>22</CY></Size>-->
     <Style_Transparent>false</Style_Transparent>
     <Style_Checkbox>false</Style_Checkbox>
-    <!--<RadioGroup/>-->
     <Text>Mem</Text>
     <TextColor>
-      <R>240</R>
-      <G>243</G>
-      <B>247</B>
+      <R>231</R>
+      <G>228</G>
+      <B>222</B>
     </TextColor>
     <ButtonDrawTemplate>
       <Normal>A_BtnNormal</Normal>
@@ -1182,9 +1179,6 @@
       <Disabled>A_BtnDisabled</Disabled>
       <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
-    <!--<SoundPressed/>-->
-    <!--<SoundUp/>-->
-    <!--<SoundFlyby/>-->
   </Button>
   <Button item="SBW_MemPage1_Button">
     <ScreenID>SBW_MemPage1_Button</ScreenID>
@@ -1198,16 +1192,13 @@
       <CX>1</CX>
       <CY>1</CY>
     </Size>
-    <!--<Location><X>180</X><Y>185</Y></Location>-->
-    <!--<Size><CX>30</CX><CY>22</CY></Size>-->
     <Style_Transparent>false</Style_Transparent>
     <Style_Checkbox>false</Style_Checkbox>
-    <!--<RadioGroup/>-->
     <Text>Mem</Text>
     <TextColor>
-      <R>240</R>
-      <G>243</G>
-      <B>247</B>
+      <R>231</R>
+      <G>228</G>
+      <B>222</B>
     </TextColor>
     <ButtonDrawTemplate>
       <Normal>A_BtnNormal</Normal>
@@ -1216,9 +1207,6 @@
       <Disabled>A_BtnDisabled</Disabled>
       <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
-    <!--<SoundPressed/>-->
-    <!--<SoundUp/>-->
-    <!--<SoundFlyby/>-->
   </Button>
   <Button item="SBW_PageDown_Button">
     <ScreenID>SBW_PageDown_Button</ScreenID>
@@ -1233,12 +1221,11 @@
     </Size>
     <Style_Transparent>false</Style_Transparent>
     <Style_Checkbox>false</Style_Checkbox>
-    <!--<RadioGroup/>-->
     <Text />
     <TextColor>
-      <R>240</R>
-      <G>243</G>
-      <B>247</B>
+      <R>231</R>
+      <G>228</G>
+      <B>222</B>
     </TextColor>
     <ButtonDrawTemplate>
       <Normal>A_LeftArrowBtnNormal</Normal>
@@ -1247,9 +1234,6 @@
       <Disabled>A_LeftArrowBtnDisabled</Disabled>
       <PressedFlyby>A_LeftArrowBtnPressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
-    <!--<SoundPressed/>-->
-    <!--<SoundUp/>-->
-    <!--<SoundFlyby/>-->
   </Button>
   <Button item="SBW_PageUp_Button">
     <ScreenID>SBW_PageUp_Button</ScreenID>
@@ -1264,12 +1248,11 @@
     </Size>
     <Style_Transparent>false</Style_Transparent>
     <Style_Checkbox>false</Style_Checkbox>
-    <!--<RadioGroup/>-->
     <Text />
     <TextColor>
-      <R>240</R>
-      <G>243</G>
-      <B>247</B>
+      <R>231</R>
+      <G>228</G>
+      <B>222</B>
     </TextColor>
     <ButtonDrawTemplate>
       <Normal>A_RightArrowBtnNormal</Normal>
@@ -1278,9 +1261,6 @@
       <Disabled>A_RightArrowBtnDisabled</Disabled>
       <PressedFlyby>A_RightArrowBtnPressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
-    <!--<SoundPressed/>-->
-    <!--<SoundUp/>-->
-    <!--<SoundFlyby/>-->
   </Button>
   <StaticText item="SBW_LeftPageNum">
     <ScreenID>SBW_LeftPageNum</ScreenID>
@@ -1380,7 +1360,6 @@
   </StaticAnimation>
   <Button item="SBW_DoneButton">
     <ScreenID>DoneButton</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>142</X>
@@ -1392,12 +1371,11 @@
     </Size>
     <Style_Transparent>false</Style_Transparent>
     <Style_Checkbox>false</Style_Checkbox>
-    <!--<RadioGroup/>-->
     <Text>Done</Text>
     <TextColor>
-      <R>240</R>
-      <G>243</G>
-      <B>247</B>
+      <R>231</R>
+      <G>228</G>
+      <B>222</B>
     </TextColor>
     <ButtonDrawTemplate>
       <Normal>A_BtnNormal</Normal>
@@ -1406,9 +1384,6 @@
       <Disabled>A_BtnDisabled</Disabled>
       <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
-    <!--<SoundPressed/>-->
-    <!--<<SoundUp/>-->
-    <!--<SoundFlyby/>-->
   </Button>
   <Button item="SBW_MeditateButton">
     <ScreenID>MeditateButton</ScreenID>
