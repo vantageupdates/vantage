@@ -294,6 +294,11 @@ class QuickBar(ParserWindow):
             "Like this project? Support it — Buy Me a Coffee")
         support.setAccessibleDescription(
             "Opens the Vantage support page in your default browser")
+        reset_layout = self._buttons["reload_ui"]
+        reset_layout.setToolTip(
+            "Reset presentation: hide other windows, expand rolled panels, disable compact timers, and reset window and table layouts; gameplay data is preserved")
+        reset_layout.setAccessibleDescription(
+            "Opens a confirmation before resetting presentation settings only")
         self._support_motion_marker = QFrame(support)
         self._support_motion_marker.setObjectName("QuickBarSupportSpark")
         self._support_motion_marker.setFixedSize(5, 5)
@@ -496,6 +501,8 @@ class QuickBar(ParserWindow):
 
     def _apply_quickbar_settings(self, preserve_scale=True):
         settings = config.data["quickbar"]
+        prior_width_scale = (
+            self.width() / max(1, self._design_size.width()))
         self._orientation = settings.get("orientation", "horizontal")
         vertical = self._orientation == "vertical"
         self._header_visible = bool(settings.get("show_header", True))
@@ -592,7 +599,16 @@ class QuickBar(ParserWindow):
                 max(120, action_width, header_width),
                 header_height + action_height +
                 (self.notification_rail.height() if rail_visible else 0))
-        self._set_design_size(design_size, preserve_scale=preserve_scale)
+        # Quick Bar height is content-derived. Preserve its horizontal scale
+        # across temporary button visibility changes instead of taking the
+        # smaller of width/height and accumulating a rounding shrink each time.
+        self._set_design_size(design_size, preserve_scale=False)
+        if preserve_scale and not self._collapsed:
+            scale = max(
+                self._effective_minimum_scale(), min(1.0, prior_width_scale))
+            self.resize(
+                round(design_size.width() * scale),
+                round(design_size.height() * scale))
         self._update_uniform_scale()
         self._fit_to_available_screen()
 
@@ -926,7 +942,8 @@ class QuickBar(ParserWindow):
         elif key == "support":
             self._application.show_support()
         elif key == "reload_ui":
-            self._application.reload_ui()
+            self._application.reset_ui_layout(
+                parent=self, launcher=self._buttons.get(key))
         elif key == "link_logs":
             self._application.select_logs_folder()
         elif key == "log_help":
@@ -936,6 +953,36 @@ class QuickBar(ParserWindow):
         elif key == "quit":
             self._application.quit_vantage(confirm=True, parent=self)
         QTimer.singleShot(0, self.refresh_state)
+
+    def restore_action_focus(self, key):
+        """Restore keyboard focus through the embedded graphics proxy."""
+        button = self._buttons.get(key)
+        if button is None or not button.isEnabled():
+            return False
+        self._surface.setFocusProxy(button)
+        self.action_frame.setFocusProxy(button)
+
+        def focus_embedded_action():
+            QApplication.setActiveWindow(self)
+            self._scale_view.setFocus(Qt.FocusReason.OtherFocusReason)
+            self._scale_scene.setFocus(Qt.FocusReason.OtherFocusReason)
+            self._scale_proxy.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            self._scale_scene.setActivePanel(self._scale_proxy)
+            self._scale_scene.setFocusItem(
+                self._scale_proxy, Qt.FocusReason.OtherFocusReason)
+            self._scale_proxy.setFocus(Qt.FocusReason.OtherFocusReason)
+            self._surface.setFocus(Qt.FocusReason.OtherFocusReason)
+            button.setFocus(Qt.FocusReason.OtherFocusReason)
+
+        def activate_launcher():
+            self.show()
+            self.raise_()
+            self.activateWindow()
+            self._scale_view.setFocus(Qt.FocusReason.OtherFocusReason)
+            QTimer.singleShot(0, focus_embedded_action)
+
+        QTimer.singleShot(0, activate_launcher)
+        return True
 
     def _toggle_dialog_action(self, key):
         """Give every Quick Bar window button true open/close behavior."""

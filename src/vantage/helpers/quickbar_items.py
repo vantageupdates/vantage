@@ -12,6 +12,7 @@ QUICKBAR_ITEMS = (
     ("market", "Market", "ph-storefront", "windows"),
     ("zones", "Zones", "ph-compass", "windows"),
     ("quests", "Quests", "ph-quest-scroll", "windows"),
+    ("vantage_ui", "VantageUI", "ph-layout", "windows"),
     ("spell_library", "Spells & Skills", "ph-spellbook", "tools"),
     ("mobile", "Vantage on Your Phone", "ph-mobile", "tools"),
     ("link_logs", "Select Logs Folder", "ph-folder-open", "logs"),
@@ -21,7 +22,7 @@ QUICKBAR_ITEMS = (
     ("about", "About & Licenses", "ph-info", "system"),
     # Frequently checked status/recovery controls stay beside shutdown.
     ("log_status", "Log Status", "ph-pulse", "logs"),
-    ("reload_ui", "Reload Vantage UI", "ph-reload", "tools"),
+    ("reload_ui", "Reset UI Layout", "ph-reload", "tools"),
     ("updates", "Check for Updates", "ph-download", "tools"),
     ("settings", "Settings", "ph-settings", "system"),
     ("quit", "Quit Vantage", "ph-power", "system"),

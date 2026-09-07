@@ -7,11 +7,11 @@ from pathlib import Path
 import re
 
 from PySide6.QtCore import (
-    QMimeData, QObject, QSize, QThread, Qt, QTimer, Signal, Slot)
+    QMimeData, QObject, QSignalBlocker, QSize, QThread, Qt, QTimer, Signal, Slot)
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QApplication, QAbstractItemView, QCheckBox, QComboBox, QDialog,
-    QDialogButtonBox, QFormLayout, QGridLayout, QGroupBox, QHeaderView,
+    QDialogButtonBox, QFormLayout, QFrame, QGridLayout, QGroupBox, QHeaderView,
     QFileDialog, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMenu,
     QMessageBox, QPushButton, QStyle, QStyledItemDelegate,
     QSplitter, QStyleOptionViewItem, QTabWidget,
@@ -351,6 +351,7 @@ class CombatExportOptionsDialog(UniformScaleDialog):
 
 
 class Combat(ParserWindow):
+    _minimum_scale = 0.80
     TABS = (
         "Overview", "Player DPS", "Damage Breakdown", "Tanking",
         "Tanking Details", "Hit Distribution", "Charts", "Threat", "Spells", "Direct Damage",
@@ -745,6 +746,27 @@ class Combat(ParserWindow):
             "Chat": "Browse and search local chat channels and tells",
             "Log Search": "Search linked EQ logs without modifying them",
         })
+        view_bar = QFrame()
+        view_bar.setObjectName("CombatViewBar")
+        view_layout = QHBoxLayout(view_bar)
+        view_layout.setContentsMargins(7, 4, 7, 4)
+        view_layout.setSpacing(6)
+        view_layout.addWidget(QLabel("View"))
+        self.view_selector = QComboBox()
+        self.view_selector.setAccessibleName("Combat analysis view")
+        self.view_selector.setAccessibleDescription(
+            "Choose any combat view without navigating a clipped tab strip")
+        self.view_selector.setToolTip(
+            "Choose damage, tanking, spells, fights, activity, or log search")
+        for index, label in enumerate(self.TABS):
+            self.view_selector.addItem(label, index)
+            self.view_selector.setItemData(
+                index, self.tabs.tabToolTip(index), Qt.ItemDataRole.ToolTipRole)
+        self.view_selector.currentIndexChanged.connect(
+            self.tabs.setCurrentIndex)
+        view_layout.addWidget(self.view_selector, 1)
+        self.content.addWidget(view_bar)
+        self.tabs.tabBar().hide()
         self.content.addWidget(self.tabs, 1)
         self.tabs.currentChanged.connect(self._combat_tab_changed)
         QTimer.singleShot(0, self._polish_tab_scrollers)
@@ -769,6 +791,10 @@ class Combat(ParserWindow):
 
     def _combat_tab_changed(self, index):
         label = self.tabs.tabText(index) if index >= 0 else ""
+        if hasattr(self, "view_selector") and index >= 0:
+            blocker = QSignalBlocker(self.view_selector)
+            self.view_selector.setCurrentIndex(index)
+            del blocker
         self.summary_panel.setVisible(label not in {
             "Pets", "Loot", "Randoms", "Faction", "Chat", "Log Search"})
         if label == "Chat":
@@ -1710,18 +1736,22 @@ class Combat(ParserWindow):
         controls.addWidget(self.random_gap)
 
         split = QToolButton()
+        split.setObjectName("ToolbarAction")
         split.setIcon(game_icon("roll"))
         split.setAccessibleName("Split before selected roll")
         split.setToolTip(
             "Start a new roll set at the selected raw roll")
         split.clicked.connect(self._split_random_set)
+        self.random_split_button = split
         controls.addWidget(split)
         clear_splits = QToolButton()
+        clear_splits.setObjectName("ToolbarAction")
         clear_splits.setIcon(game_icon("delete"))
         clear_splits.setAccessibleName("Clear manual roll splits")
         clear_splits.setToolTip(
             "Remove every manual split; parsed rolls are never deleted")
         clear_splits.clicked.connect(self._clear_random_splits)
+        self.random_clear_splits_button = clear_splits
         controls.addWidget(clear_splits)
         layout.addLayout(controls)
 
@@ -1853,6 +1883,7 @@ class Combat(ParserWindow):
         self.log_saved.activated.connect(self._load_saved_search)
         controls.addWidget(self.log_saved)
         self.log_save_button = QToolButton()
+        self.log_save_button.setObjectName('ToolbarAction')
         self.log_save_button.setIcon(game_icon('add'))
         self.log_save_button.setAccessibleName('Save current log search')
         self.log_save_button.setToolTip(
@@ -1860,6 +1891,7 @@ class Combat(ParserWindow):
         self.log_save_button.clicked.connect(self._save_log_search)
         controls.addWidget(self.log_save_button)
         self.log_delete_button = QToolButton()
+        self.log_delete_button.setObjectName('ToolbarAction')
         self.log_delete_button.setIcon(game_icon('delete'))
         self.log_delete_button.setAccessibleName('Delete saved log search')
         self.log_delete_button.setToolTip(

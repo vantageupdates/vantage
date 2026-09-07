@@ -15,7 +15,8 @@ import re
 import shutil
 import sqlite3
 import statistics
-from urllib.parse import quote, unquote
+from urllib.parse import quote, unquote, urljoin, urlparse
+import unicodedata
 import webbrowser
 
 from PySide6.QtCore import (
@@ -39,7 +40,8 @@ from vantage.helpers.friends_manager import everquest_root_from_logs
 from vantage.helpers.parser import ParserWindow
 from vantage.helpers.portable import data_dir
 from vantage.helpers.responsive import (
-    ensure_tab_tooltips, ensure_table_header_tooltips, scrollable)
+    ResponsiveActionBar, ensure_tab_tooltips, ensure_table_header_tooltips,
+    scrollable)
 from vantage.helpers.scaled_dialog import UniformScaleDialog
 from vantage.parsers.maps.mapdata import MapData
 
@@ -54,6 +56,14 @@ P99_WIKI_API = (
     "https://wiki.project1999.com/api.php?action=parse&page={slug}"
     "&prop=text%7Cwikitext%7Cimages&format=json")
 P99_WIKI_IMAGE_URL = "https://wiki.project1999.com/images/{filename}"
+P99_RECHARGE_GUIDE_URL = (
+    "https://wiki.project1999.com/Guide_to_Recharging_Items")
+ZAM_SEARCH_URL = "https://everquest.allakhazam.com/search.html?q={query}"
+ZAM_ORIGIN_HOST = "everquest.allakhazam.com"
+ZAM_TIMEOUT_MS = 6500
+ZAM_MAX_RETRIES = 1
+P99_ITEM_TIMEOUT_MS = 6500
+P99_ITEM_MAX_RETRIES = 1
 PIGPARSE_URL = "https://pigparse.azurewebsites.net/ServerIndex/Green"
 P99_PLANNER_URL = "https://p99planner.com/items"
 GEAR_META_URL = "https://p99planner.com/data/meta.json"
@@ -75,8 +85,34 @@ CON_MESSAGES = (
 )
 
 
-def deliver_market_alert(app, title, message, sound_enabled=False):
+def deliver_market_alert(app, title, message, sound_enabled=None):
     """Deliver one explicit sale alert and report exactly what succeeded."""
+    if app is not None and hasattr(app, "notify_event"):
+        result = app.notify_event(
+            "market_sale", message, title=title, overlay_id="alerts",
+            color="#7A3F2D", text_color="#FFE6C2",
+            delivery_override=("off" if sound_enabled is False else None),
+            volume=MARKET_ALERT_VOLUME, channel="market")
+        result_key = (
+            getattr(result, "delivery", ""), getattr(result, "state", ""))
+        sound_state = {
+            ("sound", "played"): "sound played",
+            ("voice", "played"): "voice played",
+            ("off", "off"): "delivery off",
+            ("sound", "blocked"): "sound blocked",
+            ("voice", "blocked"): "voice blocked",
+            ("sound", "unavailable"): "sound unavailable",
+            ("voice", "unavailable"): "voice unavailable",
+        }.get(result_key, "delivery unavailable")
+        if getattr(result, "state", "") == "blocked":
+            reason = {
+                "window hidden": "Market window hidden",
+                "muted": "Master mute",
+                "master volume 0%": "Master volume 0%",
+            }.get(getattr(result, "reason", ""),
+                  getattr(result, "reason", "") or "Audio blocked")
+            sound_state = f"blocked · {reason}"
+        return "overlay shown", sound_state
     delivery = "inline only"
     shown = False
     if app is not None and hasattr(app, "show_overlay_notification"):
@@ -686,6 +722,142 @@ def _wiki_zone_cache_path(target):
     return data_dir("cache", "wiki-zones") / f"{digest}.json"
 
 
+def _zam_origin_cache_path(name):
+    digest = hashlib.sha256(
+        _item_key(name).encode("utf-8")).hexdigest()[:20]
+    return data_dir("cache", "zam-origins") / f"{digest}.json"
+
+
+def _normalized_source_name(value):
+    text = unicodedata.normalize("NFKC", html.unescape(str(value or "")))
+    text = text.replace("’", "'").replace("`", "'")
+    text = re.sub(r"^(?:item\s*:\s*)", "", text, flags=re.IGNORECASE)
+    return " ".join(text.split()).strip().casefold()
+
+
+def _allowed_source_url(value, paths=()):
+    """Return one allowlisted HTTPS Allakhazam URL or an empty string."""
+    try:
+        parsed = urlparse(urljoin(
+            "https://everquest.allakhazam.com/", str(value or "")))
+    except ValueError:
+        return ""
+    if (parsed.scheme != "https" or parsed.hostname != ZAM_ORIGIN_HOST or
+            parsed.username or parsed.password):
+        return ""
+    if paths and not any(parsed.path.startswith(path) for path in paths):
+        return ""
+    return parsed.geturl()
+
+
+def parse_zam_search_html(rendered_html, item_name):
+    """Select only an exact item-name result from public ZAM search HTML."""
+    wanted = _normalized_source_name(item_name)
+    matches = []
+    for href, raw_label in re.findall(
+            r"<a\b[^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>",
+            str(rendered_html or ""), re.IGNORECASE | re.DOTALL):
+        url = _allowed_source_url(href, ("/db/item.html",))
+        label = _rendered_html_text(raw_label)
+        if url and _normalized_source_name(label) == wanted:
+            matches.append({"name": label, "url": url})
+    # Deterministic exact match. A similarly named Fabled or modern item can
+    # never be selected merely because it contains the P99 item's name.
+    return matches[0] if matches else {}
+
+
+def parse_zam_item_html(rendered_html, expected_name):
+    """Extract only structured ZAM item origin links; never user comments."""
+    source = str(rendered_html or "")
+    source = re.sub(r"<!--.*?-->", "", source, flags=re.DOTALL)
+    # ZAM item pages can include an untrusted user-discussion area.  It is not
+    # source metadata, so remove it before looking at typed database links.
+    source = re.sub(
+        r"<(div|section|table)\b[^>]*(?:id|class)=[\"'][^\"']*"
+        r"(?:comment|forum|reply|discussion)[^\"']*[\"'][^>]*>.*?</\1>",
+        "", source, flags=re.IGNORECASE | re.DOTALL)
+    headings = re.findall(
+        r"<(?:h1|title)\b[^>]*>(.*?)</(?:h1|title)>", source,
+        re.IGNORECASE | re.DOTALL)
+    names = [_rendered_html_text(value).split(" :: ", 1)[0]
+             for value in headings]
+    if not any(_normalized_source_name(name) ==
+               _normalized_source_name(expected_name) for name in names):
+        return {}
+
+    typed = {"mobs": [], "zones": [], "quests": [], "drops": []}
+    path_types = (
+        ("/db/npc.html", "mobs"), ("/db/zone.html", "zones"),
+        ("/db/quest.html", "quests"))
+    rows = re.findall(
+        r"<tr\b[^>]*>(.*?)</tr>", source, re.IGNORECASE | re.DOTALL)
+    for row in rows:
+        row_values = {key: [] for _path, key in path_types}
+        for href, raw_label in re.findall(
+                r"<a\b[^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>",
+                row, re.IGNORECASE | re.DOTALL):
+            for path, key in path_types:
+                url = _allowed_source_url(href, (path,))
+                label = _rendered_html_text(raw_label)
+                if url and label:
+                    row_values[key].append({"name": label, "url": url})
+                    break
+        for key in ("mobs", "zones", "quests"):
+            for entry in row_values[key]:
+                if _normalized_source_name(entry["name"]) not in {
+                        _normalized_source_name(value["name"])
+                        for value in typed[key]}:
+                    typed[key].append(entry)
+        for mob in row_values["mobs"]:
+            for zone in row_values["zones"]:
+                typed["drops"].append({"mob": mob, "zone": zone})
+
+    # Some ZAM layouts put quests or standalone source entries outside the
+    # drop table. Accept only links whose database path proves their type.
+    for href, raw_label in re.findall(
+            r"<a\b[^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>",
+            source, re.IGNORECASE | re.DOTALL):
+        for path, key in path_types:
+            url = _allowed_source_url(href, (path,))
+            label = _rendered_html_text(raw_label)
+            known = {_normalized_source_name(value["name"])
+                     for value in typed[key]}
+            if url and label and _normalized_source_name(label) not in known:
+                typed[key].append({"name": label, "url": url})
+                break
+    typed["source_url"] = ""
+    return typed
+
+
+def item_origin_corroboration(p99, zam):
+    """Describe agreement without treating modern-EQ ZAM as P99 truth."""
+    p99 = p99 if isinstance(p99, dict) else {}
+    zam = zam if isinstance(zam, dict) else {}
+    p99_pairs = {(
+        _normalized_source_name(drop.get("npc")),
+        _normalized_source_name(drop.get("zone")))
+        for drop in p99.get("drops", []) if isinstance(drop, dict)}
+    zam_pairs = {(
+        _normalized_source_name(value.get("mob", {}).get("name")),
+        _normalized_source_name(value.get("zone", {}).get("name")))
+        for value in zam.get("drops", []) if isinstance(value, dict)}
+    p99_quests = {_normalized_source_name(value.get("name"))
+                  for value in p99.get("related_quests", [])
+                  if isinstance(value, dict)}
+    zam_quests = {_normalized_source_name(value.get("name"))
+                  for value in zam.get("quests", []) if isinstance(value, dict)}
+    p99_has = bool(p99_pairs or p99_quests or p99.get("notes"))
+    zam_has = bool(zam_pairs or zam_quests or zam.get("mobs") or zam.get("zones"))
+    agrees = bool(p99_quests & zam_quests or p99_pairs & zam_pairs)
+    if p99_has and zam_has:
+        return "Confirmed by both" if agrees else "Sources disagree"
+    if p99_has:
+        return "P99-only"
+    if zam_has:
+        return "ZAM-only"
+    return "No source data"
+
+
 def _plain_wiki_text(value):
     text = re.sub(r"<br\s*/?>", "\n", str(value or ""), flags=re.IGNORECASE)
     text = re.sub(
@@ -832,8 +1004,8 @@ def _wiki_target_url(target):
 
 def _wiki_template_field(source, name):
     match = re.search(
-        rf"^\|\s*{re.escape(name)}\s*=\s*(.*?)"
-        rf"(?=^\|\s*[A-Za-z_][\w ]*\s*=|^\}}\}}\s*$|\Z)",
+        rf"^\s*\|\s*{re.escape(name)}\s*=\s*(.*?)"
+        rf"(?=^\s*\|\s*[A-Za-z_][\w ]*\s*=|^\s*\}}\}}\s*$|\Z)",
         source, re.IGNORECASE | re.DOTALL | re.MULTILINE)
     return match.group(1).strip() if match else ""
 
@@ -883,6 +1055,27 @@ def _parse_wiki_drops(source):
     return entries
 
 
+def _parse_wiki_related_quests(source):
+    value = _wiki_template_field(source, "relatedquests")
+    if not value:
+        section = re.search(
+            r"^==+\s*Related quests\s*==+\s*(.*?)"
+            r"(?=^==+[^=]|\Z)", str(source or ""),
+            re.IGNORECASE | re.DOTALL | re.MULTILINE)
+        value = section.group(1) if section else ""
+    quests = []
+    for target, label in re.findall(
+            r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]", value):
+        name = _plain_wiki_text(label or target)
+        if (name and "no related quest" not in name.casefold() and
+                _normalized_source_name(name) not in {
+                    _normalized_source_name(item["name"]) for item in quests}):
+            quests.append({
+                "name": name, "target": target.strip(),
+                "url": _wiki_target_url(target)})
+    return quests
+
+
 def parse_wiki_item_wikitext(wikitext, fallback_name=""):
     """Extract the classic P99 Wiki itembox without rendering a web page."""
     source = str(wikitext or "")
@@ -897,19 +1090,24 @@ def parse_wiki_item_wikitext(wikitext, fallback_name=""):
 
     def field(name):
         match = re.search(
-            rf"^\|\s*{re.escape(name)}\s*=\s*(.*?)"
-            rf"(?=^\|\s*[A-Za-z_][\w ]*\s*=|\Z)",
+            rf"^\s*\|\s*{re.escape(name)}\s*=\s*(.*?)"
+            rf"(?=^\s*\|\s*[A-Za-z_][\w ]*\s*=|\Z)",
             body, re.IGNORECASE | re.DOTALL | re.MULTILINE)
         return match.group(1).strip() if match else ""
 
     item_name = _plain_wiki_text(field("itemname")) or fallback_name
     image_id = re.sub(r"\D", "", field("lucy_img_ID"))
     stats = _plain_wiki_text(field("statsblock"))
+    notes = _plain_wiki_text(field("notes"))
+    if len(notes) > 600:
+        notes = notes[:597].rsplit(" ", 1)[0] + "…"
     return {
         "name": item_name,
         "stats": stats or "The page does not contain a stat block.",
         "image": f"Item_{image_id}.png" if image_id else "",
         "drops": _parse_wiki_drops(source),
+        "related_quests": _parse_wiki_related_quests(source),
+        "notes": notes,
     }
 
 
@@ -1971,6 +2169,7 @@ class WikiItemCard(UniformScaleDialog):
     """Small native EverQuest-style item card backed by P99 Wiki."""
 
     wiki_entity_requested = Signal(str, str, str)
+    source_retry_requested = Signal()
 
     def __init__(self, item, parent=None, server="Green", catalog=(),
                  price_lookup=None):
@@ -1983,6 +2182,13 @@ class WikiItemCard(UniformScaleDialog):
         self.wiki_name = self.item_name.replace("Spell: ", "")
         self.wiki_url = P99_WIKI_URL.format(
             slug=quote(self.wiki_name.replace(" ", "_")))
+        self.zam_search_url = ZAM_SEARCH_URL.format(
+            query=quote(self.wiki_name, safe=""))
+        self._p99_origin = {}
+        self._zam_origin = {}
+        self._zam_state = "loading"
+        self._source_state = {
+            "token": 0, "p99": "idle", "zam": "idle", "announced": False}
         self.setObjectName("WikiItemDialog")
         self.setWindowTitle(f"Vantage · {self.item_name}")
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
@@ -2056,7 +2262,7 @@ class WikiItemCard(UniformScaleDialog):
         self.stats.setToolTip("Item stats from the P99 Wiki page")
         card_layout.addWidget(self.stats, 3, 0, 1, 2)
 
-        self.drops = QLabel("Loading drop source and location…")
+        self.drops = QLabel("Checking P99 origin and Allakhazam corroboration…")
         self.drops.setObjectName("WikiItemDrops")
         self.drops.setWordWrap(True)
         self.drops.setTextFormat(Qt.TextFormat.RichText)
@@ -2064,12 +2270,18 @@ class WikiItemCard(UniformScaleDialog):
             Qt.TextInteractionFlag.TextBrowserInteraction)
         self.drops.setOpenExternalLinks(False)
         self.drops.linkActivated.connect(self._internal_wiki_link)
+        self.drops.setAccessibleName("Obtaining this item")
+        self.drops.setAccessibleDescription(
+            "P99-preferred drop, zone, quest and note data with separate "
+            "Allakhazam corroboration status")
         self.drops.setToolTip(
-            "NPC and zone from Project 1999 Wiki; each name opens its card")
+            "P99 is preferred for server applicability. Allakhazam is a "
+            "separate modern-EQ cross-check and may disagree.")
+        self.drops.setMinimumHeight(115)
         card_layout.addWidget(self.drops, 4, 0, 1, 2)
         card_layout.setColumnStretch(1, 1)
-        card_layout.setRowStretch(3, 1)
-        outer.addWidget(scrollable(card, "WikiItemCardScroll"), 1)
+        self.card_scroll = scrollable(card, "WikiItemCardScroll")
+        outer.addWidget(self.card_scroll, 1)
 
         prices = []
         for label, key in (("30d", "a30"), ("60d", "a60"), ("90d", "a90")):
@@ -2088,8 +2300,7 @@ class WikiItemCard(UniformScaleDialog):
             "differ by 30% or less")
         outer.addWidget(self.price)
 
-        actions = QHBoxLayout()
-        actions.addStretch(1)
+        actions = ResponsiveActionBar(min_cell_width=82)
         compare = QPushButton("Compare items")
         compare.setObjectName("ItemCardCompare")
         compare.setIcon(game_icon("compare"))
@@ -2108,11 +2319,30 @@ class WikiItemCard(UniformScaleDialog):
         open_wiki.setToolTip("Open the full item page in your browser")
         open_wiki.clicked.connect(lambda: webbrowser.open(self.wiki_url))
         actions.addWidget(open_wiki)
+        open_zam = QPushButton("Open ZAM search")
+        open_zam.setIcon(game_icon("ph-file-search"))
+        open_zam.setAccessibleName(
+            f"Open Allakhazam search for {self.item_name}")
+        open_zam.setToolTip(
+            "Open the allowlisted HTTPS Allakhazam search; modern EQ data may "
+            "differ from Project 1999")
+        open_zam.clicked.connect(lambda: webbrowser.open(self.zam_search_url))
+        actions.addWidget(open_zam)
+        retry = QPushButton("Retry sources")
+        retry.setIcon(game_icon("ph-reload"))
+        retry.setAccessibleName(
+            f"Retry source research for {self.item_name}")
+        retry.setToolTip(
+            "Retry the bounded P99 and Allakhazam source lookup without "
+            "closing this item card")
+        retry.clicked.connect(self.source_retry_requested.emit)
+        self.source_retry_button = retry
+        actions.addWidget(retry)
         close = QPushButton("Close")
         close.setToolTip("Close this card")
         close.clicked.connect(self.close)
         actions.addWidget(close)
-        outer.addLayout(actions)
+        outer.addWidget(actions)
 
         self.pages.addWidget(self.item_page)
         self.compare_panel = ItemComparePanel(
@@ -2159,39 +2389,166 @@ class WikiItemCard(UniformScaleDialog):
         self.resize(QSize(window_size))
         self._update_dialog_scale()
 
-    def set_item_data(self, data, cached=False):
+    def begin_source_request(self, token):
+        """Start one coordinated P99/ZAM lookup and announce it once."""
+        self._source_state = {
+            "token": int(token), "p99": "checking", "zam": "checking",
+            "announced": False}
+        self._zam_state = "loading"
+        self.source.setText(
+            "PROJECT 1999 WIKI · " +
+            ("LOCAL CACHE · CHECKING…" if self._p99_origin else "CHECKING…"))
+        self._render_obtaining()
+        _announce_accessible(
+            self, f"Checking P99 and Allakhazam sources for {self.item_name}")
+
+    def _finish_source_part(self, part, status, token):
+        state = self._source_state
+        if (int(token) != int(state.get("token", -1)) or
+                part not in {"p99", "zam"}):
+            return False
+        state[part] = str(status or "unavailable")
+        self._render_obtaining()
+        if (state.get("p99") != "checking" and
+                state.get("zam") != "checking" and
+                not state.get("announced")):
+            state["announced"] = True
+            confidence = item_origin_corroboration(
+                self._p99_origin, self._zam_origin)
+            fallbacks = [name.upper() for name in ("p99", "zam")
+                         if "fallback" in str(state.get(name, ""))]
+            suffix = (f". Cached fallback: {', '.join(fallbacks)}"
+                      if fallbacks else "")
+            _announce_accessible(
+                self, f"Item source research complete. {confidence}{suffix}")
+        return True
+
+    def _accept_source_token(self, token):
+        return (token is None or int(token) == int(
+            self._source_state.get("token", -1)))
+
+    def set_item_data(self, data, cached=False, token=None):
+        if not self._accept_source_token(token):
+            return False
         self.name_label.setText(data.get("name") or self.item_name)
         self.stats.setText(data.get("stats") or "No stats available.")
-        drops = data.get("drops") or []
+        self._p99_origin = {
+            "drops": list(data.get("drops") or []),
+            "related_quests": list(data.get("related_quests") or []),
+            "notes": str(data.get("notes") or ""),
+        }
+        self._render_obtaining()
+        self.source.setText(
+            "PROJECT 1999 WIKI · " + ("LOCAL CACHE" if cached else "UPDATED"))
+        self._set_auction_price(data.get("auction") or {})
+        if token is not None:
+            self._finish_source_part("p99", "updated", token)
+        return True
+
+    def set_zam_data(self, data, cached=False, token=None):
+        if not self._accept_source_token(token):
+            return False
+        self._zam_origin = data if isinstance(data, dict) else {}
+        self._zam_state = "cached" if cached else "updated"
+        self._render_obtaining()
+        if token is not None and not cached:
+            self._finish_source_part("zam", "updated", token)
+        return True
+
+    def set_zam_error(self, message, cached=False, token=None):
+        if not self._accept_source_token(token):
+            return False
+        self._zam_state = "cached fallback" if cached else "unavailable"
+        self._render_obtaining()
+        if token is not None:
+            self._finish_source_part(
+                "zam", "cached fallback" if cached else "unavailable", token)
+        return True
+
+    def set_p99_error(self, message, cached=False, token=None):
+        if not self._accept_source_token(token):
+            return False
+        self.source.setText(
+            "PROJECT 1999 WIKI · " +
+            ("CACHED FALLBACK" if cached else "UNAVAILABLE"))
+        if not cached and self.stats.text() == "Loading item details…":
+            self.stats.setText(
+                "P99 item details are temporarily unavailable. Use Open P99 "
+                f"Wiki or Retry sources.\n\nDetails: {message}")
+        if token is not None:
+            self._finish_source_part(
+                "p99", "cached fallback" if cached else "unavailable", token)
+        return True
+
+    def _render_obtaining(self):
+        p99 = self._p99_origin
+        zam = self._zam_origin
+        checking = any(
+            self._source_state.get(part) == "checking"
+            for part in ("p99", "zam"))
+        status = ("Checking sources" if checking else
+                  item_origin_corroboration(p99, zam))
+        blocks = [
+            f'<b>Obtaining this item · {html.escape(status)}</b>',
+            '<span style="color:#c7ae76">P99 applies to this server; '
+            'ZAM is corroboration only.</span>']
+        drops = p99.get("drops", [])
         if drops:
             rows = []
-            for entry in drops:
+            for entry in drops[:12]:
                 npc = html.escape(str(entry.get("npc") or "Unknown"))
                 zone = html.escape(str(entry.get("zone") or "Zone not listed"))
-                npc_url = html.escape(str(entry.get("npc_url") or ""), quote=True)
-                zone_url = html.escape(str(entry.get("zone_url") or ""), quote=True)
                 npc_target = quote(str(
                     entry.get("npc_target") or entry.get("npc") or ""), safe="")
                 zone_target = quote(str(
                     entry.get("zone_target") or entry.get("zone") or ""), safe="")
-                npc_link = (
-                    f'<a href="vantage://wiki/npc/{npc_target}">{npc}</a>'
-                    if npc_url else npc)
-                zone_link = (
-                    f'<a href="vantage://wiki/zone/{zone_target}">{zone}</a>'
-                    if zone_url else zone)
                 rows.append(
-                    f'<tr><td><b>Dropped by</b></td><td>{npc_link}</td>'
-                    f'<td><b>Where</b></td><td>{zone_link}</td></tr>')
-            self.drops.setText(
-                '<table cellspacing="0" cellpadding="2">' +
-                "".join(rows) + "</table>")
-        else:
-            self.drops.setText(
-                "<b>Origin</b> · The Wiki does not list a drop for this item.")
-        self.source.setText(
-            "PROJECT 1999 WIKI · " + ("LOCAL CACHE" if cached else "UPDATED"))
-        self._set_auction_price(data.get("auction") or {})
+                    f'<tr><td><b>P99 drop</b></td><td><a href="vantage://wiki/npc/'
+                    f'{npc_target}">{npc}</a></td><td><a href="vantage://wiki/zone/'
+                    f'{zone_target}">{zone}</a></td></tr>')
+            blocks.append('<table cellspacing="0" cellpadding="2">' +
+                          ''.join(rows) + '</table>')
+        quests = p99.get("related_quests", [])
+        if quests:
+            links = []
+            for entry in quests[:12]:
+                name = html.escape(str(entry.get("name") or "Quest"))
+                target = quote(str(
+                    entry.get("target") or entry.get("name") or ""), safe="")
+                links.append(
+                    f'<a href="vantage://wiki/quest/{target}">{name}</a>')
+            blocks.append('<b>P99 related quests</b> · ' + ', '.join(links))
+        notes = str(p99.get("notes") or "").strip()
+        if notes:
+            blocks.append('<b>P99 note</b> · ' + html.escape(notes))
+        zam_bits = []
+        for label, key in (("drops", "mobs"), ("zones", "zones"),
+                           ("quests", "quests")):
+            names = [html.escape(str(value.get("name") or ""))
+                     for value in zam.get(key, [])[:8]
+                     if isinstance(value, dict) and value.get("name")]
+            if names:
+                zam_bits.append(f'{label}: ' + ', '.join(names))
+        if zam_bits:
+            zam_label = ("Allakhazam cached fallback" if
+                         self._zam_state == "cached fallback" else
+                         "Allakhazam cross-check")
+            blocks.append(f'<b>{zam_label}</b> · ' + ' · '.join(zam_bits))
+        elif self._zam_state == "loading":
+            blocks.append('<b>Allakhazam</b> · checking exact item match…')
+        elif self._zam_state == "unavailable":
+            blocks.append(
+                '<b>Allakhazam unavailable</b> · P99 data remains usable; '
+                'use Open ZAM search or Retry sources.')
+        elif not drops and not quests and not notes:
+            blocks.append('No structured origin data was found in either source.')
+        self.drops.setText('<br>'.join(blocks))
+        if not checking:
+            # The independently fixed price/actions stay put while the final
+            # source result is brought fully into the scroll viewport.
+            QTimer.singleShot(
+                0, lambda: self.card_scroll.ensureWidgetVisible(
+                    self.drops, 8, 8))
 
     def _set_auction_price(self, auction):
         comparison = combined_market_price(self.item, auction)
@@ -2509,12 +2866,10 @@ class AuctionComposer(QWidget):
         picker.addWidget(self.hotbutton_button)
         root.addLayout(picker)
 
-        self.advanced_toggle = QToolButton()
-        self.advanced_toggle.setText("Advanced wording (optional)")
+        self.advanced_toggle = QPushButton("Message options")
+        self.advanced_toggle.setIcon(game_icon("chevron-bottom"))
+        self.advanced_toggle.setMinimumWidth(132)
         self.advanced_toggle.setCheckable(True)
-        self.advanced_toggle.setArrowType(Qt.ArrowType.RightArrow)
-        self.advanced_toggle.setToolButtonStyle(
-            Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.advanced_toggle.setAccessibleName("Advanced wording (optional)")
         self.advanced_toggle.setAccessibleDescription(
             "Collapsed optional auction message customization")
@@ -2659,8 +3014,8 @@ class AuctionComposer(QWidget):
 
     def _toggle_advanced(self, shown):
         self.advanced_panel.setVisible(bool(shown))
-        self.advanced_toggle.setArrowType(
-            Qt.ArrowType.DownArrow if shown else Qt.ArrowType.RightArrow)
+        self.advanced_toggle.setIcon(game_icon(
+            "chevron-top" if shown else "chevron-bottom"))
         self.advanced_toggle.setAccessibleDescription(
             f"{'Expanded' if shown else 'Collapsed'} optional auction message "
             "customization")
@@ -3032,6 +3387,7 @@ class GreenMarket(ParserWindow):
     # Market contains search, filters and tables; click-through would make its
     # primary workflow impossible. Keep that overlay-only option out of here.
     _allow_clickthrough = False
+    _minimum_scale = 0.80
     def __init__(self):
         self.name = "market"
         super().__init__()
@@ -3056,6 +3412,8 @@ class GreenMarket(ParserWindow):
         self._last_live_alert_state = "ready"
 
         self._network = QNetworkAccessManager(self)
+        self._zam_inflight = {}
+        self._p99_item_inflight = {}
         self._model = MarketModel()
         self._proxy = MarketFilter()
         self._proxy.setSourceModel(self._model)
@@ -3241,6 +3599,19 @@ class GreenMarket(ParserWindow):
         self.gear_filter_note.setToolTip(
             "Comparison opens inside the item card and has its own full-catalog search")
         gear_tools_layout.addWidget(self.gear_filter_note, 1, 2, 1, 2)
+        self.recharge_guide_button = QPushButton("Item Recharge Guide")
+        self.recharge_guide_button.setIcon(game_icon("ph-info"))
+        self.recharge_guide_button.setAccessibleName(
+            "Open the Project 1999 Item Recharge Guide")
+        self.recharge_guide_button.setAccessibleDescription(
+            "External P99 help about vendor recharge mechanics; this is not "
+            "pricing or purchase information")
+        self.recharge_guide_button.setToolTip(
+            "Open the P99 Wiki guide to vendor item recharging · help only, "
+            "not pricing or purchasing")
+        self.recharge_guide_button.clicked.connect(
+            self._open_recharge_guide)
+        gear_tools_layout.addWidget(self.recharge_guide_button, 1, 4)
         gear_tools_layout.setColumnStretch(2, 1)
         gear_layout.addWidget(gear_tools)
         self._gear_width_save_timer = QTimer(self)
@@ -3343,17 +3714,12 @@ class GreenMarket(ParserWindow):
         self.live_alerts_enabled.toggled.connect(
             self._set_live_alerts_enabled)
         watch_layout.addWidget(self.live_alerts_enabled, 3, 3)
-        self.live_alert_sound = QCheckBox("Sound")
-        self.live_alert_sound.setChecked(bool(
-            config.data["market"].get("live_alert_sound_enabled", False)))
-        self.live_alert_sound.setAccessibleName(
-            "Sound — play the sale alert chime")
-        self.live_alert_sound.setToolTip(
-            "Play one Soft Notify chime for a matched sale; Master Mute on "
-            "the Quick Bar always wins")
-        self.live_alert_sound.toggled.connect(
-            self._set_live_alert_sound_enabled)
-        watch_layout.addWidget(self.live_alert_sound, 3, 4)
+        self.live_alert_audio_route = QLabel("Audio: Settings › Sounds")
+        self.live_alert_audio_route.setAccessibleName(
+            "Sale alert audio is configured in Settings, Sounds, Market sale")
+        self.live_alert_audio_route.setToolTip(
+            "Use Settings › Sounds › Market sale to choose Off, Sound, or Voice")
+        watch_layout.addWidget(self.live_alert_audio_route, 3, 4, 1, 2)
         self.live_alert_test = QPushButton("Test")
         self.live_alert_test.setObjectName("MarketSaleAlertTest")
         self.live_alert_test.setIcon(game_icon("check"))
@@ -3678,7 +4044,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(requested.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.50")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.51")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_finished(
             reply, requested, cached_path))
@@ -3818,7 +4184,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(target.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.50")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.51")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_npc_drops_finished(
             reply, mob, target, key, cache_path))
@@ -3992,6 +4358,14 @@ class GreenMarket(ParserWindow):
         del blockers
         return True
 
+    @staticmethod
+    def _open_recharge_guide():
+        """Open the fixed P99 help page through the Wiki URL builder."""
+        url = _wiki_target_url("Guide to Recharging Items")
+        if url != P99_RECHARGE_GUIDE_URL:
+            return False
+        return bool(webbrowser.open(url))
+
     def _market_table(self):
         table = QTableView()
         table.setModel(self._proxy)
@@ -4082,10 +4456,12 @@ class GreenMarket(ParserWindow):
         card = WikiItemCard(
             item, self, server=server, catalog=self._gear_model.items,
             price_lookup=self._auction_price)
+        json_path, icon_path = _wiki_cache_paths(item.get("n"), server)
         card.wiki_entity_requested.connect(self._show_wiki_entity)
+        card.source_retry_requested.connect(
+            lambda: self._request_item_sources(card, json_path, icon_path))
         card.show()
         card.raise_()
-        json_path, icon_path = _wiki_cache_paths(item.get("n"), server)
         try:
             cached = json.loads(json_path.read_text(encoding="utf-8"))
             card.set_item_data(cached, cached=True)
@@ -4094,19 +4470,217 @@ class GreenMarket(ParserWindow):
         except (OSError, ValueError, json.JSONDecodeError):
             pass
 
-        wiki_name = str(item.get("n") or "").replace("Spell: ", "")
+        self._request_item_sources(card, json_path, icon_path)
+        return card
+
+    def _request_item_sources(self, card, json_path, icon_path):
+        """Refresh P99 and corroborating ZAM data with a shared stale token."""
+        token = int(getattr(card, "_source_request_token", 0)) + 1
+        card._source_request_token = token
+        card.begin_source_request(token)
+        self._cancel_item_source_replies(card)
+        wiki_name = str(card.item_name or "").replace("Spell: ", "")
+        self._p99_item_request(
+            card, token, json_path, icon_path, wiki_name, 0)
+        self._start_zam_lookup(card, token, _zam_origin_cache_path(wiki_name))
+        if not getattr(card, "_source_destroy_connected", False):
+            card._source_destroy_connected = True
+            card.destroyed.connect(
+                lambda _obj=None, source_card=card:
+                self._cancel_item_source_replies(source_card))
+
+    def _cancel_item_source_replies(self, card):
+        for inflight in (self._p99_item_inflight, self._zam_inflight):
+            for reply, context in tuple(inflight.items()):
+                if context.get("card") is not card:
+                    continue
+                try:
+                    reply.abort()
+                except RuntimeError:
+                    inflight.pop(reply, None)
+
+    def _p99_item_request(
+            self, card, token, json_path, icon_path, wiki_name, attempt):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.50")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.51")
         reply = self._network.get(request)
-        reply.finished.connect(
-            lambda: self._wiki_item_finished(reply, card, json_path, icon_path))
-        return card
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.setInterval(P99_ITEM_TIMEOUT_MS)
+        context = {
+            "timer": timer, "timed_out": False, "card": card,
+            "token": token, "json_path": json_path, "icon_path": icon_path,
+            "wiki_name": wiki_name, "attempt": attempt}
+        self._p99_item_inflight[reply] = context
+
+        def timed_out():
+            current = self._p99_item_inflight.get(reply)
+            if current is None:
+                return
+            current["timed_out"] = True
+            try:
+                reply.abort()
+            except RuntimeError:
+                pass
+
+        timer.timeout.connect(timed_out)
+        reply.finished.connect(lambda: self._p99_item_request_finished(reply))
+        timer.start()
+        return reply
+
+    def _p99_item_request_finished(self, reply):
+        context = self._p99_item_inflight.pop(reply, None)
+        if context is None:
+            reply.deleteLater()
+            return
+        context["timer"].stop()
+        card = context["card"]
+        try:
+            if int(getattr(card, "_source_request_token", -1)) != context["token"]:
+                reply.deleteLater()
+                return
+            if reply.error() != QNetworkReply.NetworkError.NoError:
+                if context["attempt"] < P99_ITEM_MAX_RETRIES:
+                    reply.deleteLater()
+                    QTimer.singleShot(
+                        0, lambda values=context: self._p99_item_request(
+                            values["card"], values["token"],
+                            values["json_path"], values["icon_path"],
+                            values["wiki_name"], values["attempt"] + 1))
+                else:
+                    card.set_p99_error(
+                        "Timed out" if context["timed_out"] else
+                        reply.errorString(), bool(card._p99_origin),
+                        context["token"])
+                    reply.deleteLater()
+                return
+            self._wiki_item_finished(
+                reply, card, context["json_path"], context["icon_path"],
+                context["token"])
+        except RuntimeError:
+            try:
+                reply.deleteLater()
+            except RuntimeError:
+                pass
+
+    def _start_zam_lookup(self, card, token, cache_path):
+        try:
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            if (_normalized_source_name(cached.get("item_name")) ==
+                    _normalized_source_name(card.wiki_name)):
+                card.set_zam_data(cached, cached=True, token=token)
+        except (OSError, ValueError, json.JSONDecodeError, RuntimeError):
+            pass
+        url = ZAM_SEARCH_URL.format(query=quote(card.wiki_name, safe=""))
+        self._zam_request(
+            url, card, token, cache_path, "search", 0)
+
+    def _zam_request(
+            self, url, card, token, cache_path, phase, attempt,
+            detail_url=""):
+        allowed_paths = (("/search.html",) if phase == "search" else
+                         ("/db/item.html",))
+        safe_url = _allowed_source_url(url, allowed_paths)
+        if not safe_url:
+            card.set_zam_error(
+                "Blocked unsafe source URL", bool(card._zam_origin), token)
+            return None
+        request = QNetworkRequest(QUrl(safe_url))
+        request.setHeader(
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.51")
+        reply = self._network.get(request)
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.setInterval(ZAM_TIMEOUT_MS)
+        context = {
+            "timer": timer, "timed_out": False, "url": safe_url,
+            "card": card, "token": token, "cache": cache_path,
+            "phase": phase, "attempt": attempt,
+            "detail_url": detail_url or safe_url,
+        }
+        self._zam_inflight[reply] = context
+
+        def timed_out():
+            current = self._zam_inflight.get(reply)
+            if current is None:
+                return
+            current["timed_out"] = True
+            reply.abort()
+
+        timer.timeout.connect(timed_out)
+        reply.finished.connect(lambda: self._zam_finished(reply))
+        timer.start()
+        def abort_reply(_obj=None, response=reply):
+            try:
+                response.abort()
+            except RuntimeError:
+                pass
+
+        try:
+            card.destroyed.connect(abort_reply)
+        except (AttributeError, RuntimeError):
+            pass
+        return reply
+
+    def _zam_finished(self, reply):
+        context = self._zam_inflight.pop(reply, None)
+        if context is None:
+            reply.deleteLater()
+            return
+        context["timer"].stop()
+        card = context["card"]
+        try:
+            if int(getattr(card, "_source_request_token", -1)) != context["token"]:
+                return
+            if reply.error() != QNetworkReply.NetworkError.NoError:
+                if context["attempt"] < ZAM_MAX_RETRIES:
+                    QTimer.singleShot(0, lambda values=context: self._zam_request(
+                        values["url"], values["card"], values["token"],
+                        values["cache"], values["phase"],
+                        values["attempt"] + 1, values["detail_url"]))
+                else:
+                    card.set_zam_error(
+                        "Timed out" if context["timed_out"] else
+                        reply.errorString(), bool(card._zam_origin),
+                        context["token"])
+                return
+            payload = bytes(reply.readAll()).decode("utf-8", errors="replace")
+            if context["phase"] == "search":
+                match = parse_zam_search_html(payload, card.wiki_name)
+                if not match:
+                    card.set_zam_error(
+                        "No exact Allakhazam item match", bool(card._zam_origin),
+                        context["token"])
+                    return
+                self._zam_request(
+                    match["url"], card, context["token"], context["cache"],
+                    "detail", 0, match["url"])
+                return
+            data = parse_zam_item_html(payload, card.wiki_name)
+            if not data:
+                card.set_zam_error(
+                    "Allakhazam returned a different item", bool(card._zam_origin),
+                    context["token"])
+                return
+            data["item_name"] = card.wiki_name
+            data["source_url"] = context["detail_url"]
+            card.set_zam_data(data, token=context["token"])
+            context["cache"].write_text(json.dumps(data), encoding="utf-8")
+        except (OSError, RuntimeError, UnicodeError, ValueError,
+                json.JSONDecodeError) as error:
+            try:
+                card.set_zam_error(
+                    str(error), bool(card._zam_origin), context["token"])
+            except RuntimeError:
+                pass
+        finally:
+            reply.deleteLater()
 
     def _show_wiki_entity(self, target, label, kind):
         kind = str(kind or "").casefold()
-        if kind not in {"npc", "zone", "effect"}:
+        if kind not in {"npc", "zone", "effect", "quest"}:
             return None
         card = WikiEntityCard(label or target, kind, self)
         card.show()
@@ -4121,7 +4695,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.50")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.51")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._wiki_entity_finished(
             reply, card, cache_path, target, kind))
@@ -4178,8 +4752,12 @@ class GreenMarket(ParserWindow):
         finally:
             reply.deleteLater()
 
-    def _wiki_item_finished(self, reply, card, json_path, icon_path):
+    def _wiki_item_finished(
+            self, reply, card, json_path, icon_path, token=None):
         try:
+            if (token is not None and int(getattr(
+                    card, "_source_request_token", -1)) != int(token)):
+                return
             if reply.error() != QNetworkReply.NetworkError.NoError:
                 raise ValueError(reply.errorString())
             payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
@@ -4195,7 +4773,7 @@ class GreenMarket(ParserWindow):
                 rendered = rendered.get("*", "")
             data["auction"] = parse_wiki_auction_html(
                 rendered, card.server)
-            card.set_item_data(data)
+            card.set_item_data(data, token=token)
             json_path.write_text(json.dumps(data), encoding="utf-8")
 
             image_name = data.get("image") or next(
@@ -4206,7 +4784,7 @@ class GreenMarket(ParserWindow):
                     filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.50")
+                    "Vantage/1.44.51")
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
                     lambda: self._wiki_icon_finished(
@@ -4214,7 +4792,8 @@ class GreenMarket(ParserWindow):
         except (OSError, RuntimeError, UnicodeError, ValueError,
                 json.JSONDecodeError) as error:
             try:
-                card.set_error(str(error))
+                card.set_p99_error(
+                    str(error), bool(card._p99_origin), token)
             except RuntimeError:
                 pass
         finally:
@@ -4458,7 +5037,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.50")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.51")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -4481,7 +5060,7 @@ class GreenMarket(ParserWindow):
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
                 QNetworkRequest.KnownHeaders.UserAgentHeader,
-                "Vantage/1.44.50")
+                "Vantage/1.44.51")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -4589,8 +5168,9 @@ class GreenMarket(ParserWindow):
         watches = list(config.data["market"].get("live_watch_items", []))
         enabled = bool(config.data["market"].get(
             "live_alerts_enabled", True))
-        sound_enabled = bool(config.data["market"].get(
-            "live_alert_sound_enabled", False))
+        route = config.data.get("sounds", {}).get("routes", {}).get(
+            "market_sale", {})
+        delivery = str(route.get("delivery", "sound")).title()
         alert_state = "on" if enabled else "off"
         self._live_status_button.setText(
             f"Sale alerts {alert_state} · {len(watches)}")
@@ -4611,7 +5191,7 @@ class GreenMarket(ParserWindow):
             self._set_live_alert_status_text(
                 f"Listening for {len(watches)} watched item"
                 f"{'s' if len(watches) != 1 else ''} in this EQ log · "
-                f"sound {'on' if sound_enabled else 'off'}", "listening")
+                f"audio {delivery}", "listening")
         elif watches:
             self._set_live_alert_status_text(
                 f"{len(watches)} watched item"
@@ -4717,17 +5297,6 @@ class GreenMarket(ParserWindow):
             self, "Live auction alerts on" if enabled else
             "Live auction alerts off")
 
-    def _set_live_alert_sound_enabled(self, enabled):
-        config.data["market"]["live_alert_sound_enabled"] = bool(enabled)
-        if getattr(config, "_filename", ""):
-            config.save()
-        self._last_live_alert = ""
-        self._last_live_alert_state = "ready"
-        self._update_live_alert_status()
-        _announce_accessible(
-            self, "Sale alert sound on" if enabled else
-            "Sale alert sound off")
-
     def _preview_live_alert(self):
         current = self.live_watch_items.currentItem()
         item = str(current.text() if current else "").strip()
@@ -4738,8 +5307,7 @@ class GreenMarket(ParserWindow):
         app = QApplication.instance()
         delivery, sound_state = deliver_market_alert(
             app, f"Test sale alert · {item}",
-            f"{item} for sale · EC Tunnel Trader · WTS sample listing",
-            self.live_alert_sound.isChecked())
+            f"{item} for sale · EC Tunnel Trader · WTS sample listing")
         self._last_live_alert = (
             f"TEST · {item} · {delivery} · {sound_state}")
         self._last_live_alert_state = (
@@ -4766,8 +5334,7 @@ class GreenMarket(ParserWindow):
             self._live_alerted_at[key] = now
             delivery, sound_state = deliver_market_alert(
                 app, f"For sale · {item}",
-                f"{item} for sale · {seller} · {message}",
-                bool(settings.get("live_alert_sound_enabled", False)))
+                f"{item} for sale · {seller} · {message}")
             self._live_match_count = int(getattr(
                 self, "_live_match_count", 0)) + 1
             self._last_live_alert = (
@@ -4837,11 +5404,7 @@ class GreenMarket(ParserWindow):
             self.server_selector.setCurrentText(server)
         alerts_enabled = bool(config.data["market"].get(
             "live_alerts_enabled", True))
-        sound_enabled = bool(config.data["market"].get(
-            "live_alert_sound_enabled", False))
-        for checkbox, checked in (
-                (self.live_alerts_enabled, alerts_enabled),
-                (self.live_alert_sound, sound_enabled)):
+        for checkbox, checked in ((self.live_alerts_enabled, alerts_enabled),):
             checkbox.blockSignals(True)
             checkbox.setChecked(checked)
             checkbox.blockSignals(False)
@@ -4858,7 +5421,7 @@ class GreenMarket(ParserWindow):
         self.status.setText(f"Refreshing PigParse {server}…")
         request = QNetworkRequest(QUrl(market_endpoint(server)))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.50")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.51")
         reply = self._network.get(request)
         reply.setProperty("market_server", server)
         reply.finished.connect(lambda: self._finished(reply))
@@ -4986,7 +5549,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(market_detail_api(server).format(
             item_name=quote(name, safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.50")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.51")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.setProperty("market_server", server)

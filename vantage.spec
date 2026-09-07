@@ -41,6 +41,10 @@ for source in Path('data').rglob('*'):
 # Keep mandatory legal notices discoverable inside the one-file executable.
 for legal_file in ('LICENSE', 'SOURCE-NOTICE.md', 'THIRD-PARTY-NOTICES.md'):
     data.append((legal_file, 'legal'))
+# The one-file Companion also exposes the verified standalone VantageUI
+# updater frontend through --vantage-ui-updater. Its version label uses the
+# same immutable release metadata as the separately packaged updater.
+data.append(('ui/release.json', '.'))
 
 from PyInstaller.utils.hooks import copy_metadata
 data += copy_metadata('colorhash')

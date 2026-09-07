@@ -1,6 +1,7 @@
 """
 General global settings setup to provide settings.data
 """
+import copy
 import os
 from glob import glob
 import json
@@ -17,6 +18,160 @@ APP_EXIT = False
 QUEST_CHECKLIST_MAX_STEPS = 180
 QUEST_CHECKLIST_MAX_ENTRY_BYTES = 16 * 1024
 QUEST_CHECKLIST_MAX_TOTAL_BYTES = 384 * 1024
+
+
+# Reset UI Layout is deliberately constrained to this presentation-only
+# allowlist. Gameplay state, parsed history, profiles, alerts, timers, cached
+# content, and checklist progress must never be inferred as "UI" and erased.
+UI_PRESENTATION_DEFAULTS = {
+    ('general', 'startup_window_state'): 'rolled',
+    ('quickbar', 'geometry'): [10, 10, 654, 67],
+    ('quickbar', 'toggled'): True,
+    ('quickbar', 'auto_hide_menu'): False,
+    ('quickbar', 'always_on_top'): True,
+    ('quickbar', 'frameless'): True,
+    ('quickbar', 'clickthrough'): False,
+    ('quickbar', 'opacity'): 92,
+    ('quickbar', 'collapsed'): False,
+    ('quickbar', 'orientation'): 'horizontal',
+    ('quickbar', 'show_header'): True,
+    ('quickbar', 'show_server_tick'): True,
+    ('quickbar', 'show_notification_ticker'): True,
+    **{('quickbar', f'show_{key}'): True for key in QUICKBAR_ITEM_KEYS},
+    ('maps', 'geometry'): [0, 0, 400, 400],
+    ('maps', 'toggled'): False,
+    ('maps', 'opacity'): 80,
+    ('maps', 'clickthrough'): False,
+    ('maps', 'auto_hide_menu'): True,
+    ('maps', 'always_on_top'): True,
+    ('maps', 'frameless'): True,
+    ('maps', 'collapsed'): False,
+    ('spells', 'geometry'): [400, 0, 200, 400],
+    ('spells', 'toggled'): False,
+    ('spells', 'opacity'): 80,
+    ('spells', 'clickthrough'): False,
+    ('spells', 'auto_hide_menu'): True,
+    ('spells', 'always_on_top'): True,
+    ('spells', 'frameless'): True,
+    ('spells', 'collapsed'): False,
+    ('tick', 'geometry'): [420, 70, 260, 142],
+    ('tick', 'toggled'): False,
+    ('tick', 'opacity'): 92,
+    ('tick', 'clickthrough'): False,
+    ('tick', 'auto_hide_menu'): False,
+    ('tick', 'always_on_top'): True,
+    ('tick', 'frameless'): True,
+    ('tick', 'collapsed'): False,
+    ('timers', 'geometry'): [620, 0, 520, 360],
+    ('timers', 'toggled'): False,
+    ('timers', 'opacity'): 92,
+    ('timers', 'clickthrough'): False,
+    ('timers', 'auto_hide_menu'): False,
+    ('timers', 'always_on_top'): True,
+    ('timers', 'frameless'): True,
+    ('timers', 'collapsed'): False,
+    ('timers', 'compact'): False,
+    ('combat', 'geometry'): [620, 380, 520, 300],
+    ('combat', 'toggled'): False,
+    ('combat', 'opacity'): 94,
+    ('combat', 'clickthrough'): False,
+    ('combat', 'auto_hide_menu'): False,
+    ('combat', 'always_on_top'): True,
+    ('combat', 'frameless'): True,
+    ('combat', 'collapsed'): False,
+    ('heals', 'geometry'): [560, 700, 520, 220],
+    ('heals', 'toggled'): False,
+    ('heals', 'opacity'): 94,
+    ('heals', 'clickthrough'): False,
+    ('heals', 'auto_hide_menu'): False,
+    ('heals', 'always_on_top'): True,
+    ('heals', 'frameless'): True,
+    ('heals', 'collapsed'): False,
+    ('market', 'geometry'): [180, 100, 980, 620],
+    ('market', 'toggled'): False,
+    ('market', 'opacity'): 100,
+    ('market', 'clickthrough'): False,
+    ('market', 'auto_hide_menu'): False,
+    ('market', 'always_on_top'): False,
+    ('market', 'frameless'): True,
+    ('market', 'collapsed'): False,
+    ('market', 'gear_column_widths'): {},
+    ('zones', 'geometry'): [210, 120, 900, 560],
+    ('zones', 'toggled'): False,
+    ('zones', 'opacity'): 100,
+    ('zones', 'clickthrough'): False,
+    ('zones', 'auto_hide_menu'): False,
+    ('zones', 'always_on_top'): False,
+    ('zones', 'frameless'): True,
+    ('zones', 'collapsed'): False,
+    ('zones', 'column_widths'): {},
+    ('quests', 'geometry'): [230, 130, 900, 580],
+    ('quests', 'toggled'): False,
+    ('quests', 'opacity'): 100,
+    ('quests', 'clickthrough'): False,
+    ('quests', 'auto_hide_menu'): False,
+    ('quests', 'always_on_top'): False,
+    ('quests', 'frameless'): True,
+    ('quests', 'collapsed'): False,
+    ('quests', 'checklist', 'geometry'): [80, 80, 380, 480],
+    ('vantage_ui', 'geometry'): [250, 150, 700, 540],
+    ('vantage_ui', 'toggled'): False,
+    ('vantage_ui', 'opacity'): 100,
+    ('vantage_ui', 'clickthrough'): False,
+    ('vantage_ui', 'auto_hide_menu'): False,
+    ('vantage_ui', 'always_on_top'): False,
+    ('vantage_ui', 'frameless'): True,
+    ('vantage_ui', 'collapsed'): False,
+}
+
+
+def ui_presentation_snapshot():
+    """Copy only explicitly allowlisted presentation values."""
+    snapshot = {}
+    for path in UI_PRESENTATION_DEFAULTS:
+        node = data
+        try:
+            for key in path:
+                node = node[key]
+        except (KeyError, TypeError):
+            node = copy.deepcopy(UI_PRESENTATION_DEFAULTS[path])
+        snapshot[path] = copy.deepcopy(node)
+    return snapshot
+
+
+def apply_ui_presentation(values=None):
+    """Apply defaults or a prior snapshot without touching any other key."""
+    values = UI_PRESENTATION_DEFAULTS if values is None else values
+    for path in UI_PRESENTATION_DEFAULTS:
+        if path not in values:
+            continue
+        node = data
+        for key in path[:-1]:
+            child = node.get(key)
+            if not isinstance(child, dict):
+                child = {}
+                node[key] = child
+            node = child
+        node[path[-1]] = copy.deepcopy(values[path])
+
+
+def verify_saved_ui_presentation(expected=None):
+    """Confirm the atomic save contains the requested presentation values."""
+    if not _filename:
+        return False
+    expected = UI_PRESENTATION_DEFAULTS if expected is None else expected
+    try:
+        with open(_filename, encoding='utf-8') as source:
+            persisted = json.load(source)
+        for path in UI_PRESENTATION_DEFAULTS:
+            node = persisted
+            for key in path:
+                node = node[key]
+            if node != expected[path]:
+                return False
+        return True
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return False
 
 
 def _bounded_int(value, default, lower, upper):
@@ -374,24 +529,48 @@ def verify_settings():
             'bottom_left', 'bottom_center', 'bottom_right')
     )
 
-    # Central notification sound routes. Individual custom triggers and saved
-    # Smart Timers may still override these defaults in their own editors.
+    # Central notification routes. The immutable catalog is shared by the
+    # dispatcher, settings UI, and tests so a sound can never lose its text
+    # attribution. Legacy sound-only values migrate without being discarded.
+    from vantage.helpers.notification_routes import (
+        NOTIFICATION_ROUTES, normalized_route_settings)
     data['sounds'] = data.get('sounds', {})
-    for sound_key, default_sound in (
-            ('timer_default', 'builtin:spawn-horn'),
-            ('raid_encounter', 'builtin:warden-bell'),
-            ('safety_alert', 'builtin:danger-double'),
-            ('market_sale', 'builtin:crystal-ping')):
-        data['sounds'][sound_key] = get_setting(
-            data['sounds'].get(sound_key, default_sound), default_sound,
-            lambda value: isinstance(value, str) and len(value) <= 500)
+    route_values = data['sounds'].get('routes', {})
+    route_values = route_values if isinstance(route_values, dict) else {}
+    legacy_keys = {
+        'smart_timer': 'timer_default', 'raid_encounter': 'raid_encounter',
+        'market_sale': 'market_sale', 'death_loop': 'safety_alert',
+        'spell_fading': 'fade_sound_path',
+    }
+    normalized_routes = {}
+    for route_key, route in NOTIFICATION_ROUTES.items():
+        raw = route_values.get(route_key, {})
+        if not isinstance(raw, dict):
+            raw = {}
+        legacy_key = legacy_keys.get(route_key)
+        if legacy_key and not raw.get('sound'):
+            legacy_source = (
+                data.get('spells', {}) if route_key == 'spell_fading'
+                else data['sounds'])
+            legacy_sound = legacy_source.get(legacy_key)
+            if isinstance(legacy_sound, str) and len(legacy_sound) <= 500:
+                raw = dict(raw, sound=legacy_sound)
+        normalized_routes[route_key] = normalized_route_settings(raw, route)
+    data['sounds']['routes'] = normalized_routes
+    # Read-only compatibility mirrors for older portable profiles and plugins.
+    for route_key, legacy_key in (
+            ('smart_timer', 'timer_default'),
+            ('raid_encounter', 'raid_encounter'),
+            ('market_sale', 'market_sale'),
+            ('death_loop', 'safety_alert')):
+        data['sounds'][legacy_key] = normalized_routes[route_key]['sound']
 
     # Floating, configurable launch surface for every tray command. It stays
     # interactive and never creates another normal Windows taskbar entry.
     data['quickbar'] = data.get('quickbar', {})
     data['quickbar']['geometry'] = get_setting(
-        data['quickbar'].get('geometry', [10, 10, 629, 67]),
-        [10, 10, 629, 67],
+        data['quickbar'].get('geometry', [10, 10, 654, 67]),
+        [10, 10, 654, 67],
         lambda value: isinstance(value, list) and len(value) == 4)
     for key, default in (
             ('toggled', True), ('auto_hide_menu', False),
@@ -810,12 +989,10 @@ def verify_settings():
         data['timers'].get('encounter_events_enabled', True), True)
     data['timers']['encounter_sound_enabled'] = get_setting(
         data['timers'].get('encounter_sound_enabled', False), False)
-    data['timers']['afk_attacked_enabled'] = get_setting(
-        data['timers'].get('afk_attacked_enabled', True), True)
+    data['timers'].pop('afk_attacked_enabled', None)
     data['timers']['death_loop_enabled'] = get_setting(
         data['timers'].get('death_loop_enabled', True), True)
-    data['timers']['safety_sound_enabled'] = get_setting(
-        data['timers'].get('safety_sound_enabled', False), False)
+    data['timers'].pop('safety_sound_enabled', None)
     data['timers']['death_loop_deaths'] = _bounded_int(
         data['timers'].get('death_loop_deaths', 4), 4, 2, 20)
     data['timers']['death_loop_seconds'] = _bounded_int(
@@ -1011,8 +1188,7 @@ def verify_settings():
         data['market'].get('auto_consider_lookup', False), False)
     data['market']['live_alerts_enabled'] = get_setting(
         data['market'].get('live_alerts_enabled', True), True)
-    data['market']['live_alert_sound_enabled'] = get_setting(
-        data['market'].get('live_alert_sound_enabled', False), False)
+    data['market'].pop('live_alert_sound_enabled', None)
     raw_live_watches = get_setting(
         data['market'].get('live_watch_items', []), [],
         lambda value: isinstance(value, list))
@@ -1117,6 +1293,34 @@ def verify_settings():
                        all(isinstance(item, int) for item in value) and
                        value[2] > 0 and value[3] > 0))
     data['quests']['checklist'] = checklist
+
+    # Optional VantageUI management. The user-selected EQ root and opt-in
+    # automatic update preference are content, not presentation reset state.
+    data['vantage_ui'] = data.get('vantage_ui', {})
+    if not isinstance(data['vantage_ui'], dict):
+        data['vantage_ui'] = {}
+    data['vantage_ui']['geometry'] = get_setting(
+        data['vantage_ui'].get('geometry', [250, 150, 700, 540]),
+        [250, 150, 700, 540],
+        lambda value: (isinstance(value, list) and len(value) == 4 and
+                       all(isinstance(item, int) for item in value) and
+                       value[2] > 0 and value[3] > 0))
+    for key, default in (
+            ('toggled', False), ('clickthrough', False),
+            ('auto_hide_menu', False), ('always_on_top', False),
+            ('frameless', True)):
+        data['vantage_ui'][key] = get_setting(
+            data['vantage_ui'].get(key, default), default)
+    data['vantage_ui']['clickthrough'] = False
+    data['vantage_ui']['opacity'] = get_setting(
+        data['vantage_ui'].get('opacity', 100), 100,
+        lambda value: 40 <= value <= 100)
+    data['vantage_ui']['eq_dir'] = get_setting(
+        data['vantage_ui'].get(
+            'eq_dir', r'C:\Program Files (x86)\Sony\EverQuest'),
+        r'C:\Program Files (x86)\Sony\EverQuest')
+    data['vantage_ui']['auto_update'] = get_setting(
+        data['vantage_ui'].get('auto_update', False), False)
 
     # Local, read-only EverQuest view. Enabling is intentionally per-session.
     data['mobile'] = data.get('mobile', {})

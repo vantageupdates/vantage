@@ -502,7 +502,11 @@ class Spells(ParserWindow):
         """Keep every profile field readable in genuinely tiny replicas."""
         if not hasattr(self, '_profile_label'):
             return
-        compact = self.width() < 250
+        # At the 260 px design width the redundant visible label previously
+        # forced the integrated level rocker eight pixels outside the surface.
+        # The combo remains self-labelled accessibly, so hide the visual label
+        # early enough to keep every control intact at normal DPI.
+        compact = self.width() < 280
         very_compact = self.width() < 150
         self._profile_label.setVisible(not compact)
         self._add_character_button.setVisible(not very_compact)
@@ -883,9 +887,9 @@ class Spells(ParserWindow):
         # Worn-off lines carry no target id. Mark only the oldest matching
         # instance as FADED so the affected mob remains visibly identifiable
         # for a few seconds instead of disappearing without an explanation.
+        custom_worn_audio = self._line_has_custom_audio(text)
         faded = self._spell_container.mark_worn_off(
-            text, timestamp,
-            play_sound=not self._line_has_custom_audio(text))
+            text, timestamp, play_sound=False)
         if faded:
             target = faded.parentWidget()
             target_name = (
@@ -898,6 +902,11 @@ class Spells(ParserWindow):
             self._push_spell_event(
                 event_kind, getattr(faded.spell, 'name', 'Spell'),
                 target_name)
+            if not custom_worn_audio:
+                faded._play_fade_alert(
+                    notice=(f"{getattr(faded.spell, 'name', 'Spell')} worn off" +
+                            (f" · {target_name}" if target_name else "")),
+                    route_key='spell_worn_off', register=False)
             self.spell_faded.emit(
                 str(getattr(target, 'name', '')),
                 str(getattr(faded.spell, 'name', 'Spell')))
@@ -1010,6 +1019,17 @@ class Spells(ParserWindow):
                                 else "Timer started")
                         else:
                             output.append("Existing timer kept")
+                    app = QApplication.instance()
+                    has_audio = bool(ct.sound_path or ct.tts_text)
+                    outcome_already_registered = bool(
+                        faded or
+                        SPELL_WORN_OFF_RX.match(str(text or '').strip()) or
+                        SPELL_RESIST_RX.match(str(text or '').strip()) or
+                        str(text or '').strip().casefold() in CHARM_BREAK_LINES)
+                    if has_audio and not outcome_already_registered:
+                        app._queue_quickbar_notice(
+                            render_trigger_text(ct.alert_text, match, ct)
+                            if ct.alert_text else f'{timer_name} matched')
                     if ct.sound_path:
                         play_alert(
                             ct.sound_path,
@@ -1020,7 +1040,7 @@ class Spells(ParserWindow):
                             channel='spells')
                         output.append(
                             f"Sound · {sound_display_name(ct.sound_path)}")
-                    if ct.tts_text:
+                    elif ct.tts_text:
                         speak_text(
                             render_trigger_text(ct.tts_text, match, ct),
                             config.data['spells']['fade_sound_volume'],
@@ -1034,7 +1054,6 @@ class Spells(ParserWindow):
                         QApplication.clipboard().setText(
                             render_trigger_text(ct.clipboard_text, match, ct))
                         output.append("Copied resolved text")
-                    app = QApplication.instance()
                     show_overlay = (
                         ct.overlay_id != 'none' and
                         ((ct.timer_type != 'none' and start_timer and
@@ -1056,7 +1075,8 @@ class Spells(ParserWindow):
                                 else 'countdown'),
                             character=active_character,
                             text_color=self._trigger_text_color(
-                                ct, active_character))
+                                ct, active_character),
+                            register=not has_audio)
                         output.append(f"{ct.overlay_id.title()} overlay")
                     self._record_trigger_match(
                         timestamp, ct, text, " · ".join(output) or "Matched",
@@ -1141,6 +1161,13 @@ class Spells(ParserWindow):
                 'DID NOT HOLD' if text.startswith(
                     'Your spell did not take hold.') else 'CAST BLOCKED')
             self._push_spell_event(event_kind, failed_spell.name)
+            if event_kind == 'RESIST':
+                QApplication.instance().notify_event(
+                    'spell_resisted', f'{failed_spell.name} resisted',
+                    overlay=False, register=False,
+                    character=getattr(self, '_active_character', ''),
+                    server=getattr(self, '_active_server', ''),
+                    channel='spells')
             self._remove_spell_trigger()
             if interrupted_charm:
                 self._pending_charm = None
@@ -1150,6 +1177,11 @@ class Spells(ParserWindow):
             # Still make the P99 outcome visible, but preserve any newer cast
             # that is currently waiting for its own landing line.
             self._push_spell_event('RESIST', resist_name)
+            QApplication.instance().notify_event(
+                'spell_resisted', f'{resist_name} resisted',
+                overlay=False, register=False,
+                character=getattr(self, '_active_character', ''),
+                server=getattr(self, '_active_server', ''), channel='spells')
 
         # Elongate self buff timers by time zoning
         elif text[:23] == 'LOADING, PLEASE WAIT...':
@@ -1283,13 +1315,19 @@ class Spells(ParserWindow):
     def _handle_bard_summaries(self, summaries):
         for summary in summaries:
             self._bard_group.add_summary(summary)
-            if config.data['spells'].get('bard_count_overlay', True):
-                QApplication.instance().show_overlay_notification(
+            app = QApplication.instance()
+            show_overlay = config.data['spells'].get(
+                'bard_count_overlay', True)
+            speak = config.data['spells'].get('bard_count_audio', False)
+            if speak and not show_overlay:
+                app._queue_quickbar_notice(summary.text)
+            if show_overlay:
+                app.show_overlay_notification(
                     'Bard AE Count', summary.text, msecs=5000,
                     overlay_id='alerts',
                     character=getattr(self, '_active_character', ''),
                     text_color='#D2B873')
-            if config.data['spells'].get('bard_count_audio', False):
+            if speak:
                 speak_text(
                     summary.text,
                     config.data['spells']['fade_sound_volume'], True,
@@ -1404,6 +1442,11 @@ class Spells(ParserWindow):
             interrupt = trigger.timer_ended_interrupt
             label = 'Timer ended'
         outputs = []
+        app = QApplication.instance()
+        has_audio = bool(sound or speech)
+        semantic = text or f"{run['name']} · {label}"
+        if has_audio:
+            app._queue_quickbar_notice(semantic)
         if sound:
             play_alert(
                 sound, config.data['spells']['fade_sound_volume'], 1,
@@ -1411,7 +1454,7 @@ class Spells(ParserWindow):
                 character=run.get('character', ''),
                 server=run.get('server', ''), channel='spells')
             outputs.append(f"Sound · {sound_display_name(sound)}")
-        if speech:
+        elif speech:
             speak_text(
                 speech, config.data['spells']['fade_sound_volume'], interrupt,
                 source=f"Trigger · {run['name']} · {label} speech",
@@ -1419,12 +1462,13 @@ class Spells(ParserWindow):
                 server=run.get('server', ''), channel='spells')
             outputs.append('Text-to-speech')
         if text and trigger.overlay_id != 'none':
-            QApplication.instance().show_overlay_notification(
+            app.show_overlay_notification(
                 f"{run['name']} · {label}", text, msecs=4500,
                 overlay_id=trigger.overlay_id,
                 character=run.get('character', ''),
                 text_color=self._trigger_text_color(
-                    trigger, run.get('character', '')))
+                    trigger, run.get('character', '')),
+                register=not has_audio)
             outputs.append('Overlay')
         if outputs:
             self._record_trigger_match(
@@ -1821,7 +1865,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.50')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.51')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -3082,7 +3126,6 @@ class SpellWidget(QFrame):
                 if remaining_seconds > 0 and not self._warning_played:
                     self._warning_played = True
                     notice = self._fading_notice(remaining_seconds)
-                    self._queue_fading_notice(notice)
                     self._play_fade_alert(notice=notice)
             if remaining_seconds <= 0:
                 self._remove()
@@ -3197,24 +3240,43 @@ class SpellWidget(QFrame):
         if callable(queue_notice):
             queue_notice(notice)
 
-    def _play_fade_alert(self, force=False, notice=''):
+    def _play_fade_alert(
+            self, force=False, notice='', route_key='spell_fading',
+            register=True):
         settings = config.data['spells']
         key = self.spell.name
+        semantic_notice = notice or f"{self.spell.name} fading soon"
+        app = QApplication.instance()
+        notify = getattr(app, 'notify_event', None)
+
+        def dispatch(**kwargs):
+            if callable(notify):
+                return notify(
+                    route_key, semantic_notice, overlay=False,
+                    volume=settings['fade_sound_volume'],
+                    character=self.runtime_character,
+                    server=self.runtime_server, channel='spells',
+                    register=register, **kwargs)
+            # Lightweight widget tests and embedders can provide a plain
+            # QApplication. Preserve the semantic rail notice when available,
+            # but never crash merely because the Vantage dispatcher is absent.
+            if register:
+                self._queue_fading_notice(semantic_notice)
+            return False
+
         if not force and (
                 not settings['fade_sound_enabled'] or
                 key in settings['fade_sound_muted']):
-            return False
-        path = settings['fade_sound_overrides'].get(
-            key, settings['fade_sound_path'])
-        return play_alert(
-            path, settings['fade_sound_volume'], 1,
-            source=(
-                f"Test · {self.spell.name}" if force else
-                notice or f"Buff fading · {self.spell.name}"),
-            character=self.runtime_character,
-            server=self.runtime_server,
-            channel='' if force else 'spells',
-            allow_hidden=bool(force))
+            return dispatch(delivery_override='off')
+        override = settings['fade_sound_overrides'].get(key)
+        if force:
+            return play_alert(
+                override or settings['fade_sound_path'],
+                settings['fade_sound_volume'], 1,
+                source=f"Test · {self.spell.name}",
+                character=self.runtime_character,
+                server=self.runtime_server, allow_hidden=True)
+        return dispatch(sound_override=override)
 
     def _sound_menu(self, position):
         settings = config.data['spells']

@@ -18,6 +18,8 @@ from vantage.helpers.responsive import (
 
 
 class HealChain(ParserWindow):
+    _minimum_scale = 0.80
+
     def __init__(self):
         self.name = "heals"
         super().__init__()

@@ -26,6 +26,16 @@ def _enable_crisp_windows_rendering():
             pass
 
 if __name__ == "__main__":
+    # This mode must run before the Companion single-instance guard. A user
+    # with only the one-file Vantage.exe can therefore approve normal Windows
+    # elevation and open the same verified standalone VantageUI updater while
+    # their non-elevated Companion remains running.
+    if "--vantage-ui-updater" in sys.argv:
+        from vantage.ui_skin_app import main as vantage_ui_updater_main
+        updater_args = [
+            argument for argument in sys.argv[1:]
+            if argument != "--vantage-ui-updater"]
+        raise SystemExit(vantage_ui_updater_main(updater_args))
     if "--apply-update" in sys.argv:
         from vantage.helpers.update_apply import apply_staged_update
         raise SystemExit(apply_staged_update(sys.argv[1:]))

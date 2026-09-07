@@ -92,5 +92,5 @@ def test_about_dialog_keeps_branding_primary_and_legal_notice_discoverable(tmp_p
         "contact": (
             'Official contact: <a href="mailto:vantagecompanion@gmail.com">'
             'vantagecompanion@gmail.com</a>'),
-        "minimum": [420, 260],
+        "minimum": [512, 304],
     }

@@ -19,6 +19,7 @@ WINDOW_ICONS = {
     "market": "ph-storefront",
     "zones": "ph-compass",
     "quests": "ph-quest-scroll",
+    "vantage_ui": "ph-layout",
 }
 
 

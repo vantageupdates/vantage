@@ -121,5 +121,5 @@ def test_combat_charts_healing_randoms_and_scaled_tooltips(tmp_path):
     assert result["roll_sets"] == 1
     assert result["roll_winner"] == "Bob"
     assert result["surface"] == [520, 300]
-    assert result["window"] == [260, 150]
+    assert result["window"] == [416, 240]
     assert result["missing_tooltips"] == []

@@ -16,8 +16,8 @@ import datetime
 import json
 
 from vantage.helpers import config
+from vantage.helpers import application as application_module
 from vantage.helpers.application import VantageApp
-from vantage.parsers import spells as spells_module
 
 config.data['general']['startup_window_state'] = 'normal'
 app = VantageApp([])
@@ -41,7 +41,7 @@ def fake_play(path, volume, *args, **kwargs):
     app.audio_started(
         kwargs.get('source', ''), path, volume, kwargs.get('channel', ''))
     return True
-spells_module.play_alert = fake_play
+application_module.play_alert = fake_play
 
 now = datetime.datetime.now()
 spells._spell_container.add_spell(
@@ -104,7 +104,7 @@ def test_fading_window_clicks_once_and_names_spell_target_and_time(tmp_path):
     assert first['warning_played'] is True
     assert first['played'] == [{
         'path': 'builtin:soft-tick',
-        'source': first['notice'],
+        'source': 'Spell fading · ' + first['notice'],
         'channel': 'spells',
     }]
     assert result['played_after_second_refresh'] == 1

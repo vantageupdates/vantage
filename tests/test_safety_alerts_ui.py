@@ -63,18 +63,9 @@ def test_safety_alerts_use_movable_overlay_and_never_control_game(tmp_path):
 
     assert result['alerts'] == [
         {
-            'title': 'Vantage · Safety',
-            'message': 'AFK · You are being attacked by a frost giant',
-            'overlay': 'alerts', 'color': '#E08372'},
-        {
-            'title': 'Vantage · Safety',
-            'message': 'AFK · You are being attacked by a frost giant',
-            'overlay': 'alerts', 'color': '#E08372'},
-        {
-            'title': 'Vantage · Safety',
+            'title': 'Vantage · Death-loop warning',
             'message': 'DEATH LOOP · 4 deaths in 120 seconds with no player activity',
             'overlay': 'alerts', 'color': '#E08372'},
     ]
     assert result['status'].startswith('DEATH LOOP · 4 deaths')
     assert result['death_count'] == 4
-

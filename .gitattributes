@@ -1,0 +1,2 @@
+# Skin assets are a byte-preserving export; never normalize XML line endings.
+ui/skin/* -text

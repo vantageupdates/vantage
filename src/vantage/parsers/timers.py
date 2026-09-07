@@ -37,8 +37,7 @@ from PySide6.QtWidgets import (
 
 from vantage.helpers import config
 from vantage.helpers.audio import (
-    add_custom_sound_to_combo, notification_sound, play_alert,
-    set_sound_combo_value)
+    add_custom_sound_to_combo, play_alert, set_sound_combo_value)
 from vantage.helpers.icons import game_icon
 from vantage.helpers.log_events import extract_killed_mob
 from vantage.helpers.encounter_events import (
@@ -351,11 +350,13 @@ class TimerEditDialog(UniformScaleDialog):
         self.sound = QComboBox()
         self.sound.setAccessibleName("Timer sound gallery")
         self.sound.setToolTip(
-            "Choose the alarm played for this timer from the built-in or "
-            "portable sound gallery")
-        set_sound_combo_value(
-            self.sound, timer.sound_path if timer else
-            notification_sound("timer_default"))
+            "Inherit Settings › Sounds, turn this timer off, or choose an "
+            "individual built-in/portable sound override")
+        configured_sound = timer.sound_path if timer else None
+        set_sound_combo_value(self.sound, configured_sound or "")
+        self.sound.insertItem(0, "Use Smart Timer notification route", None)
+        if configured_sound is None:
+            self.sound.setCurrentIndex(0)
         browse = QPushButton("WAV…")
         browse.setIcon(game_icon("copy"))
         browse.setToolTip(
@@ -363,12 +364,22 @@ class TimerEditDialog(UniformScaleDialog):
         browse.clicked.connect(self._browse_sound)
         test = QPushButton("Test")
         test.setIcon(game_icon("play"))
-        test.setToolTip("Test this sound at the timer's individual volume")
+        test.setAccessibleName("Test this timer notification")
+        test.setToolTip(
+            "Test the selected inherited, Off, or individual timer delivery "
+            "at this timer's volume")
         sound_row.addWidget(self.sound)
         sound_actions = ResponsiveActionBar(88)
         sound_actions.addWidget(browse)
         sound_actions.addWidget(test)
         sound_row.addWidget(sound_actions)
+        self.sound_test_status = QLabel("Test status · ready")
+        self.sound_test_status.setAccessibleName("Timer notification test status")
+        self.sound_test_status.setToolTip(
+            "Reports whether the test played sound or voice, is Off, was "
+            "blocked, or is unavailable")
+        self.sound_test_status.setWordWrap(True)
+        sound_row.addWidget(self.sound_test_status)
         form.addRow("Alarm gallery", sound_panel)
 
         self.volume = QSpinBox()
@@ -379,9 +390,7 @@ class TimerEditDialog(UniformScaleDialog):
         self.volume.setAccessibleName("Individual timer volume")
         self.volume.setToolTip(
             "Volume for this timer only; 0 mutes its alarm")
-        test.clicked.connect(lambda: play_alert(
-            self.sound.currentData(), self.volume.value(), 2,
-            source=f"Test · timer {self.name.text().strip() or 'new'}"))
+        test.clicked.connect(self._test_notification)
         form.addRow("This timer's volume", self.volume)
 
         buttons = QDialogButtonBox(
@@ -423,6 +432,46 @@ class TimerEditDialog(UniformScaleDialog):
         if path:
             add_custom_sound_to_combo(self.sound, store_portable_file(path))
 
+    def _test_notification(self):
+        """Test the exact effective timer route without creating a rail event."""
+        app = QApplication.instance()
+        selected = (None if self.sound.currentIndex() == 0 else
+                    str(self.sound.currentData() or ""))
+        result = None
+        if app is not None and hasattr(app, "notify_event"):
+            result = app.notify_event(
+                "smart_timer", "Smart Timer test",
+                voice_text="Smart Timer test", overlay=False, register=False,
+                sound_override=selected, volume=self.volume.value(), repeat=2,
+                channel="timers", allow_hidden=True)
+        elif selected:
+            played = play_alert(
+                selected, self.volume.value(), 2,
+                source=f"Test · timer {self.name.text().strip() or 'new'}",
+                allow_hidden=True)
+            result = type("Result", (), {
+                "delivery": "sound", "state": (
+                    "played" if played else "unavailable"), "reason": ""})()
+
+        delivery = getattr(result, "delivery", "off")
+        state = getattr(result, "state", "off")
+        reason = str(getattr(result, "reason", "") or "").strip()
+        if delivery == "off":
+            message = "Test status · Off — this timer will not play audio"
+        elif state == "played":
+            message = f"Test status · {delivery} played"
+        elif state == "blocked":
+            message = f"Test status · blocked" + (f" · {reason}" if reason else "")
+        else:
+            message = f"Test status · {delivery} unavailable"
+        self.sound_test_status.setText(message)
+        try:
+            QAccessible.updateAccessibility(
+                QAccessibleAnnouncementEvent(self.sound_test_status, message))
+        except (AttributeError, RuntimeError):
+            pass
+        return result
+
     @staticmethod
     def _normalize_duration(field):
         seconds = parse_duration_input(field.text())
@@ -459,8 +508,9 @@ class TimerEditDialog(UniformScaleDialog):
         timer.zone = self.zone.text().strip()
         timer.mob_pattern = self.mob_pattern.text().strip()
         timer.color = self.color
-        timer.sound_path = str(
-            self.sound.currentData() or notification_sound("timer_default"))
+        selected = self.sound.currentData()
+        timer.sound_path = None if self.sound.currentIndex() == 0 else str(
+            selected or "")
         timer.volume = self.volume.value()
         return timer
 
@@ -1360,23 +1410,24 @@ class SpawnTimers(ParserWindow):
                     timer.source == RING_WAR_SCHEDULE_SOURCE and
                     event.kind == "warning")
                 remaining = max(1, int(timer.remaining() or 1))
-                self.announce(
+                message = (
                     f"{timer.name}: due now" if schedule_due else
                     f"{timer.name}: due in {remaining} s"
-                    if schedule_warning else
-                    event.message)
+                    if schedule_warning else event.message)
                 if event.kind in ("spawn", "warning"):
-                    if (timer.source != RING_WAR_SCHEDULE_SOURCE or
-                            config.data['timers'].get(
-                                'encounter_sound_enabled', False)):
-                        play_alert(
-                            timer.sound_path, timer.volume,
-                            2 if event.kind == "spawn" else 1,
-                            source=(f"Timer · {timer.name} · " +
-                                    ("due" if schedule_due else
-                                     "spawn" if event.kind == "spawn" else
-                                     "advance warning")),
-                            channel="timers")
+                    route = (
+                        "raid_encounter" if
+                        timer.source == RING_WAR_SCHEDULE_SOURCE else
+                        "smart_timer")
+                    QApplication.instance().notify_event(
+                        route, message, title="Vantage",
+                        overlay_id="timers",
+                        sound_override=timer.sound_path,
+                        volume=timer.volume,
+                        repeat=2 if event.kind == "spawn" else 1,
+                        channel="timers")
+                else:
+                    self.announce(message)
                 if schedule_due:
                     completed_schedule_ids.append(timer.timer_id)
         for timer_id in completed_schedule_ids:
@@ -1397,30 +1448,21 @@ class SpawnTimers(ParserWindow):
             "Vantage", message, msecs=3500, overlay_id="timers")
 
     def _encounter_alert(self, message, source):
-        self.announce(message)
-        if config.data['timers'].get('encounter_sound_enabled', False):
-            play_alert(
-                notification_sound('raid_encounter'),
-                config.data['timers']['volume'], 2,
-                source=f"Encounter · {source}", channel="timers")
+        QApplication.instance().notify_event(
+            "raid_encounter", message, title="Vantage",
+            overlay_id="timers", volume=config.data['timers']['volume'],
+            repeat=2, channel="timers")
 
     def _safety_alert(self, alert):
-        enabled = config.data['timers'].get(
-            'afk_attacked_enabled' if alert.kind == 'afk_attacked' else
-            'death_loop_enabled', True)
-        if not enabled:
+        if alert.kind != 'death_loop' or not config.data['timers'].get(
+                'death_loop_enabled', True):
             return
         self.status.setText(alert.message)
-        QApplication.instance().show_overlay_notification(
-            "Vantage · Safety", alert.message, msecs=6500,
-            overlay_id="alerts", text_color="#E08372")
-        if config.data['timers'].get('safety_sound_enabled', False):
-            play_alert(
-                notification_sound('safety_alert'),
-                config.data['timers']['volume'], 2,
-                source=("Safety · attacked while tabbed out"
-                        if alert.kind == 'afk_attacked' else
-                        "Safety · death loop"), channel="timers")
+        QApplication.instance().notify_event(
+            "death_loop", alert.message, title="Vantage · Death-loop warning",
+            overlay_id="alerts", text_color="#E08372",
+            volume=config.data['timers']['volume'], repeat=2,
+            channel="timers")
 
     def _remove_timer(self, timer_id):
         row = self._rows.pop(timer_id, None)
@@ -1445,7 +1487,7 @@ class SpawnTimers(ParserWindow):
                 color="#657A96" if milestone.is_break else "#4F8378",
                 smart=False,
                 zone=string.capwords(self._current_zone),
-                sound_path=notification_sound("raid_encounter"),
+                sound_path=None,
                 volume=config.data['timers']['volume'],
                 source=RING_WAR_SCHEDULE_SOURCE,
                 automatic=True)
@@ -1510,7 +1552,7 @@ class SpawnTimers(ParserWindow):
             smart=False,
             zone=string.capwords(self._current_zone),
             mob_pattern=rf"^{re.escape(mob)}$",
-            sound_path=notification_sound("timer_default"),
+            sound_path=None,
             volume=config.data['timers']['volume'],
             source=NAMED_CATALOG_SOURCE,
             automatic=True,
@@ -1542,7 +1584,7 @@ class SpawnTimers(ParserWindow):
                 color=automatic_timer_color(self._current_zone, label),
                 smart=False,
                 zone=string.capwords(self._current_zone),
-                sound_path=notification_sound('timer_default'),
+                sound_path=None,
                 volume=config.data['timers']['volume'],
                 source='Log command')
             self._states[timer.timer_id] = timer

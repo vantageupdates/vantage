@@ -161,7 +161,7 @@ class ResponsiveActionBar(QWidget):
         self._grid.addWidget(widget, len(self._widgets) - 1, 0)
         if not explicitly_hidden:
             widget.show()
-        QTimer.singleShot(0, self._reflow)
+        QTimer.singleShot(0, self._safe_reflow)
         return widget
 
     def widgets(self):
@@ -171,12 +171,21 @@ class ResponsiveActionBar(QWidget):
         if watched in self._widgets and event.type() in (
                 QEvent.Type.Show, QEvent.Type.Hide,
                 QEvent.Type.LayoutRequest, QEvent.Type.EnabledChange):
-            QTimer.singleShot(0, self._reflow)
+            QTimer.singleShot(0, self._safe_reflow)
         return super().eventFilter(watched, event)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._reflow()
+
+    def _safe_reflow(self):
+        """Ignore a queued reflow after its dialog or child controls closed."""
+        try:
+            self._reflow()
+        except RuntimeError:
+            # Rapid audit/user closes can delete the C++ widget before a
+            # zero-delay layout callback runs. There is nothing left to lay out.
+            return
 
     def _reflow(self):
         visible = [widget for widget in self._widgets if not widget.isHidden()]
@@ -196,3 +205,16 @@ class ResponsiveActionBar(QWidget):
             self._grid.addWidget(widget, row, column)
         for column in range(columns):
             self._grid.setColumnStretch(column, 0)
+        rows = (len(visible) + columns - 1) // columns
+        row_heights = []
+        for row in range(rows):
+            row_widgets = visible[row * columns:(row + 1) * columns]
+            row_heights.append(max(
+                widget.minimumSizeHint().height() for widget in row_widgets))
+        margins = self._grid.contentsMargins()
+        required_height = (
+            margins.top() + margins.bottom() + sum(row_heights) +
+            max(0, rows - 1) * self._grid.verticalSpacing())
+        if self.minimumHeight() != required_height:
+            self.setMinimumHeight(required_height)
+            self.updateGeometry()

@@ -120,6 +120,153 @@ app.quit()
 """
 
 
+QUEST_NETWORK_RECOVERY_SCRIPT = r"""
+import json
+from PySide6.QtCore import QObject, Signal
+from PySide6.QtNetwork import QNetworkReply
+from PySide6.QtTest import QTest
+from vantage.helpers.application import VantageApp
+import vantage.parsers.quests as quests_module
+
+quests_module.NETWORK_TIMEOUT_MS = 80
+
+class FakeReply(QObject):
+    finished = Signal()
+    def __init__(self):
+        super().__init__()
+        self.payload = b'{}'
+        self.aborted = False
+    def abort(self):
+        self.aborted = True
+        self.finished.emit()
+    def error(self):
+        return (QNetworkReply.NetworkError.OperationCanceledError
+                if self.aborted else QNetworkReply.NetworkError.NoError)
+    def errorString(self):
+        return 'cancelled' if self.aborted else ''
+    def readAll(self):
+        return self.payload
+
+class FakeNetwork:
+    def __init__(self):
+        self.replies = []
+    def get(self, _request):
+        reply = FakeReply()
+        self.replies.append(reply)
+        return reply
+
+def catalog_payload(*titles):
+    return json.dumps({'query': {'categorymembers': [
+        {'pageid': index + 1, 'ns': 0, 'title': title}
+        for index, title in enumerate(titles)
+    ]}}).encode()
+
+def quest_payload(title, action):
+    wiki = ('== Checklist ==\n* ' + action + '\n== Rewards ==\n* Test reward')
+    return json.dumps({'parse': {
+        'title': title, 'wikitext': {'*': wiki}
+    }}).encode()
+
+app = VantageApp([])
+window = app._parsers_dict['quests']
+network = FakeNetwork()
+window._network = network
+
+# A reply that never emits finished is bounded by Vantage's own watchdog and
+# retried. The successful retry completes the catalog deterministically.
+window._fetch_catalog(force=True)
+catalog_hung = network.replies[-1]
+catalog_generation = window._catalog_generation
+QTest.qWait(100)
+app.processEvents()
+catalog_retry = network.replies[-1]
+catalog_retry.payload = catalog_payload('Aegis Quest', 'Zlandicar Quest')
+catalog_retry.finished.emit()
+catalog_recovered = (
+    window._catalog == ['Aegis Quest', 'Zlandicar Quest']
+    and not window._catalog_loading)
+
+# Exhausting both bounded attempts keeps a previously usable offline catalog
+# and exposes a clear manual retry action instead of an endless spinner.
+window._set_catalog(['Offline Quest'], 'cached')
+window._fetch_catalog(force=True)
+offline_first = network.replies[-1]
+offline_generation = window._catalog_generation
+window._catalog_page_timed_out(offline_first, offline_generation)
+offline_second = network.replies[-1]
+window._catalog_page_timed_out(offline_second, offline_generation)
+offline_fallback = (
+    window._catalog == ['Offline Quest']
+    and 'offline quest catalog' in window.catalog_status.text()
+    and 'Refresh catalog to retry' in window.catalog_status.text())
+
+# A cached quest opens immediately while offline and does not create a network
+# request. Cache is the first fallback, not a second loading state.
+cached_path = window._quest_cache_path('Cached Quest')
+cached_path.parent.mkdir(parents=True, exist_ok=True)
+cached_path.write_text(json.dumps({
+    'title': 'Cached Quest',
+    'wikitext': '== Checklist ==\n* Obtain the cached item.',
+}), encoding='utf-8')
+requests_before_cache = len(network.replies)
+window._load_quest('Cached Quest')
+quest_cache_fallback = (
+    window.quest_title.text() == 'Cached Quest'
+    and len(network.replies) == requests_before_cache
+    and 'cached item' in window.steps.item(0).text().lower())
+
+# Detail timeout retries once and then succeeds.
+window._load_quest('Recovered Quest')
+quest_hung = network.replies[-1]
+quest_generation = window._quest_generation
+QTest.qWait(100)
+app.processEvents()
+quest_retry = network.replies[-1]
+quest_retry.payload = quest_payload(
+    'Recovered Quest', 'Travel to Qeynos and give the note to Guard Nash.')
+quest_retry.finished.emit()
+quest_recovered = (
+    window.quest_title.text() == 'Recovered Quest'
+    and 'Travel to Qeynos' in window.steps.item(0).text()
+    and not window.retry_quest_button.isVisible())
+
+# A superseded response cannot replace the newly selected quest.
+window._load_quest('Old Quest')
+old_reply = network.replies[-1]
+window._load_quest('New Quest')
+new_reply = network.replies[-1]
+old_reply.payload = quest_payload('Old Quest', 'Kill the old target.')
+old_reply.finished.emit()
+new_reply.payload = quest_payload('New Quest', 'Kill the new target.')
+new_reply.finished.emit()
+stale_safe = (
+    window.quest_title.text() == 'New Quest'
+    and 'new target' in window.steps.item(0).text().lower())
+
+# With no completion on either attempt, loading still settles into an explicit
+# recoverable state.
+window._load_quest('Unavailable Quest')
+missing_first = network.replies[-1]
+missing_generation = window._quest_generation
+window._quest_timed_out(missing_first, missing_generation)
+missing_second = network.replies[-1]
+window._quest_timed_out(missing_second, missing_generation)
+detail_settled = (
+    'could not be loaded' in window.summary.toPlainText()
+    and window.retry_quest_button.isVisible())
+
+print(json.dumps({
+    'catalog_recovered': catalog_recovered,
+    'offline_fallback': offline_fallback,
+    'quest_cache_fallback': quest_cache_fallback,
+    'quest_recovered': quest_recovered,
+    'stale_safe': stale_safe,
+    'detail_settled': detail_settled,
+}))
+app.quit()
+"""
+
+
 QUEST_PAGE = r"""
 {{Classic Era}}
 {| class="questTopTable"
@@ -388,3 +535,23 @@ def test_quest_keyboard_focus_counts_and_coalesced_announcements(tmp_path):
         "Checklist hierarchy depth 1; parent group Acquire the Worn Note")
     assert result["return_focus"] is True
     assert result["progress_messages"] == [["2 of 2 steps complete", False]]
+
+
+def test_quest_network_requests_timeout_retry_fallback_and_ignore_stale_replies(
+        tmp_path):
+    env = os.environ.copy()
+    env["QT_QPA_PLATFORM"] = "offscreen"
+    env["PYTHONPATH"] = str(ROOT / "src")
+    env["VANTAGE_DATA_DIR"] = str(tmp_path / "profile")
+    completed = subprocess.run(
+        [sys.executable, "-c", QUEST_NETWORK_RECOVERY_SCRIPT], cwd=ROOT,
+        env=env, check=True, capture_output=True, text=True, timeout=30)
+    result = json.loads(completed.stdout.strip().splitlines()[-1])
+    assert result == {
+        "catalog_recovered": True,
+        "offline_fallback": True,
+        "quest_cache_fallback": True,
+        "quest_recovered": True,
+        "stale_safe": True,
+        "detail_settled": True,
+    }

@@ -30,6 +30,7 @@ P99_WIKI_PAGE_ROOT = "https://wiki.project1999.com/"
 QUEST_CATEGORY = "Category:Quests"
 QUEST_CATALOG_CACHE_VERSION = 1
 NETWORK_TIMEOUT_MS = 15000
+NETWORK_RETRY_LIMIT = 1
 MAX_CATALOG_PAGES = 10
 MAX_QUEST_STEPS = 180
 
@@ -721,6 +722,13 @@ class Quests(ParserWindow):
 
     name = "quests"
     _allow_clickthrough = False
+    _minimum_scale = 0.80
+
+    def _set_scaled_minimum_size(self):
+        """Keep enough vertical room for details, actions, and Wiki notice."""
+        super()._set_scaled_minimum_size()
+        if not self._collapsed:
+            self.setMinimumHeight(580)
 
     def __init__(self):
         super().__init__()
@@ -733,6 +741,16 @@ class Quests(ParserWindow):
         self._catalog_pages = 0
         self._catalog_reply = None
         self._quest_reply = None
+        self._catalog_generation = 0
+        self._quest_generation = 0
+        self._catalog_continuation = ""
+        self._catalog_attempt = 0
+        self._quest_attempt = 0
+        self._pending_quest_title = ""
+        self._catalog_watchdog = QTimer(self)
+        self._catalog_watchdog.setSingleShot(True)
+        self._quest_watchdog = QTimer(self)
+        self._quest_watchdog.setSingleShot(True)
         self._current_quest = None
         self._checklist = QuestChecklistWindow(self)
         self._filter_announce_timer = QTimer(self)
@@ -760,17 +778,20 @@ class Quests(ParserWindow):
             clear_button.setToolTip("Show every cached quest")
         self.search.textChanged.connect(self._filter_catalog)
         controls_layout.addWidget(self.search, 1)
-        refresh = QPushButton("Refresh catalog")
-        refresh.setIcon(game_icon("refresh"))
-        refresh.setAccessibleName("Refresh Project 1999 quest catalog")
-        refresh.setToolTip("Download the current quest title catalog from the Wiki")
-        refresh.clicked.connect(lambda: self._fetch_catalog(force=True))
-        controls_layout.addWidget(refresh)
+        self.refresh_button = QPushButton("Refresh catalog")
+        self.refresh_button.setIcon(game_icon("refresh"))
+        self.refresh_button.setAccessibleName("Refresh Project 1999 quest catalog")
+        self.refresh_button.setToolTip(
+            "Download the current quest title catalog from the Wiki; click again to restart a stuck refresh")
+        self.refresh_button.clicked.connect(lambda: self._fetch_catalog(force=True))
+        controls_layout.addWidget(self.refresh_button)
         self.content.addWidget(controls)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter = splitter
         splitter.setChildrenCollapsible(False)
         left = QFrame()
+        left.setMinimumWidth(270)
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(6, 4, 3, 6)
         self.catalog_status = QLabel("Quest catalog loads when this window opens.")
@@ -789,6 +810,7 @@ class Quests(ParserWindow):
         splitter.addWidget(left)
 
         right = QFrame()
+        right.setMinimumWidth(520)
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(3, 4, 6, 6)
         self.quest_title = QLabel("Choose a quest")
@@ -796,6 +818,7 @@ class Quests(ParserWindow):
         self.quest_title.setWordWrap(True)
         right_layout.addWidget(self.quest_title)
         self.tabs = QTabWidget()
+        self.tabs.setMinimumHeight(300)
         self.summary = QTextBrowser()
         self.summary.setAccessibleName("Selected quest summary")
         self.summary.setToolTip(
@@ -814,6 +837,7 @@ class Quests(ParserWindow):
         right_layout.addWidget(self.tabs, 1)
         detail_actions = QHBoxLayout()
         self.wiki_button = QPushButton("Open Wiki page")
+        self.wiki_button.setMinimumWidth(145)
         self.wiki_button.setIcon(game_icon("ph-file-search"))
         self.wiki_button.setEnabled(False)
         self.wiki_button.setAccessibleName("Open selected quest on Project 1999 Wiki")
@@ -821,6 +845,7 @@ class Quests(ParserWindow):
         self.wiki_button.clicked.connect(self._open_wiki)
         detail_actions.addWidget(self.wiki_button)
         self.checklist_button = QPushButton("Floating checklist")
+        self.checklist_button.setMinimumWidth(165)
         self.checklist_button.setIcon(game_icon("check"))
         self.checklist_button.setEnabled(False)
         self.checklist_button.setAccessibleName(
@@ -829,14 +854,25 @@ class Quests(ParserWindow):
             "Keep the selected quest steps always on top and save progress")
         self.checklist_button.clicked.connect(self._open_checklist)
         detail_actions.addWidget(self.checklist_button)
+        self.retry_quest_button = QPushButton("Retry quest")
+        self.retry_quest_button.setIcon(game_icon("refresh"))
+        self.retry_quest_button.setAccessibleName("Retry loading selected quest")
+        self.retry_quest_button.setToolTip(
+            "Try loading this quest from Project 1999 Wiki again")
+        self.retry_quest_button.clicked.connect(self._retry_pending_quest)
+        self.retry_quest_button.hide()
+        detail_actions.addWidget(self.retry_quest_button)
         right_layout.addLayout(detail_actions)
         self.source_note = QLabel(
             "Community Wiki data can be incomplete or inaccurate; verify critical turn-ins.")
         self.source_note.setWordWrap(True)
         self.source_note.setObjectName("QuestSourceNote")
+        self.source_note.setMinimumHeight(34)
         right_layout.addWidget(self.source_note)
         splitter.addWidget(right)
-        splitter.setSizes([300, 590])
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 2)
+        splitter.setSizes([280, 620])
         self.content.addWidget(splitter, 1)
 
     @property
@@ -903,52 +939,129 @@ class Quests(ParserWindow):
         request = QNetworkRequest(url)
         request.setTransferTimeout(NETWORK_TIMEOUT_MS)
         request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader,
-                          "Vantage/1.44.50 (vantagecompanion@gmail.com)")
+                          "Vantage/1.44.51 (vantagecompanion@gmail.com)")
         return self._network.get(request)
 
+    @staticmethod
+    def _dispose_reply(reply):
+        if reply is not None and hasattr(reply, "deleteLater"):
+            reply.deleteLater()
+
+    @staticmethod
+    def _abort_reply(reply):
+        if reply is not None and hasattr(reply, "abort"):
+            reply.abort()
+
+    @staticmethod
+    def _arm_watchdog(timer, callback):
+        timer.stop()
+        try:
+            timer.timeout.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+        timer.timeout.connect(callback)
+        timer.start(NETWORK_TIMEOUT_MS)
+
+    def _cancel_catalog_request(self):
+        self._catalog_watchdog.stop()
+        reply, self._catalog_reply = self._catalog_reply, None
+        self._abort_reply(reply)
+        self._dispose_reply(reply)
+
+    def _cancel_quest_request(self):
+        self._quest_watchdog.stop()
+        reply, self._quest_reply = self._quest_reply, None
+        self._abort_reply(reply)
+        self._dispose_reply(reply)
+
     def _fetch_catalog(self, force=False):
-        if self._catalog_loading:
+        if self._catalog_loading and not force:
             return
         if self._catalog and not force:
             return
+        self._catalog_generation += 1
+        self._cancel_catalog_request()
         self._catalog_loading = True
         self._catalog_seen = set()
         self._catalog_pages = 0
         self.catalog_status.setText("Loading quest catalog from Project 1999 Wiki…")
         _announce_accessible(self.catalog_status, self.catalog_status.text())
-        self._fetch_catalog_page("")
+        self._fetch_catalog_page("", 0, self._catalog_generation)
 
-    def _fetch_catalog_page(self, continuation):
-        self._catalog_pages += 1
-        self._catalog_reply = self._request(self._api_url({
+    def _fetch_catalog_page(self, continuation, attempt=0, generation=None):
+        generation = self._catalog_generation if generation is None else generation
+        if generation != self._catalog_generation:
+            return
+        if attempt == 0:
+            self._catalog_pages += 1
+        self._catalog_continuation = continuation
+        self._catalog_attempt = attempt
+        reply = self._request(self._api_url({
             "action": "query", "list": "categorymembers",
             "cmtitle": QUEST_CATEGORY, "cmnamespace": "0", "cmlimit": "max",
             "cmcontinue": continuation, "format": "json",
         }))
-        self._catalog_reply.finished.connect(self._catalog_page_finished)
+        self._catalog_reply = reply
+        reply.finished.connect(
+            lambda r=reply, g=generation: self._catalog_page_finished(r, g))
+        self._arm_watchdog(
+            self._catalog_watchdog,
+            lambda r=reply, g=generation: self._catalog_page_timed_out(r, g))
 
-    def _catalog_page_finished(self):
-        reply = self.sender()
-        if reply.error() != QNetworkReply.NetworkError.NoError:
-            self._catalog_loading = False
+    def _catalog_page_timed_out(self, reply, generation):
+        if reply is not self._catalog_reply or generation != self._catalog_generation:
+            return
+        self._catalog_reply = None
+        self._abort_reply(reply)
+        self._dispose_reply(reply)
+        self._catalog_request_failed("The Wiki took too long to respond", generation)
+
+    def _catalog_request_failed(self, reason, generation):
+        if generation != self._catalog_generation:
+            return
+        if self._catalog_attempt < NETWORK_RETRY_LIMIT:
+            self._catalog_attempt += 1
             self.catalog_status.setText(
-                "Wiki unavailable · using the offline quest catalog" if self._catalog
-                else "Wiki unavailable · no offline quest catalog yet")
-            _announce_accessible(
-                self.catalog_status, self.catalog_status.text(), assertive=True)
-            reply.deleteLater()
+                f"{reason} · retrying catalog ({self._catalog_attempt + 1} of {NETWORK_RETRY_LIMIT + 1})…")
+            self._fetch_catalog_page(
+                self._catalog_continuation, self._catalog_attempt, generation)
+            return
+        self._catalog_loading = False
+        self.catalog_status.setText(
+            ("Wiki unavailable · using the offline quest catalog · Refresh catalog to retry"
+             if self._catalog else
+             "Wiki unavailable · no offline quest catalog yet · Refresh catalog to retry"))
+        _announce_accessible(
+            self.catalog_status, self.catalog_status.text(), assertive=True)
+
+    def _catalog_page_finished(self, reply=None, generation=None):
+        reply = reply or self.sender()
+        generation = self._catalog_generation if generation is None else generation
+        if reply is not self._catalog_reply or generation != self._catalog_generation:
+            self._dispose_reply(reply)
+            return
+        self._catalog_watchdog.stop()
+        self._catalog_reply = None
+        if reply.error() != QNetworkReply.NetworkError.NoError:
+            reason = str(reply.errorString() or "Wiki unavailable") \
+                if hasattr(reply, "errorString") else "Wiki unavailable"
+            self._dispose_reply(reply)
+            self._catalog_request_failed(reason, generation)
             return
         try:
             payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
             titles, continuation = parse_quest_catalog_payload(payload)
             self._catalog_seen.update(titles)
         except (UnicodeDecodeError, ValueError, TypeError):
-            titles, continuation = [], ""
-        reply.deleteLater()
+            self._dispose_reply(reply)
+            self._catalog_request_failed(
+                "The Wiki returned unreadable catalog data", generation)
+            return
+        self._dispose_reply(reply)
         if continuation and self._catalog_pages < MAX_CATALOG_PAGES:
             self.catalog_status.setText(
                 f"Loading quest catalog… {len(self._catalog_seen):,} found")
-            self._fetch_catalog_page(continuation)
+            self._fetch_catalog_page(continuation, 0, generation)
             return
         self._catalog_loading = False
         if self._catalog_seen:
@@ -994,32 +1107,79 @@ class Quests(ParserWindow):
         self.steps.clear()
         self.wiki_button.setEnabled(False)
         self.checklist_button.setEnabled(False)
-        if self._quest_reply and self._quest_reply.isRunning():
-            self._quest_reply.abort()
-        self._quest_reply = self._request(self._api_url({
+        self.retry_quest_button.hide()
+        self._pending_quest_title = title
+        self._quest_generation += 1
+        self._cancel_quest_request()
+        self._start_quest_request(title, 0, self._quest_generation)
+
+    def _start_quest_request(self, title, attempt, generation):
+        if generation != self._quest_generation:
+            return
+        self._quest_attempt = attempt
+        reply = self._request(self._api_url({
             "action": "parse", "page": title, "prop": "wikitext",
             "format": "json",
         }))
-        self._quest_reply.setProperty("quest_title", title)
-        self._quest_reply.finished.connect(self._quest_finished)
+        self._quest_reply = reply
+        reply.setProperty("quest_title", title)
+        reply.finished.connect(
+            lambda r=reply, g=generation: self._quest_finished(r, g))
+        self._arm_watchdog(
+            self._quest_watchdog,
+            lambda r=reply, g=generation: self._quest_timed_out(r, g))
 
-    def _quest_finished(self):
-        reply = self.sender()
-        if reply is not self._quest_reply:
-            reply.deleteLater()
+    def _quest_timed_out(self, reply, generation):
+        if reply is not self._quest_reply or generation != self._quest_generation:
             return
         title = str(reply.property("quest_title") or "Quest")
-        if reply.error() != QNetworkReply.NetworkError.NoError:
+        self._quest_reply = None
+        self._abort_reply(reply)
+        self._dispose_reply(reply)
+        self._quest_request_failed(title, "The Wiki took too long to respond", generation)
+
+    def _quest_request_failed(self, title, reason, generation):
+        if generation != self._quest_generation:
+            return
+        if self._quest_attempt < NETWORK_RETRY_LIMIT:
+            self._quest_attempt += 1
             self.summary.setText(
-                "This quest could not be loaded. Check the connection and select it again.")
-            _announce_accessible(
-                self.summary, f"Could not load {title} from the Wiki", assertive=True)
-            reply.deleteLater()
+                f"{reason}. Retrying {title} ({self._quest_attempt + 1} of {NETWORK_RETRY_LIMIT + 1})…")
+            self._start_quest_request(title, self._quest_attempt, generation)
+            return
+        self.summary.setText(
+            f"{title} could not be loaded. Check the connection, then choose Retry quest.")
+        self.retry_quest_button.show()
+        self.retry_quest_button.setEnabled(True)
+        _announce_accessible(
+            self.summary, f"Could not load {title}. Retry quest is available.",
+            assertive=True)
+
+    def _retry_pending_quest(self):
+        if self._pending_quest_title:
+            self._load_quest(self._pending_quest_title)
+
+    def _quest_finished(self, reply=None, generation=None):
+        reply = reply or self.sender()
+        generation = self._quest_generation if generation is None else generation
+        if reply is not self._quest_reply or generation != self._quest_generation:
+            self._dispose_reply(reply)
+            return
+        self._quest_watchdog.stop()
+        self._quest_reply = None
+        title = str(reply.property("quest_title") or "Quest")
+        if reply.error() != QNetworkReply.NetworkError.NoError:
+            reason = str(reply.errorString() or "Wiki unavailable") \
+                if hasattr(reply, "errorString") else "Wiki unavailable"
+            self._dispose_reply(reply)
+            self._quest_request_failed(title, reason, generation)
             return
         try:
             payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
             parsed = payload.get("parse", {})
             wikitext = parsed.get("wikitext", {}).get("*", "")
+            if not isinstance(wikitext, str) or not wikitext.strip():
+                raise ValueError("missing quest wikitext")
             resolved_title = parsed.get("title", title)
             quest = parse_quest_wikitext(wikitext, resolved_title)
             cache = self._quest_cache_path(title)
@@ -1032,10 +1192,12 @@ class Quests(ParserWindow):
                 pass
             self._show_quest(quest)
         except (UnicodeDecodeError, ValueError, TypeError, AttributeError):
-            self.summary.setText("The Wiki returned quest data Vantage could not read.")
-            _announce_accessible(
-                self.summary, f"Could not read Wiki data for {title}", assertive=True)
-        reply.deleteLater()
+            self._dispose_reply(reply)
+            self._quest_request_failed(
+                title, "The Wiki returned quest data Vantage could not read",
+                generation)
+            return
+        self._dispose_reply(reply)
 
     def _show_quest(self, quest):
         self._current_quest = quest
@@ -1061,6 +1223,7 @@ class Quests(ParserWindow):
                 "No structured walkthrough was found. Open the full Wiki page for details.")
         self.wiki_button.setEnabled(True)
         self.checklist_button.setEnabled(bool(quest["steps"]))
+        self.retry_quest_button.hide()
         _announce_accessible(
             self.quest_title,
             f"Loaded {quest['title']}; {len(quest['steps'])} checklist steps")

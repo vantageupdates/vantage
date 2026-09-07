@@ -1,0 +1,216 @@
+"""Companion integration tests; no network or real EverQuest install."""
+
+import copy
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+from types import SimpleNamespace
+
+import pytest
+from PySide6.QtWidgets import QApplication
+
+from vantage.helpers import config, ui_skin_updater
+from vantage.helpers.application import SettingsSignals
+from vantage.parsers.vantage_ui import (
+    DEFAULT_EQ_ROOT, VantageUI, elevated_updater_command, normalize_eq_root,
+    skin_target)
+
+
+@pytest.fixture
+def panel(tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    if not hasattr(app, "_signals"):
+        app._signals = {}
+    app._signals.setdefault("settings", SettingsSignals())
+    original = copy.deepcopy(config.data)
+    original_filename = config._filename
+    config.data.setdefault("vantage_ui", {})
+    config.data["vantage_ui"] = {
+        "geometry": [20, 20, 700, 540], "toggled": False,
+        "clickthrough": False, "auto_hide_menu": False,
+        "always_on_top": False, "frameless": True, "opacity": 100,
+        "eq_dir": DEFAULT_EQ_ROOT, "auto_update": False,
+    }
+    config._filename = str(tmp_path / "profile.json")
+    monkeypatch.setattr(config, "save", lambda: None)
+    widget = VantageUI()
+    yield widget
+    widget._pending_timer.stop()
+    widget._automatic_timer.stop()
+    widget.close()
+    config.data = original
+    config._filename = original_filename
+
+
+@pytest.mark.parametrize("chosen", [
+    r"D:\Games\EverQuest",
+    r"D:\Games\EverQuest\eqgame.exe",
+    r"D:\Games\EverQuest\uifiles",
+    r"D:\Games\EverQuest\uifiles\VantageUI",
+])
+def test_path_normalization_always_targets_flat_vantageui(chosen):
+    root = normalize_eq_root(chosen)
+    assert Path(root).name == "EverQuest"
+    assert Path(skin_target(chosen)).parts[-2:] == ("uifiles", "VantageUI")
+    assert "VantageUI\\VantageUI" not in skin_target(chosen)
+
+
+def test_elevation_command_prefers_separate_updater_candidate(tmp_path):
+    companion = tmp_path / "Vantage.exe"
+    updater = tmp_path / "VantageUI-Updater.exe"
+    companion.touch()
+    updater.touch()
+    program, arguments = elevated_updater_command(
+        r"D:\Games\EverQuest\eqgame.exe",
+        current_executable=companion, frozen=True,
+        source_script=tmp_path / "missing-updater.py")
+    assert Path(program) == updater
+    assert arguments == subprocess.list2cmdline([
+        "--eq-dir", os.path.normpath(r"D:\Games\EverQuest")])
+    assert "--vantage-ui-updater" not in arguments
+
+
+def test_elevation_command_falls_back_to_one_file_companion(tmp_path):
+    companion = tmp_path / "Vantage.exe"
+    companion.touch()
+    program, arguments = elevated_updater_command(
+        r"D:\Games\EverQuest\uifiles\VantageUI",
+        current_executable=companion, frozen=True,
+        source_script=tmp_path / "missing-updater.py")
+    assert Path(program) == companion
+    assert arguments == subprocess.list2cmdline([
+        "--vantage-ui-updater", "--eq-dir",
+        os.path.normpath(r"D:\Games\EverQuest")])
+
+
+def test_panel_title_copy_versions_and_accessibility(panel):
+    assert panel.windowTitle() == panel._title.text() == "VantageUI"
+    assert panel.target_value.text().endswith(r"uifiles\VantageUI")
+    assert panel.installed_value.text() == "Not installed"
+    assert panel.available_value.text() == "Not checked"
+    assert "/loadskin VantageUI 1" in panel.instruction.text()
+    for control in (
+            panel.path_edit, panel.browse_button, panel.check_button,
+            panel.update_button, panel.restore_button, panel.auto_update,
+            panel.status, panel.log):
+        assert control.accessibleName()
+        assert control.toolTip() or control is panel.status
+
+
+def test_check_completion_displays_installed_available_and_status(panel):
+    panel._operation_token = 4
+    panel._busy = True
+    release = SimpleNamespace(version="2.3.4")
+    panel._operation_completed(4, "check", (release, "2.3.3"))
+    assert panel.installed_value.text() == "2.3.3"
+    assert panel.available_value.text() == "2.3.4"
+    assert "available" in panel.status.text().casefold()
+    assert panel.update_button.isEnabled()
+
+
+def test_update_queues_while_eq_runs_then_installs_after_exit(
+        panel, monkeypatch):
+    release = SimpleNamespace(version="2.0.0")
+    panel._release = release
+    running = iter((True, False))
+    monkeypatch.setattr(ui_skin_updater, "game_running", lambda: next(running))
+    installs = []
+    monkeypatch.setattr(
+        panel, "_install_release", lambda selected: installs.append(selected) or True)
+    assert panel.update_skin(confirm=False) is True
+    assert panel._pending_release is release
+    assert "queued" in panel.status.text().casefold()
+    assert installs == []
+    panel._pending_timer.stop()
+    panel._poll_pending_update()
+    assert installs == [release]
+    assert panel._pending_release is None
+
+
+def test_check_update_restore_and_auto_use_verified_shared_core(
+        panel, monkeypatch):
+    release = SimpleNamespace(version="3.0.0")
+    calls = []
+
+    def immediate(action, callback, _status):
+        result = callback(lambda line: calls.append(("log", line)))
+        calls.append((action, result))
+        return True
+
+    monkeypatch.setattr(panel, "_start", immediate)
+    monkeypatch.setattr(ui_skin_updater, "check_release", lambda: release)
+    monkeypatch.setattr(ui_skin_updater, "installed_version", lambda _path: "2.0.0")
+    monkeypatch.setattr(ui_skin_updater, "game_running", lambda: False)
+    monkeypatch.setattr(
+        ui_skin_updater, "install_release",
+        lambda selected, root, state, log: (selected, root, state))
+    monkeypatch.setattr(
+        ui_skin_updater, "rollback_last",
+        lambda root, state, log: (root, state))
+    panel._release = release
+    assert panel.check_for_updates()
+    assert panel.update_skin(confirm=False)
+    monkeypatch.setattr(panel, "_confirm", lambda *_args: True)
+    assert panel.restore_skin()
+    assert [entry[0] for entry in calls if entry[0] != "log"] == [
+        "check", "update", "restore"]
+    assert calls[1][1][0] is release
+    assert calls[1][1][1].endswith("EverQuest")
+
+    checked = []
+    monkeypatch.setattr(panel, "check_for_updates", lambda: checked.append(True))
+    panel.auto_update.setChecked(True)
+    assert panel._automatic_timer.isActive()
+    assert checked == [True]
+    assert config.data["vantage_ui"]["auto_update"] is True
+
+
+def test_permission_denial_offers_only_normal_windows_uac(panel, monkeypatch):
+    panel._operation_token = 8
+    panel._busy = True
+    panel._operation_failed(8, "update", PermissionError("access denied"))
+    assert not panel.elevation_button.isHidden()
+    assert "UAC" in panel.status.text()
+    assert "will not change folder permissions" in panel.status.text()
+    requested = []
+    monkeypatch.setattr(
+        "vantage.parsers.vantage_ui.request_elevated_updater",
+        lambda root: requested.append(root) or True)
+    panel._request_elevation()
+    assert requested == [panel.path_edit.text()]
+    assert "Companion remains installed and open" in panel.status.text()
+
+
+def test_quickbar_and_tray_toggle_vantageui(tmp_path):
+    script = r'''\
+import json
+from vantage.helpers.application import VantageApp
+app = VantageApp([])
+panel = app._parsers_dict["vantage_ui"]
+panel._loaded_once = True
+bar = app._parsers_dict["quickbar"]
+label = bar._buttons["vantage_ui"].accessibleName()
+bar._trigger("vantage_ui")
+app.processEvents()
+opened = panel.isVisible()
+bar._trigger("vantage_ui")
+app.processEvents()
+closed = not panel.isVisible()
+tray_registered = panel in app._parsers
+print(json.dumps({"label": label, "opened": opened, "closed": closed,
+                  "tray_registered": tray_registered}))
+app.quit()
+'''
+    env = os.environ.copy()
+    env["QT_QPA_PLATFORM"] = "offscreen"
+    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+    env["VANTAGE_DATA_DIR"] = str(tmp_path / "profile")
+    completed = subprocess.run(
+        [sys.executable, "-c", script], env=env, check=True,
+        capture_output=True, text=True, timeout=30)
+    result = json.loads(completed.stdout.strip().splitlines()[-1])
+    assert result == {
+        "label": "VantageUI", "opened": True, "closed": True,
+        "tray_registered": True}

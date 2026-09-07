@@ -31,6 +31,7 @@ class Zones(ParserWindow):
 
     name = "zones"
     _allow_clickthrough = False
+    _minimum_scale = 0.80
     COLUMN_DEFAULTS = {
         "items": (320, 240),
         "mobs": (220, 65, 90, 105, 280, 180),
@@ -485,7 +486,7 @@ class Zones(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(requested.replace(" ", "_"), safe="")) +
             "&redirects=1"))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.50")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.51")
         reply = self._network.get(request)
         self._zone_request_id += 1
         reply.setProperty("zoneRequestId", self._zone_request_id)
@@ -716,7 +717,7 @@ class Zones(ParserWindow):
         self._zone_drop_requests.add(key)
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(target.replace(" ", "_"), safe=""))))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.50")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.51")
         reply = self._network.get(request)
         self._drop_reply_contexts[reply] = (mob, target, key, cache_path)
         reply.finished.connect(self._drops_finished)

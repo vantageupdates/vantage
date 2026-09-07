@@ -158,7 +158,7 @@ def test_secondary_dialogs_scale_without_reflow_and_keep_tooltips(tmp_path):
     for name in (
             'settings', 'library', 'history', 'import', 'item', 'entity',
             'logs', 'mobile', 'live'):
-        assert result[name]['scale'] <= 0.51
+        assert 0.79 <= result[name]['scale'] <= 0.81
         assert result[name]['surface'] == result[name]['design']
         assert result[name]['logical_unchanged'] is True
     assert result['missing_tooltips'] == {

@@ -106,7 +106,7 @@ viewport = bar._scale_view.mapFromScene(scene)
 QTest.mouseClick(
     bar._scale_view.viewport(), Qt.MouseButton.LeftButton, pos=viewport)
 reload_calls = []
-app.reload_ui = lambda: reload_calls.append('reloaded') or True
+app.reset_ui_layout = lambda **_kwargs: reload_calls.append('reset') or True
 bar._trigger('reload_ui')
 
 tick = app._parsers_dict['tick']
@@ -610,7 +610,7 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
     assert 'Update ready' in result['update_ready']['name']
     assert 'ready to install' in result['update_ready']['description']
     assert result['support_calls'] == ['opened']
-    assert result['reload_calls'] == ['reloaded']
+    assert result['reload_calls'] == ['reset']
 
     assert result['tick_readout']['text'] == 'TICK'
     assert result['tick_readout']['progress'] == 1000

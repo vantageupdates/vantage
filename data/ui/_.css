@@ -1160,6 +1160,19 @@ QWidget[ResponsiveViewport="true"], QWidget[ResponsivePage="true"] {
     background-color: #0C0E11;
 }
 
+/* The floating quest checklist is a top-level QWidget rather than QDialog,
+   so give it an explicit dark surface instead of inheriting Windows' light
+   tool-window canvas beneath Vantage's light text. */
+#QuestChecklistWindow {
+    background-color: #0C0E11;
+    color: #E8E6E1;
+}
+#QuestChecklistTitle {
+    color: #E5C66E;
+    font-weight: bold;
+}
+#QuestChecklistProgress { color: #C8CDD2; }
+
 /* Server Tick is intentionally dense: one readable pulse, one source line,
    and controls that remain useful when the whole replica is scaled down. */
 #ServerTickPanel {
@@ -1568,6 +1581,26 @@ QTabBar QToolButton:hover {
     background-color: #27323A;
     border-color: #778690;
 }
+QToolButton:disabled {
+    color: #697177;
+    background-color: #11171C;
+    border: 1px solid #29343C;
+}
+QToolButton#ZoneColumnsButton {
+    color: #D9D7D1;
+    background-color: #172027;
+    border: 1px solid #43515B;
+    border-radius: 4px;
+    padding: 4px 8px;
+}
+QToolButton#ZoneColumnsButton:hover,
+QToolButton#ZoneColumnsButton:focus {
+    color: #FFFFFF;
+    background-color: #27323A;
+    border-color: #A88B57;
+}
+QHeaderView { background-color: #141B21; }
+QCheckBox:disabled { color: #697177; }
 
 QScrollBar:vertical, QScrollBar:horizontal { background: #080C10; }
 QScrollBar::handle { background: #42515B; }

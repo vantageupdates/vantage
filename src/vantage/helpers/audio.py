@@ -63,9 +63,14 @@ _BUILTIN_FILES = {
 
 NOTIFICATION_SOUND_DEFAULTS = {
     "timer_default": "builtin:spawn-horn",
+    "smart_timer": "builtin:spawn-horn",
     "raid_encounter": "builtin:warden-bell",
     "safety_alert": "builtin:danger-double",
+    "death_loop": "builtin:danger-double",
     "market_sale": "builtin:crystal-ping",
+    "spell_fading": "builtin:soft-tick",
+    "spell_resisted": "builtin:rune-pulse",
+    "spell_worn_off": "builtin:ward-fall",
 }
 _ACTIVE_EFFECTS = set()
 _MUTED = False
@@ -101,7 +106,11 @@ def sound_choices():
 
 def notification_sound(event_key):
     """Return the saved sound for one global notification route."""
-    fallback = NOTIFICATION_SOUND_DEFAULTS.get(str(event_key), DEFAULT_SOUND)
+    key = "smart_timer" if str(event_key) == "timer_default" else str(event_key)
+    fallback = NOTIFICATION_SOUND_DEFAULTS.get(key, DEFAULT_SOUND)
+    route = config.data.get("sounds", {}).get("routes", {}).get(key, {})
+    if isinstance(route, dict) and "sound" in route:
+        return str(route.get("sound", fallback) or "")
     return str(config.data.get("sounds", {}).get(event_key, fallback) or "")
 
 
@@ -203,6 +212,12 @@ def _playback_block_reason(app, channel="", allow_hidden=False):
         if callable(checker) and not checker(channel):
             return "window hidden"
     return ""
+
+
+def playback_block_reason(channel="", allow_hidden=False):
+    """Expose the authoritative current block reason to UI dispatchers."""
+    return _playback_block_reason(
+        QApplication.instance(), channel, allow_hidden)
 
 
 def _report_blocked(app, source, reason, channel=""):
@@ -437,7 +452,8 @@ def play_alert(
 
 def speak_text(
         text, volume=80, interrupt=False, source="Vantage speech",
-        character="", server="", channel="", allow_hidden=False):
+        character="", server="", channel="", allow_hidden=False,
+        voice_name=""):
     """Speak resolved trigger text through the built-in Windows voice."""
     message = str(text or "").strip()
     app = QApplication.instance()
@@ -447,6 +463,8 @@ def speak_text(
         return False
     volume = max(0, min(100, int(volume)))
     profile = profile_audio_settings(character, server)
+    if str(voice_name or "").strip():
+        profile = dict(profile, voice_name=str(voice_name).strip())
     volume = round(volume * int(profile.get("volume", 100)) / 100)
     volume = round(volume * master_volume() / 100)
     speech = _speech_engine()

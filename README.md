@@ -14,7 +14,7 @@ Aplicación comunitaria gratuita, nativa, ligera y de un solo ejecutable para Wi
 - Las cabeceras reservan el título y los controles esenciales; antes de que un ancho estrecho pueda solaparlos, las acciones secundarias pasan a un menú accesible. En Ajustes, la navegación lateral usa filas compactas, foco visible y un indicador dorado discreto para la sección activa.
 - Inicio configurable en **Ajustes → General**: ventanas enrolladas (predeterminado), minimizadas a la bandeja o normales. Cada panel recuerda posición y tamaño.
 - Botones con un subconjunto vectorial de CoreUI Icons Free (CC BY 4.0), estados claros de hover/foco/pulsado/desactivado y nombres accesibles para teclado y lectores de pantalla.
-- La Quick Bar mantiene geometría fija mientras anima el café y, después de confirmar actividad `ONLINE` estable, el rayo verde de logs. Usa temporizadores precisos, alterna icono/superficie y añade un pequeño destello para que el pulso siga siendo perceptible con EverQuest o WinEQ al frente; **Reducir movimiento y flashes** conserva ambas señales en estado estático. Smart Timers queda inmediatamente junto a Buffs & Triggers, y Log Status, Reload UI y Updates permanecen agrupados junto a Quit.
+- La Quick Bar mantiene geometría fija mientras anima el café y, después de confirmar actividad `ONLINE` estable, el rayo verde de logs. Usa temporizadores precisos, alterna icono/superficie y añade un pequeño destello para que el pulso siga siendo perceptible con EverQuest o WinEQ al frente; **Reducir movimiento y flashes** conserva ambas señales en estado estático. Smart Timers queda inmediatamente junto a Buffs & Triggers, y Log Status, Reset UI Layout y Updates permanecen agrupados junto a Quit.
 - Smart Spawn Timers por mob con nombre, color, respawn, kill time estimado, zona, detección de muerte por log y WAV propio. **Share visible timers** (o `Ctrl+Shift+S`) copia los timers visibles de la zona como uno o varios códigos compactos para `/tell`, `/say`, Discord u otro mensaje. El tooltip del botón explica el flujo completo: el receptor sólo necesita Vantage y `/log on`; su app reconoce cada código sin diálogo de importación, descuenta el tiempo desde la hora de creación y añade o actualiza los timers en la zona correcta.
 - Timers automáticos de muerte: zoning y `/who` seleccionan la zona; cada línea `has slain` se cruza con el catálogo named de esa zona y sólo entonces crea o reinicia una fila. El selector conserva listas independientes —por ejemplo, las arañas named de Velks— hasta que el usuario borra cada fila manualmente. Los countdowns guardan deadlines absolutos y avanzan durante un cierre o reinicio; nunca desaparecen ni pierden su zona. El catálogo cubre las 121 zonas P99 incluidas, muestra la fuente en cada fila y deja los respawns no publicados como desconocidos en vez de inventarlos.
 - El modo inteligente avanza de respawn a spawn, estima cuánto tarda el kill y continúa el siguiente ciclo. Una confirmación manual siempre vuelve a anclar el reloj.
@@ -115,3 +115,15 @@ Requiere Python 3.10+ y PySide6. Ejecuta las pruebas con `pytest`. El empaquetad
 ## Licencia
 
 Distribuido bajo GNU GPL v3; consulta `LICENSE` y `SOURCE-NOTICE.md` para los avisos legales obligatorios.
+
+## VantageUI
+
+Companion incluye un panel independiente **VantageUI** para instalar y mantener
+la skin opcional incluida en este repositorio. Administra únicamente
+`EverQuest\uifiles\VantageUI`, verifica los archivos publicados y conserva una
+copia recuperable antes de reemplazarlos. Si EverQuest está abierto, la
+actualización queda pendiente hasta que el juego se cierre; Vantage nunca
+termina el proceso ni modifica otras skins, archivos INI, binarios del juego o
+la instalación de Companion. Tras instalar, usa `/loadskin VantageUI 1` y
+verifica la interfaz dentro del juego. Consulta [la documentación de
+VantageUI](ui/README.md) para detalles técnicos y avisos.

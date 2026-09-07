@@ -7,6 +7,8 @@ faithful miniatures instead of rearranging their contents.
 
 from __future__ import annotations
 
+import math
+
 from PySide6.QtCore import QEvent, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (
@@ -20,6 +22,12 @@ from vantage.helpers.scaled_tooltip import (
 class UniformScaleDialog(QDialog):
     """QDialog backed by a fixed logical surface and vector transform."""
 
+    # Below 80%, Vantage's 17 px logical body text and roughly 30 px native
+    # controls become smaller than 12 px text / 24 px targets. Dialog content
+    # already scrolls or reflows internally, so preserving readability is more
+    # useful than allowing a faithful but unusably tiny miniature.
+    MIN_READABLE_SCALE = 0.80
+
     def __init__(
             self, design_size, parent=None, *, minimum_size=None,
             initial_size=None, lock_aspect=True):
@@ -27,7 +35,15 @@ class UniformScaleDialog(QDialog):
         self._dialog_design_size = QSize(design_size)
         self._dialog_lock_aspect = bool(lock_aspect)
         self._dialog_aspect_guard = False
-        minimum_size = QSize(minimum_size or QSize(190, 120))
+        requested_minimum = QSize(minimum_size or QSize(190, 120))
+        readable_minimum = QSize(
+            math.ceil(self._dialog_design_size.width() *
+                      self.MIN_READABLE_SCALE),
+            math.ceil(self._dialog_design_size.height() *
+                      self.MIN_READABLE_SCALE))
+        minimum_size = QSize(
+            max(requested_minimum.width(), readable_minimum.width()),
+            max(requested_minimum.height(), readable_minimum.height()))
         self.setMinimumSize(minimum_size)
         self.resize(QSize(initial_size or self._dialog_design_size))
 

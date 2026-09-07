@@ -211,7 +211,7 @@ def test_friends_dialog_scales_without_reflow_and_forwards_input_tooltips(
     assert result["files"] == 1
     assert result["source"].startswith("SOURCE · ")
     assert result["logical"] == [650, 460]
-    assert result["minimum"] == [195, 138]
-    assert result["scale"] == 0.3
+    assert result["minimum"] == [520, 368]
+    assert result["scale"] == 0.8
     assert result["small_layout"] == result["normal_layout"]
     assert all(result["tooltips"].values())

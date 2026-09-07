@@ -53,7 +53,9 @@ class SpawnTimerState:
     smart: bool = True
     zone: str = ""
     mob_pattern: str = ""
-    sound_path: str = ""
+    # None inherits the central Smart Timer route, an empty string is an
+    # explicit silent override, and a URI is this timer's sound override.
+    sound_path: str | None = None
     volume: int = 85
     source: str = ""
     automatic: bool = False
@@ -73,6 +75,8 @@ class SpawnTimerState:
         self.warning_seconds = max(0, int(self.warning_seconds))
         self.volume = max(0, min(100, int(self.volume)))
         self.color = self.color if re.fullmatch(r"#[0-9a-fA-F]{6}", self.color or "") else "#B38C52"
+        if self.sound_path is not None:
+            self.sound_path = str(self.sound_path)[:500]
 
     @classmethod
     def from_dict(cls, values):

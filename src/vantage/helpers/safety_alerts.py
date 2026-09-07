@@ -1,4 +1,4 @@
-"""Bounded, read-only AFK attack and death-loop detection."""
+"""Bounded, read-only death-loop detection."""
 
 from __future__ import annotations
 
@@ -12,14 +12,6 @@ ATTACK_VERBS = (
     r"hit|slash|pierce|crush|claw|bite|sting|maul|gore|punch|kick|"
     r"backstab|bash|slice|strike"
 )
-INCOMING_HIT_RX = re.compile(
-    rf"^(?P<attacker>[\w`' .-]+?) "
-    rf"(?:hits|slashes|pierces|crushes|claws|bites|stings|mauls|gores|"
-    rf"punches|kicks|backstabs|bashes|slices|strikes) "
-    rf"(?:You|YOU) for \d+ points? of damage\.$", re.IGNORECASE)
-INCOMING_MISS_RX = re.compile(
-    rf"^(?P<attacker>[\w`' .-]+?) tries to (?:{ATTACK_VERBS}) "
-    rf"(?:You|YOU), but .+$", re.IGNORECASE)
 OUTGOING_MELEE_RX = re.compile(
     rf"^You (?:(?:{ATTACK_VERBS}) |try to (?:{ATTACK_VERBS}) )",
     re.IGNORECASE)
@@ -49,9 +41,6 @@ class SafetyAlertState:
     def __init__(self, death_threshold=4, window_seconds=120,
                  attack_cooldown_seconds=5):
         self.deaths = deque(maxlen=20)
-        self.last_attack_alert = None
-        self.attack_cooldown_seconds = max(
-            1, int(attack_cooldown_seconds))
         self.configure(death_threshold, window_seconds)
 
     def configure(self, death_threshold=4, window_seconds=120):
@@ -76,19 +65,6 @@ class SafetyAlertState:
         self._prune(timestamp)
         alerts = []
 
-        incoming = INCOMING_HIT_RX.match(line) or INCOMING_MISS_RX.match(line)
-        if incoming and incoming.group("attacker").casefold() != "you":
-            elapsed = (
-                float("inf") if self.last_attack_alert is None else
-                (timestamp - self.last_attack_alert).total_seconds())
-            if not game_focused and elapsed >= self.attack_cooldown_seconds:
-                attacker = incoming.group("attacker").strip() or "something"
-                self.last_attack_alert = timestamp
-                alerts.append(SafetyAlert(
-                    "afk_attacked",
-                    f"AFK · You are being attacked by {attacker}",
-                    attacker=attacker))
-
         if (OUTGOING_MELEE_RX.match(line) or
                 OUTGOING_NON_MELEE_RX.match(line) or
                 OUTGOING_CAST_RX.match(line) or
@@ -104,4 +80,3 @@ class SafetyAlertState:
                     f"{self.window_seconds} seconds with no player activity",
                     death_count=len(self.deaths)))
         return tuple(alerts)
-

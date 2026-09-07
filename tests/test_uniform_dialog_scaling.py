@@ -100,7 +100,7 @@ def test_priority_dialogs_scale_as_fixed_miniatures_with_live_controls(tmp_path)
     assert result["timer_text"] == "Quillmane"
     assert result["timer_missing_tooltips"] == []
     for name in ("timer", "output", "threat", "overlays"):
-        assert result[name]["scale"] <= 0.51
+        assert 0.79 <= result[name]["scale"] <= 0.81
         assert result[name]["logical_unchanged"] is True
     assert result["timer"]["surface"] == [500, 420]
     assert result["output"]["surface"] == [540, 486]

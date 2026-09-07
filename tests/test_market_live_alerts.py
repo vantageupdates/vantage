@@ -10,6 +10,7 @@ from vantage.helpers import config
 from vantage.parsers import market as market_module
 from vantage.parsers.market import (
     GreenMarket, deliver_market_alert, live_auction_watch_matches)
+from vantage.helpers.notification_routes import NotificationDeliveryResult
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -173,6 +174,16 @@ def test_sale_alert_delivery_has_one_clear_fallback_and_optional_sound(
     assert len(tray.messages) == 1
     assert len(played) == 1
     assert played[0][1]["allow_hidden"] is True
+
+
+def test_central_sale_alert_reports_hidden_market_block_reason():
+    app = SimpleNamespace(notify_event=lambda *args, **kwargs:
+                          NotificationDeliveryResult(
+                              "market_sale", "sound", "blocked", False,
+                              "window hidden"))
+    assert deliver_market_alert(
+        app, "For sale · Manastone", "Manastone for sale") == (
+            "overlay shown", "blocked · Market window hidden")
 
 
 def test_sale_alert_watchlist_is_visible_and_removes_the_selected_row(tmp_path):

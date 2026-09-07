@@ -3,7 +3,7 @@ import functools
 import re
 
 from PySide6.QtCore import Qt, QObject, QSize, Signal, QStringListModel
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QFormLayout, QFrame,
                              QHeaderView, QHBoxLayout, QLabel, QListWidget,
                              QListWidgetItem, QInputDialog,
@@ -18,8 +18,10 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QFormLayou
 from vantage.helpers import config, text_time_to_seconds
 from vantage.helpers.audio import (
     DEFAULT_SOUND, add_custom_sound_to_combo, play_alert,
-    master_volume, set_audio_muted, set_master_volume,
-    set_sound_combo_value, speak_text)
+    audio_muted, master_volume, set_audio_muted, set_master_volume,
+    set_sound_combo_value, speak_text, speech_voice_names)
+from vantage.helpers.notification_routes import (
+    DELIVERY_CHOICES, NOTIFICATION_ROUTES, normalized_route_settings)
 from vantage.helpers.icons import game_icon
 from vantage.helpers.friends_manager import FriendsManagerDialog
 from vantage.helpers.gina_import import GinaImportError, import_gina_package
@@ -274,6 +276,7 @@ class SettingsWindow(UniformScaleDialog):
         top_layout.addWidget(self._widget_stack, 1)
         self._color_dialogs = dict()
         self._notification_sound_combos = []
+        self._notification_route_widgets = []
         self._trigger_sound_routes = []
 
         settings = self._create_settings()
@@ -377,6 +380,25 @@ class SettingsWindow(UniformScaleDialog):
             if item[field_index] != selected:
                 item[field_index] = selected
                 trigger_sounds_changed = True
+        for route_key, delivery, picker in self._notification_route_widgets:
+            route = NOTIFICATION_ROUTES[route_key]
+            current = normalized_route_settings(
+                config.data.get('sounds', {}).get('routes', {}).get(route_key),
+                route)
+            current['delivery'] = str(delivery.currentData() or 'off')
+            if current['delivery'] == 'sound':
+                current['sound'] = str(picker.currentData() or '')
+            elif current['delivery'] == 'voice':
+                current['voice'] = str(picker.currentData() or '')
+            config.data.setdefault('sounds', {}).setdefault(
+                'routes', {})[route_key] = current
+        for route_key, legacy_key in (
+                ('smart_timer', 'timer_default'),
+                ('raid_encounter', 'raid_encounter'),
+                ('market_sale', 'market_sale'),
+                ('death_loop', 'safety_alert')):
+            config.data['sounds'][legacy_key] = \
+                config.data['sounds']['routes'][route_key]['sound']
         config.save()
         set_audio_muted(config.data['general'].get('audio_muted', False))
         set_master_volume(config.data['general'].get('master_volume', 100))
@@ -474,6 +496,81 @@ class SettingsWindow(UniformScaleDialog):
                     field_index < len(custom_timers[item_index])):
                 set_sound_combo_value(
                     combo, custom_timers[item_index][field_index])
+        for route_key, delivery, picker in self._notification_route_widgets:
+            values = normalized_route_settings(
+                config.data.get('sounds', {}).get('routes', {}).get(route_key),
+                NOTIFICATION_ROUTES[route_key])
+            index = delivery.findData(values['delivery'])
+            delivery.setCurrentIndex(max(0, index))
+            self._populate_route_picker(
+                route_key, delivery, picker, values=values)
+
+    def _populate_route_picker(
+            self, route_key, delivery, picker, _index=None, values=None):
+        """Show only the picker relevant to the selected delivery method."""
+        route = NOTIFICATION_ROUTES[route_key]
+        values = values or normalized_route_settings(
+            config.data.get('sounds', {}).get('routes', {}).get(route_key),
+            route)
+        mode = str(delivery.currentData() or 'off')
+        previous = str(picker.currentData() or '')
+        picker.blockSignals(True)
+        picker.clear()
+        if mode == 'sound':
+            set_sound_combo_value(picker, values['sound'] or route.default_sound)
+            if previous.startswith(('builtin:', 'portable:')):
+                index = picker.findData(previous)
+                if index >= 0:
+                    picker.setCurrentIndex(index)
+            picker.setAccessibleName(f'{route.label} sound')
+            picker.setToolTip(f'Choose the sound for {route.label.casefold()}')
+        elif mode == 'voice':
+            picker.addItem('Windows default voice', '')
+            for voice in speech_voice_names():
+                picker.addItem(voice, voice)
+            wanted = previous if previous and not previous.startswith(
+                ('builtin:', 'portable:')) else values['voice']
+            index = picker.findData(wanted)
+            picker.setCurrentIndex(max(0, index))
+            picker.setAccessibleName(f'{route.label} Windows voice')
+            picker.setToolTip(
+                f'Choose an installed Windows voice for {route.label.casefold()}')
+        else:
+            picker.addItem('No audio delivery', '')
+            picker.setAccessibleName(f'{route.label} audio is off')
+            picker.setToolTip('Select Sound or Voice to choose an audio output')
+        picker.setEnabled(mode != 'off')
+        picker.blockSignals(False)
+
+    def _test_notification_route(self, route_key, delivery, picker, status):
+        route = NOTIFICATION_ROUTES[route_key]
+        mode = str(delivery.currentData() or 'off')
+        if mode == 'off':
+            message = f'{route.label} test: delivery is Off'
+        elif audio_muted():
+            message = f'{route.label} test: blocked by Master Mute'
+        elif master_volume() == 0:
+            message = f'{route.label} test: silent at 0% Master Volume'
+        elif mode == 'voice':
+            played = speak_text(
+                route.default_voice, 80, source=f'Test · {route.label}',
+                allow_hidden=True, voice_name=str(picker.currentData() or ''))
+            message = (f'{route.label} test: voice played' if played else
+                       f'{route.label} test: Windows voice unavailable')
+        else:
+            played = play_alert(
+                picker.currentData(), 80, 1, source=f'Test · {route.label}',
+                allow_hidden=True)
+            message = (f'{route.label} test: sound played' if played else
+                       f'{route.label} test: sound unavailable')
+        status.setText(message)
+        status.setVisible(True)
+        try:
+            QAccessible.updateAccessibility(
+                QAccessibleAnnouncementEvent(status, message))
+        except (AttributeError, RuntimeError, TypeError):
+            pass
+        return message
 
     def _create_settings(self):
         stacked_widgets = []
@@ -703,13 +800,84 @@ class SettingsWindow(UniformScaleDialog):
         self.master_volume_value_label = master_volume_label
         sound_sl.addRow(master_volume_label, master_volume_slider)
         sound_intro = QLabel(
-            'Choose the sound used by each automatic notification. Test uses '
-            'the route\'s real volume, scaled by Master Volume. Master Mute '
-            'always wins.')
+            'Choose Off, Sound, or Voice for each automatic notification. '
+            'Every sound or spoken alert is paired with the same readable '
+            'Quick Bar notification. Master Mute always wins.')
         sound_intro.setObjectName('CombatDataNotice')
         sound_intro.setWordWrap(True)
         sound_sl.addRow('', sound_intro)
         sound_sl.addRow(SettingsHeader('NOTIFICATION SOUNDS'))
+
+        route_test_status = QLabel('')
+        route_test_status.setObjectName('NotificationRouteTestStatus')
+        route_test_status.setAccessibleName('Notification test result')
+        route_test_status.setAccessibleDescription(
+            'Reports played, muted, zero volume, off, or unavailable without '
+            'moving keyboard focus')
+        route_test_status.setWordWrap(True)
+        route_test_status.setVisible(False)
+
+        for route_key, route in NOTIFICATION_ROUTES.items():
+            route_host = QWidget()
+            route_row = QHBoxLayout(route_host)
+            route_row.setContentsMargins(0, 0, 0, 0)
+            route_row.setSpacing(3)
+            delivery = QComboBox()
+            delivery.setAccessibleName(f'{route.label} delivery')
+            delivery.setToolTip(
+                f'Choose Off, Sound, or Voice for {route.label.casefold()}')
+            for choice_label, value in DELIVERY_CHOICES:
+                delivery.addItem(choice_label, value)
+            picker = QComboBox()
+            legacy_object = {
+                'spell_fading': 'spells:fade_sound_path',
+                'smart_timer': 'sounds:timer_default',
+                'raid_encounter': 'sounds:raid_encounter',
+                'market_sale': 'sounds:market_sale',
+                'death_loop': 'sounds:safety_alert',
+            }.get(route_key, '')
+            picker.setObjectName(legacy_object)
+            picker.setSizePolicy(
+                picker.sizePolicy().horizontalPolicy(),
+                picker.sizePolicy().verticalPolicy())
+            values = normalized_route_settings(
+                config.data.get('sounds', {}).get('routes', {}).get(route_key),
+                route)
+            delivery.setCurrentIndex(max(0, delivery.findData(
+                values['delivery'])))
+            self._populate_route_picker(
+                route_key, delivery, picker, values=values)
+            delivery.currentIndexChanged.connect(
+                lambda index, key=route_key, mode=delivery, choice=picker:
+                self._populate_route_picker(key, mode, choice, index))
+            route_row.addWidget(delivery)
+            route_row.addWidget(picker, 1)
+            wav = QPushButton('WAV…')
+            wav.setAccessibleName(f'Add custom WAV for {route.label}')
+            wav.setToolTip('Copy and select a custom WAV for this route')
+            wav.clicked.connect(
+                lambda _checked=False, combo=picker:
+                self._choose_notification_sound(combo))
+            wav.setVisible(values['delivery'] == 'sound')
+            delivery.currentIndexChanged.connect(
+                lambda _index, button=wav, mode=delivery:
+                button.setVisible(mode.currentData() == 'sound'))
+            route_row.addWidget(wav)
+            test = QPushButton('Test')
+            test.setAccessibleName(f'Test {route.label}')
+            test.setToolTip(
+                f'Test the current {route.label.casefold()} delivery setting')
+            test.clicked.connect(
+                lambda _checked=False, key=route_key, mode=delivery,
+                choice=picker: self._test_notification_route(
+                    key, mode, choice, route_test_status))
+            route_row.addWidget(test)
+            sound_sl.addRow(route.label, route_host)
+            self._notification_route_widgets.append(
+                (route_key, delivery, picker))
+            if route.default_delivery == 'sound':
+                self._notification_sound_combos.append(picker)
+        sound_sl.addRow('Test status', route_test_status)
 
         def add_sound_route(label, object_name, default, volume, source):
             row = QHBoxLayout()
@@ -745,21 +913,9 @@ class SettingsWindow(UniformScaleDialog):
             self._notification_sound_combos.append(combo)
             return combo
 
-        self.fade_sound_path = add_sound_route(
-            'Buff fading', 'spells:fade_sound_path', 'builtin:soft-tick',
-            lambda: self._fade_volume.value(), 'Test · buff fading')
-        add_sound_route(
-            'New Smart Timer', 'sounds:timer_default', 'builtin:spawn-horn',
-            lambda: config.data['timers']['volume'], 'Test · Smart Timer')
-        add_sound_route(
-            'Raid encounter', 'sounds:raid_encounter', 'builtin:warden-bell',
-            lambda: config.data['timers']['volume'], 'Test · raid encounter')
-        add_sound_route(
-            'Safety warning', 'sounds:safety_alert', 'builtin:danger-double',
-            lambda: config.data['timers']['volume'], 'Test · safety warning')
-        add_sound_route(
-            'Market sale alert', 'sounds:market_sale', 'builtin:crystal-ping',
-            lambda: 72, 'Test · Market sale alert')
+        self.fade_sound_path = next(
+            picker for key, _delivery, picker in self._notification_route_widgets
+            if key == 'spell_fading')
         gallery_note = QLabel(
             '20 original CC0 sounds included · no recordings or third-party '
             'samples. WAV imports are copied into Vantage portable storage.')
@@ -886,20 +1042,7 @@ class SettingsWindow(UniformScaleDialog):
             'Recognize exact local-log FTE, server-quake, and Ring War start '
             'events; Ring War creates the original 3-wave schedule locally')
         tsl.addRow('Raid encounter events', encounter_events)
-        encounter_sound = QCheckBox()
-        encounter_sound.setObjectName('timers:encounter_sound_enabled')
-        encounter_sound.setToolTip(
-            'Play an attributable Vantage alert for FTE, quake, Ring War, and '
-            'each due Ring War milestone; overlays still work when this is off')
-        tsl.addRow('Encounter alert sound', encounter_sound)
         tsl.addRow(SettingsHeader('SAFETY ALERTS'))
-        afk_attacked = QCheckBox()
-        afk_attacked.setObjectName('timers:afk_attacked_enabled')
-        afk_attacked.setToolTip(
-            'Warn only when an incoming hit or miss targets You while the real '
-            'EverQuest or WinEQ game surface is not focused; repeats are '
-            'limited to once every five seconds')
-        tsl.addRow('Attacked while tabbed out', afk_attacked)
         death_loop = QCheckBox()
         death_loop.setObjectName('timers:death_loop_enabled')
         death_loop.setToolTip(
@@ -919,12 +1062,13 @@ class SettingsWindow(UniformScaleDialog):
         death_window.setToolTip(
             'Sliding time window used to count unattended deaths')
         tsl.addRow('Death-loop window', death_window)
-        safety_sound = QCheckBox()
-        safety_sound.setObjectName('timers:safety_sound_enabled')
-        safety_sound.setToolTip(
-            'Play a clearly attributed danger alert for AFK attack and '
-            'death-loop warnings; overlays remain active when sound is off')
-        tsl.addRow('Safety alert sound', safety_sound)
+        death_delivery = QLabel(
+            'Sound or Voice delivery is configured in Settings › Sounds › '
+            'Death-loop warning.')
+        death_delivery.setWordWrap(True)
+        death_delivery.setToolTip(
+            'Open Sounds to choose Off, Sound, or Voice for death-loop alerts')
+        tsl.addRow('Alert delivery', death_delivery)
         catalog_known = sum(
             entry.seconds is not None for entry in RESPAWN_CATALOG.values())
         timer_catalog = QLabel(

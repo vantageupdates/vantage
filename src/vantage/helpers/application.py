@@ -13,7 +13,8 @@ import semver
 
 from vantage.helpers import config, logreader, resource_path
 from vantage.helpers.audio import (
-    audio_muted, play_alert, set_audio_muted, sound_display_name, speak_text)
+    audio_muted, master_volume, playback_block_reason, play_alert,
+    set_audio_muted, sound_display_name, speak_text)
 from vantage.helpers.camp_session import CampSessionController
 from vantage.helpers.character_context import CharacterContextTracker
 from vantage.helpers.icons import WINDOW_ICONS, game_icon
@@ -21,6 +22,9 @@ from vantage.helpers.interaction import ButtonPolishFilter
 from vantage.helpers.log_archive import LogArchiveService
 from vantage.helpers.logreader import LogReaderSignals
 from vantage.helpers.notification_overlay import NotificationOverlayManager
+from vantage.helpers.notification_routes import (
+    NOTIFICATION_ROUTES, NotificationDeliveryResult, classify_chat_notification,
+    normalized_route_settings)
 from vantage.helpers.portable import data_dir
 from vantage.helpers.splash import StartupSplash
 from vantage.helpers.updater import UpdateController
@@ -29,9 +33,10 @@ from vantage.parsers.combat import Combat
 from vantage.parsers.heals import HealChain
 from vantage.parsers.maps import Maps
 from vantage.parsers.maps.window import MapsSignals
-from vantage.parsers.market import GreenMarket
+from vantage.parsers.market import GEAR_COLUMN_DEFAULT_WIDTHS, GreenMarket
 from vantage.parsers.zones import Zones
 from vantage.parsers.quests import Quests
+from vantage.parsers.vantage_ui import VantageUI
 from vantage.parsers.quickbar import QuickBar
 from vantage.parsers.spells import Spells
 from vantage.parsers.tick import ServerTick
@@ -45,7 +50,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=50,
+    patch=51,
     build=""
 )
 
@@ -232,12 +237,13 @@ class VantageApp(QApplication):
         tick = ServerTick()
         spells.spell_faded.connect(tick.spell_faded)
         timers = SpawnTimers()
-        self._splash.step("Preparing combat, Market, Zones, and Quests…", 70)
+        self._splash.step("Preparing combat, Market, Zones, Quests, and VantageUI…", 70)
         combat = Combat()
         heals = HealChain()
         market = GreenMarket()
         zones = Zones()
         quests = Quests()
+        vantage_ui = VantageUI()
         self._parsers_dict = {
             "maps": maps,
             "spells": spells,
@@ -248,6 +254,7 @@ class VantageApp(QApplication):
             "market": market,
             "zones": zones,
             "quests": quests,
+            "vantage_ui": vantage_ui,
         }
         quickbar = QuickBar(self, self._parsers_dict)
         self._parsers_dict["quickbar"] = quickbar
@@ -262,6 +269,7 @@ class VantageApp(QApplication):
             self._parsers_dict["market"],
             self._parsers_dict["zones"],
             self._parsers_dict["quests"],
+            self._parsers_dict["vantage_ui"],
         ]
         # Launcher-first startup: build every parser once, but expose only the
         # Quick Bar. This prevents taskbar/window flashes and leaves each tool
@@ -415,7 +423,7 @@ class VantageApp(QApplication):
             self, title, message, msecs=None, position=None,
             overlay_id="alerts", countdown_seconds=0, timer_key=None,
             character="", color="", timer_mode="countdown",
-            text_color=""):
+            text_color="", register=True):
         """Show an independent, click-through notice over the active screen."""
         shown = self._notification_overlay.notify(
             title, message, msecs=msecs, position=position,
@@ -425,8 +433,71 @@ class VantageApp(QApplication):
         # The Quick Bar rail is the event itself, not a diagnostic breadcrumb.
         # Show the actionable message and omit window/module titles such as
         # “Vantage · Market” that do not tell the player what happened.
-        self._queue_quickbar_notice(message or title)
+        if register:
+            self._queue_quickbar_notice(message or title)
         return shown
+
+    def notify_event(
+            self, route_key, semantic_text, *, voice_text="", title="Vantage",
+            overlay=True, msecs=5000, overlay_id="alerts", color="",
+            text_color="", sound_override=None, delivery_override=None,
+            volume=80, repeat=1, character="", server="", channel="",
+            register=True, allow_hidden=False):
+        """Register and deliver one attributable semantic notification.
+
+        The visual event is registered first. Exactly one configured audio
+        delivery can then follow; individual timer/trigger overrides win over
+        route defaults without creating a second rail entry.
+        """
+        route = NOTIFICATION_ROUTES.get(str(route_key or ""))
+        if route is None:
+            raise KeyError(f"Unknown notification route: {route_key}")
+        semantic_text = " ".join(str(semantic_text or "").split())
+        if not semantic_text:
+            return NotificationDeliveryResult(
+                route.key, "off", "empty", False)
+        if register:
+            if overlay:
+                self.show_overlay_notification(
+                    title, semantic_text, msecs=msecs, overlay_id=overlay_id,
+                    color=color, text_color=text_color)
+            else:
+                self._queue_quickbar_notice(semantic_text)
+
+        sounds = config.data.get("sounds")
+        route_settings = sounds.get("routes", {}) if isinstance(sounds, dict) else {}
+        route_settings = route_settings if isinstance(route_settings, dict) else {}
+        saved = normalized_route_settings(route_settings.get(route.key), route)
+        delivery = str(delivery_override or saved["delivery"]).casefold()
+        sound = saved["sound"]
+        if sound_override is not None:
+            sound = str(sound_override or "")
+            delivery = "sound" if sound else "off"
+        source = f"{route.label} · {semantic_text}"
+        owner = str(channel or route.channel)
+        if delivery == "sound":
+            played = play_alert(
+                sound, volume, repeat, source=source, character=character,
+                server=server, channel=owner, allow_hidden=allow_hidden)
+            reason = playback_block_reason(owner, allow_hidden)
+            if not reason and master_volume() <= 0:
+                reason = "master volume 0%"
+            state = "played" if played else "blocked" if reason else "unavailable"
+            return NotificationDeliveryResult(
+                route.key, "sound", state, bool(played), reason)
+        if delivery == "voice":
+            played = speak_text(
+                str(voice_text or route.default_voice), volume,
+                source=source, character=character, server=server,
+                channel=owner, voice_name=saved["voice"],
+                allow_hidden=allow_hidden)
+            reason = playback_block_reason(owner, allow_hidden)
+            if not reason and master_volume() <= 0:
+                reason = "master volume 0%"
+            state = "played" if played else "blocked" if reason else "unavailable"
+            return NotificationDeliveryResult(
+                route.key, "voice", state, bool(played), reason)
+        return NotificationDeliveryResult(route.key, "off", "off", False)
 
     def dismiss_overlay_timer(self, timer_key):
         self._notification_overlay.dismiss_timer(timer_key)
@@ -471,19 +542,7 @@ class VantageApp(QApplication):
             max(0, min(100, int(volume))), str(channel or ""))
         self._last_audio = (
             f"{source} · {sound_display_name(sound_path)} · {volume}%")
-        # Preserve a richer visual event queued immediately before its sound.
-        # A sound-only custom trigger still receives a useful event label.
-        if time.monotonic() - float(getattr(
-                self, "_quickbar_notice_at", 0.0)) > .35:
-            event = str(source or "Notification").strip()
-            for prefix in ("Trigger · ", "Timer · ", "Encounter · ",
-                           "Safety · "):
-                if event.startswith(prefix):
-                    event = event[len(prefix):]
-                    break
-            VantageApp._queue_quickbar_notice(self, event)
-        else:
-            self._refresh_quickbar()
+        self._refresh_quickbar()
 
     def _queue_quickbar_notice(self, *parts):
         """Send one compact event description to the Quick Bar rail."""
@@ -519,7 +578,11 @@ class VantageApp(QApplication):
         self.setStyleSheet(theme)
 
     def reload_ui(self):
-        """Re-polish every Vantage surface without touching EverQuest."""
+        """Compatibility hook for tests/internals that only re-polish surfaces."""
+        return self._refresh_ui_surfaces()
+
+    def _refresh_ui_surfaces(self):
+        """Re-polish every Vantage surface without changing saved layout."""
         try:
             # Theme/layout refreshes may emit resize events while styles are
             # being polished. Preserve the user's exact physical rectangles
@@ -549,16 +612,157 @@ class VantageApp(QApplication):
             self._refresh_quickbar()
             if self._mobile_dialog_instance is not None:
                 self._mobile_dialog_instance.refresh()
-            self.show_overlay_notification(
-                "Vantage UI reloaded",
-                "Theme, layouts, visible data and saved window settings were reloaded.",
-                msecs=4500, overlay_id="alerts")
             return True
         except (OSError, RuntimeError) as error:
             self.show_overlay_notification(
-                "Vantage UI reload failed", str(error),
+                "Vantage display refresh failed", str(error),
                 msecs=6500, overlay_id="alerts", text_color="#E08372")
             return False
+
+    def _secondary_ui_surfaces(self):
+        surfaces = [self._parsers_dict["quests"]._checklist]
+        for attribute in (
+                "_settings_instance", "_update_dialog_instance",
+                "_log_monitor_dialog_instance", "_mobile_dialog_instance",
+                "_spell_library_dialog", "_about_dialog_instance",
+                "_update_toast"):
+            surface = getattr(self, attribute, None)
+            if surface is not None and surface not in surfaces:
+                surfaces.append(surface)
+        return surfaces
+
+    def _secondary_visibility(self):
+        return {surface: surface.isVisible()
+                for surface in self._secondary_ui_surfaces()}
+
+    def _apply_ui_presentation(self, values, secondary_visibility=None):
+        """Apply an allowlisted presentation snapshot to every live surface."""
+        config.apply_ui_presentation(values)
+        self._apply_theme()
+        self._signals["settings"].config_updated.emit()
+        for parser in self._parsers:
+            parser.apply_saved_presentation()
+
+        # Rebuild each parser's existing view from its still-live model. This
+        # deliberately does not recreate parsers or clear any collections.
+        for parser in self._parsers:
+            refresh = getattr(parser, "refresh", None)
+            if callable(refresh):
+                refresh()
+
+        timers = self._parsers_dict["timers"]
+        timers.compact.setChecked(bool(config.data["timers"]["compact"]))
+        for row in timers._rows.values():
+            row.refresh()
+
+        market = self._parsers_dict["market"]
+        if hasattr(market, "gear_table"):
+            market_widths = values.get(
+                ("market", "gear_column_widths"), {})
+            for column, (_, key) in enumerate(market._gear_model.COLUMNS):
+                market.gear_table.setColumnWidth(
+                    column, int(market_widths.get(
+                        key, GEAR_COLUMN_DEFAULT_WIDTHS[key])))
+
+        zones = self._parsers_dict["zones"]
+        zone_widths = values.get(("zones", "column_widths"), {})
+        for table_key, table in zones._zone_tables.items():
+            widths = zone_widths.get(
+                table_key, zones.COLUMN_DEFAULTS[table_key])
+            for column, width in enumerate(widths):
+                table.setColumnWidth(column, width)
+
+        checklist_geometry = values.get(
+            ("quests", "checklist", "geometry"), [80, 80, 380, 480])
+        self._parsers_dict["quests"]._checklist.setGeometry(
+            *checklist_geometry)
+
+        for surface in self._secondary_ui_surfaces():
+            visible = bool(secondary_visibility and
+                           secondary_visibility.get(surface, False))
+            surface.setVisible(visible)
+
+        # Expanding a rolled panel and column resize signals can write their
+        # transitional dimensions. Reassert only the allowlist before save.
+        config.apply_ui_presentation(values)
+        for parser in self._parsers:
+            parser.apply_saved_presentation()
+            parser._geometry_save_timer.stop()
+        self._refresh_quickbar()
+
+    @staticmethod
+    def _restore_launcher_focus(launcher):
+        if launcher is not None and launcher.isEnabled():
+            application = QApplication.instance()
+            quickbar = getattr(application, "_parsers_dict", {}).get(
+                "quickbar") if application is not None else None
+            if quickbar is not None and quickbar.isVisible():
+                for key, button in quickbar._buttons.items():
+                    if button is launcher:
+                        quickbar.restore_action_focus(key)
+                        return
+            launcher.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _return_focus_to_launcher(self, launcher):
+        """Restore proxy focus now and after native-window changes settle."""
+        self._restore_launcher_focus(launcher)
+        QTimer.singleShot(0, lambda: self._restore_launcher_focus(launcher))
+        QTimer.singleShot(50, lambda: self._restore_launcher_focus(launcher))
+        QTimer.singleShot(150, lambda: self._restore_launcher_focus(launcher))
+
+    def reset_ui_layout(self, parent=None, launcher=None, confirm=True):
+        """Reset presentation only, transactionally preserving all user data."""
+        if confirm:
+            answer = QMessageBox.question(
+                parent, "Reset UI Layout?",
+                "Reset every Vantage window to its default position, size, "
+                "opacity, frame, always-on-top setting, and Quick Bar layout?\n\n"
+                "This hides every window except the Quick Bar, expands rolled "
+                "windows, turns off Smart Timers compact mode, and resets "
+                "Market and Zones column widths.\n\n"
+                "Buffs, active spell and spawn timers, profiles, combat history, "
+                "Market watches and alerts, zone content, and quest checklist "
+                "progress will not be deleted.",
+                QMessageBox.StandardButton.Yes |
+                QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+            if answer != QMessageBox.StandardButton.Yes:
+                self._return_focus_to_launcher(launcher)
+                return False
+
+        snapshot = config.ui_presentation_snapshot()
+        secondary_visibility = self._secondary_visibility()
+        try:
+            self._apply_ui_presentation(config.UI_PRESENTATION_DEFAULTS)
+            config.save()
+            if not config.verify_saved_ui_presentation():
+                raise OSError("Vantage could not verify the saved default layout")
+        except Exception as error:
+            restored = False
+            try:
+                self._apply_ui_presentation(
+                    snapshot, secondary_visibility=secondary_visibility)
+                config.save()
+                restored = config.verify_saved_ui_presentation(snapshot)
+            except Exception:
+                pass
+            if restored:
+                message = f"Your previous layout was restored. {error}"
+            else:
+                message = (
+                    "Vantage could not verify restoration of the previous "
+                    f"layout. Restart Vantage before changing the layout again. {error}")
+            self.show_overlay_notification(
+                "UI layout was not reset",
+                message,
+                msecs=6500, overlay_id="alerts", text_color="#E08372")
+            self._return_focus_to_launcher(launcher)
+            return False
+
+        self._queue_quickbar_notice(
+            "UI layout reset · content and active timers were preserved")
+        self._return_focus_to_launcher(launcher)
+        return True
 
     def _log_activity(self, _line):
         self._last_log_activity = time.monotonic()
@@ -739,6 +943,15 @@ class VantageApp(QApplication):
             server = new_line[3] if len(new_line) > 3 else ""
             character_context, context_changed = \
                 self._character_context.ingest(character, server, text)
+            chat_notice = classify_chat_notification(
+                text, active_character=character,
+                pet_names=(getattr(character_context, 'pet_name', ''),))
+            if chat_notice is not None:
+                self.notify_event(
+                    chat_notice.route_key, chat_notice.semantic_text,
+                    voice_text=chat_notice.voice_text,
+                    title="Vantage · Chat", overlay_id="alerts",
+                    character=character, server=server, channel="quickbar")
             self._camp_sessions.ingest(
                 text, timestamp, character, server)
             # Visibility and parsing are independent. Every parser is
@@ -839,6 +1052,7 @@ class VantageApp(QApplication):
                 "market": "Market",
                 "zones": "Zones",
                 "quests": "Quests",
+                "vantage_ui": "VantageUI",
             }.get(parser.name, parser.name.title())
             toggle = menu.addAction(label)
             toggle.setIcon(game_icon(WINDOW_ICONS.get(parser.name, 'timer')))
@@ -856,10 +1070,10 @@ class VantageApp(QApplication):
         settings_action.setIcon(game_icon('ph-settings'))
         mobile_action = menu.addAction('Vantage on Your Phone')
         mobile_action.setIcon(game_icon('ph-mobile'))
-        reload_ui_action = menu.addAction('Reload Vantage UI')
-        reload_ui_action.setIcon(game_icon('ph-reload'))
-        reload_ui_action.setToolTip(
-            'Reload the theme, layouts and visible data without closing EverQuest')
+        reset_ui_action = menu.addAction('Reset UI Layout')
+        reset_ui_action.setIcon(game_icon('ph-reload'))
+        reset_ui_action.setToolTip(
+            'Reset and hide window layouts after a confirmation; gameplay data is preserved')
         support_action = menu.addAction('Buy me a coffee')
         support_action.setIcon(game_icon('ph-coffee'))
         support_action.setToolTip(
@@ -898,8 +1112,10 @@ class VantageApp(QApplication):
         elif action == mobile_action:
             self.show_mobile_share()
 
-        elif action == reload_ui_action:
-            self.reload_ui()
+        elif action == reset_ui_action:
+            launcher = self._parsers_dict["quickbar"]._buttons.get("reload_ui")
+            self.reset_ui_layout(
+                parent=self._parsers_dict["quickbar"], launcher=launcher)
 
         elif action == support_action:
             self.show_support()

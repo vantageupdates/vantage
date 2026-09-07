@@ -7,13 +7,12 @@ def _at(second):
     return datetime.datetime(2026, 1, 1) + datetime.timedelta(seconds=second)
 
 
-def test_afk_attack_requires_incoming_target_no_focus_and_cooldown():
+def test_incoming_attacks_never_create_afk_notifications():
     state = SafetyAlertState()
 
     first = state.ingest(
         _at(0), "a frost giant hits You for 72 points of damage.", False)
-    assert [(event.kind, event.attacker) for event in first] == [
-        ("afk_attacked", "a frost giant")]
+    assert first == ()
     assert state.ingest(
         _at(2), "a frost giant tries to kick You, but misses!", False) == ()
     assert state.ingest(
@@ -49,4 +48,3 @@ def test_death_loop_window_and_storage_are_bounded():
     assert len(state.deaths) <= state.deaths.maxlen == 20
     state.ingest(_at(100), "an ordinary line", True)
     assert len(state.deaths) == 0
-

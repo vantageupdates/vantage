@@ -19,7 +19,7 @@ from vantage.helpers.scaled_tooltip import (
 
 
 DESIGN_SIZES = {
-    "quickbar": QSize(629, 67),
+    "quickbar": QSize(654, 67),
     "maps": QSize(400, 400),
     # The 260 px logical width fits every authored header control. Physical
     # resizing still scales the entire replica down uniformly.
@@ -30,6 +30,11 @@ DESIGN_SIZES = {
     "heals": QSize(520, 220),
     "market": QSize(980, 620),
     "zones": QSize(900, 560),
+    # Never derive the logical Quest canvas from a previously saved physical
+    # size. Doing so enlarged/cropped its contents after reopening a small
+    # saved window and then resizing it back to 900x580.
+    "quests": QSize(900, 580),
+    "vantage_ui": QSize(700, 540),
 }
 
 
@@ -846,6 +851,42 @@ class ParserWindow(QWidget):
 
         if requies_redraw:
             self.show()
+
+    def apply_saved_presentation(self):
+        """Apply allowlisted window presentation without rebuilding content."""
+        settings = config.data.get(self.name, {})
+        geometry = settings.get("geometry", self._geometry)
+        self._geometry_save_timer.stop()
+        desired_collapsed = bool(settings.get("collapsed", False))
+        if self._collapsed != desired_collapsed:
+            self._set_collapsed(desired_collapsed)
+        self._geometry = list(geometry)
+        self._always_on_top = bool(settings.get("always_on_top", True))
+        self._auto_hide_menu = bool(settings.get("auto_hide_menu", True))
+        self._frameless = bool(settings.get("frameless", True))
+        self._clickthrough = bool(
+            self._allow_clickthrough and settings.get("clickthrough", False))
+        self._window_opacity = int(settings.get("opacity", 80))
+        self._toggled = bool(settings.get("toggled", False))
+        self._set_flags()
+        self.setWindowOpacity(self._window_opacity / 100)
+        self.setGeometry(*self._geometry)
+        self._fit_to_available_screen()
+        self._set_header_revealed(
+            self._collapsed or not self._auto_hide_menu)
+        self._update_uniform_scale()
+        self._update_window_mask()
+        if self._toggled:
+            self.show()
+            # Windows may apply invisible tool-window frame margins while the
+            # native handle is recreated. Reassert the configured client rect
+            # after show so live and durable geometry agree.
+            self.setGeometry(*self._geometry)
+            self._update_uniform_scale()
+        else:
+            self.hide()
+        self._layout_resize_handles()
+        self.update()
 
     def _save_geometry(self):
         width = getattr(self, "_expanded_width", self.geometry().width()) \

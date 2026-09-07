@@ -97,6 +97,7 @@ class ServerTick(ParserWindow):
     """Standalone tick overlay synchronized only from allowed EQ log data."""
 
     tray_state_changed = Signal(object, bool)
+    _minimum_scale = 0.80
 
     def __init__(self):
         self.name = "tick"
