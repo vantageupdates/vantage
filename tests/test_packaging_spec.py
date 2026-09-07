@@ -1,4 +1,6 @@
+import json
 from pathlib import Path
+import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,32 +32,67 @@ def test_embedded_ui_updater_runs_before_single_instance_and_is_bundled():
     assert "data.append(('ui/release.json', '.'))" in spec
 
 
-def test_release_build_self_tests_both_ui_updater_entrypoints():
+def test_ui_release_build_self_tests_only_standalone_with_a_fresh_report():
     source = (ROOT / "scripts" / "build_ui_release.ps1").read_text(
         encoding="utf-8")
 
-    assert "--vantage-ui-updater --self-test" in source
-    assert "Embedded VantageUI updater self-test failed." in source
-    assert "dist\\VantageUI-Updater.exe" in source
+    build_commands = re.findall(r"(?m)^\s*& \$Python -m PyInstaller (.+)$", source)
+    assert build_commands == ["--noconfirm vantage_ui_updater.spec"]
+    process_commands = re.findall(r"(?m)^\s*\$\w+ = Start-Process (.+)$", source)
+    assert len(process_commands) == 1
+    assert "dist\\VantageUI-Updater.exe" in process_commands[0]
+    assert "--self-test --report" in process_commands[0]
+    assert "$uiReport" in process_commands[0]
+    assert "-WindowStyle Hidden -PassThru -Wait" in process_commands[0]
+    assert "'dist\\ui-updater-self-test-' + [Guid]::NewGuid().ToString('N')" in source
+    assert "$uiTest.ExitCode -ne 0" in source
+    assert "Get-Content -LiteralPath $uiReport -Raw | ConvertFrom-Json" in source
+    assert "$uiResult.status -cne 'PASS'" in source
+    assert source.index("[Guid]::NewGuid()") < source.index("Start-Process")
+    assert source.index("$uiTest.ExitCode -ne 0") < source.index("Get-FileHash")
+    assert "--vantage-ui-updater" not in source
+    assert "Vantage.exe" not in source
+    assert "vantage.spec" not in source
 
 
-def test_release_build_validates_companion_and_skin_versions_independently():
+def test_ui_release_build_validates_metadata_manifest_and_candidate_versions():
     source = (ROOT / "scripts" / "build_ui_release.ps1").read_text(
         encoding="utf-8")
+    release = json.loads((ROOT / "ui" / "release.json").read_text(encoding="utf-8"))
 
-    assert "expectedCompanionVersion" in source
-    assert "pyproject.toml" in source
-    assert "expectedUiVersion" in source
-    assert "ui\\release.json" in source
-    assert "$mainVersion -ne $expectedCompanionVersion" in source
-    assert source.count(".version -ne $expectedUiVersion") == 2
+    assert type(release["schema"]) is int and release["schema"] == 2
+    assert re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", release["version"])
+    assert release["skin_folder"] == f"VantageUI-v{release['version']}"
+    assert "Get-Content -LiteralPath 'ui\\release.json' -Raw | ConvertFrom-Json" in source
+    assert "$expectedUiVersion = $release.version" in source
+    assert "$release.schema -ne 2" in source
+    assert '$release.skin_folder -cne "VantageUI-v$expectedUiVersion"' in source
+    assert "Get-Content -LiteralPath 'dist\\ui\\VantageUI-manifest.json' -Raw | ConvertFrom-Json" in source
+    assert "$manifest.schema -ne 2" in source
+    assert '$manifest.skin_folder -cne "VantageUI-v$expectedUiVersion"' in source
+    assert "$manifest.version -cne $expectedUiVersion" in source
+    assert "$uiResult.version -cne $expectedUiVersion" in source
+    assert source.index("$manifest.version -cne $expectedUiVersion") < source.index("-m PyInstaller")
+    assert source.index("$uiResult.version -cne $expectedUiVersion") < source.index("Get-FileHash")
+    assert "expectedCompanionVersion" not in source
+    assert "pyproject.toml" not in source
+    # The UI version must come from its metadata, not a release-specific literal.
+    assert release["version"] not in source
 
 
-def test_release_message_forbids_cross_version_asset_attachment():
+def test_ui_release_reports_only_three_verified_assets_without_publish_or_install():
     source = (ROOT / "scripts" / "build_ui_release.ps1").read_text(
         encoding="utf-8")
 
     assert "publish all four assets together" not in source
-    assert "independently versioned" in source
-    assert "only assets whose embedded version matches the release tag" in source
-    assert "This script does not publish." in source
+    assert "VantageUI $expectedUiVersion candidates built and self-tested." in source
+    assert "This script does not publish or install." in source
+    assert "Self-test report: $uiReport" in source
+    hash_commands = re.findall(r"(?m)^\s*Get-FileHash (.+)$", source)
+    assert hash_commands == [
+        "-LiteralPath 'dist\\VantageUI-Updater.exe','dist\\ui\\VantageUI-manifest.json',"
+        "'dist\\ui\\VantageUI-payload.zip' -Algorithm SHA256"
+    ]
+    assert not re.search(r"(?i)\b(?:gh\s+release|git\s+push|Stop-Process|taskkill)\b", source)
+    assert "install_release" not in source
+    assert "Vantage.exe" not in source
