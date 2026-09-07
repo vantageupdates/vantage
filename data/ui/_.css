@@ -125,10 +125,6 @@ QToolButton#QuickBarOrientationButton {
     background-color: #171B20;
     border: 1px solid #353B42;
     border-radius: 6px;
-    min-width: 22px;
-    max-width: 22px;
-    min-height: 22px;
-    max-height: 22px;
     padding: 0;
 }
 QToolButton#QuickBarButton:hover,
@@ -161,13 +157,17 @@ QToolButton#QuickBarButton:checked {
     border: 1px solid #123E29;
     border-radius: 2px;
 }
-#QuickBarAlertBadge {
+#QuickBarAlertBadge, #QuickBarProductBadge {
     color: #111418;
     background-color: #F0C766;
     border: 1px solid #FFF0B0;
     border-radius: 4px;
     font-size: 7px;
     font-weight: 900;
+}
+#QuickBarProductBadge {
+    font-size: 6px;
+    border-radius: 3px;
 }
 QToolButton#QuickBarButton[Support="true"] {
     color: #FFF7E2;
@@ -195,6 +195,16 @@ QToolButton#QuickBarButton[Alert="true"] {
     color: #FFF1C8;
     background-color: #392C13;
     border-color: #C49B49;
+}
+QToolButton#QuickBarButton[UpdateReady="true"] {
+    color: #FFF1C8;
+    background-color: #392C13;
+    border-color: #C49B49;
+}
+QToolButton#QuickBarButton[UpdateMode="complete"] {
+    color: #D7F7E3;
+    background-color: #173326;
+    border-color: #63C88C;
 }
 QToolButton#QuickBarButton[Status="online"] {
     color: #63D69A;
@@ -1282,6 +1292,11 @@ QWidget[ResponsiveViewport="true"], QWidget[ResponsivePage="true"] {
     font-family: "Cascadia Mono", "Consolas";
     font-size: 10px;
     font-weight: bold;
+}
+#UpdateProducts QPushButton {
+    min-width: 126px;
+    min-height: 25px;
+    padding: 2px 8px;
 }
 #UpdateStatus {
     color: #D2CEC6;

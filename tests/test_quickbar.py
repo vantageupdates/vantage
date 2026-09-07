@@ -93,6 +93,10 @@ app.available_update_products = lambda: {
 bar.refresh_state()
 update_ready = {
     'badge': bar._update_badge.isVisible(),
+    'badge_text': bar._update_badge.text(),
+    'text': bar._buttons['updates'].text(),
+    'width': bar._buttons['updates'].width(),
+    'ui_badge': bar._vantage_ui_badge.isVisible(),
     'name': bar._buttons['updates'].accessibleName(),
     'description': bar._buttons['updates'].accessibleDescription(),
 }
@@ -161,6 +165,8 @@ vertical = {
     'switch_tooltip': bar.orientation_button.toolTip(),
     'support_pulsing': bar._support_pulse_timer.isActive(),
     'support_pulse': bool(bar._buttons['support'].property('Pulse')),
+    'update_text': bar._buttons['updates'].text(),
+    'update_width': bar._buttons['updates'].width(),
 }
 
 settings = app._settings
@@ -608,6 +614,10 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
         'name': 'Log Status: DISCONNECTED',
     }
     assert result['update_ready']['badge'] is True
+    assert result['update_ready']['badge_text'] == '2'
+    assert result['update_ready']['text'] == 'Vantage + UI'
+    assert result['update_ready']['width'] > 24
+    assert result['update_ready']['ui_badge'] is True
     assert 'Update ready' in result['update_ready']['name']
     assert 'Vantage 9.9.9 and VantageUI 8.8.8' in \
         result['update_ready']['description']
@@ -641,6 +651,8 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
     assert 'horizontal' in vertical['switch_tooltip']
     assert vertical['support_pulsing'] is False
     assert vertical['support_pulse'] is False
+    assert vertical['update_text'] == '2'
+    assert vertical['update_width'] == 30
     assert result['settings'] == {
         'selected': 'Quick Bar',
         'orientation_control': True,

@@ -14,7 +14,8 @@ import sys
 import tempfile
 
 from PySide6.QtCore import (
-    QByteArray, QIODevice, QObject, QSaveFile, QSize, Qt, QTimer, QUrl, Signal)
+    QByteArray, QEvent, QIODevice, QObject, QSaveFile, QSize, Qt, QTimer,
+    QUrl, Signal)
 from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtNetwork import (
     QNetworkAccessManager, QNetworkReply, QNetworkRequest)
@@ -32,7 +33,7 @@ RELEASE_HISTORY_API = (
     f"https://api.github.com/repos/{REPOSITORY}/releases?per_page=40&page=1")
 RELEASES_URL = f"https://github.com/{REPOSITORY}/releases"
 ASSET_NAME = "Vantage.exe"
-USER_AGENT = "Vantage/1.44.60"
+USER_AGENT = "Vantage/1.44.61"
 _COMPANION_TAG = re.compile(
     r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
 
@@ -383,15 +384,20 @@ class UpdateDialog(UniformScaleDialog):
     """Compact, keyboard-operable update status and download surface."""
 
     def __init__(self, controller, parent=None, *, vantage_ui=None,
-                 open_vantage_ui=None):
+                 open_vantage_ui=None, update_vantage_ui=None,
+                 restore_focus=None):
         super().__init__(
             QSize(560, 430), parent, minimum_size=QSize(430, 340),
             initial_size=QSize(560, 430), lock_aspect=False)
-        self.setWindowTitle("Vantage Update")
+        self.setWindowTitle("Updates")
         self.setObjectName("UpdateDialog")
         self.controller = controller
         self.vantage_ui = vantage_ui
         self._open_vantage_ui = open_vantage_ui
+        self._update_vantage_ui = update_vantage_ui
+        self._restore_focus = restore_focus
+        self._suppress_restore_focus = False
+        self._ui_state = {}
         self.info = None
         self.staged_path = ""
         self._one_click_active = False
@@ -401,7 +407,7 @@ class UpdateDialog(UniformScaleDialog):
         layout = QVBoxLayout(self.scaled_surface)
         layout.setContentsMargins(18, 15, 18, 16)
         layout.setSpacing(8)
-        title = QLabel("VANTAGE UPDATE")
+        title = QLabel("UPDATES")
         title.setObjectName("UpdateTitle")
         layout.addWidget(title)
         products = QFrame()
@@ -423,6 +429,16 @@ class UpdateDialog(UniformScaleDialog):
         self.version.setAccessibleName("Vantage Companion versions")
         self.version.setToolTip("Installed and available Companion versions")
         product_layout.addWidget(self.version, 0, 1)
+        self.download_button = QPushButton("Vantage current")
+        self.download_button.setObjectName("PrimaryAction")
+        self.download_button.setIcon(game_icon("ph-download"))
+        self.download_button.setAccessibleName(
+            "Vantage Companion is current")
+        self.download_button.setToolTip(
+            "Vantage Companion is already on the latest verified release")
+        self.download_button.setEnabled(False)
+        self.download_button.clicked.connect(self.download_and_install)
+        product_layout.addWidget(self.download_button, 0, 2)
         ui_name = QLabel("VantageUI")
         ui_name.setObjectName("UpdateProductName")
         ui_name.setAccessibleName("VantageUI update information")
@@ -436,6 +452,16 @@ class UpdateDialog(UniformScaleDialog):
         self.ui_version.setToolTip(
             "Installed and available versions of the optional VantageUI skin")
         product_layout.addWidget(self.ui_version, 1, 1)
+        self.open_ui_button = QPushButton("Manage VantageUI")
+        self.open_ui_button.setIcon(game_icon("ph-layout"))
+        self.open_ui_button.setAccessibleName("Manage VantageUI")
+        self.open_ui_button.setAccessibleDescription(
+            "Opens the independent VantageUI installation and update area")
+        self.open_ui_button.setToolTip(
+            "Open the VantageUI installation, update, and restore controls")
+        self.open_ui_button.setEnabled(callable(open_vantage_ui))
+        self.open_ui_button.clicked.connect(self._open_ui_panel)
+        product_layout.addWidget(self.open_ui_button, 1, 2)
         product_layout.setColumnStretch(1, 1)
         layout.addWidget(products)
         self.status = QLabel("Ready to check GitHub Releases.")
@@ -465,7 +491,7 @@ class UpdateDialog(UniformScaleDialog):
         layout.addWidget(self.progress)
 
         self.open_ui_after_restart = QCheckBox(
-            "After restart, open VantageUI")
+            "After Vantage restarts, open VantageUI")
         self.open_ui_after_restart.setChecked(False)
         self.open_ui_after_restart.setAccessibleName(
             "After Companion restarts, open VantageUI")
@@ -475,6 +501,7 @@ class UpdateDialog(UniformScaleDialog):
         self.open_ui_after_restart.setToolTip(
             "One-time option: open the separate VantageUI installer after a "
             "successful Companion restart; this never installs the skin automatically")
+        self.open_ui_after_restart.hide()
         layout.addWidget(self.open_ui_after_restart)
 
         actions = QHBoxLayout()
@@ -490,29 +517,9 @@ class UpdateDialog(UniformScaleDialog):
             "Check the official vantageupdates/vantage GitHub Releases page")
         self.check_button.clicked.connect(self.check)
         actions.addWidget(self.check_button)
-        self.open_ui_button = QPushButton("Open VantageUI installer")
-        self.open_ui_button.setAccessibleName("Open VantageUI installer")
-        self.open_ui_button.setAccessibleDescription(
-            "Opens the independent VantageUI area without installing anything")
-        self.open_ui_button.setToolTip(
-            "Open the separate VantageUI installer and update controls")
-        self.open_ui_button.setEnabled(callable(open_vantage_ui))
-        self.open_ui_button.clicked.connect(self._open_ui_panel)
-        actions.addWidget(self.open_ui_button)
         actions.addStretch(1)
-        self.download_button = QPushButton("Download and install update")
-        self.download_button.setObjectName("PrimaryAction")
-        self.download_button.setIcon(game_icon("ph-download"))
-        self.download_button.setAccessibleName(
-            "Download, verify, install, and restart Vantage")
-        self.download_button.setToolTip(
-            "One click downloads and verifies Vantage.exe, installs it, and "
-            "restarts only Vantage; EverQuest and WinEQ remain open")
-        self.download_button.setEnabled(False)
-        self.download_button.clicked.connect(self.download_and_install)
-        actions.addWidget(self.download_button)
         self.close_button = QPushButton("Later")
-        self.close_button.setAccessibleName("Update Vantage later")
+        self.close_button.setAccessibleName("Close Updates and decide later")
         self.close_button.setToolTip(
             "Close this dialog without changing Vantage")
         self.close_button.clicked.connect(self.close)
@@ -527,16 +534,22 @@ class UpdateDialog(UniformScaleDialog):
             signal = getattr(vantage_ui, "update_state_changed", None)
             if signal is not None:
                 signal.connect(self._ui_state_changed)
+        QWidget.setTabOrder(self.download_button, self.open_ui_button)
+        QWidget.setTabOrder(self.open_ui_button, self.notes)
+        QWidget.setTabOrder(self.notes, self.open_ui_after_restart)
         QWidget.setTabOrder(self.open_ui_after_restart, self.check_button)
-        QWidget.setTabOrder(self.check_button, self.open_ui_button)
-        QWidget.setTabOrder(self.open_ui_button, self.download_button)
-        QWidget.setTabOrder(self.download_button, self.close_button)
+        QWidget.setTabOrder(self.check_button, self.close_button)
+        self._update_tab_controls = (
+            self.download_button, self.open_ui_button, self.notes,
+            self.open_ui_after_restart, self.check_button, self.close_button)
+        for control in self._update_tab_controls:
+            control.installEventFilter(self)
         self._show_current()
         self._ui_state_changed(self._ui_snapshot())
 
     def _show_current(self):
         self.version.setText(
-            f"Installed: {self.controller.current_version} · Available: checking")
+            f"{self.controller.current_version} installed · checking")
 
     def _ui_snapshot(self):
         getter = getattr(self.vantage_ui, "update_snapshot", None)
@@ -544,17 +557,72 @@ class UpdateDialog(UniformScaleDialog):
 
     def _ui_state_changed(self, state):
         state = state if isinstance(state, dict) else {}
+        self._ui_state = dict(state)
         installed = str(state.get("installed") or "Not installed")
         available = str(state.get("available") or (
             "checking" if state.get("busy") else "Not checked"))
-        text = f"Installed: {installed} · Available: {available}"
+        text = f"{installed} installed · {available} available"
         self.ui_version.setText(text)
         self.ui_version.setAccessibleDescription(
             f"VantageUI. {text}. Updates are managed independently.")
+        if not installed or installed == "Not installed":
+            action = "install"
+        elif bool(state.get("update_available")):
+            action = "update"
+        else:
+            action = "manage"
+        self._ui_action_kind = action
+        action_text = {
+            "install": "Install VantageUI",
+            "update": "Update VantageUI",
+            "manage": "Manage VantageUI",
+        }[action]
+        self.open_ui_button.setText(action_text)
+        self.open_ui_button.setAccessibleName(action_text)
+        self.open_ui_button.setEnabled(
+            not bool(state.get("busy")) and
+            callable(self._update_vantage_ui if action != "manage" else
+                     self._open_vantage_ui))
+        self._refresh_joint_option()
 
     def _open_ui_panel(self):
-        if callable(self._open_vantage_ui):
+        if (getattr(self, "_ui_action_kind", "manage") in
+                {"install", "update"} and
+                callable(self._update_vantage_ui)):
+            self._update_vantage_ui()
+        elif callable(self._open_vantage_ui):
             self._open_vantage_ui()
+
+    def _refresh_joint_option(self):
+        companion_ready = bool(
+            self.info and
+            self.info.version > self.controller.current_version)
+        ui_ready = bool(self._ui_state.get("update_available"))
+        self.open_ui_after_restart.setVisible(companion_ready and ui_ready)
+        if not (companion_ready and ui_ready):
+            self.open_ui_after_restart.setChecked(False)
+
+    def _combined_status(self):
+        companion_ready = bool(
+            self.info and
+            self.info.version > self.controller.current_version)
+        companion = (
+            f"Vantage {self.info.version} ready"
+            if companion_ready else "Vantage is current")
+        state = self._ui_state
+        installed = str(state.get("installed") or "").strip()
+        available = str(state.get("available") or "").strip()
+        if state.get("check_error"):
+            ui = "VantageUI check unavailable"
+        elif installed and available and state.get("update_available"):
+            ui = f"VantageUI {available} ready"
+        elif not installed and available:
+            ui = f"VantageUI {available} available to install"
+        elif installed and available:
+            ui = "VantageUI is current"
+        else:
+            ui = "VantageUI was not checked"
+        return f"Check complete. {companion}. {ui}."
 
     def open_and_check(self):
         if not self.isVisible():
@@ -582,35 +650,84 @@ class UpdateDialog(UniformScaleDialog):
         manual_check = self._manual_check_pending
         self._manual_check_pending = False
         self.check_button.setEnabled(True)
-        self._set_status(message, announce=manual_check)
         self.info = info
         if info:
             self.version.setText(
-                f"Installed: {self.controller.current_version} · "
-                f"Available: {info.version}")
+                f"{self.controller.current_version} installed · "
+                f"{info.version} available")
             self.notes.setPlainText(info.notes or "No release notes provided.")
             available = info.version > self.controller.current_version
             self.download_button.setEnabled(available)
-            self.download_button.setText("Download and install update")
+            self.download_button.setText(
+                "Update Vantage" if available else "Vantage current")
+            self.download_button.setAccessibleName(
+                "Download, verify, install, and restart Vantage"
+                if available else "Vantage Companion is current")
+            self.download_button.setToolTip(
+                "One click downloads and verifies Vantage.exe, installs it, "
+                "and restarts only Vantage; EverQuest and WinEQ remain open"
+                if available else
+                "Vantage Companion is already on the latest verified release")
         else:
             self.download_button.setEnabled(False)
+            self.download_button.setText("Vantage unavailable")
             self.notes.setPlainText(
                 "The repository is connected, but it does not have a published Release yet.")
+        self._refresh_joint_option()
+        self._set_status(
+            self._combined_status() if manual_check else message,
+            announce=manual_check)
 
     def _failed(self, message):
-        interactive = self._manual_check_pending or self._one_click_active
+        was_manual_check = self._manual_check_pending
+        was_download = self._one_click_active
+        interactive = was_manual_check or was_download
         self._manual_check_pending = False
         self._one_click_active = False
         self.check_button.setEnabled(True)
         self.download_button.setEnabled(bool(
             self.info and self.info.version > self.controller.current_version))
-        if interactive:
+        if was_download:
             self.download_button.setText("Try again")
         self.close_button.setEnabled(True)
         self._set_status(message, announce=interactive)
         if interactive and self.isVisible():
-            QTimer.singleShot(0, lambda: self.download_button.setFocus(
-                Qt.FocusReason.OtherFocusReason))
+            focus_target = (
+                self.check_button if was_manual_check else
+                self.download_button)
+            QTimer.singleShot(0, lambda: self._focus_control(focus_target))
+
+    def _focus_control(self, control):
+        """Move focus through the scaled graphics proxy to a real control."""
+        if control is None or not control.isEnabled():
+            return
+        self.scaled_surface.setFocusProxy(control)
+        self._dialog_view.setFocus(Qt.FocusReason.OtherFocusReason)
+        self._dialog_proxy.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._dialog_scene.setActivePanel(self._dialog_proxy)
+        self._dialog_scene.setFocusItem(
+            self._dialog_proxy, Qt.FocusReason.OtherFocusReason)
+        self._dialog_proxy.setFocus(Qt.FocusReason.OtherFocusReason)
+        self.scaled_surface.setFocus(Qt.FocusReason.OtherFocusReason)
+        control.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def eventFilter(self, watched, event):
+        if (watched in getattr(self, "_update_tab_controls", ()) and
+                event.type() == QEvent.Type.KeyPress and
+                event.key() in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab)):
+            controls = [
+                control for control in self._update_tab_controls
+                if control.isEnabled() and control.isVisibleTo(
+                    self.scaled_surface)]
+            if watched in controls and controls:
+                backwards = (
+                    event.key() == Qt.Key.Key_Backtab or
+                    bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier))
+                offset = -1 if backwards else 1
+                next_index = (controls.index(watched) + offset) % len(controls)
+                self._focus_control(controls[next_index])
+                return True
+        return super().eventFilter(watched, event)
 
     def download(self):
         """Backward-compatible alias for the one-click update action."""
@@ -641,7 +758,7 @@ class UpdateDialog(UniformScaleDialog):
         total = total if total > 0 else (self.info.size if self.info else 0)
         value = max(0, min(100, round(received / total * 100))) if total else 0
         self.progress.setValue(value)
-        milestone = min(100, (value // 25) * 25)
+        milestone = min(75, (value // 25) * 25)
         if milestone >= 25 and milestone > self._last_progress_announcement:
             self._last_progress_announcement = milestone
             self._set_status(
@@ -665,7 +782,7 @@ class UpdateDialog(UniformScaleDialog):
             return
         self.download_button.setEnabled(False)
         self._set_status(
-            "Closing Vantage and applying the verified update…", announce=True)
+            "Closing Vantage and applying the verified update…", announce=False)
         try:
             self.controller.launch_installer(
                 self.info, self.staged_path,
@@ -674,10 +791,17 @@ class UpdateDialog(UniformScaleDialog):
             self._failed(f"Update could not start: {error}")
             return
         self._one_click_active = False
+        self._suppress_restore_focus = True
         app = QApplication.instance()
         if getattr(app, "_system_tray", None):
             app._system_tray.setVisible(False)
         app.quit()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        if (not self._suppress_restore_focus and
+                callable(self._restore_focus)):
+            QTimer.singleShot(0, self._restore_focus)
 
     def _set_status(self, message, announce=False):
         """Keep visible and assistive update status in one synchronized path."""

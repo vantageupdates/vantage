@@ -50,7 +50,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=60,
+    patch=61,
     build=""
 )
 
@@ -109,6 +109,7 @@ class VantageApp(QApplication):
         self._quickbar_notice_id = 0
         self._quickbar_notice = ""
         self._quickbar_notice_at = 0.0
+        self._last_update_success = ""
         self._tell_audio_cooldown = TellAudioCooldown()
         set_audio_muted(config.data['general'].get('audio_muted', False))
 
@@ -173,6 +174,11 @@ class VantageApp(QApplication):
             self._update_settings_changed)
         self._update_toast = QuickUpdateToast(
             self._update_controller, self)
+        self._update_toast_batch_timer = QTimer(self)
+        self._update_toast_batch_timer.setSingleShot(True)
+        self._update_toast_batch_timer.setInterval(150)
+        self._update_toast_batch_timer.timeout.connect(
+            self._show_pending_update_toast)
         vantage_ui = self._parsers_dict.get("vantage_ui")
         if vantage_ui is not None:
             vantage_ui.use_shared_update_controller(
@@ -220,9 +226,12 @@ class VantageApp(QApplication):
             os.environ.pop("VANTAGE_OPEN_UI_AFTER_UPDATE", "").strip() == "1")
         update_error = os.environ.pop("VANTAGE_UPDATE_ERROR", "").strip()
         if updated_from:
+            self._last_update_success = (
+                f"Vantage {CURRENT_VERSION} installed · was {updated_from}")
             self._queue_quickbar_notice(
                 "Vantage updated",
                 f"{updated_from} → {CURRENT_VERSION}")
+            self._refresh_quickbar()
             if open_ui_after_update:
                 QTimer.singleShot(0, self.open_vantage_ui)
         elif update_error:
@@ -1224,14 +1233,7 @@ class VantageApp(QApplication):
     def _update_available(self, info):
         self._update_check_state = "ready"
         self._refresh_quickbar()
-        version = str(info.version)
-        if version == self._notified_companion_version:
-            return
-        dialog = self._update_dialog_instance
-        if dialog is not None and dialog.isVisible():
-            return
-        self._notified_companion_version = version
-        self._update_toast.show_for(info)
+        self._schedule_update_toast()
 
     def _vantage_ui_update_state_changed(self, snapshot):
         """Fold independent VantageUI discovery into the shared update UX."""
@@ -1256,15 +1258,39 @@ class VantageApp(QApplication):
 
         if not ready:
             self._notified_vantage_ui_version = ""
-            self._update_toast.clear_vantage_ui_update()
-            return
-        if available == self._notified_vantage_ui_version:
-            return
+        self._schedule_update_toast()
+
+    def _schedule_update_toast(self):
+        """Coalesce the two release channels into one quiet announcement."""
+        timer = getattr(self, "_update_toast_batch_timer", None)
+        if timer is not None:
+            timer.start()
+
+    def _show_pending_update_toast(self):
+        """Present one atomic, non-interactive summary of pending products."""
         dialog = self._update_dialog_instance
         if dialog is not None and dialog.isVisible():
             return
-        self._notified_vantage_ui_version = available
-        self._update_toast.show_for_vantage_ui(available)
+        info = getattr(self._update_controller, "latest_info", None)
+        if info is not None and info.version <= CURRENT_VERSION:
+            info = None
+        ui_version = (
+            self._vantage_ui_available_version
+            if self._vantage_ui_update_ready else "")
+        companion_version = str(info.version) if info is not None else ""
+        signature = (companion_version, ui_version)
+        notified = (
+            self._notified_companion_version,
+            self._notified_vantage_ui_version)
+        if not any(signature):
+            self._update_toast.hide()
+            return
+        if signature == notified:
+            return
+        self._notified_companion_version = companion_version
+        self._notified_vantage_ui_version = ui_version
+        self._update_toast.show_updates(
+            info=info, vantage_ui_version=ui_version)
 
     def install_quick_update(self, info, staged_path, toast=None):
         """Finish an explicitly clicked one-step update."""
@@ -1301,13 +1327,27 @@ class VantageApp(QApplication):
             return False
 
     def show_update_dialog(self):
+        self.clear_update_receipt()
         if self._update_dialog_instance is None:
             from vantage.helpers.updater import UpdateDialog
             vantage_ui = self._parsers_dict.get("vantage_ui")
+            quickbar = self._parsers_dict.get("quickbar")
             self._update_dialog_instance = UpdateDialog(
                 self._update_controller, vantage_ui=vantage_ui,
-                open_vantage_ui=self.open_vantage_ui)
+                open_vantage_ui=self.open_vantage_ui,
+                update_vantage_ui=self.start_vantage_ui_update,
+                restore_focus=(
+                    lambda: quickbar.restore_action_focus("updates")
+                    if quickbar is not None else None))
         self._update_dialog_instance.open_and_check()
+
+    def clear_update_receipt(self):
+        """Acknowledge the persistent post-restart receipt on explicit open."""
+        if not getattr(self, "_last_update_success", ""):
+            return False
+        self._last_update_success = ""
+        self._refresh_quickbar()
+        return True
 
     def open_vantage_ui(self):
         """Open, never toggle closed, the independent VantageUI surface."""
@@ -1321,6 +1361,17 @@ class VantageApp(QApplication):
             panel.activateWindow()
             QTimer.singleShot(0, lambda: panel.path_edit.setFocus(
                 Qt.FocusReason.OtherFocusReason))
+        return True
+
+    def start_vantage_ui_update(self):
+        """Open VantageUI, then use its normal verified confirmation flow."""
+        panel = self._parsers_dict.get("vantage_ui")
+        if panel is None or not self.open_vantage_ui():
+            return False
+        snapshot = panel.update_snapshot()
+        if snapshot.get("busy"):
+            return False
+        QTimer.singleShot(0, panel.update_skin)
         return True
 
     def new_version_available(self):

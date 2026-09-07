@@ -198,6 +198,9 @@ class QuickBar(ParserWindow):
         self._last_orientation_toggle = 0.0
         self._log_online = False
         self._log_pulse_on = False
+        self._update_presentation_signature = None
+        self._announced_update_receipt = ""
+        self._update_receipt_announcement_pending = False
         super().__init__()
         # Qt normally suppresses tooltips while EverQuest owns focus. This
         # attribute keeps hover help available without activating Vantage.
@@ -286,6 +289,16 @@ class QuickBar(ParserWindow):
         self._update_badge.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._update_badge.hide()
+        self._vantage_ui_badge = QLabel("UP", self._buttons["vantage_ui"])
+        self._vantage_ui_badge.setObjectName("QuickBarProductBadge")
+        self._vantage_ui_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._vantage_ui_badge.setGeometry(8, 1, 15, 9)
+        self._vantage_ui_badge.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._vantage_ui_badge.hide()
+        ui_dot = self._enabled_dots.get("vantage_ui")
+        if ui_dot is not None:
+            ui_dot.move(2, 16)
 
         support = self._buttons["support"]
         support.setProperty("Support", True)
@@ -549,11 +562,20 @@ class QuickBar(ParserWindow):
             "Switch to a horizontal Quick Bar" if vertical else
             "Switch to a vertical Quick Bar")
 
-        visible_count = 1  # orientation button is deliberately permanent
+        # Pending updates use a little more room to identify the product in
+        # words. Reapply the presentation before measuring the authored strip
+        # so orientation changes can never clip the capsule.
+        product_names = tuple(filter(None, str(
+            self._buttons["updates"].property("UpdateProducts") or ""
+        ).split(",")))
+        self._set_update_button_presentation(product_names)
+
+        visible_widgets = [self.orientation_button]
         for key, button in self._buttons.items():
             visible = bool(settings.get(f"show_{key}", True))
             button.setVisible(visible)
-            visible_count += int(visible)
+            if visible:
+                visible_widgets.append(button)
         self._sync_support_animation()
         self._sync_log_animation()
 
@@ -564,7 +586,9 @@ class QuickBar(ParserWindow):
         self.notification_rail.setVisible(rail_visible)
         self.notification_rail.set_motion_reduced(
             config.data["general"].get("reduce_motion", False))
-        item_count = visible_count + int(tick_visible)
+        if tick_visible:
+            visible_widgets.append(self.tick_readout)
+        item_count = len(visible_widgets)
         margins = self.action_layout.contentsMargins()
         spacing = self.action_layout.spacing()
         header_height = (
@@ -576,10 +600,12 @@ class QuickBar(ParserWindow):
             self.content.setAlignment(
                 self.action_frame,
                 Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
-            action_width = margins.left() + margins.right() + 24
+            action_width = (
+                margins.left() + margins.right() +
+                max((widget.width() for widget in visible_widgets), default=24))
             action_height = (
-                margins.top() + margins.bottom() + visible_count * 24 +
-                (24 if tick_visible else 0) +
+                margins.top() + margins.bottom() +
+                sum(widget.height() for widget in visible_widgets) +
                 max(0, item_count - 1) * spacing)
             design_size = QSize(
                 max(action_width, header_width),
@@ -589,10 +615,12 @@ class QuickBar(ParserWindow):
                 self.action_frame,
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
             action_width = (
-                margins.left() + margins.right() + visible_count * 24 +
-                (48 if tick_visible else 0) +
+                margins.left() + margins.right() +
+                sum(widget.width() for widget in visible_widgets) +
                 max(0, item_count - 1) * spacing)
-            action_height = margins.top() + margins.bottom() + 24
+            action_height = (
+                margins.top() + margins.bottom() +
+                max((widget.height() for widget in visible_widgets), default=24))
             rail_width = max(120, action_width - 24)
             self.notification_rail.setFixedWidth(rail_width)
             design_size = QSize(
@@ -611,6 +639,88 @@ class QuickBar(ParserWindow):
                 round(design_size.height() * scale))
         self._update_uniform_scale()
         self._fit_to_available_screen()
+
+    def _set_update_button_presentation(self, product_names=()):
+        """Identify pending update products without relying on color alone."""
+        products = tuple(product_names)
+        receipt = str(getattr(
+            self._application, "_last_update_success", "") or "").strip()
+        vertical = self._orientation == "vertical"
+        if products:
+            if set(products) == {"Vantage", "VantageUI"}:
+                text = "2" if vertical else "Vantage + UI"
+            elif "VantageUI" in products:
+                text = "UI" if vertical else "VantageUI"
+            else:
+                text = "APP" if vertical else "Vantage"
+            badge_text = str(len(products))
+            mode = "ready"
+        elif receipt:
+            text = "OK" if vertical else "Updated"
+            badge_text = "✓"
+            mode = "complete"
+        else:
+            text = ""
+            badge_text = ""
+            mode = "idle"
+
+        button = self._buttons["updates"]
+        if mode == "idle":
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            width = 24
+        elif vertical:
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+            width = 30
+        else:
+            button.setToolButtonStyle(
+                Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            width = max(58, min(
+                112, button.fontMetrics().horizontalAdvance(text) + 31))
+        button.setText(text)
+        button.setFixedSize(width, 24)
+        button.setProperty("UpdateMode", mode)
+        self._update_badge.setText(badge_text)
+        self._update_badge.setGeometry(max(1, width - 10), 1, 9, 10)
+        self._update_badge.setVisible(mode in {"ready", "complete"})
+        dot = self._enabled_dots.get("updates")
+        if dot is not None:
+            # The open-state marker owns the opposite corner from the badge.
+            dot.move(2, 16)
+        signature = (self._orientation, products, bool(receipt), width)
+        changed = signature != self._update_presentation_signature
+        self._update_presentation_signature = signature
+        return changed
+
+    def _announce_update_receipt(self, receipt):
+        """Politely announce one visible post-restart receipt exactly once."""
+        receipt = " ".join(str(receipt or "").split())
+        if (not receipt or receipt == self._announced_update_receipt or
+                self._update_receipt_announcement_pending or
+                not self.isVisible()):
+            return
+        self._update_receipt_announcement_pending = True
+
+        def announce():
+            self._update_receipt_announcement_pending = False
+            current = " ".join(str(getattr(
+                self._application, "_last_update_success", "") or "").split())
+            if (not self.isVisible() or current != receipt or
+                    receipt == self._announced_update_receipt):
+                return
+            event = QAccessibleAnnouncementEvent(
+                self._buttons["updates"], f"Update complete. {receipt}.")
+            try:
+                event.setPoliteness(
+                    QAccessible.AnnouncementPoliteness.Polite)
+            except (AttributeError, TypeError):
+                pass
+            try:
+                QAccessible.updateAccessibility(event)
+            except (AttributeError, RuntimeError, TypeError):
+                return
+            self._announced_update_receipt = receipt
+
+        QTimer.singleShot(0, announce)
 
     def _compact_header_width(self):
         """Let a vertical branded header fit the real one-column surface."""
@@ -667,7 +777,8 @@ class QuickBar(ParserWindow):
             if dot is not None:
                 dot.setVisible(visible)
                 dot.raise_()
-            label = button.accessibleName()
+            label = str(button.property("BaseLabel") or
+                        button.accessibleName())
             state = "open" if visible else "hidden"
             button.setToolTip(f"{label} is {state} · click to toggle")
             button.setAccessibleDescription(f"Currently {state}")
@@ -756,10 +867,26 @@ class QuickBar(ParserWindow):
         update_button.setProperty("UpdateState", update_state)
         update_button.setProperty(
             "UpdateProducts", ",".join(update_products))
+        presentation_changed = self._set_update_button_presentation(
+            tuple(update_products))
         update_button.setStyle(update_button.style())
-        self._update_badge.setVisible(update_ready)
-        if update_ready:
+        if self._update_badge.isVisible():
             self._update_badge.raise_()
+        ui_update_ready = "VantageUI" in update_products
+        ui_button = self._buttons.get("vantage_ui")
+        if ui_button is not None:
+            ui_button.setProperty("UpdateReady", ui_update_ready)
+            ui_button.setStyle(ui_button.style())
+            self._vantage_ui_badge.setVisible(ui_update_ready)
+            if ui_update_ready:
+                self._vantage_ui_badge.raise_()
+                ui_version = update_products.get("VantageUI", "")
+                ui_button.setToolTip(
+                    f"VantageUI {ui_version} update ready · click to toggle VantageUI")
+                ui_button.setAccessibleName(
+                    f"VantageUI update ready, version {ui_version}")
+                ui_button.setAccessibleDescription(
+                    "A verified VantageUI update is ready; click to toggle its window")
         if update_ready:
             product_copy = " and ".join(
                 f"{name} {version}".strip()
@@ -770,6 +897,14 @@ class QuickBar(ParserWindow):
                 f"Update ready for {product_copy}; open Updates")
             description = (
                 f"Verified update available for {product_copy}")
+        elif str(getattr(
+                self._application, "_last_update_success", "") or "").strip():
+            receipt = str(self._application._last_update_success)
+            tooltip = f"{receipt} · click to open Updates"
+            accessible_name = f"Update complete. {receipt}; open Updates"
+            description = (
+                "Persistent update receipt; opening Updates clears this receipt")
+            self._announce_update_receipt(receipt)
         elif update_state == "checking":
             tooltip = (
                 "Checking GitHub for verified Vantage and VantageUI updates…")
@@ -802,6 +937,13 @@ class QuickBar(ParserWindow):
         update_button.setToolTip(tooltip)
         update_button.setAccessibleName(accessible_name)
         update_button.setAccessibleDescription(description)
+
+        if not str(getattr(
+                self._application, "_last_update_success", "") or "").strip():
+            self._announced_update_receipt = ""
+
+        if presentation_changed:
+            self._apply_quickbar_settings(preserve_scale=True)
 
         self._buttons["support"].setToolTip(
             "Like this project? Support it — Buy Me a Coffee")
