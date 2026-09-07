@@ -1,10 +1,12 @@
 """Pure XML refinement of the skin's existing native threshold-gauge technique.
 
-No timers, memory reads or new client bindings. Colors are sampled every 5%
-instead of every 20%; this is not a continuously animated color interpolator.
+No timers, memory reads or new client bindings. Uses 23 precomputed perceptual
+colors: 5% steps up to yellow, then finer 2% steps to high-health green.
+This is not a continuously time-animated color interpolator.
 The command prints an apply_patch patch and never writes a skin itself.
 """
 from copy import deepcopy
+import json
 from pathlib import Path
 import re
 import sys
@@ -12,6 +14,9 @@ import xml.etree.ElementTree as ET
 
 STOPS = ((0, (239, 68, 68)), (20, (249, 115, 22)),
          (40, (245, 158, 11)), (60, (240, 220, 0)), (80, (0, 240, 0)))
+PALETTE = json.loads(Path(__file__).with_name('ui_health_colors.json').read_text(encoding='utf-8'))
+COLORS = {sample['hp']: tuple(sample['rgb']) for sample in PALETTE['samples']}
+THRESHOLDS = tuple(COLORS)
 CONFIGS = {
     'EQUI_PlayerWindow.xml': ('PlayerWindow', ('Player',)),
     'EQUI_GroupWindow.xml': ('GroupWindow', tuple(f'Party{i}' for i in range(1, 6))),
@@ -20,12 +25,9 @@ CONFIGS = {
 }
 
 def color_at(percent):
-    percent = max(0, min(80, percent))
-    for (left, a), (right, b) in zip(STOPS, STOPS[1:]):
-        if percent <= right:
-            t = (percent - left) / (right - left)
-            return tuple(round(x + (y-x)*t) for x, y in zip(a, b))
-    return STOPS[-1][1]
+    """Color selected by the palette; native reveal can span a sub-percent."""
+    threshold = max(hp for hp in THRESHOLDS if hp <= max(0, min(100, percent)))
+    return COLORS[threshold]
 
 def item(root, tag, name):
     matches = root.findall(f"{tag}[@item='{name}']")
@@ -56,6 +58,12 @@ def refine(text, filename):
     root = ET.fromstring(text)
     window_name, prefixes = CONFIGS[filename]
     if any(n.get('item', '').endswith('_HP_S05A') for n in root):
+        for prefix in prefixes:
+            for threshold in THRESHOLDS[1:]:
+                if threshold % 20:
+                    gauge = item(root, 'Gauge', f'{prefix}_HP_S{threshold:02}A')
+                    if tuple(int(gauge.findtext('FillTint/' + c)) for c in 'RGB') != COLORS[threshold]:
+                        raise ValueError('Existing intermediate palette differs; review before editing')
         return text
     parent = deepcopy(item(root, 'Screen', window_name))
     definitions = []
@@ -68,7 +76,7 @@ def refine(text, filename):
         width = int(base.findtext('Size/CX'))
         x = int(base.findtext('Location/X'))
         sequence = [prefix + '_HP_0']
-        for threshold in range(5, 81, 5):
+        for threshold in THRESHOLDS[1:]:
             if threshold % 20 == 0:
                 stage = threshold // 20
                 sequence.extend((f'{prefix}_HP_{stage}A_X', f'{prefix}_HP_{stage}B'))
@@ -77,7 +85,11 @@ def refine(text, filename):
             animation = deepcopy(anim0)
             animation.set('item', name + 'Fill')
             offset = threshold * 100
-            value(animation, 'Frames/Location/X', -offset)
+            # Group/pet textures begin at X=2, unlike the player/target's X=0.
+            # Preserve that origin; the old 5% experiment incorrectly erased it.
+            texture_origin = int(anim0.findtext('Frames/Location/X')) + 2000
+            value(animation, 'Frames/Location/X', texture_origin - offset)
+            value(animation, 'Cycle', 'false')
             a, b, clip = deepcopy(a0), deepcopy(b0), deepcopy(clip0)
             a.set('item', name + 'A')
             b.set('item', name + 'B')
@@ -108,12 +120,6 @@ def refine(text, filename):
             piece = ET.Element('Pieces')
             piece.text = name
             parent.insert(insertion + index, piece)
-        # Declare separators before their consuming window as well.
-        tick = block(text, 'StaticAnimation', prefix + '_HP_VantageTicks')
-        window = block(text, 'Screen', window_name)
-        if tick.start() > window.start():
-            definitions.append(item(root, 'StaticAnimation', prefix + '_HP_VantageTicks'))
-            text = text[:tick.start()] + text[tick.end():]
     match = block(text, 'Screen', window_name)
     replacement = '\n'.join(map(serialize, definitions + [parent]))
     return text[:match.start()] + replacement + text[match.end():]

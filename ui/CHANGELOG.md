@@ -1,5 +1,29 @@
 # VantageUI releases
 
+## 1.44.61
+
+Install folder: `VantageUI-v1.44.61`.
+
+- Refines player, group, pet and target HP from five to 23 colors. Uses
+  perceptually interpolated RGB samples, retaining the exact red/orange/yellow
+  anchors and normal green. Steps are 5% up to yellow and 2% towards green,
+  where the previous color jump was strongest. No mint tint or palette change
+  to mana, experience, casting or numeric labels.
+- Uses the existing native paired-gauge clipping technique, with declarations
+  before their consumers and the correct +2px texture origin for group/pet.
+  Keeps all HP geometry, bindings, background, dividers and relief unchanged.
+  This is finer health-dependent stepping, not an invented time animation;
+  native reveal behavior and performance must still be checked in game.
+- Makes spell gems 28px tall again (from 32px), with matching rounded grey
+  outlines and a 2px vertical inset for native 24px icons. Retains 4px row gaps,
+  compact width and the full 26px wrapped-name box with a 1px vertical inset.
+  The spell window is 32px shorter. Does not restore the clipped 20px labels.
+- Preserves inventory, bags, Actions and attack artwork. No character INIs or
+  Companion changes; the same verified release is used for local installation.
+
+Load manually with `/loadskin VantageUI-v1.44.61 1`. Package, palette and
+geometry checks are not verification of the native client's rendering.
+
 ## 1.44.60
 
 Install folder: `VantageUI-v1.44.60`.

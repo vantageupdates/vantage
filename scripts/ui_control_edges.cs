@@ -84,11 +84,11 @@ public static class VantageControlEdgesRenderer {
             }
             // Spell-only neutral outline. A static screen piece draws this
             // after the native school-tinted gem; never tint the grey border.
-            // Dedicated 120x32 cell, clear of HP strips and shared gold slices.
-            using(var high=new Bitmap(480,128,PixelFormat.Format32bppArgb))
-            using(var edge=new Bitmap(120,32,PixelFormat.Format32bppArgb)) {
+            // Dedicated 120x28 cell, clear of HP strips and shared gold slices.
+            using(var high=new Bitmap(480,112,PixelFormat.Format32bppArgb))
+            using(var edge=new Bitmap(120,28,PixelFormat.Format32bppArgb)) {
                 using(var g=Graphics.FromImage(high))
-                using(var path=Round(3,3,474,122,22))
+                using(var path=Round(3,3,474,106,22))
                 using(var pen=new Pen(Color.FromArgb(155,148,148,148),4)) {
                     g.SmoothingMode=SmoothingMode.AntiAlias;
                     g.DrawPath(pen,path);
@@ -96,9 +96,9 @@ public static class VantageControlEdgesRenderer {
                 using(var g=Graphics.FromImage(edge)) {
                     g.InterpolationMode=InterpolationMode.HighQualityBicubic;
                     g.PixelOffsetMode=PixelOffsetMode.HighQuality;
-                    g.DrawImage(high,new Rectangle(0,0,120,32),0,0,480,128,GraphicsUnit.Pixel);
+                    g.DrawImage(high,new Rectangle(0,0,120,28),0,0,480,112,GraphicsUnit.Pixel);
                 }
-                for(int y=0;y<32;y++) for(int x=0;x<120;x++)
+                for(int y=0;y<28;y++) for(int x=0;x<120;x++)
                     atlas.SetPixel(2+x,34+y,edge.GetPixel(x,y));
             }
             using(var output=new BinaryWriter(File.Create(destination))) {

@@ -97,7 +97,7 @@ def assert_two_line_spell_name_room(gem, label):
     gx, gy, gw, gh = rect(gem)
     lx, ly, lw, lh = rect(label)
     assert lh >= 2 * 12 + 2, 'Two-line spell name needs descent slack'
-    assert gy + 3 <= ly and ly + lh <= gy + gh - 3
+    assert gy + 1 <= ly and ly + lh <= gy + gh - 1
     assert gx + 31 <= lx and lx + lw <= gx + gw - 4
 
 
@@ -107,8 +107,8 @@ def test_spell_gems_have_room_for_names_inset_icons_and_row_gaps(index):
     gem = item(xml, 'SpellGem', f'CSPW_Spell{index}')
     label = item(xml, 'Label', f'CSPW_Spell{index}_Name')
     window = item(xml, 'Screen', 'CastSpellWnd')
-    assert rect(gem) == (1, 18 + 36 * index, 120, 32)
-    assert rect(label) == (32, 21 + 36 * index, 85, 26)
+    assert rect(gem) == (1, 18 + 32 * index, 120, 28)
+    assert rect(label) == (32, 19 + 32 * index, 85, 26)
     assert_two_line_spell_name_room(gem, label)
     assert label.findtext('Font') == '1'
     assert label.findtext('NoWrap') == 'false'
@@ -116,15 +116,15 @@ def test_spell_gems_have_room_for_names_inset_icons_and_row_gaps(index):
     assert label.findtext('AlignCenter') == 'true'
     assert gem.findtext('ScreenID') == f'CSPW_Spell{index}'
     assert gem.findtext('SpellIconOffsetX') == '4'
-    assert gem.findtext('SpellIconOffsetY') == '4'
+    assert gem.findtext('SpellIconOffsetY') == '2'
     gx, gy, gw, gh = rect(gem)
     lx, ly, lw, lh = rect(label)
     # Titanium icons are 24px. Never enlarge the art or use newer-client tags.
     assert gx + 4 + 24 + 3 <= lx
-    assert 4 + 24 + 4 == gh
+    assert 2 + 24 + 2 == gh
     assert lx + lw <= gx + gw - 4
-    assert ly == gy + 3
-    assert ly + lh <= gy + gh - 3
+    assert ly == gy + 1
+    assert ly + lh <= gy + gh - 1
     assert gx + gw <= int(window.findtext('Size/CX')) - 8
     assert gy + gh <= int(window.findtext('Size/CY')) - 8
     assert gem.find('SpellIconSizeX') is None
@@ -135,7 +135,7 @@ def test_spell_gems_have_room_for_names_inset_icons_and_row_gaps(index):
     header = item(xml, 'Button', 'CSPW_SpellBook')
     assert rect(header) == (1, 1, 120, 14)
     assert window.findtext('Size/CX') == '130'
-    assert window.findtext('Size/CY') == '312'
+    assert window.findtext('Size/CY') == '280'
 
 
 @pytest.mark.parametrize('index', range(8))
@@ -175,22 +175,22 @@ def test_spell_outline_is_a_fine_grey_rounded_ring_with_no_center_paint():
     assert animation.findtext('Cycle') == 'false'
     assert len(animation.findall('Frames')) == 1
     frame = animation.find('Frames')
-    assert rect(frame) == (2, 34, 120, 32)
+    assert rect(frame) == (2, 34, 120, 28)
     assert frame.findtext('Texture') == 'VantageControlEdges.tga'
     data = (SKIN / 'VantageControlEdges.tga').read_bytes()
     def pixel(x, y):
         offset = 18 + 4 * ((y + 34) * 512 + x + 2)
         return tuple(data[offset:offset + 4])
-    visible = [pixel(x, y) for y in range(32) for x in range(120) if pixel(x, y)[3]]
+    visible = [pixel(x, y) for y in range(28) for x in range(120) if pixel(x, y)[3]]
     assert visible and all(b == g == r for b, g, r, a in visible)
     assert 80 <= max(c[3] for c in visible) <= 170
     assert len({c[3] for c in visible}) > 8, 'Antialiased coverage, not hard square edges'
-    for x, y in ((0, 0), (119, 0), (0, 31), (119, 31)):
+    for x, y in ((0, 0), (119, 0), (0, 27), (119, 27)):
         assert pixel(x, y)[3] == 0
-    assert all(pixel(x, y)[3] == 0 for y in range(4, 28) for x in range(5, 115))
+    assert all(pixel(x, y)[3] == 0 for y in range(4, 24) for x in range(5, 115))
     # Both horizontal and vertical edges exist; not just a disconnected line.
     assert any(pixel(60, y)[3] > 70 for y in range(3))
-    assert any(pixel(60, y)[3] > 70 for y in range(29, 32))
+    assert any(pixel(60, y)[3] > 70 for y in range(25, 28))
     assert any(pixel(x, 16)[3] > 70 for x in range(3))
     assert any(pixel(x, 16)[3] > 70 for x in range(117, 120))
 
@@ -234,12 +234,14 @@ def test_attack_rim_is_client_drawn_not_a_permanent_decoration():
     ('EQUI_PetInfoWindow.xml', ['Pet']),
     ('EQUI_TargetWindow.xml', ['VantageTarget']),
 ])
-def test_health_reverts_extra_layers_and_removes_floating_ticks(filename, prefixes):
+def test_health_adds_only_reviewed_color_layers_without_floating_ticks(filename, prefixes):
     xml = root(filename)
     assert forward_screen_references(xml) == []
     for prefix in prefixes:
         gauges = [n for n in xml.findall('Gauge') if (n.get('item') or '').startswith(prefix + '_HP_')]
         expected = {prefix + '_HP_' + suffix for suffix in ('0','1A','1B','2A','2B','3A','3B','4A','4B')}
+        intermediate = (5,10,15,25,30,35,45,50,55,62,64,66,68,70,72,74,76,78)
+        expected.update(f'{prefix}_HP_S{hp:02}{side}' for hp in intermediate for side in ('A','B'))
         if prefix != 'VantageTarget':
             expected.add(prefix + '_HP_BG')
         assert {n.get('item') for n in gauges} == expected

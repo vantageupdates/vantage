@@ -11,7 +11,7 @@ try {
     if ($release.schema -ne 2 -or $release.schema -is [bool] -or $expectedUiVersion -isnot [string] -or $expectedUiVersion -cnotmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' -or $release.skin_folder -cne "VantageUI-v$expectedUiVersion") {
         throw 'Expected schema 2 and an exact versioned VantageUI folder.'
     }
-    & $Python -m pytest -q tests/test_ui_skin_updater.py tests/test_ui_skin_versioned.py tests/test_ui_skin_windows_permissions.py tests/test_ui_skin_package.py tests/test_ui_skin_app.py tests/test_ui_skin_layout.py tests/test_ui_skin_client_contract.py tests/test_build_ui_release_policy.py
+    & $Python -m pytest -q tests/test_ui_skin_updater.py tests/test_ui_skin_versioned.py tests/test_ui_skin_windows_permissions.py tests/test_ui_skin_package.py tests/test_ui_skin_app.py tests/test_ui_skin_layout.py tests/test_ui_skin_client_contract.py tests/test_ui_health_palette.py tests/test_build_ui_release_policy.py
     if ($LASTEXITCODE -ne 0) { throw 'Focused UI tests failed.' }
     & $Python -m pytest -q
     if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }

@@ -361,7 +361,7 @@ def test_gold_slot_edge_and_health_tick_resources_are_complete_and_in_bounds():
         },
         "A_VantageHP240Lines": (240, 20),
         "A_VantageHP100Lines": (100, 20),
-        "A_VantageSpellGemOutline": (120, 32),
+        "A_VantageSpellGemOutline": (120, 28),
     }
     mapped = {}
     for animation in root.findall("./Ui2DAnimation"):

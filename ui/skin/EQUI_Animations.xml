@@ -25,9 +25,18 @@
     <Cycle>false</Cycle>
     <Frames>
       <Texture>VantageControlEdges.tga</Texture>
-      <Location><X>2</X><Y>34</Y></Location>
-      <Size><CX>120</CX><CY>32</CY></Size>
-      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Location>
+        <X>2</X>
+        <Y>34</Y>
+      </Location>
+      <Size>
+        <CX>120</CX>
+        <CY>28</CY>
+      </Size>
+      <Hotspot>
+        <X>0</X>
+        <Y>0</Y>
+      </Hotspot>
       <Duration>1000</Duration>
     </Frames>
   </Ui2DAnimation>
