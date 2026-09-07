@@ -1,5 +1,22 @@
 # VantageUI releases
 
+## 1.44.59
+
+Install folder: `VantageUI-v1.44.59`.
+
+- Makes the equipment section exactly three equal columns of seven square
+  29px slots. Ammo joins the top of the third column; no equipment sits above
+  the bags. Ranged remains directly below the right ring.
+- Restores square bag proportions: eight 25px slots in a separate column,
+  aligned with the equipment section at both top and bottom. No texture, icon,
+  color or border-art processing; only slot rectangles and positions change.
+- Preserves the 215px outer inventory frame, both five-button columns and every
+  item binding. Does not change Camp/Sit, health, attack, spells or other windows.
+- Adds a strict 7/7/7 geometry check that rejects the previous detached Ammo slot.
+
+Load manually with `/loadskin VantageUI-v1.44.59 1`. Package/geometry checks are
+not an in-game render; confirm the compact inventory after reloading.
+
 ## 1.44.58
 
 Install folder: `VantageUI-v1.44.58`.

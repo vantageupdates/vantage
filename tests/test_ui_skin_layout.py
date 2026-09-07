@@ -1,7 +1,9 @@
 from copy import deepcopy
+from collections import Counter
 from itertools import combinations
 from pathlib import Path
 import xml.etree.ElementTree as ET
+import pytest
 
 
 SKIN_DIR = Path(__file__).resolve().parents[1] / "ui" / "skin"
@@ -44,6 +46,14 @@ def _assert_nonoverlapping(rectangles):
         rx, ry, rw, rh = right
         overlaps = lx < rx + rw and rx < lx + lw and ly < ry + rh and ry < ly + lh
         assert not overlaps, f"{left_name} overlaps {right_name}"
+
+
+def _assert_uniform_equipment_columns(rectangles):
+    assert len(rectangles) == 21
+    assert Counter(r[0] for r in rectangles.values()) == {86: 7, 115: 7, 144: 7}
+    for x in (86, 115, 144):
+        column = sorted(r for r in rectangles.values() if r[0] == x)
+        assert column == [(x, 1 + 29 * row, 29, 29) for row in range(7)]
 
 
 def _signature(element):
@@ -225,27 +235,27 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
         "Wrist2": 10,
     }
     gear_locations = {
-        "Head": (115, 32),
-        "Face": (115, 61),
-        "Neck": (144, 61),
-        "Shoulder": (86, 90),
-        "Arms": (144, 90),
-        "Hands": (115, 119),
-        "Back": (86, 61),
-        "Earring1": (86, 32),
-        "Earring2": (144, 32),
-        "Wrist1": (86, 119),
-        "Wrist2": (144, 119),
-        "Ring1": (86, 148),
-        "Ring2": (144, 148),
-        "Belt": (115, 148),
-        "Prim": (83, 0),
-        "Sec": (114, 0),
-        "Ranged": (144, 177),
-        "Ammo": (176, 0),
-        "Chest": (115, 90),
-        "Legs": (115, 177),
-        "Boots": (86, 177),
+        "Head": (115, 30),
+        "Face": (115, 59),
+        "Neck": (144, 59),
+        "Shoulder": (86, 88),
+        "Arms": (144, 88),
+        "Hands": (115, 117),
+        "Back": (86, 59),
+        "Earring1": (86, 30),
+        "Earring2": (144, 30),
+        "Wrist1": (86, 117),
+        "Wrist2": (144, 117),
+        "Ring1": (86, 146),
+        "Ring2": (144, 146),
+        "Belt": (115, 146),
+        "Prim": (86, 1),
+        "Sec": (115, 1),
+        "Ranged": (144, 175),
+        "Ammo": (144, 1),
+        "Chest": (115, 88),
+        "Legs": (115, 175),
+        "Boots": (86, 175),
     }
     inventory = {}
     for name, eq_type in gear_types.items():
@@ -253,21 +263,21 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
         assert slot.findtext("ScreenID") == name
         assert int(slot.findtext("EQType")) == eq_type
         rect = _rect(slot)
-        size = 31 if name in ("Prim", "Sec", "Ammo") else 29
-        assert rect == (*gear_locations[name], size, size)
+        assert rect == (*gear_locations[name], 29, 29)
         _assert_in_bounds(rect, window_size)
         assert pieces.count(name) == 1
         inventory[name] = rect
 
     assert set(gear_types.values()) == set(range(1, 22))
+    _assert_uniform_equipment_columns(inventory)
     for index in range(1, 9):
         name = f"Newslot{index}"
         slot = _item(root, "InvSlot", name)
         assert slot.findtext("ScreenID") == name
         assert int(slot.findtext("EQType")) == 21 + index
         rect = _rect(slot)
-        expected_location = (176, 31 + 22 * (index - 1))
-        assert rect == (*expected_location, 31, 22)
+        expected_location = (178, (1, 26, 52, 77, 103, 128, 154, 179)[index - 1])
+        assert rect == (*expected_location, 25, 25)
         _assert_in_bounds(rect, window_size)
         assert pieces.count(name) == 1
         inventory[name] = rect
@@ -275,10 +285,21 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
     assert len(inventory) == 29
     # Ranged fills the lower-right equipment cell, directly below Ring2.
     assert inventory['Ranged'][:2] == (inventory['Ring2'][0], inventory['Ring2'][1] + 29)
-    # Bags share the Ammo column's left and right edges, without growing height.
-    assert all(inventory[f'Newslot{i}'][0::2] == inventory['Ammo'][0::2] for i in range(1,9))
+    # Eight proportional bags form their own column with no equipment above it.
+    assert inventory['Newslot1'][1] == inventory['Ammo'][1]
+    assert inventory['Newslot8'][1] + 25 == inventory['Ranged'][1] + 29
+    assert inventory['Ammo'][0] + 29 + 5 == inventory['Newslot1'][0]
     _assert_nonoverlapping(inventory)
     _assert_nonoverlapping({**hotbuttons, **inventory})
+
+
+def test_uniform_equipment_guard_rejects_the_previous_detached_ammo_slot():
+    equipment = {str(7 * col + row): (86 + 29 * col, 1 + 29 * row, 29, 29)
+                 for col in range(3) for row in range(7)}
+    _assert_uniform_equipment_columns(equipment)
+    equipment['14'] = (176, 0, 31, 31)
+    with pytest.raises(AssertionError):
+        _assert_uniform_equipment_columns(equipment)
 
 
 def test_all_drawable_inventory_slots_use_the_dedicated_gold_border():
