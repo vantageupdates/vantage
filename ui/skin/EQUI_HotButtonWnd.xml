@@ -892,11 +892,11 @@
     <ScreenID>Newslot1</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>180</X>
+      <X>176</X>
       <Y>31</Y>
     </Location>
     <Size>
-      <CX>22</CX>
+      <CX>31</CX>
       <CY>22</CY>
     </Size>
     <Background>dz40</Background>
@@ -913,11 +913,11 @@
     <ScreenID>Newslot2</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>180</X>
+      <X>176</X>
       <Y>53</Y>
     </Location>
     <Size>
-      <CX>22</CX>
+      <CX>31</CX>
       <CY>22</CY>
     </Size>
     <Background>dz40</Background>
@@ -934,11 +934,11 @@
     <ScreenID>Newslot3</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>180</X>
+      <X>176</X>
       <Y>75</Y>
     </Location>
     <Size>
-      <CX>22</CX>
+      <CX>31</CX>
       <CY>22</CY>
     </Size>
     <Background>dz40</Background>
@@ -955,11 +955,11 @@
     <ScreenID>Newslot4</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>180</X>
+      <X>176</X>
       <Y>97</Y>
     </Location>
     <Size>
-      <CX>22</CX>
+      <CX>31</CX>
       <CY>22</CY>
     </Size>
     <Background>dz40</Background>
@@ -976,11 +976,11 @@
     <ScreenID>Newslot5</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>180</X>
+      <X>176</X>
       <Y>119</Y>
     </Location>
     <Size>
-      <CX>22</CX>
+      <CX>31</CX>
       <CY>22</CY>
     </Size>
     <Background>dz40</Background>
@@ -997,11 +997,11 @@
     <ScreenID>Newslot6</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>180</X>
+      <X>176</X>
       <Y>141</Y>
     </Location>
     <Size>
-      <CX>22</CX>
+      <CX>31</CX>
       <CY>22</CY>
     </Size>
     <Background>dz40</Background>
@@ -1018,11 +1018,11 @@
     <ScreenID>Newslot7</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>180</X>
+      <X>176</X>
       <Y>163</Y>
     </Location>
     <Size>
-      <CX>22</CX>
+      <CX>31</CX>
       <CY>22</CY>
     </Size>
     <Background>dz40</Background>
@@ -1039,11 +1039,11 @@
     <ScreenID>Newslot8</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>180</X>
+      <X>176</X>
       <Y>185</Y>
     </Location>
     <Size>
-      <CX>22</CX>
+      <CX>31</CX>
       <CY>22</CY>
     </Size>
     <Background>dz40</Background>
@@ -1102,12 +1102,12 @@
     <ScreenID>Ranged</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>145</X>
-      <Y>0</Y>
+      <X>144</X>
+      <Y>177</Y>
     </Location>
     <Size>
-      <CX>31</CX>
-      <CY>31</CY>
+      <CX>29</CX>
+      <CY>29</CY>
     </Size>
     <Background>A_InvRange</Background>
     <EQType>11</EQType>

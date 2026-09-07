@@ -177,8 +177,7 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
     window = _item(root, "Screen", "HotButtonWnd")
     window_size = _pair(window, "Size", "CX", "CY")
     assert window_size == (215, 215)
-    actions = _item(_root("EQUI_ActionsWindow.xml"), "Screen", "ActionsWindow")
-    assert window_size[1] == _pair(actions, "Size", "CX", "CY")[1]
+    # Inventory sizing is independent: never enlarge Actions to match it.
     assert window.findtext("Style_VScroll") == "false"
     assert window.findtext("Style_HScroll") == "false"
     assert window.findtext("Style_Sizable") == "false"
@@ -242,7 +241,7 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
         "Belt": (115, 148),
         "Prim": (83, 0),
         "Sec": (114, 0),
-        "Ranged": (145, 0),
+        "Ranged": (144, 177),
         "Ammo": (176, 0),
         "Chest": (115, 90),
         "Legs": (115, 177),
@@ -254,7 +253,7 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
         assert slot.findtext("ScreenID") == name
         assert int(slot.findtext("EQType")) == eq_type
         rect = _rect(slot)
-        size = 31 if name in ("Prim", "Sec", "Ranged", "Ammo") else 29
+        size = 31 if name in ("Prim", "Sec", "Ammo") else 29
         assert rect == (*gear_locations[name], size, size)
         _assert_in_bounds(rect, window_size)
         assert pieces.count(name) == 1
@@ -267,13 +266,17 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
         assert slot.findtext("ScreenID") == name
         assert int(slot.findtext("EQType")) == 21 + index
         rect = _rect(slot)
-        expected_location = (180, 31 + 22 * (index - 1))
-        assert rect == (*expected_location, 22, 22)
+        expected_location = (176, 31 + 22 * (index - 1))
+        assert rect == (*expected_location, 31, 22)
         _assert_in_bounds(rect, window_size)
         assert pieces.count(name) == 1
         inventory[name] = rect
 
     assert len(inventory) == 29
+    # Ranged fills the lower-right equipment cell, directly below Ring2.
+    assert inventory['Ranged'][:2] == (inventory['Ring2'][0], inventory['Ring2'][1] + 29)
+    # Bags share the Ammo column's left and right edges, without growing height.
+    assert all(inventory[f'Newslot{i}'][0::2] == inventory['Ammo'][0::2] for i in range(1,9))
     _assert_nonoverlapping(inventory)
     _assert_nonoverlapping({**hotbuttons, **inventory})
 
@@ -456,7 +459,7 @@ def test_target_threshold_layers_are_native_player_clones_with_target_binding():
 def test_actions_alias_rows_have_real_gaps_and_clipping_safe_page_height():
     root = _root("EQUI_ActionsWindow.xml")
     window = _item(root, "Screen", "ActionsWindow")
-    assert _pair(window, "Size", "CX", "CY") == (144, 215)
+    assert _pair(window, "Size", "CX", "CY") == (144, 182)
     assert window.findtext("Style_Sizable") == "false"
     page = _item(root, "Page", "ActionsMainPage")
     pieces = [piece.text.strip() for piece in page.findall("Pieces")]
@@ -508,8 +511,9 @@ def test_actions_alias_rows_have_real_gaps_and_clipping_safe_page_height():
             icon = _item(animations, "Ui2DAnimation", tab_page.findtext(field))
             tab_heights.add(_pair(_only_frame(icon), "Size", "CX", "CY")[1])
     assert tab_heights == {18}
-    conservative_page_height = 215 - top_height - bottom_height - 18
+    conservative_page_height = 182 - top_height - bottom_height - 18
     assert conservative_page_height - (130 + 20) >= 4
+    assert conservative_page_height - (130 + 20) <= 6
 
 
 def test_attack_indicator_crop_retains_native_binding_and_title_clearance():

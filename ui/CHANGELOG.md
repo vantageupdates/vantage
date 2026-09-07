@@ -1,5 +1,23 @@
 # VantageUI releases
 
+## 1.44.58
+
+Install folder: `VantageUI-v1.44.58`.
+
+- Reverts only the Actions/Camp/Sit window height from 215px to its previous
+  182px. Removes the extra bottom space introduced in 1.44.57 without changing
+  its width, buttons, icons, colors or positions.
+- Moves Ranged into the lower-right equipment cell below Ring2. Widens the bag
+  column from 22px to 31px and aligns it with Ammo above, retaining the existing
+  eight-row height and compact outer frame. Every native binding is preserved.
+- Keeps all other 1.44.57 skin assets unchanged.
+- Adds a regression limit on the spare space below the Actions buttons. Actions
+  sizing is independent of inventory sizing; do not enlarge it to match.
+
+Load manually with `/loadskin VantageUI-v1.44.58 1`. Saved character INIs,
+other skins and Companion are not changed. This restores the prior XML size;
+actual rendering after reload has not been independently verified.
+
 ## 1.44.57
 
 Install folder: `VantageUI-v1.44.57`.
