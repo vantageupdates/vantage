@@ -1,5 +1,26 @@
 # VantageUI releases
 
+## 1.44.54
+
+Install folder: `VantageUI-v1.44.54`. Supersedes 1.44.53 without overwriting it.
+
+- Includes the same reviewed visual polish and all 176 skin assets from 1.44.53.
+- Fixes new Windows installation folders inheriting a private administrator-only
+  staging ACL. New publish folders inherit the normal parent permissions, so
+  EverQuest and Companion can read the installed skin from a normal session.
+- Does not change the parent `uifiles` permissions or any existing skin folder.
+  Private download staging, path guards, locks and hash verification stay intact.
+- Preserves the previous managed version, the legacy source and character INIs.
+
+After installation, load the new version manually:
+
+```text
+/loadskin VantageUI-v1.44.54 1
+```
+
+The visual/client limits documented under 1.44.53 still apply. This is an
+independent UI release; it does not build or publish `Vantage.exe`.
+
 ## 1.44.53
 
 Install folder: `VantageUI-v1.44.53`.

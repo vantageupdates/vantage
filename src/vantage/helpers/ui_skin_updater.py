@@ -1038,6 +1038,17 @@ def recover_pending(eq_dir, state_dir, log=print, allow_game_running=False,
         return recovered
 
 
+def _create_publish_stage(path, *, platform_name=None):
+    """Create only a new stage, with the target's normal Windows inheritance.
+
+    Python 3.13 gives Windows mode 0700 a private DACL that survives rename.
+    Mode 0777 is ignored there: it inherits the parent's ACL, not world-write
+    permissions. POSIX stages remain private. Never repair an existing path.
+    """
+    platform_name = os.name if platform_name is None else platform_name
+    path.mkdir(mode=0o777 if platform_name == "nt" else 0o700)
+
+
 def install_release(release, eq_dir, state_dir, log=print,
                     allow_game_running=False, progress=None):
     progress = _monotonic_progress(progress)
@@ -1105,7 +1116,7 @@ def install_release(release, eq_dir, state_dir, log=print,
             publish_stage = _exact_child(target, stage_name)
             _registry_unchanged(target, snapshot)
             _require_install_policy(allow_game_running)
-            publish_stage.mkdir(mode=0o700)
+            _create_publish_stage(publish_stage)
             record = {"version": release.version, "marker_sha256": _digest(marker_data),
                       "directory_id": _directory_id(publish_stage), "quarantine": ""}
             registry["pending"] = {"folder": name, "stage": stage_name, "record": record}
