@@ -134,7 +134,7 @@ def test_fresh_install_button_checks_then_continues_verified_flow(
     assert checks == [True]
     assert panel._install_after_check is True
     assert not panel.update_button.isEnabled()
-    release = SimpleNamespace(version="1.44.52")
+    release = SimpleNamespace(version="1.44.51")
     panel._operation_completed(panel._operation_token, "check", (release, ""))
     assert confirmations[0][0] == "Install VantageUI"
     assert confirmations[0][1].startswith("Install only")
@@ -142,18 +142,18 @@ def test_fresh_install_button_checks_then_continues_verified_flow(
 
 
 def test_installed_action_labels_update_and_current_repair(panel):
-    panel._installed = "1.44.51"
+    panel._installed = "1.44.50"
     panel._release = None
     panel._refresh_controls()
     assert panel.update_button.text() == "Update VantageUI"
     assert panel.update_button.isEnabled()
 
-    panel._release = SimpleNamespace(version="1.44.52")
+    panel._release = SimpleNamespace(version="1.44.51")
     panel._refresh_controls()
     assert panel.update_button.text() == "Update VantageUI"
     assert "back up" in panel.update_button.toolTip()
 
-    panel._release = SimpleNamespace(version="1.44.51")
+    panel._release = SimpleNamespace(version="1.44.50")
     panel._refresh_controls()
     assert panel.update_button.text() == "Repair VantageUI"
     assert panel.update_button.accessibleName() == "Repair VantageUI"
@@ -196,16 +196,87 @@ def test_update_queues_while_eq_runs_then_installs_after_exit(
     running = iter((True, False))
     monkeypatch.setattr(ui_skin_updater, "game_running", lambda: next(running))
     installs = []
-    monkeypatch.setattr(
-        panel, "_install_release", lambda selected: installs.append(selected) or True)
+    def complete_install(selected):
+        installs.append(selected)
+        panel._busy = True
+        panel._operation_token += 1
+        panel._operation_completed(panel._operation_token, "update", selected)
+        return True
+    monkeypatch.setattr(panel, "_install_release", complete_install)
     assert panel.update_skin(confirm=False) is True
     assert panel._pending_release is release
     assert "queued" in panel.status.text().casefold()
+    assert "Close EverQuest normally" in panel.pending_message.text()
+    assert "keep Vantage open" in panel.pending_message.text()
+    assert "never close the game" in panel.pending_message.text()
+    assert skin_target(panel.path_edit.text()) in panel.pending_message.text()
+    assert not panel.pending_banner.isHidden()
+    assert panel.update_button.text() == "Waiting for EverQuest to close…"
+    assert "Waiting for EverQuest" in panel.update_button.accessibleName()
+    assert "never close the game" in panel.update_button.toolTip()
+    assert not panel.update_button.isEnabled()
     assert installs == []
     panel._pending_timer.stop()
     panel._poll_pending_update()
     assert installs == [release]
     assert panel._pending_release is None
+    assert panel.pending_banner.isHidden()
+    assert panel._installed == release.version
+    assert panel.update_button.text() == "Repair VantageUI"
+    assert "install complete" in panel.status.text()
+
+
+def test_queue_is_one_notice_and_never_changes_files_while_eq_is_open(
+        panel, monkeypatch, tmp_path):
+    eq_root = tmp_path / "EverQuest"
+    target = Path(skin_target(eq_root))
+    target.mkdir(parents=True)
+    existing = target / "EQUI.xml"
+    existing.write_bytes(b"existing skin remains untouched")
+    before = {path.name: path.read_bytes() for path in target.iterdir()}
+    panel.path_edit.setText(str(eq_root))
+    panel._refresh_target()
+    panel._release = SimpleNamespace(version="1.44.51")
+    announcements = []
+    monkeypatch.setattr(panel, "_announce", announcements.append)
+    monkeypatch.setattr(ui_skin_updater, "game_running", lambda: True)
+    monkeypatch.setattr(
+        ui_skin_updater, "install_release",
+        lambda *_args, **_kwargs: pytest.fail(
+            "installer must not run while EverQuest is open"))
+
+    assert panel.update_skin(confirm=False)
+    panel._poll_pending_update()
+    panel._queue_pending_update(panel._release)
+
+    after = {path.name: path.read_bytes() for path in target.iterdir()}
+    assert after == before
+    assert len(announcements) == 1
+    assert announcements[0] == panel.pending_message.text()
+    assert panel._pending_timer.isActive()
+
+
+def test_pending_poll_failure_restores_usable_install_action(panel, monkeypatch):
+    panel._release = SimpleNamespace(version="1.44.51")
+    calls = 0
+
+    def game_state():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return True
+        raise OSError("process check unavailable")
+
+    monkeypatch.setattr(ui_skin_updater, "game_running", game_state)
+    assert panel.update_skin(confirm=False)
+    panel._pending_timer.stop()
+    panel._poll_pending_update()
+
+    assert panel._pending_release is None
+    assert panel.pending_banner.isHidden()
+    assert panel.update_button.text() == "Install VantageUI"
+    assert panel.update_button.isEnabled()
+    assert "failed safely" in panel.status.text()
 
 
 def test_check_update_restore_and_auto_use_verified_shared_core(

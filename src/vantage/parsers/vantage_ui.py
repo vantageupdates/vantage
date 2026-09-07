@@ -231,6 +231,25 @@ class VantageUI(ParserWindow):
         QWidget.setTabOrder(self.check_button, self.update_button)
         QWidget.setTabOrder(self.update_button, self.restore_button)
 
+        self.pending_banner = QFrame()
+        self.pending_banner.setObjectName("VantageUICard")
+        self.pending_banner.setAccessibleName("VantageUI installation queued")
+        pending_layout = QVBoxLayout(self.pending_banner)
+        pending_layout.setContentsMargins(10, 8, 10, 8)
+        pending_layout.setSpacing(3)
+        pending_heading = QLabel("INSTALLATION QUEUED")
+        pending_font = pending_heading.font()
+        pending_font.setBold(True)
+        pending_heading.setFont(pending_font)
+        self.pending_message = QLabel()
+        self.pending_message.setWordWrap(True)
+        self.pending_message.setAccessibleName(
+            "Queued VantageUI installation instructions")
+        pending_layout.addWidget(pending_heading)
+        pending_layout.addWidget(self.pending_message)
+        self.pending_banner.hide()
+        layout.addWidget(self.pending_banner)
+
         self.auto_update = QCheckBox("Automatically check and update VantageUI")
         self.auto_update.setChecked(bool(
             config.data["vantage_ui"].get("auto_update", False)))
@@ -330,6 +349,15 @@ class VantageUI(ParserWindow):
         return "update"
 
     def _refresh_primary_action(self):
+        if self._pending_release is not None:
+            text = "Waiting for EverQuest to close…"
+            self.update_button.setText(text)
+            self.update_button.setAccessibleName(
+                "Waiting for EverQuest to close before installing VantageUI")
+            self.update_button.setToolTip(
+                "Installation is queued. Close EverQuest normally and keep "
+                "Vantage open; Vantage will never close the game.")
+            return
         kind = self._primary_action_kind()
         if kind == "install":
             text = "Install VantageUI"
@@ -370,8 +398,7 @@ class VantageUI(ParserWindow):
         self._release = None
         self._installed = ""
         self._install_after_check = False
-        self._pending_release = None
-        self._pending_timer.stop()
+        self._clear_pending_wait()
         self._refresh_target()
         self._refresh_versions()
         self._save_settings()
@@ -442,7 +469,7 @@ class VantageUI(ParserWindow):
         return dialog.exec() == QMessageBox.StandardButton.Yes
 
     def update_skin(self, _checked=False, confirm=True):
-        if self._busy:
+        if self._busy or self._pending_release is not None:
             return False
         if self._release is None:
             # The primary first-install control is intentionally one action:
@@ -498,12 +525,25 @@ class VantageUI(ParserWindow):
             f"Verifying, backing up, and {progress_verb} only VantageUI…")
 
     def _queue_pending_update(self, release):
+        first_notice = self._pending_release is None
         self._pending_release = release
         self._pending_timer.start(PENDING_POLL_MS)
-        self._set_status(
-            "Update queued. VantageUI will update after EverQuest exits; "
-            "Vantage will not close the game.")
+        target = skin_target(self.path_edit.text())
+        message = (
+            f"Installation queued for {target}. Close EverQuest normally and "
+            "keep Vantage open; installation will continue automatically. "
+            "Vantage will never close the game.")
+        self.pending_message.setText(message)
+        self.pending_banner.setAccessibleDescription(message)
+        self.pending_banner.show()
+        if first_notice:
+            self._set_status(message)
         self._refresh_controls()
+
+    def _clear_pending_wait(self):
+        self._pending_timer.stop()
+        self._pending_release = None
+        self.pending_banner.hide()
 
     def _poll_pending_update(self):
         if self._pending_release is None or self._busy:
@@ -514,9 +554,11 @@ class VantageUI(ParserWindow):
                 self._pending_timer.start(PENDING_POLL_MS)
                 return
         except Exception as error:
+            self._clear_pending_wait()
+            self._install_action = ""
             self._operation_failed(self._operation_token, "wait", error)
             return
-        self._pending_release = None
+        self._clear_pending_wait()
         self._install_release(release)
 
     def restore_skin(self):
@@ -569,7 +611,7 @@ class VantageUI(ParserWindow):
         elif action == "update":
             completed_action = self._install_action or "update"
             self._installed = result.version
-            self._pending_release = None
+            self._clear_pending_wait()
             self._set_status(
                 f"VantageUI {completed_action} complete. In EverQuest use "
                 "/loadskin VantageUI 1, "
@@ -611,6 +653,7 @@ class VantageUI(ParserWindow):
                 "Vantage will not change folder permissions.")
         else:
             failed_action = self._install_action or action
+            self._install_action = ""
             self._set_status(
                 f"VantageUI {failed_action} failed safely: {message}. "
                 "Nothing else was changed.")
@@ -624,8 +667,9 @@ class VantageUI(ParserWindow):
             self.check_for_updates()
         else:
             self._automatic_timer.stop()
-            self._pending_release = None
-            self._pending_timer.stop()
+            self._clear_pending_wait()
+            self._install_action = ""
+            self._refresh_controls()
             self._set_status("Automatic VantageUI updates are off.")
 
     def _request_elevation(self):
