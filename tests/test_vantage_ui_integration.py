@@ -431,6 +431,77 @@ def test_background_check_completion_never_activates_or_moves_focus(
     external.close()
 
 
+def test_update_snapshot_distinguishes_installed_update_and_background_check(
+        panel, monkeypatch):
+    class DormantThread:
+        def __init__(self, *args, **kwargs):
+            pass
+        def start(self):
+            pass
+
+    monkeypatch.setattr(vantage_ui_module.threading, "Thread", DormantThread)
+    panel._installed = "1.44.51"
+    panel._release = SimpleNamespace(version="1.44.52")
+    current = panel.update_snapshot()
+    assert current["update_available"] is True
+    assert current["checking"] is False
+
+    assert panel.check_for_updates(background=True)
+    checking = panel.update_snapshot()
+    assert checking["checking"] is True
+    assert checking["busy"] is True
+    assert panel._initiating_control is None
+
+    panel._operation_failed(
+        panel._operation_token, "check", RuntimeError("network unavailable"))
+    failed = panel.update_snapshot()
+    assert failed["checking"] is False
+    assert failed["check_error"] == "network unavailable"
+
+    panel._installed = ""
+    assert panel.update_snapshot()["update_available"] is False
+
+
+def test_background_heartbeat_is_silent_but_manual_check_announces(
+        panel, monkeypatch):
+    class DormantThread:
+        def __init__(self, *args, **kwargs):
+            pass
+        def start(self):
+            pass
+
+    announcements = []
+
+    class AccessibleRecorder:
+        @staticmethod
+        def updateAccessibility(event):
+            announcements.append(event.message())
+
+    monkeypatch.setattr(vantage_ui_module.threading, "Thread", DormantThread)
+    monkeypatch.setattr(vantage_ui_module, "QAccessible", AccessibleRecorder)
+
+    assert panel.check_for_updates(background=True)
+    token = panel._operation_token
+    panel._operation_progress(token, "Downloading", 25, 25, 100)
+    panel._operation_completed(
+        token, "check", (SimpleNamespace(version="1.0.0"), "1.0.0"))
+    assert announcements == []
+
+    assert panel.check_for_updates(background=True)
+    token = panel._operation_token
+    panel._operation_failed(token, "check", RuntimeError("offline"))
+    assert announcements == []
+
+    assert panel.check_for_updates(background=False)
+    token = panel._operation_token
+    panel._operation_progress(token, "Downloading", 25, 25, 100)
+    panel._operation_failed(token, "check", RuntimeError("offline"))
+    assert any("verified VantageUI release" in text
+               for text in announcements)
+    assert any("Downloading" in text for text in announcements)
+    assert any("failed safely" in text for text in announcements)
+
+
 def test_manual_completion_does_not_steal_focus_after_user_leaves_panel(
         panel, monkeypatch):
     class DormantThread:

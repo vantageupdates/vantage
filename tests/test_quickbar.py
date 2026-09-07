@@ -88,7 +88,8 @@ disconnected_log = {
     'name': bar._buttons['log_status'].accessibleName(),
 }
 
-app.new_version_available = lambda: True
+app.available_update_products = lambda: {
+    'Vantage': '9.9.9', 'VantageUI': '8.8.8'}
 bar.refresh_state()
 update_ready = {
     'badge': bar._update_badge.isVisible(),
@@ -608,7 +609,8 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
     }
     assert result['update_ready']['badge'] is True
     assert 'Update ready' in result['update_ready']['name']
-    assert 'ready to install' in result['update_ready']['description']
+    assert 'Vantage 9.9.9 and VantageUI 8.8.8' in \
+        result['update_ready']['description']
     assert result['support_calls'] == ['opened']
     assert result['reload_calls'] == ['reset']
 

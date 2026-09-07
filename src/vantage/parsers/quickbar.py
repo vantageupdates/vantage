@@ -732,36 +732,73 @@ class QuickBar(ParserWindow):
         self._apply_log_status_copy(display_status)
         self._sync_log_animation()
 
-        update_ready = self._application.new_version_available()
+        product_getter = getattr(
+            self._application, "available_update_products", None)
+        if callable(product_getter):
+            update_products = product_getter()
+        else:
+            update_products = (
+                {"Vantage": ""}
+                if self._application.new_version_available() else {})
+        update_ready = bool(update_products)
         update_button = self._buttons["updates"]
-        update_state = str(getattr(
+        companion_state = str(getattr(
             self._application, "_update_check_state", "idle"))
+        ui_state = str(getattr(
+            self._application, "_vantage_ui_update_state", "idle"))
+        update_state = (
+            "ready" if update_ready else
+            "checking" if "checking" in (companion_state, ui_state) else
+            "retrying" if "retrying" in (companion_state, ui_state) else
+            "disabled" if companion_state == ui_state == "disabled" else
+            "idle")
         update_button.setProperty("Alert", update_ready)
         update_button.setProperty("UpdateState", update_state)
+        update_button.setProperty(
+            "UpdateProducts", ",".join(update_products))
         update_button.setStyle(update_button.style())
         self._update_badge.setVisible(update_ready)
         if update_ready:
             self._update_badge.raise_()
         if update_ready:
-            tooltip = "An update is ready · open the verified updater"
-            accessible_name = "Update ready; open Vantage updater"
-            description = "A verified Vantage update is ready to install"
+            product_copy = " and ".join(
+                f"{name} {version}".strip()
+                for name, version in update_products.items())
+            tooltip = (
+                f"{product_copy} ready · open verified updates")
+            accessible_name = (
+                f"Update ready for {product_copy}; open Updates")
+            description = (
+                f"Verified update available for {product_copy}")
         elif update_state == "checking":
-            tooltip = "Checking GitHub for a verified Vantage update…"
-            accessible_name = "Checking for Vantage updates"
-            description = "The automatic update heartbeat is checking now"
+            tooltip = (
+                "Checking GitHub for verified Vantage and VantageUI updates…")
+            accessible_name = "Checking Vantage and VantageUI updates"
+            description = (
+                "The one-minute update heartbeat is checking both products")
         elif update_state == "retrying":
-            tooltip = "Update check unavailable · retrying automatically"
-            accessible_name = "Update check will retry automatically"
-            description = "The update heartbeat will retry in about one minute"
+            retry_products = []
+            if companion_state == "retrying":
+                retry_products.append("Vantage")
+            if ui_state == "retrying":
+                retry_products.append("VantageUI")
+            retry_copy = " and ".join(retry_products) or "Updates"
+            tooltip = (
+                f"{retry_copy} check unavailable · retrying automatically")
+            accessible_name = (
+                f"{retry_copy} update check will retry automatically")
+            description = (
+                "The one-minute update heartbeat will retry the unavailable check")
         elif update_state == "disabled":
-            tooltip = "Automatic update checks are off · click to check now"
-            accessible_name = "Check manually for Vantage updates"
-            description = "Automatic update heartbeat is disabled in Settings"
+            tooltip = (
+                "Automatic Vantage and VantageUI checks are off · click to check now")
+            accessible_name = "Check Vantage and VantageUI updates manually"
+            description = "The automatic update heartbeat is disabled in Settings"
         else:
-            tooltip = "Updates checked automatically every minute · click now"
-            accessible_name = "Check for Vantage updates"
-            description = "No verified update is currently waiting"
+            tooltip = (
+                "Vantage and VantageUI checked automatically every minute · click now")
+            accessible_name = "Check Vantage and VantageUI updates"
+            description = "No verified update for either product is currently waiting"
         update_button.setToolTip(tooltip)
         update_button.setAccessibleName(accessible_name)
         update_button.setAccessibleDescription(description)

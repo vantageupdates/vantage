@@ -121,6 +121,8 @@ class VantageUI(ParserWindow):
         self._signals.progress.connect(self._operation_progress)
         self._operation_token = 0
         self._busy = False
+        self._active_action = ""
+        self._update_check_error = ""
         self._loaded_once = False
         self._installed = ""
         self._release = None
@@ -130,6 +132,7 @@ class VantageUI(ParserWindow):
         self._progress_stage = "Ready"
         self._announced_progress_stage = ""
         self._announced_progress_milestone = 0
+        self._operation_announcements = True
         self._initiating_control = None
         self._automatic_timer = QTimer(self)
         self._automatic_timer.setInterval(AUTO_CHECK_MS)
@@ -325,7 +328,7 @@ class VantageUI(ParserWindow):
         self.status.setText(str(text))
         self.status.setAccessibleDescription(str(text))
         self.update_state_changed.emit(self.update_snapshot())
-        if announce:
+        if announce and self._operation_announcements:
             self._announce(text)
 
     def _append_log(self, token, text):
@@ -343,10 +346,20 @@ class VantageUI(ParserWindow):
 
     def update_snapshot(self):
         """Small read-only bridge for the independent Companion update dialog."""
+        available = self._release.version if self._release else ""
         return {
             "installed": self._installed or "",
-            "available": self._release.version if self._release else "",
+            "available": available,
             "busy": bool(self._busy),
+            "checking": bool(
+                self._busy and self._active_action == "check"),
+            "update_available": bool(
+                self._installed and available and
+                version_is_newer(self._installed, available)),
+            "check_error": self._update_check_error,
+            "auto_update": bool(
+                hasattr(self, "auto_update") and
+                self.auto_update.isChecked()),
             "status": self.status.text() if hasattr(self, "status") else "",
         }
 
@@ -418,7 +431,8 @@ class VantageUI(ParserWindow):
             focused is not None and
             (focused is self or self.isAncestorOf(focused)))
 
-    def _start(self, action, callback, status, *, restore_focus=True):
+    def _start(self, action, callback, status, *, restore_focus=True,
+               announce=True):
         if self._busy:
             return False
         focused = self._surface.focusWidget()
@@ -428,6 +442,10 @@ class VantageUI(ParserWindow):
             (focused is self._surface or self._surface.isAncestorOf(focused))
             else None)
         self._busy = True
+        self._active_action = action
+        self._operation_announcements = bool(announce)
+        if action == "check":
+            self._update_check_error = ""
         self._operation_token += 1
         token = self._operation_token
         self._progress_value = 0
@@ -568,7 +586,7 @@ class VantageUI(ParserWindow):
         return self._start(
             "check", check,
             "Checking the official verified VantageUI release…",
-            restore_focus=not background)
+            restore_focus=not background, announce=not background)
 
     def _confirm(self, title, text):
         dialog = QMessageBox(
@@ -631,7 +649,7 @@ class VantageUI(ParserWindow):
                 allow_game_running=True, progress=progress),
             "Updating — do not reload the UI yet. "
             f"Vantage is safely {progress_verb} only VantageUI…",
-            restore_focus=not background)
+            restore_focus=not background, announce=not background)
 
     def restore_skin(self):
         if self._busy:
@@ -662,6 +680,8 @@ class VantageUI(ParserWindow):
             return
         initiating = self._consume_initiating_control()
         self._busy = False
+        if action == "check":
+            self._update_check_error = ""
         self._progress_value = 100
         self.progress.setValue(100)
         if action == "local":
@@ -724,6 +744,9 @@ class VantageUI(ParserWindow):
         else:
             self._focus_after_operation(
                 self.update_button, initiating=initiating)
+        if not self._busy:
+            self._active_action = ""
+            self._operation_announcements = True
 
     def _operation_failed(self, token, action, error):
         if token != self._operation_token:
@@ -733,6 +756,8 @@ class VantageUI(ParserWindow):
         if action == "check":
             self._install_after_check = False
         message = str(error or "Unknown error")
+        if action == "check":
+            self._update_check_error = message
         sharing = (
             getattr(error, "winerror", None) in (32, 33) or
             any(term in message.casefold() for term in (
@@ -774,6 +799,8 @@ class VantageUI(ParserWindow):
             self._focus_after_operation(
                 self._retry_control(action, initiating),
                 initiating=initiating)
+        self._active_action = ""
+        self._operation_announcements = True
 
     def _auto_update_changed(self, enabled):
         self._save_settings()

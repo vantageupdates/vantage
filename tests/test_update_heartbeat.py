@@ -37,9 +37,39 @@ initial = {
 }
 
 app._update_heartbeat.stop()
-app._update_controller.check = lambda: False
+checks = []
+app._update_controller.check = lambda: checks.append('Vantage') or False
+ui = app._parsers_dict['vantage_ui']
+ui.check_for_updates = lambda **options: checks.append(
+    ['VantageUI', options]) or False
 app._update_heartbeat_tick()
 busy = app._update_heartbeat.interval()
+
+ui_notices = []
+app._update_toast.show_for_vantage_ui = ui_notices.append
+ui_ready = {
+    'installed': '1.44.51',
+    'available': '1.44.52',
+    'busy': False,
+    'checking': False,
+    'update_available': True,
+    'check_error': '',
+}
+app._vantage_ui_update_state_changed(ui_ready)
+app._vantage_ui_update_state_changed(ui_ready)
+ui_alert = {
+    'notices': ui_notices,
+    'badge': bar._update_badge.isVisible(),
+    'products': button.property('UpdateProducts'),
+    'name': button.accessibleName(),
+    'tooltip': button.toolTip(),
+}
+app._vantage_ui_update_state_changed({
+    **ui_ready, 'installed': '', 'update_available': False})
+ui_not_installed = {
+    'ready': app.vantage_ui_update_available(),
+    'badge': bar._update_badge.isVisible(),
+}
 
 app._update_check_started()
 checking = {
@@ -63,7 +93,10 @@ healthy = {
 
 print(json.dumps({
     'initial': initial,
+    'checks': checks,
     'busy': busy,
+    'ui_alert': ui_alert,
+    'ui_not_installed': ui_not_installed,
     'checking': checking,
     'retrying': retrying,
     'healthy': healthy,
@@ -91,19 +124,35 @@ def test_update_heartbeat_starts_fast_retries_and_updates_quickbar(tmp_path):
     assert result['initial']['interval'] == 3000
     assert 'every minute' in result['initial']['tooltip']
     assert result['initial']['update_toast_visible'] is False
-    update_message = 'Vantage updated · 1.44.44 → 1.44.56'
+    update_message = 'Vantage updated · 1.44.44 → 1.44.57'
     assert update_message in (
         [result['initial']['rail_text']] + result['initial']['rail_pending'])
     assert result['initial']['vantage_ui_visible'] is True
+    assert result['checks'] == [
+        'Vantage', ['VantageUI', {'background': True}]]
     assert result['busy'] == 15000
+    assert result['ui_alert'] == {
+        'notices': ['1.44.52'],
+        'badge': True,
+        'products': 'VantageUI',
+        'name': (
+            'Update ready for VantageUI 1.44.52; open Updates'),
+        'tooltip': (
+            'VantageUI 1.44.52 ready · open verified updates'),
+    }
+    assert result['ui_not_installed'] == {
+        'ready': False,
+        'badge': False,
+    }
     assert result['checking'] == {
         'state': 'checking',
-        'name': 'Checking for Vantage updates',
-        'tooltip': 'Checking GitHub for a verified Vantage update…',
+        'name': 'Checking Vantage and VantageUI updates',
+        'tooltip': (
+            'Checking GitHub for verified Vantage and VantageUI updates…'),
     }
     assert result['retrying'] == {
         'state': 'retrying',
-        'name': 'Update check will retry automatically',
+        'name': 'Vantage update check will retry automatically',
         'interval': 60000,
     }
     assert result['healthy'] == {

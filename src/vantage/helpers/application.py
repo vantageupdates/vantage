@@ -36,7 +36,7 @@ from vantage.parsers.maps.window import MapsSignals
 from vantage.parsers.market import GEAR_COLUMN_DEFAULT_WIDTHS, GreenMarket
 from vantage.parsers.zones import Zones
 from vantage.parsers.quests import Quests
-from vantage.parsers.vantage_ui import VantageUI
+from vantage.parsers.vantage_ui import VantageUI, version_is_newer
 from vantage.parsers.quickbar import QuickBar
 from vantage.parsers.spells import Spells
 from vantage.parsers.tick import ServerTick
@@ -50,7 +50,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=56,
+    patch=57,
     build=""
 )
 
@@ -150,6 +150,13 @@ class VantageApp(QApplication):
         self._update_check_state = (
             "idle" if self._update_auto_enabled else "disabled")
         self._update_check_error = ""
+        self._vantage_ui_update_state = (
+            "idle" if self._update_auto_enabled else "disabled")
+        self._vantage_ui_update_error = ""
+        self._vantage_ui_update_ready = False
+        self._vantage_ui_available_version = ""
+        self._notified_companion_version = ""
+        self._notified_vantage_ui_version = ""
         self._update_heartbeat = QTimer(self)
         self._update_heartbeat.setSingleShot(True)
         self._update_heartbeat.timeout.connect(self._update_heartbeat_tick)
@@ -165,6 +172,12 @@ class VantageApp(QApplication):
             self._update_settings_changed)
         self._update_toast = QuickUpdateToast(
             self._update_controller, self)
+        vantage_ui = self._parsers_dict.get("vantage_ui")
+        if vantage_ui is not None:
+            vantage_ui.update_state_changed.connect(
+                self._vantage_ui_update_state_changed)
+            self._vantage_ui_update_state_changed(
+                vantage_ui.update_snapshot())
         self._mobile_share_instance = None
         self._mobile_dialog_instance = None
         self._spell_library_dialog = None
@@ -1145,10 +1158,21 @@ class VantageApp(QApplication):
         return True
 
     def _update_heartbeat_tick(self):
-        """Check GitHub now; transient failures are retried automatically."""
+        """Check both verified release channels without stacking work."""
         if not config.data['general'].get('update_check', True):
             return
-        if not self._update_controller.check():
+        companion_started = self._update_controller.check()
+        vantage_ui = self._parsers_dict.get("vantage_ui")
+        ui_started = bool(
+            vantage_ui is not None and
+            vantage_ui.check_for_updates(background=True))
+        if not companion_started:
+            self._schedule_update_check(UPDATE_BUSY_RETRY_MS)
+        elif vantage_ui is None:
+            self._vantage_ui_update_state = "unavailable"
+        elif not ui_started and not getattr(vantage_ui, "_busy", False):
+            # A checker that declined to start without being busy should be
+            # retried soon even though the Companion request is in flight.
             self._schedule_update_check(UPDATE_BUSY_RETRY_MS)
 
     def _maybe_check_updates(self):
@@ -1187,15 +1211,53 @@ class VantageApp(QApplication):
         else:
             self._update_heartbeat.stop()
             self._update_check_state = "disabled"
+            self._vantage_ui_update_state = "disabled"
             self._refresh_quickbar()
 
     def _update_available(self, info):
         self._update_check_state = "ready"
         self._refresh_quickbar()
+        version = str(info.version)
+        if version == self._notified_companion_version:
+            return
         dialog = self._update_dialog_instance
         if dialog is not None and dialog.isVisible():
             return
+        self._notified_companion_version = version
         self._update_toast.show_for(info)
+
+    def _vantage_ui_update_state_changed(self, snapshot):
+        """Fold independent VantageUI discovery into the shared update UX."""
+        snapshot = snapshot if isinstance(snapshot, dict) else {}
+        installed = str(snapshot.get("installed") or "").strip()
+        available = str(snapshot.get("available") or "").strip()
+        ready = bool(
+            installed and available and
+            snapshot.get("update_available",
+                         version_is_newer(installed, available)))
+        checking = bool(snapshot.get("checking", False))
+        error = str(snapshot.get("check_error") or "").strip()
+        self._vantage_ui_update_ready = ready
+        self._vantage_ui_available_version = available
+        self._vantage_ui_update_error = error
+        self._vantage_ui_update_state = (
+            "checking" if checking else
+            "ready" if ready else
+            "retrying" if error and self._update_auto_enabled else
+            "disabled" if not self._update_auto_enabled else "idle")
+        self._refresh_quickbar()
+
+        if not ready:
+            self._notified_vantage_ui_version = ""
+            self._update_toast.clear_vantage_ui_update()
+            return
+        if available == self._notified_vantage_ui_version:
+            return
+        dialog = self._update_dialog_instance
+        if dialog is not None and dialog.isVisible():
+            return
+        self._notified_vantage_ui_version = available
+        self._update_toast.show_for_vantage_ui(available)
 
     def install_quick_update(self, info, staged_path, toast=None):
         """Finish an explicitly clicked one-step update."""
@@ -1258,6 +1320,22 @@ class VantageApp(QApplication):
         latest = getattr(self, '_update_controller', None)
         info = latest.latest_info if latest else None
         return bool(info and info.version > CURRENT_VERSION)
+
+    def vantage_ui_update_available(self):
+        """Return true only for an installed, older VantageUI skin."""
+        return bool(getattr(self, "_vantage_ui_update_ready", False))
+
+    def available_update_products(self):
+        """Describe verified pending updates for compact status surfaces."""
+        products = {}
+        latest = getattr(self, '_update_controller', None)
+        info = latest.latest_info if latest else None
+        if info is not None and info.version > CURRENT_VERSION:
+            products["Vantage"] = str(info.version)
+        if self.vantage_ui_update_available():
+            products["VantageUI"] = str(
+                getattr(self, "_vantage_ui_available_version", ""))
+        return products
 
     def show_mobile_share(self):
         dialog = self._mobile_dialog

@@ -13,13 +13,14 @@ from vantage.helpers.icons import game_icon, game_pixmap
 
 
 class QuickUpdateToast(QWidget):
-    """Top-right update card; a click downloads, verifies, and installs."""
+    """Top-right card for verified Companion and VantageUI releases."""
 
     def __init__(self, controller, application):
         super().__init__(None)
         self.controller = controller
         self.application = application
         self.info = None
+        self._vantage_ui_version = ""
         self._one_click_active = False
         self.setObjectName("QuickUpdateToast")
         self.setWindowTitle("Vantage Update")
@@ -86,6 +87,16 @@ class QuickUpdateToast(QWidget):
             "One click updates only Vantage; EverQuest and WinEQ remain open")
         self.update_button.clicked.connect(self.start_one_click_update)
         actions.addWidget(self.update_button)
+        self.ui_button = QPushButton("Open VantageUI")
+        self.ui_button.setObjectName("QuickUpdateAction")
+        self.ui_button.setIcon(game_icon("ph-layout"))
+        self.ui_button.setAccessibleName(
+            "Open VantageUI to review and install its verified update")
+        self.ui_button.setToolTip(
+            "Open VantageUI to review the verified release before installing")
+        self.ui_button.clicked.connect(self._open_vantage_ui)
+        self.ui_button.hide()
+        actions.addWidget(self.ui_button)
         root.addLayout(actions)
 
     def show_for(self, info):
@@ -101,24 +112,106 @@ class QuickUpdateToast(QWidget):
         self.close_button.setEnabled(True)
         self.update_button.setEnabled(True)
         self.update_button.setText("Update")
-        self.title.setText("VANTAGE UPDATE")
-        self._set_status(
-            f"Vantage {info.version} is ready · verified GitHub Release",
-            announce=False)
+        self._refresh_ready_content()
         self._move_top_right()
         self.show()
         self.raise_()
         self._announce_status()
 
+    def show_for_vantage_ui(self, version):
+        """Show a deduplicated VantageUI release without installing it."""
+        self._vantage_ui_version = str(version or "").strip()
+        if not self._vantage_ui_version:
+            return
+        if self._one_click_active:
+            # Discovery can finish while the Companion payload is already
+            # downloading. Keep that verified transfer and its progress fully
+            # intact while still making the second update visible.
+            self.title.setText("UPDATES READY")
+            self.ui_button.show()
+            self.ui_button.setEnabled(False)
+            self._set_status(
+                "Updating Vantage · VantageUI "
+                f"{self._vantage_ui_version} is also ready",
+                announce=False)
+            self._move_top_right()
+            self.show()
+            self.raise_()
+            self._announce_status()
+            return
+        self._one_click_active = False
+        self.progress.hide()
+        self.progress.setValue(0)
+        self.close_button.setEnabled(True)
+        self.update_button.setEnabled(True)
+        self.ui_button.setEnabled(True)
+        self._refresh_ready_content()
+        self._move_top_right()
+        self.show()
+        self.raise_()
+        self._announce_status()
+
+    def clear_vantage_ui_update(self):
+        """Remove a no-longer-current UI notice without losing Companion."""
+        if not self._vantage_ui_version:
+            return
+        self._vantage_ui_version = ""
+        if self._one_click_active:
+            self.ui_button.hide()
+            self.title.setText("VANTAGE UPDATE")
+            self._set_status(
+                "Downloading and verifying Vantage…", announce=False)
+            return
+        if self.info is not None:
+            self._refresh_ready_content()
+        elif self.title.text() != "UPDATE COMPLETE":
+            self.hide()
+
+    def _refresh_ready_content(self):
+        companion_ready = self.info is not None
+        ui_ready = bool(self._vantage_ui_version)
+        self.update_button.setVisible(companion_ready)
+        self.ui_button.setVisible(ui_ready)
+        if companion_ready and ui_ready:
+            self.title.setText("UPDATES READY")
+            self._set_status(
+                f"Vantage {self.info.version} and VantageUI "
+                f"{self._vantage_ui_version} are ready · verified releases",
+                announce=False)
+        elif companion_ready:
+            self.title.setText("VANTAGE UPDATE")
+            self._set_status(
+                f"Vantage {self.info.version} is ready · verified GitHub Release",
+                announce=False)
+        elif ui_ready:
+            self.title.setText("VANTAGEUI UPDATE")
+            self._set_status(
+                f"VantageUI {self._vantage_ui_version} is ready · verified GitHub Release",
+                announce=False)
+
+    def _open_vantage_ui(self):
+        """Honor the user's click by opening the review/install panel."""
+        if not self._vantage_ui_version:
+            return
+        self.application.open_vantage_ui()
+        self._vantage_ui_version = ""
+        if self.info is not None:
+            self._refresh_ready_content()
+        else:
+            self.hide()
+
     def show_success(self, previous_version, current_version):
         """Leave an unmistakable receipt after the replacement restarts."""
         self.info = None
+        self._vantage_ui_version = ""
         self._one_click_active = False
         self.progress.setValue(100)
         self.progress.show()
         self.close_button.setEnabled(True)
         self.update_button.setEnabled(True)
         self.update_button.setText("Done")
+        self.update_button.show()
+        self.ui_button.hide()
         try:
             self.update_button.clicked.disconnect()
         except (RuntimeError, TypeError):
@@ -151,6 +244,7 @@ class QuickUpdateToast(QWidget):
         self._one_click_active = True
         self.close_button.setEnabled(False)
         self.update_button.setEnabled(False)
+        self.ui_button.setEnabled(False)
         self.update_button.setText("Updating…")
         self.progress.setValue(0)
         self.progress.show()
@@ -182,6 +276,7 @@ class QuickUpdateToast(QWidget):
         self._one_click_active = False
         self.close_button.setEnabled(True)
         self.update_button.setEnabled(True)
+        self.ui_button.setEnabled(True)
         self.update_button.setText("Try again")
         self._set_status(str(message))
         if restore_focus:
