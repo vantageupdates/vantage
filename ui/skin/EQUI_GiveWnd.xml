@@ -25,7 +25,6 @@
   </Label>
   <InvSlot item="GVW_MyItemSlot0">
     <ScreenID>GVW_MyItemSlot0</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>2</X>
@@ -39,10 +38,11 @@
     <EQType>3000</EQType>
     <ItemOffsetX>2</ItemOffsetX>
     <ItemOffsetY>2</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="GVW_MyItemSlot1">
     <ScreenID>GVW_MyItemSlot1</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>41</X>
@@ -56,10 +56,11 @@
     <EQType>3001</EQType>
     <ItemOffsetX>2</ItemOffsetX>
     <ItemOffsetY>2</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="GVW_MyItemSlot2">
     <ScreenID>GVW_MyItemSlot2</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>2</X>
@@ -73,10 +74,11 @@
     <EQType>3002</EQType>
     <ItemOffsetX>2</ItemOffsetX>
     <ItemOffsetY>2</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="GVW_MyItemSlot3">
     <ScreenID>GVW_MyItemSlot3</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>41</X>
@@ -90,6 +92,8 @@
     <EQType>3003</EQType>
     <ItemOffsetX>2</ItemOffsetX>
     <ItemOffsetY>2</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <Button item="GVW_MyMoney0">
     <ScreenID>GVW_MyMoney0</ScreenID>

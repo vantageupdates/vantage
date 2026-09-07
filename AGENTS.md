@@ -30,3 +30,7 @@ For a UI-only release:
    `vantage-ui-v<major.minor.patch>` stable tag; never overwrite or reuse a tag.
 5. Verify the published UI assets and SHA-256 digests against the tested
    candidates. Do not publish `Vantage.exe` as part of the UI-only release.
+6. Every delivered UI change must be exported to `ui/skin` and published in this
+   independent update channel. Local installation must use the same verified
+   published release, not an unmanaged local-only copy. Always use a new matching
+   `VantageUI-v<version>` folder; preserve existing versions and Companion Latest.

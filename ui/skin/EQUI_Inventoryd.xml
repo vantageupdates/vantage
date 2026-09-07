@@ -359,7 +359,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- IS_HEAD		2 -->
   <InvSlot item="InvSlot2">
@@ -379,7 +380,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- IS_FACE		3 -->
   <InvSlot item="InvSlot3">
@@ -399,7 +401,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- IS_R_EAR		4 -->
   <InvSlot item="InvSlot4">
@@ -419,7 +422,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- IS_NECK		5 -->
   <InvSlot item="InvSlot5">
@@ -439,7 +443,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- IS_SHOULDERS	6 -->
   <InvSlot item="InvSlot6">
@@ -459,7 +464,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- IS_ARMS		7 -->
   <InvSlot item="InvSlot7">
@@ -479,7 +485,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- IS_ABOUT_BODY	8 -->
   <InvSlot item="InvSlot8">
@@ -499,7 +506,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- IS_L_WRIST		9 -->
   <InvSlot item="InvSlot9">
@@ -519,7 +527,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- IS_R_WRIST		10 -->
   <InvSlot item="InvSlot10">
@@ -539,7 +548,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- IS_RANGE		11 -->
   <InvSlot item="InvSlot11">
@@ -559,7 +569,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- IS_HANDS		12 -->
   <InvSlot item="InvSlot12">
@@ -579,7 +590,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- IS_PRIMARY		13 -->
   <InvSlot item="InvSlot13">
@@ -599,7 +611,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- IS_SECONDARY	14 -->
   <InvSlot item="InvSlot14">
@@ -619,7 +632,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- IS_L_FINGERS	15 -->
   <InvSlot item="InvSlot15">
@@ -639,7 +653,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- IS_R_FINGERS	16 -->
   <InvSlot item="InvSlot16">
@@ -659,7 +674,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- IS_CHEST		17 -->
   <InvSlot item="InvSlot17">
@@ -679,7 +695,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- IS_LEGS		18 -->
   <InvSlot item="InvSlot18">
@@ -699,7 +716,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- IS_FEET		19 -->
   <InvSlot item="InvSlot19">
@@ -719,7 +737,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- IS_WAIST		20 -->
   <InvSlot item="InvSlot20">
@@ -739,7 +758,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- IS_AMMO		21 -->
   <InvSlot item="InvSlot21">
@@ -759,7 +779,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- root inv slots, IS_B1 to IS_B8 -->
   <InvSlot item="InvSlot22">
@@ -779,7 +800,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="InvSlot23">
     <ScreenID>InvSlot23</ScreenID>
@@ -798,7 +820,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="InvSlot24">
     <ScreenID>InvSlot24</ScreenID>
@@ -817,7 +840,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="InvSlot25">
     <ScreenID>InvSlot25</ScreenID>
@@ -836,7 +860,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="InvSlot26">
     <ScreenID>InvSlot26</ScreenID>
@@ -855,7 +880,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="InvSlot27">
     <ScreenID>InvSlot27</ScreenID>
@@ -874,7 +900,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="InvSlot28">
     <ScreenID>InvSlot28</ScreenID>
@@ -893,7 +920,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="InvSlot29">
     <ScreenID>InvSlot29</ScreenID>
@@ -912,7 +940,8 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <!--<TooltipReference/>-->
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <Label item="IW_Name">
     <ScreenID>NameLabel</ScreenID>

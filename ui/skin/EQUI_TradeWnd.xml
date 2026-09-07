@@ -26,7 +26,6 @@
   </Label>
   <InvSlot item="TRDW_TradeSlot8">
     <ScreenID>TRDW_TradeSlot8</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>2</X>
@@ -40,10 +39,11 @@
     <EQType>3008</EQType>
     <ItemOffsetX>2</ItemOffsetX>
     <ItemOffsetY>2</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot9">
     <ScreenID>TRDW_TradeSlot9</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>2</X>
@@ -57,10 +57,11 @@
     <EQType>3009</EQType>
     <ItemOffsetX>2</ItemOffsetX>
     <ItemOffsetY>2</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot10">
     <ScreenID>TRDW_TradeSlot10</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>2</X>
@@ -74,10 +75,11 @@
     <EQType>3010</EQType>
     <ItemOffsetX>2</ItemOffsetX>
     <ItemOffsetY>2</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot11">
     <ScreenID>TRDW_TradeSlot11</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>2</X>
@@ -91,10 +93,11 @@
     <EQType>3011</EQType>
     <ItemOffsetX>2</ItemOffsetX>
     <ItemOffsetY>2</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot12">
     <ScreenID>TRDW_TradeSlot12</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>41</X>
@@ -108,10 +111,11 @@
     <EQType>3012</EQType>
     <ItemOffsetX>2</ItemOffsetX>
     <ItemOffsetY>2</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot13">
     <ScreenID>TRDW_TradeSlot13</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>41</X>
@@ -125,10 +129,11 @@
     <EQType>3013</EQType>
     <ItemOffsetX>2</ItemOffsetX>
     <ItemOffsetY>2</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot14">
     <ScreenID>TRDW_TradeSlot14</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>41</X>
@@ -142,10 +147,11 @@
     <EQType>3014</EQType>
     <ItemOffsetX>2</ItemOffsetX>
     <ItemOffsetY>2</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot15">
     <ScreenID>TRDW_TradeSlot15</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>41</X>
@@ -159,6 +165,8 @@
     <EQType>3015</EQType>
     <ItemOffsetX>2</ItemOffsetX>
     <ItemOffsetY>2</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <Button item="TRDW_HisMoney0">
     <ScreenID>TRDW_HisMoney0</ScreenID>
@@ -337,7 +345,6 @@
   </Label>
   <InvSlot item="TRDW_TradeSlot0">
     <ScreenID>TRDW_TradeSlot0</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>85</X>
@@ -351,10 +358,11 @@
     <EQType>3000</EQType>
     <ItemOffsetX>2</ItemOffsetX>
     <ItemOffsetY>2</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot1">
     <ScreenID>TRDW_TradeSlot1</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>85</X>
@@ -368,10 +376,11 @@
     <EQType>3001</EQType>
     <ItemOffsetX>2</ItemOffsetX>
     <ItemOffsetY>2</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot2">
     <ScreenID>TRDW_TradeSlot2</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>85</X>
@@ -385,10 +394,11 @@
     <EQType>3002</EQType>
     <ItemOffsetX>2</ItemOffsetX>
     <ItemOffsetY>2</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot3">
     <ScreenID>TRDW_TradeSlot3</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>85</X>
@@ -402,10 +412,11 @@
     <EQType>3003</EQType>
     <ItemOffsetX>2</ItemOffsetX>
     <ItemOffsetY>2</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot4">
     <ScreenID>TRDW_TradeSlot4</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>124</X>
@@ -419,10 +430,11 @@
     <EQType>3004</EQType>
     <ItemOffsetX>2</ItemOffsetX>
     <ItemOffsetY>2</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot5">
     <ScreenID>TRDW_TradeSlot5</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>124</X>
@@ -436,10 +448,11 @@
     <EQType>3005</EQType>
     <ItemOffsetX>2</ItemOffsetX>
     <ItemOffsetY>2</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot6">
     <ScreenID>TRDW_TradeSlot6</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>124</X>
@@ -453,10 +466,11 @@
     <EQType>3006</EQType>
     <ItemOffsetX>2</ItemOffsetX>
     <ItemOffsetY>2</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot7">
     <ScreenID>TRDW_TradeSlot7</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>124</X>
@@ -470,6 +484,8 @@
     <EQType>3007</EQType>
     <ItemOffsetX>2</ItemOffsetX>
     <ItemOffsetY>2</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <Button item="TRDW_MyMoney0">
     <ScreenID>TRDW_MyMoney0</ScreenID>

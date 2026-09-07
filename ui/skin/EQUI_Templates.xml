@@ -1430,4 +1430,24 @@
     <OverlapRight>0</OverlapRight>
     <OverlapBottom>0</OverlapBottom>
   </FrameTemplate>
+  <WindowDrawTemplate item="WDT_VantageSlotGold">
+    <Border>
+      <TopLeft>A_VantageSlotGoldTopLeft</TopLeft>
+      <Top>A_VantageSlotGoldTop</Top>
+      <TopRight>A_VantageSlotGoldTopRight</TopRight>
+      <RightTop>A_VantageSlotGoldRightTop</RightTop>
+      <Right>A_VantageSlotGoldRight</Right>
+      <RightBottom>A_VantageSlotGoldRightBottom</RightBottom>
+      <BottomRight>A_VantageSlotGoldBottomRight</BottomRight>
+      <Bottom>A_VantageSlotGoldBottom</Bottom>
+      <BottomLeft>A_VantageSlotGoldBottomLeft</BottomLeft>
+      <LeftTop>A_VantageSlotGoldLeftTop</LeftTop>
+      <Left>A_VantageSlotGoldLeft</Left>
+      <LeftBottom>A_VantageSlotGoldLeftBottom</LeftBottom>
+      <OverlapLeft>0</OverlapLeft>
+      <OverlapTop>0</OverlapTop>
+      <OverlapRight>0</OverlapRight>
+      <OverlapBottom>0</OverlapBottom>
+    </Border>
+  </WindowDrawTemplate>
 </XML>

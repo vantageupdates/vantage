@@ -737,9 +737,9 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
     <FillTint>
-      <R>132</R>
-      <G>204</G>
-      <B>22</B>
+      <R>240</R>
+      <G>220</G>
+      <B>0</B>
     </FillTint>
     <LinesFillTint>
       <R>0</R>
@@ -783,9 +783,9 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
     <FillTint>
-      <R>132</R>
-      <G>204</G>
-      <B>22</B>
+      <R>240</R>
+      <G>220</G>
+      <B>0</B>
     </FillTint>
     <LinesFillTint>
       <R>0</R>
@@ -815,9 +815,9 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
     <FillTint>
-      <R>69</R>
-      <G>212</G>
-      <B>131</B>
+      <R>0</R>
+      <G>240</G>
+      <B>0</B>
     </FillTint>
     <LinesFillTint>
       <R>0</R>
@@ -861,9 +861,9 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
     <FillTint>
-      <R>69</R>
-      <G>212</G>
-      <B>131</B>
+      <R>0</R>
+      <G>240</G>
+      <B>0</B>
     </FillTint>
     <LinesFillTint>
       <R>0</R>
@@ -1226,7 +1226,21 @@
     <Pieces>Pet_HP_3B</Pieces>
     <Pieces>Pet_HP_4A_X</Pieces>
     <Pieces>Pet_HP_4B</Pieces>
+    <Pieces>Pet_HP_VantageTicks</Pieces>
     <Pieces>PIW_Pet_HPLabel</Pieces>
     <Pieces>PIW_Pet_HPPercLabel</Pieces>
   </Screen>
+  <StaticAnimation item="Pet_HP_VantageTicks">
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>28</X>
+      <Y>19</Y>
+    </Location>
+    <Size>
+      <CX>100</CX>
+      <CY>20</CY>
+    </Size>
+    <AutoDraw>true</AutoDraw>
+    <Animation>A_VantageHP100Lines</Animation>
+  </StaticAnimation>
 </XML>

@@ -14,19 +14,24 @@ remains the existing legacy folder:
 
 Make visual changes there and export the reviewed files to `ui/skin`. The legacy
 `VantageUI` folder is preserved in place; the updater must never rename, replace,
-prune, or adopt it. New published releases install beside it as
-`VantageUI-v<major.minor.patch>`, for example `VantageUI-v1.44.52`. All XML and
+prune, or adopt it. Every delivered version must be exported to this repository
+and published through the independent UI update channel. Install the same
+verified release locally; do not hand off a separate unmanaged local-only copy.
+New releases install beside the source as
+`VantageUI-v<major.minor.patch>`, for example `VantageUI-v1.44.53`. All XML and
 image files remain directly inside each skin folder, without another nested skin
 directory. Neither packaging nor updating changes character INIs or another
 skin. The matching Titanium/Project 1999 client default skin is still required
 for inherited resources; this is not a modern Live-client UI.
 
 The current polished live source was exported byte for byte into `ui/skin`:
-175 flat XML/image assets, with private updater state, cursors, and historical
+176 flat XML/image assets, with private updater state, cursors, and historical
 notes excluded. The export does not modify the live source. Its reviewed changes
-include darker opaque surfaces, restrained gold, smoother button shading,
-subdued equipment-slot silhouettes, a non-overlapping native inventory grid,
-and restored native container geometry. Keep future exports explicit and review
+include darker opaque surfaces, consistent fine gold slot/control borders,
+softly raised spell gems and buttons, native40px equipment/bag columns in a
+306x302 HotButton panel, separated Camp/Sit/Walk buttons, segmented LED-green
+health bars with yellow/orange/red thresholds, and restored native containers.
+Keep future exports explicit and review
 their asset diffs before packaging or publication.
 
 The latest conservative pass restores opaque native window backgrounds after
@@ -65,16 +70,16 @@ version or tag. A UI-only release does not increment Companion and does not buil
 or publish `Vantage.exe`. After focused and complete tests, coordinate publication
 of the updater and both transport assets on a reviewed
 `vantage-ui-v<major.minor.patch>` tag in `vantageupdates/vantage`. For this
-candidate the future tag is `vantage-ui-v1.44.52`. Verify public asset sizes and
+candidate the tag is `vantage-ui-v1.44.53`. Verify public asset sizes and
 SHA-256 digests against the tested artifacts. An arbitrary source push must not
 automatically publish an unreviewed UI update. The repository
 [release policy](../AGENTS.md) records the separation between Companion and UI
 releases.
 
-Publication also depends on completing and testing Companion's dynamic VantageUI
-panel integration against this same updater core. This source-level integration
-dependency does not authorize or require publishing a new `Vantage.exe` with the
-independent UI release.
+Companion's VantageUI integration consumes this independent release channel.
+This source-level integration does not authorize or require publishing a new
+`Vantage.exe` with an independent UI release. The UI build script builds only
+the UI updater; it must not rebuild Companion or change its Latest release.
 
 The generated files in ignored `dist/ui` are internal updater transport, not
 an additional user-facing ZIP delivery:
@@ -118,7 +123,7 @@ and the transport payload without publishing `Vantage.exe`. The frontend uses
 only Python's standard library and Tk, without bundling another Qt runtime.
 Settings and external download state belong in
 `%LOCALAPPDATA%\Vantage\UIUpdater`; released skins live in sibling folders such
-as `uifiles\VantageUI-v1.44.52`. Shared managed-version state is stored beside
+as `uifiles\VantageUI-v1.44.53`. Shared managed-version state is stored beside
 them in `uifiles\.vantage-ui-registry.json`, with the namespace lock
 `uifiles\.vantage-ui-update.lock`. The legacy `uifiles\VantageUI` folder remains
 untouched.
@@ -173,7 +178,7 @@ After installation, the updater shows the exact folder name and provides a
 copyable command. Load the new version manually, for example:
 
 ```text
-/loadskin VantageUI-v1.44.52 1
+/loadskin VantageUI-v1.44.53 1
 ```
 
 The updater never writes character INIs or changes EverQuest's selected skin.
@@ -186,3 +191,11 @@ memorizing, and bag interactions. Record actual `UIErrors.txt` from that client
 only when troubleshooting; never commit that log or character settings. The
 updater must preserve other skins, character layouts, and running applications,
 and must not assume file validation alone proves the visual result.
+
+Known client limits for this polish: the attack rim has corrected geometry and
+transparent rounded edges, but Titanium controls its final red tint; forcing a
+green source texture could make it invisible. Casting-bar color cannot be bound
+to the active spell's school with the verified XML interface, so its previous
+color is retained. The compact inventory stays fixed-size because SIDL has no
+minimum-size constraint to prevent clipping its native item controls. The known
+pre-existing `IW_Stats` reference remains; this pass adds no missing references.

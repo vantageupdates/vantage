@@ -373,9 +373,9 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
     <FillTint>
-      <R>132</R>
-      <G>204</G>
-      <B>22</B>
+      <R>240</R>
+      <G>220</G>
+      <B>0</B>
     </FillTint>
     <LinesFillTint>
       <R>0</R>
@@ -419,9 +419,9 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
     <FillTint>
-      <R>132</R>
-      <G>204</G>
-      <B>22</B>
+      <R>240</R>
+      <G>220</G>
+      <B>0</B>
     </FillTint>
     <LinesFillTint>
       <R>0</R>
@@ -451,9 +451,9 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
     <FillTint>
-      <R>69</R>
-      <G>212</G>
-      <B>131</B>
+      <R>0</R>
+      <G>240</G>
+      <B>0</B>
     </FillTint>
     <LinesFillTint>
       <R>0</R>
@@ -497,9 +497,9 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
     <FillTint>
-      <R>69</R>
-      <G>212</G>
-      <B>131</B>
+      <R>0</R>
+      <G>240</G>
+      <B>0</B>
     </FillTint>
     <LinesFillTint>
       <R>0</R>
@@ -816,9 +816,9 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
     <FillTint>
-      <R>132</R>
-      <G>204</G>
-      <B>22</B>
+      <R>240</R>
+      <G>220</G>
+      <B>0</B>
     </FillTint>
     <LinesFillTint>
       <R>0</R>
@@ -862,9 +862,9 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
     <FillTint>
-      <R>132</R>
-      <G>204</G>
-      <B>22</B>
+      <R>240</R>
+      <G>220</G>
+      <B>0</B>
     </FillTint>
     <LinesFillTint>
       <R>0</R>
@@ -894,9 +894,9 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
     <FillTint>
-      <R>69</R>
-      <G>212</G>
-      <B>131</B>
+      <R>0</R>
+      <G>240</G>
+      <B>0</B>
     </FillTint>
     <LinesFillTint>
       <R>0</R>
@@ -940,9 +940,9 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
     <FillTint>
-      <R>69</R>
-      <G>212</G>
-      <B>131</B>
+      <R>0</R>
+      <G>240</G>
+      <B>0</B>
     </FillTint>
     <LinesFillTint>
       <R>0</R>
@@ -1259,9 +1259,9 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
     <FillTint>
-      <R>132</R>
-      <G>204</G>
-      <B>22</B>
+      <R>240</R>
+      <G>220</G>
+      <B>0</B>
     </FillTint>
     <LinesFillTint>
       <R>0</R>
@@ -1305,9 +1305,9 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
     <FillTint>
-      <R>132</R>
-      <G>204</G>
-      <B>22</B>
+      <R>240</R>
+      <G>220</G>
+      <B>0</B>
     </FillTint>
     <LinesFillTint>
       <R>0</R>
@@ -1337,9 +1337,9 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
     <FillTint>
-      <R>69</R>
-      <G>212</G>
-      <B>131</B>
+      <R>0</R>
+      <G>240</G>
+      <B>0</B>
     </FillTint>
     <LinesFillTint>
       <R>0</R>
@@ -1383,9 +1383,9 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
     <FillTint>
-      <R>69</R>
-      <G>212</G>
-      <B>131</B>
+      <R>0</R>
+      <G>240</G>
+      <B>0</B>
     </FillTint>
     <LinesFillTint>
       <R>0</R>
@@ -1702,9 +1702,9 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
     <FillTint>
-      <R>132</R>
-      <G>204</G>
-      <B>22</B>
+      <R>240</R>
+      <G>220</G>
+      <B>0</B>
     </FillTint>
     <LinesFillTint>
       <R>0</R>
@@ -1748,9 +1748,9 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
     <FillTint>
-      <R>132</R>
-      <G>204</G>
-      <B>22</B>
+      <R>240</R>
+      <G>220</G>
+      <B>0</B>
     </FillTint>
     <LinesFillTint>
       <R>0</R>
@@ -1780,9 +1780,9 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
     <FillTint>
-      <R>69</R>
-      <G>212</G>
-      <B>131</B>
+      <R>0</R>
+      <G>240</G>
+      <B>0</B>
     </FillTint>
     <LinesFillTint>
       <R>0</R>
@@ -1826,9 +1826,9 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
     <FillTint>
-      <R>69</R>
-      <G>212</G>
-      <B>131</B>
+      <R>0</R>
+      <G>240</G>
+      <B>0</B>
     </FillTint>
     <LinesFillTint>
       <R>0</R>
@@ -2145,9 +2145,9 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
     <FillTint>
-      <R>132</R>
-      <G>204</G>
-      <B>22</B>
+      <R>240</R>
+      <G>220</G>
+      <B>0</B>
     </FillTint>
     <LinesFillTint>
       <R>0</R>
@@ -2191,9 +2191,9 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
     <FillTint>
-      <R>132</R>
-      <G>204</G>
-      <B>22</B>
+      <R>240</R>
+      <G>220</G>
+      <B>0</B>
     </FillTint>
     <LinesFillTint>
       <R>0</R>
@@ -2223,9 +2223,9 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
     <FillTint>
-      <R>69</R>
-      <G>212</G>
-      <B>131</B>
+      <R>0</R>
+      <G>240</G>
+      <B>0</B>
     </FillTint>
     <LinesFillTint>
       <R>0</R>
@@ -2269,9 +2269,9 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
     <FillTint>
-      <R>69</R>
-      <G>212</G>
-      <B>131</B>
+      <R>0</R>
+      <G>240</G>
+      <B>0</B>
     </FillTint>
     <LinesFillTint>
       <R>0</R>
@@ -3895,6 +3895,7 @@
     <Pieces>Party1_HP_3B</Pieces>
     <Pieces>Party1_HP_4A_X</Pieces>
     <Pieces>Party1_HP_4B</Pieces>
+    <Pieces>Party1_HP_VantageTicks</Pieces>
     <Pieces>GW_PetGauge1</Pieces>
     <Pieces>PW_LineDivider1</Pieces>
     <Pieces>Party2_HP_BG</Pieces>
@@ -3907,6 +3908,7 @@
     <Pieces>Party2_HP_3B</Pieces>
     <Pieces>Party2_HP_4A_X</Pieces>
     <Pieces>Party2_HP_4B</Pieces>
+    <Pieces>Party2_HP_VantageTicks</Pieces>
     <Pieces>GW_PetGauge2</Pieces>
     <Pieces>PW_LineDivider2</Pieces>
     <Pieces>Party3_HP_BG</Pieces>
@@ -3919,6 +3921,7 @@
     <Pieces>Party3_HP_3B</Pieces>
     <Pieces>Party3_HP_4A_X</Pieces>
     <Pieces>Party3_HP_4B</Pieces>
+    <Pieces>Party3_HP_VantageTicks</Pieces>
     <Pieces>GW_PetGauge3</Pieces>
     <Pieces>PW_LineDivider3</Pieces>
     <Pieces>Party4_HP_BG</Pieces>
@@ -3931,6 +3934,7 @@
     <Pieces>Party4_HP_3B</Pieces>
     <Pieces>Party4_HP_4A_X</Pieces>
     <Pieces>Party4_HP_4B</Pieces>
+    <Pieces>Party4_HP_VantageTicks</Pieces>
     <Pieces>GW_PetGauge4</Pieces>
     <Pieces>PW_LineDivider4</Pieces>
     <Pieces>Party5_HP_BG</Pieces>
@@ -3943,6 +3947,7 @@
     <Pieces>Party5_HP_3B</Pieces>
     <Pieces>Party5_HP_4A_X</Pieces>
     <Pieces>Party5_HP_4B</Pieces>
+    <Pieces>Party5_HP_VantageTicks</Pieces>
     <Pieces>GW_PetGauge5</Pieces>
     <Pieces>GW_HPLabel1</Pieces>
     <Pieces>GW_HPPercLabel1</Pieces>
@@ -4004,4 +4009,69 @@
     <Pieces>F5</Pieces>
     <Pieces>F6</Pieces>
   </Screen>
+  <StaticAnimation item="Party1_HP_VantageTicks">
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>20</X>
+      <Y>11</Y>
+    </Location>
+    <Size>
+      <CX>100</CX>
+      <CY>20</CY>
+    </Size>
+    <AutoDraw>true</AutoDraw>
+    <Animation>A_VantageHP100Lines</Animation>
+  </StaticAnimation>
+  <StaticAnimation item="Party2_HP_VantageTicks">
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>20</X>
+      <Y>52</Y>
+    </Location>
+    <Size>
+      <CX>100</CX>
+      <CY>20</CY>
+    </Size>
+    <AutoDraw>true</AutoDraw>
+    <Animation>A_VantageHP100Lines</Animation>
+  </StaticAnimation>
+  <StaticAnimation item="Party3_HP_VantageTicks">
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>20</X>
+      <Y>93</Y>
+    </Location>
+    <Size>
+      <CX>100</CX>
+      <CY>20</CY>
+    </Size>
+    <AutoDraw>true</AutoDraw>
+    <Animation>A_VantageHP100Lines</Animation>
+  </StaticAnimation>
+  <StaticAnimation item="Party4_HP_VantageTicks">
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>20</X>
+      <Y>135</Y>
+    </Location>
+    <Size>
+      <CX>100</CX>
+      <CY>20</CY>
+    </Size>
+    <AutoDraw>true</AutoDraw>
+    <Animation>A_VantageHP100Lines</Animation>
+  </StaticAnimation>
+  <StaticAnimation item="Party5_HP_VantageTicks">
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>20</X>
+      <Y>177</Y>
+    </Location>
+    <Size>
+      <CX>100</CX>
+      <CY>20</CY>
+    </Size>
+    <AutoDraw>true</AutoDraw>
+    <Animation>A_VantageHP100Lines</Animation>
+  </StaticAnimation>
 </XML>

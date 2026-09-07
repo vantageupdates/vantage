@@ -687,7 +687,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>1</X>
-      <Y>105</Y>
+      <Y>108</Y>
     </Location>
     <Size>
       <CX>134</CX>
@@ -713,7 +713,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>1</X>
-      <Y>105</Y>
+      <Y>108</Y>
     </Location>
     <Size>
       <CX>134</CX>
@@ -739,7 +739,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>1</X>
-      <Y>123</Y>
+      <Y>130</Y>
     </Location>
     <Size>
       <CX>134</CX>
@@ -765,7 +765,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>1</X>
-      <Y>124</Y>
+      <Y>130</Y>
     </Location>
     <Size>
       <CX>134</CX>
@@ -1886,7 +1886,7 @@
     </Location>
     <Size>
       <CX>144</CX>
-      <CY>175</CY>
+      <CY>182</CY>
     </Size>
     <Text>Actions</Text>
     <Style_VScroll>false</Style_VScroll>

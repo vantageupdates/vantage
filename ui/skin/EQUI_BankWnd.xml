@@ -26,7 +26,6 @@
   <!-- bag 1 -->
   <InvSlot item="BW_BankSlot0">
     <ScreenID>BW_BankSlot0</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>-1</X>
@@ -40,6 +39,8 @@
     <EQType>2000</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot0_Slot1">
     <RelativePosition>true</RelativePosition>
@@ -55,6 +56,8 @@
     <EQType>2031</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot0_Slot2">
     <RelativePosition>true</RelativePosition>
@@ -70,6 +73,8 @@
     <EQType>2032</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot0_Slot3">
     <RelativePosition>true</RelativePosition>
@@ -85,6 +90,8 @@
     <EQType>2033</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot0_Slot4">
     <RelativePosition>true</RelativePosition>
@@ -100,6 +107,8 @@
     <EQType>2034</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot0_Slot5">
     <RelativePosition>true</RelativePosition>
@@ -115,6 +124,8 @@
     <EQType>2035</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot0_Slot6">
     <RelativePosition>true</RelativePosition>
@@ -130,6 +141,8 @@
     <EQType>2036</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot0_Slot7">
     <RelativePosition>true</RelativePosition>
@@ -145,6 +158,8 @@
     <EQType>2037</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot0_Slot8">
     <RelativePosition>true</RelativePosition>
@@ -160,6 +175,8 @@
     <EQType>2038</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot0_Slot9">
     <RelativePosition>true</RelativePosition>
@@ -175,6 +192,8 @@
     <EQType>2039</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot0_Slot10">
     <RelativePosition>true</RelativePosition>
@@ -190,6 +209,8 @@
     <EQType>2040</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- bag 2 -->
   <InvSlot item="BW_BankSlot1">
@@ -207,6 +228,8 @@
     <EQType>2001</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot1_Slot1">
     <RelativePosition>true</RelativePosition>
@@ -222,6 +245,8 @@
     <EQType>2041</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot1_Slot2">
     <RelativePosition>true</RelativePosition>
@@ -237,6 +262,8 @@
     <EQType>2042</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot1_Slot3">
     <RelativePosition>true</RelativePosition>
@@ -252,6 +279,8 @@
     <EQType>2043</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot1_Slot4">
     <RelativePosition>true</RelativePosition>
@@ -267,6 +296,8 @@
     <EQType>2044</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot1_Slot5">
     <RelativePosition>true</RelativePosition>
@@ -282,6 +313,8 @@
     <EQType>2045</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot1_Slot6">
     <RelativePosition>true</RelativePosition>
@@ -297,6 +330,8 @@
     <EQType>2046</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot1_Slot7">
     <RelativePosition>true</RelativePosition>
@@ -312,6 +347,8 @@
     <EQType>2047</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot1_Slot8">
     <RelativePosition>true</RelativePosition>
@@ -327,6 +364,8 @@
     <EQType>2048</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot1_Slot9">
     <RelativePosition>true</RelativePosition>
@@ -342,6 +381,8 @@
     <EQType>2049</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot1_Slot10">
     <RelativePosition>true</RelativePosition>
@@ -357,11 +398,12 @@
     <EQType>2050</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- bag 3 -->
   <InvSlot item="BW_BankSlot2">
     <ScreenID>BW_BankSlot2</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>-1</X>
@@ -375,6 +417,8 @@
     <EQType>2002</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot2_Slot1">
     <RelativePosition>true</RelativePosition>
@@ -390,6 +434,8 @@
     <EQType>2051</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot2_Slot2">
     <RelativePosition>true</RelativePosition>
@@ -405,6 +451,8 @@
     <EQType>2052</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot2_Slot3">
     <RelativePosition>true</RelativePosition>
@@ -420,6 +468,8 @@
     <EQType>2053</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot2_Slot4">
     <RelativePosition>true</RelativePosition>
@@ -435,6 +485,8 @@
     <EQType>2054</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot2_Slot5">
     <RelativePosition>true</RelativePosition>
@@ -450,6 +502,8 @@
     <EQType>2055</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot2_Slot6">
     <RelativePosition>true</RelativePosition>
@@ -465,6 +519,8 @@
     <EQType>2056</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot2_Slot7">
     <RelativePosition>true</RelativePosition>
@@ -480,6 +536,8 @@
     <EQType>2057</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot2_Slot8">
     <RelativePosition>true</RelativePosition>
@@ -495,6 +553,8 @@
     <EQType>2058</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot2_Slot9">
     <RelativePosition>true</RelativePosition>
@@ -510,6 +570,8 @@
     <EQType>2059</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot2_Slot10">
     <RelativePosition>true</RelativePosition>
@@ -525,11 +587,12 @@
     <EQType>2060</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- bag 4 -->
   <InvSlot item="BW_BankSlot3">
     <ScreenID>BW_BankSlot3</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>-1</X>
@@ -543,6 +606,8 @@
     <EQType>2003</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot3_Slot1">
     <RelativePosition>true</RelativePosition>
@@ -558,6 +623,8 @@
     <EQType>2061</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot3_Slot2">
     <RelativePosition>true</RelativePosition>
@@ -573,6 +640,8 @@
     <EQType>2062</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot3_Slot3">
     <RelativePosition>true</RelativePosition>
@@ -588,6 +657,8 @@
     <EQType>2063</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot3_Slot4">
     <RelativePosition>true</RelativePosition>
@@ -603,6 +674,8 @@
     <EQType>2064</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot3_Slot5">
     <RelativePosition>true</RelativePosition>
@@ -618,6 +691,8 @@
     <EQType>2065</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot3_Slot6">
     <RelativePosition>true</RelativePosition>
@@ -633,6 +708,8 @@
     <EQType>2066</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot3_Slot7">
     <RelativePosition>true</RelativePosition>
@@ -648,6 +725,8 @@
     <EQType>2067</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot3_Slot8">
     <RelativePosition>true</RelativePosition>
@@ -663,6 +742,8 @@
     <EQType>2068</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot3_Slot9">
     <RelativePosition>true</RelativePosition>
@@ -678,6 +759,8 @@
     <EQType>2069</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot3_Slot10">
     <RelativePosition>true</RelativePosition>
@@ -693,11 +776,12 @@
     <EQType>2070</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- bag 5 -->
   <InvSlot item="BW_BankSlot4">
     <ScreenID>BW_BankSlot4</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>-1</X>
@@ -711,6 +795,8 @@
     <EQType>2004</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot4_Slot1">
     <RelativePosition>true</RelativePosition>
@@ -726,6 +812,8 @@
     <EQType>2071</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot4_Slot2">
     <RelativePosition>true</RelativePosition>
@@ -741,6 +829,8 @@
     <EQType>2072</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot4_Slot3">
     <RelativePosition>true</RelativePosition>
@@ -756,6 +846,8 @@
     <EQType>2073</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot4_Slot4">
     <RelativePosition>true</RelativePosition>
@@ -771,6 +863,8 @@
     <EQType>2074</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot4_Slot5">
     <RelativePosition>true</RelativePosition>
@@ -786,6 +880,8 @@
     <EQType>2075</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot4_Slot6">
     <RelativePosition>true</RelativePosition>
@@ -801,6 +897,8 @@
     <EQType>2076</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot4_Slot7">
     <RelativePosition>true</RelativePosition>
@@ -816,6 +914,8 @@
     <EQType>2077</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot4_Slot8">
     <RelativePosition>true</RelativePosition>
@@ -831,6 +931,8 @@
     <EQType>2078</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot4_Slot9">
     <RelativePosition>true</RelativePosition>
@@ -846,6 +948,8 @@
     <EQType>2079</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot4_Slot10">
     <RelativePosition>true</RelativePosition>
@@ -861,11 +965,12 @@
     <EQType>2080</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- bag 6 -->
   <InvSlot item="BW_BankSlot5">
     <ScreenID>BW_BankSlot5</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>-1</X>
@@ -879,6 +984,8 @@
     <EQType>2005</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot5_Slot1">
     <RelativePosition>true</RelativePosition>
@@ -894,6 +1001,8 @@
     <EQType>2081</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot5_Slot2">
     <RelativePosition>true</RelativePosition>
@@ -909,6 +1018,8 @@
     <EQType>2082</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot5_Slot3">
     <RelativePosition>true</RelativePosition>
@@ -924,6 +1035,8 @@
     <EQType>2083</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot5_Slot4">
     <RelativePosition>true</RelativePosition>
@@ -939,6 +1052,8 @@
     <EQType>2084</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot5_Slot5">
     <RelativePosition>true</RelativePosition>
@@ -954,6 +1069,8 @@
     <EQType>2085</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot5_Slot6">
     <RelativePosition>true</RelativePosition>
@@ -969,6 +1086,8 @@
     <EQType>2086</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot5_Slot7">
     <RelativePosition>true</RelativePosition>
@@ -984,6 +1103,8 @@
     <EQType>2087</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot5_Slot8">
     <RelativePosition>true</RelativePosition>
@@ -999,6 +1120,8 @@
     <EQType>2088</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot5_Slot9">
     <RelativePosition>true</RelativePosition>
@@ -1014,6 +1137,8 @@
     <EQType>2089</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot5_Slot10">
     <RelativePosition>true</RelativePosition>
@@ -1029,11 +1154,12 @@
     <EQType>2090</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- bag 7 -->
   <InvSlot item="BW_BankSlot6">
     <ScreenID>BW_BankSlot6</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>-1</X>
@@ -1047,6 +1173,8 @@
     <EQType>2006</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot6_Slot1">
     <RelativePosition>true</RelativePosition>
@@ -1062,6 +1190,8 @@
     <EQType>2091</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot6_Slot2">
     <RelativePosition>true</RelativePosition>
@@ -1077,6 +1207,8 @@
     <EQType>2092</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot6_Slot3">
     <RelativePosition>true</RelativePosition>
@@ -1092,6 +1224,8 @@
     <EQType>2093</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot6_Slot4">
     <RelativePosition>true</RelativePosition>
@@ -1107,6 +1241,8 @@
     <EQType>2094</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot6_Slot5">
     <RelativePosition>true</RelativePosition>
@@ -1122,6 +1258,8 @@
     <EQType>2095</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot6_Slot6">
     <RelativePosition>true</RelativePosition>
@@ -1137,6 +1275,8 @@
     <EQType>2096</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot6_Slot7">
     <RelativePosition>true</RelativePosition>
@@ -1152,6 +1292,8 @@
     <EQType>2097</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot6_Slot8">
     <RelativePosition>true</RelativePosition>
@@ -1167,6 +1309,8 @@
     <EQType>2098</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot6_Slot9">
     <RelativePosition>true</RelativePosition>
@@ -1182,6 +1326,8 @@
     <EQType>2099</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot6_Slot10">
     <RelativePosition>true</RelativePosition>
@@ -1197,11 +1343,12 @@
     <EQType>2100</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <!-- bag 8 -->
   <InvSlot item="BW_BankSlot7">
     <ScreenID>BW_BankSlot7</ScreenID>
-    <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>-1</X>
@@ -1215,6 +1362,8 @@
     <EQType>2007</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot7_Slot1">
     <RelativePosition>true</RelativePosition>
@@ -1230,6 +1379,8 @@
     <EQType>2101</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot7_Slot2">
     <RelativePosition>true</RelativePosition>
@@ -1245,6 +1396,8 @@
     <EQType>2102</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot7_Slot3">
     <RelativePosition>true</RelativePosition>
@@ -1260,6 +1413,8 @@
     <EQType>2103</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot7_Slot4">
     <RelativePosition>true</RelativePosition>
@@ -1275,6 +1430,8 @@
     <EQType>2104</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot7_Slot5">
     <RelativePosition>true</RelativePosition>
@@ -1290,6 +1447,8 @@
     <EQType>2105</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot7_Slot6">
     <RelativePosition>true</RelativePosition>
@@ -1305,6 +1464,8 @@
     <EQType>2106</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot7_Slot7">
     <RelativePosition>true</RelativePosition>
@@ -1320,6 +1481,8 @@
     <EQType>2107</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot7_Slot8">
     <RelativePosition>true</RelativePosition>
@@ -1335,6 +1498,8 @@
     <EQType>2108</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot7_Slot9">
     <RelativePosition>true</RelativePosition>
@@ -1350,6 +1515,8 @@
     <EQType>2109</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_BankSlot7_Slot10">
     <RelativePosition>true</RelativePosition>
@@ -1365,6 +1532,8 @@
     <EQType>2110</EQType>
     <ItemOffsetX>0</ItemOffsetX>
     <ItemOffsetY>0</ItemOffsetY>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
   <InvSlot item="BW_SharedBankSlot0">
     <ScreenID>BW_SharedBankSlot0</ScreenID>
