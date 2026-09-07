@@ -9,6 +9,8 @@ import sys
 from types import SimpleNamespace
 
 import pytest
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from vantage.helpers import config, ui_skin_updater
@@ -97,6 +99,83 @@ def test_panel_title_copy_versions_and_accessibility(panel):
             panel.status, panel.log):
         assert control.accessibleName()
         assert control.toolTip() or control is panel.status
+
+
+def test_fresh_install_button_checks_then_continues_verified_flow(
+        panel, monkeypatch):
+    panel._installed = ""
+    panel._release = None
+    panel._refresh_controls()
+    assert panel.update_button.text() == "Install VantageUI"
+    assert panel.update_button.accessibleName() == "Install VantageUI"
+    assert "verified release" in panel.update_button.toolTip()
+    assert not panel.update_button.isHidden()
+    assert panel.update_button.isEnabled()
+
+    checks = []
+    def begin_check():
+        checks.append(True)
+        panel._busy = True
+        panel._operation_token += 1
+        panel._refresh_controls()
+        return True
+    monkeypatch.setattr(panel, "check_for_updates", begin_check)
+    confirmations = []
+    monkeypatch.setattr(
+        panel, "_confirm",
+        lambda title, text: confirmations.append((title, text)) or True)
+    monkeypatch.setattr(ui_skin_updater, "game_running", lambda: False)
+    installs = []
+    monkeypatch.setattr(
+        panel, "_install_release",
+        lambda release: installs.append(release) or True)
+
+    panel.update_button.click()
+    assert checks == [True]
+    assert panel._install_after_check is True
+    assert not panel.update_button.isEnabled()
+    release = SimpleNamespace(version="1.44.52")
+    panel._operation_completed(panel._operation_token, "check", (release, ""))
+    assert confirmations[0][0] == "Install VantageUI"
+    assert confirmations[0][1].startswith("Install only")
+    assert installs == [release]
+
+
+def test_installed_action_labels_update_and_current_repair(panel):
+    panel._installed = "1.44.51"
+    panel._release = None
+    panel._refresh_controls()
+    assert panel.update_button.text() == "Update VantageUI"
+    assert panel.update_button.isEnabled()
+
+    panel._release = SimpleNamespace(version="1.44.52")
+    panel._refresh_controls()
+    assert panel.update_button.text() == "Update VantageUI"
+    assert "back up" in panel.update_button.toolTip()
+
+    panel._release = SimpleNamespace(version="1.44.51")
+    panel._refresh_controls()
+    assert panel.update_button.text() == "Repair VantageUI"
+    assert panel.update_button.accessibleName() == "Repair VantageUI"
+    assert "repair" in panel.update_button.toolTip().casefold()
+    assert panel.update_button.isEnabled()
+
+
+def test_primary_action_keeps_native_keyboard_order_and_activation(panel):
+    app = QApplication.instance()
+    panel.show()
+    app.processEvents()
+    assert panel.check_button.nextInFocusChain() is panel.update_button
+    assert panel.update_button.nextInFocusChain() is panel.restore_button
+    assert panel.update_button.focusPolicy() != Qt.FocusPolicy.NoFocus
+    activated = []
+    panel.update_button.clicked.connect(lambda: activated.append(True))
+    # Keep the production slot inert; this test exercises native keyboard
+    # activation without starting network work.
+    panel._busy = True
+    panel.update_button.setFocus(Qt.FocusReason.TabFocusReason)
+    QTest.keyClick(panel.update_button, Qt.Key.Key_Space)
+    assert activated == [True]
 
 
 def test_check_completion_displays_installed_available_and_status(panel):

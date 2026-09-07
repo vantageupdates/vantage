@@ -22,11 +22,13 @@ try {
     $uiReport = Join-Path $releaseRoot 'dist\ui-updater-self-test.json'
     $uiTest = Start-Process -FilePath (Join-Path $releaseRoot 'dist\VantageUI-Updater.exe') -ArgumentList ('--self-test --report "' + $uiReport + '"') -WindowStyle Hidden -PassThru -Wait
     if ($uiTest.ExitCode -ne 0) { throw 'UI updater portable self-test failed.' }
-    $expectedVersion = (Get-Content -LiteralPath 'ui\release.json' -Raw | ConvertFrom-Json).version
+    $expectedCompanionVersion = (& $Python -c "import pathlib,tomllib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8'))['project']['version'])").Trim()
+    if ($LASTEXITCODE -ne 0 -or -not $expectedCompanionVersion) { throw 'Could not read Companion candidate version.' }
+    $expectedUiVersion = (Get-Content -LiteralPath 'ui\release.json' -Raw | ConvertFrom-Json).version
     $mainVersion = (Get-Content -LiteralPath (Join-Path $env:VANTAGE_DATA_DIR 'portable-self-test.txt'))[0]
     $embeddedUiResult = Get-Content -LiteralPath $embeddedUiReport -Raw | ConvertFrom-Json
     $uiResult = Get-Content -LiteralPath $uiReport -Raw | ConvertFrom-Json
-    if ($mainVersion -ne $expectedVersion -or $embeddedUiResult.version -ne $expectedVersion -or $embeddedUiResult.status -ne 'PASS' -or $uiResult.version -ne $expectedVersion -or $uiResult.status -ne 'PASS') { throw 'Candidate version/self-test mismatch.' }
-    Write-Output 'Candidates built and self-tested. Review and publish all four assets together; this script does not publish.'
+    if ($mainVersion -ne $expectedCompanionVersion -or $embeddedUiResult.version -ne $expectedUiVersion -or $embeddedUiResult.status -ne 'PASS' -or $uiResult.version -ne $expectedUiVersion -or $uiResult.status -ne 'PASS') { throw 'Candidate version/self-test mismatch.' }
+    Write-Output 'Candidates built and self-tested. Companion and VantageUI assets are independently versioned; attach only assets whose embedded version matches the release tag. This script does not publish.'
     Get-FileHash -LiteralPath 'dist\Vantage.exe','dist\VantageUI-Updater.exe','dist\ui\VantageUI-manifest.json','dist\ui\VantageUI-payload.zip' -Algorithm SHA256
 } finally { Pop-Location }

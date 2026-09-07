@@ -13,7 +13,7 @@ from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QFileDialog, QFrame, QGridLayout, QLabel,
-    QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QVBoxLayout)
+    QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget)
 
 from vantage.helpers import config
 from vantage.helpers.icons import game_icon
@@ -126,6 +126,8 @@ class VantageUI(ParserWindow):
         self._installed = ""
         self._release = None
         self._pending_release = None
+        self._install_after_check = False
+        self._install_action = ""
         self._pending_timer = QTimer(self)
         self._pending_timer.setSingleShot(True)
         self._pending_timer.timeout.connect(self._poll_pending_update)
@@ -209,11 +211,8 @@ class VantageUI(ParserWindow):
             "Check verified Vantage GitHub release assets for VantageUI")
         self.check_button.clicked.connect(self.check_for_updates)
         actions.addWidget(self.check_button)
-        self.update_button = QPushButton("Update")
+        self.update_button = QPushButton("Install VantageUI")
         self.update_button.setIcon(game_icon("ph-download"))
-        self.update_button.setAccessibleName("Update VantageUI")
-        self.update_button.setToolTip(
-            "Verify, back up, and update only uifiles\\VantageUI")
         self.update_button.clicked.connect(self.update_skin)
         actions.addWidget(self.update_button)
         self.restore_button = QPushButton("Restore")
@@ -224,6 +223,13 @@ class VantageUI(ParserWindow):
         self.restore_button.clicked.connect(self.restore_skin)
         actions.addWidget(self.restore_button)
         layout.addWidget(actions)
+
+        # Keep the primary action in the ordinary left-to-right keyboard path.
+        # Native buttons retain Enter/Space activation and the shared focus ring.
+        QWidget.setTabOrder(self.path_edit, self.browse_button)
+        QWidget.setTabOrder(self.browse_button, self.check_button)
+        QWidget.setTabOrder(self.check_button, self.update_button)
+        QWidget.setTabOrder(self.update_button, self.restore_button)
 
         self.auto_update = QCheckBox("Automatically check and update VantageUI")
         self.auto_update.setChecked(bool(
@@ -243,7 +249,8 @@ class VantageUI(ParserWindow):
         self.elevation_button.hide()
         layout.addWidget(self.elevation_button)
 
-        self.status = QLabel("Ready. Choose the EverQuest folder, then check for updates.")
+        self.status = QLabel(
+            "Ready. Choose the EverQuest folder, then Install VantageUI.")
         self.status.setObjectName("VantageUIStatus")
         self.status.setWordWrap(True)
         self.status.setAccessibleName("VantageUI status")
@@ -314,13 +321,42 @@ class VantageUI(ParserWindow):
         self.available_value.setText(
             self._release.version if self._release else "Not checked")
 
+    def _primary_action_kind(self):
+        if not self._installed:
+            return "install"
+        if (self._release is not None and
+                not version_is_newer(self._installed, self._release.version)):
+            return "repair"
+        return "update"
+
+    def _refresh_primary_action(self):
+        kind = self._primary_action_kind()
+        if kind == "install":
+            text = "Install VantageUI"
+            tooltip = (
+                "Check for the verified release, then install only "
+                "uifiles\\VantageUI")
+        elif kind == "repair":
+            text = "Repair VantageUI"
+            tooltip = (
+                "Verify and repair the current VantageUI files using the "
+                "verified release")
+        else:
+            text = "Update VantageUI"
+            tooltip = (
+                "Check, back up, and update only uifiles\\VantageUI")
+        self.update_button.setText(text)
+        self.update_button.setAccessibleName(text)
+        self.update_button.setToolTip(tooltip)
+
     def _refresh_controls(self):
+        self._refresh_primary_action()
         for control in (
                 self.path_edit, self.browse_button, self.check_button,
                 self.restore_button, self.auto_update):
             control.setEnabled(not self._busy)
         self.update_button.setEnabled(
-            not self._busy and self._release is not None)
+            not self._busy and self._pending_release is None)
 
     def _save_settings(self):
         config.data["vantage_ui"]["eq_dir"] = normalize_eq_root(
@@ -332,6 +368,8 @@ class VantageUI(ParserWindow):
         normalized = normalize_eq_root(self.path_edit.text())
         self.path_edit.setText(normalized)
         self._release = None
+        self._installed = ""
+        self._install_after_check = False
         self._pending_release = None
         self._pending_timer.stop()
         self._refresh_target()
@@ -404,15 +442,35 @@ class VantageUI(ParserWindow):
         return dialog.exec() == QMessageBox.StandardButton.Yes
 
     def update_skin(self, _checked=False, confirm=True):
-        if self._busy or self._release is None:
-            self._set_status("Check for updates before choosing Update.")
+        if self._busy:
             return False
+        if self._release is None:
+            # The primary first-install control is intentionally one action:
+            # fetch the verified release, then continue through the existing
+            # confirmation and installer path when that check completes.
+            self._install_after_check = True
+            started = self.check_for_updates()
+            if not started:
+                self._install_after_check = False
+            return started
+        action = self._primary_action_kind()
+        self._install_action = action
+        title = {
+            "install": "Install VantageUI",
+            "update": "Update VantageUI",
+            "repair": "Repair VantageUI",
+        }[action]
+        prompt = {
+            "install": "Install only uifiles\\VantageUI using verified release files?",
+            "update": "Update only uifiles\\VantageUI using verified release files?",
+            "repair": "Verify and repair only uifiles\\VantageUI using verified release files?",
+        }[action]
         if confirm and not self._confirm(
-                "Update VantageUI",
-                "Update only uifiles\\VantageUI using verified release files?\n\n"
+                title, prompt + "\n\n"
                 "Existing replaced files receive a recoverable backup. "
                 "EverQuest will never be closed by Vantage."):
-            self._set_status("VantageUI update cancelled. Nothing changed.")
+            self._set_status(f"VantageUI {action} cancelled. Nothing changed.")
+            self._install_action = ""
             return False
         try:
             running = ui_skin_updater.game_running()
@@ -427,11 +485,17 @@ class VantageUI(ParserWindow):
 
     def _install_release(self, release):
         eq_root = normalize_eq_root(self.path_edit.text())
+        action = self._install_action or self._primary_action_kind()
+        progress_verb = {
+            "install": "installing",
+            "update": "updating",
+            "repair": "repairing",
+        }[action]
         return self._start(
             "update",
             lambda log: ui_skin_updater.install_release(
                 release, eq_root, self.state_directory, log=log),
-            "Verifying, backing up, and updating only VantageUI…")
+            f"Verifying, backing up, and {progress_verb} only VantageUI…")
 
     def _queue_pending_update(self, release):
         self._pending_release = release
@@ -485,24 +549,32 @@ class VantageUI(ParserWindow):
         self._busy = False
         if action == "local":
             self._installed = str(result or "")
+            next_action = (
+                "Install VantageUI" if not self._installed else
+                "Update VantageUI")
             self._set_status(
-                "EverQuest folder ready. Check for a verified VantageUI release.")
+                f"EverQuest folder ready. Choose {next_action}; Vantage will "
+                "check the verified release first.")
         elif action == "check":
             self._release, self._installed = result
-            if version_is_newer(self._installed, self._release.version):
+            newer = version_is_newer(self._installed, self._release.version)
+            continue_install = self._install_after_check
+            self._install_after_check = False
+            if newer:
                 self._set_status(
                     f"VantageUI {self._release.version} is available.")
-                if self.auto_update.isChecked():
-                    self.update_skin(confirm=False)
             else:
                 self._set_status(
-                    "Installed VantageUI is current. Update can also verify or repair it.")
+                    "Installed VantageUI is current. Repair can verify its files.")
         elif action == "update":
+            completed_action = self._install_action or "update"
             self._installed = result.version
             self._pending_release = None
             self._set_status(
-                "VantageUI update complete. In EverQuest use /loadskin VantageUI 1, "
+                f"VantageUI {completed_action} complete. In EverQuest use "
+                "/loadskin VantageUI 1, "
                 "then verify the UI in game.")
+            self._install_action = ""
         elif action == "restore":
             self._installed = result.version
             self._set_status(
@@ -510,11 +582,18 @@ class VantageUI(ParserWindow):
                 "/loadskin VantageUI 1.")
         self._refresh_versions()
         self._refresh_controls()
+        if action == "check":
+            if continue_install:
+                self.update_skin(confirm=True)
+            elif newer and self.auto_update.isChecked():
+                self.update_skin(confirm=False)
 
     def _operation_failed(self, token, action, error):
         if token != self._operation_token:
             return
         self._busy = False
+        if action == "check":
+            self._install_after_check = False
         message = str(error or "Unknown error")
         permission = (
             isinstance(error, PermissionError) or
@@ -531,8 +610,10 @@ class VantageUI(ParserWindow):
                 "Use the normal UAC button below or choose another valid installation; "
                 "Vantage will not change folder permissions.")
         else:
+            failed_action = self._install_action or action
             self._set_status(
-                f"VantageUI {action} failed safely: {message}. Nothing else was changed.")
+                f"VantageUI {failed_action} failed safely: {message}. "
+                "Nothing else was changed.")
         self._append_log(token, message)
         self._refresh_controls()
 
