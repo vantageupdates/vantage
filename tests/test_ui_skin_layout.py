@@ -361,6 +361,7 @@ def test_gold_slot_edge_and_health_tick_resources_are_complete_and_in_bounds():
         },
         "A_VantageHP240Lines": (240, 20),
         "A_VantageHP100Lines": (100, 20),
+        "A_VantageSpellGemOutline": (120, 32),
     }
     mapped = {}
     for animation in root.findall("./Ui2DAnimation"):
@@ -368,7 +369,7 @@ def test_gold_slot_edge_and_health_tick_resources_are_complete_and_in_bounds():
         if len(frames) == 1 and (frames[0].findtext("Texture") or "").strip() == texture_name:
             mapped[animation.attrib["item"]] = animation
     assert set(mapped) == set(expected_sizes)
-    assert len(mapped) == 14
+    assert len(mapped) == 15
 
     for name, expected_size in expected_sizes.items():
         animation = mapped[name]

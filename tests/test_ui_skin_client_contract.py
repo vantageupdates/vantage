@@ -107,8 +107,8 @@ def test_spell_gems_have_room_for_names_inset_icons_and_row_gaps(index):
     gem = item(xml, 'SpellGem', f'CSPW_Spell{index}')
     label = item(xml, 'Label', f'CSPW_Spell{index}_Name')
     window = item(xml, 'Screen', 'CastSpellWnd')
-    assert rect(gem) == (1, 18 + 34 * index, 120, 32)
-    assert rect(label) == (32, 21 + 34 * index, 85, 26)
+    assert rect(gem) == (1, 18 + 36 * index, 120, 32)
+    assert rect(label) == (32, 21 + 36 * index, 85, 26)
     assert_two_line_spell_name_room(gem, label)
     assert label.findtext('Font') == '1'
     assert label.findtext('NoWrap') == 'false'
@@ -131,11 +131,11 @@ def test_spell_gems_have_room_for_names_inset_icons_and_row_gaps(index):
     assert gem.find('SpellIconSizeY') is None
     if index < 7:
         following = item(xml, 'SpellGem', f'CSPW_Spell{index + 1}')
-        assert rect(following)[1] - (gy + gh) == 2
+        assert rect(following)[1] - (gy + gh) == 4
     header = item(xml, 'Button', 'CSPW_SpellBook')
     assert rect(header) == (1, 1, 120, 14)
     assert window.findtext('Size/CX') == '130'
-    assert window.findtext('Size/CY') == '298'
+    assert window.findtext('Size/CY') == '312'
 
 
 @pytest.mark.parametrize('index', range(8))
@@ -149,6 +149,50 @@ def test_rejects_ui59_clipped_two_line_spell_labels(index):
     label.find('Size/CY').text = '20'
     with pytest.raises(AssertionError, match='Two-line spell name'):
         assert_two_line_spell_name_room(gem, label)
+
+
+@pytest.mark.parametrize('index', range(8))
+def test_spell_grey_outline_is_untinted_noninteractive_and_inside_its_gem(index):
+    xml = root('EQUI_CastSpellWnd.xml')
+    name = f'CSPW_Spell{index}_Outline'
+    outline = item(xml, 'StaticAnimation', name)
+    gem = item(xml, 'SpellGem', f'CSPW_Spell{index}')
+    assert rect(outline) == rect(gem)
+    assert outline.findtext('Animation') == 'A_VantageSpellGemOutline'
+    assert outline.findtext('AutoDraw') == 'true'
+    assert outline.findtext('RelativePosition') == 'true'
+    assert outline.find('Tint') is None
+    assert 'A_VantageSpellGemOutline' not in ET.tostring(gem).decode()
+    pieces = [p.text for p in item(xml, 'Screen', 'CastSpellWnd').findall('Pieces')]
+    assert pieces.count(name) == 1
+    assert pieces.index(f'CSPW_Spell{index}') < pieces.index(name)
+    assert pieces.index(name) < pieces.index(f'CSPW_Spell{index}_Name')
+    assert list(xml).index(outline) < list(xml).index(item(xml, 'Screen', 'CastSpellWnd'))
+
+
+def test_spell_outline_is_a_fine_grey_rounded_ring_with_no_center_paint():
+    animation = item(root('EQUI_Animations.xml'), 'Ui2DAnimation', 'A_VantageSpellGemOutline')
+    assert animation.findtext('Cycle') == 'false'
+    assert len(animation.findall('Frames')) == 1
+    frame = animation.find('Frames')
+    assert rect(frame) == (2, 34, 120, 32)
+    assert frame.findtext('Texture') == 'VantageControlEdges.tga'
+    data = (SKIN / 'VantageControlEdges.tga').read_bytes()
+    def pixel(x, y):
+        offset = 18 + 4 * ((y + 34) * 512 + x + 2)
+        return tuple(data[offset:offset + 4])
+    visible = [pixel(x, y) for y in range(32) for x in range(120) if pixel(x, y)[3]]
+    assert visible and all(b == g == r for b, g, r, a in visible)
+    assert 80 <= max(c[3] for c in visible) <= 170
+    assert len({c[3] for c in visible}) > 8, 'Antialiased coverage, not hard square edges'
+    for x, y in ((0, 0), (119, 0), (0, 31), (119, 31)):
+        assert pixel(x, y)[3] == 0
+    assert all(pixel(x, y)[3] == 0 for y in range(4, 28) for x in range(5, 115))
+    # Both horizontal and vertical edges exist; not just a disconnected line.
+    assert any(pixel(60, y)[3] > 70 for y in range(3))
+    assert any(pixel(60, y)[3] > 70 for y in range(29, 32))
+    assert any(pixel(x, 16)[3] > 70 for x in range(3))
+    assert any(pixel(x, 16)[3] > 70 for x in range(117, 120))
 
 
 def test_player_name_hp_and_mana_do_not_overlap():

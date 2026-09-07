@@ -6,9 +6,12 @@ Install folder: `VantageUI-v1.44.60`.
 
 - Reserves 26px for each wrapped spell name instead of the clipped 20px box.
   Keeps three pixels above and below that text region inside each gem.
-- Increases gem height only from 28px to 32px, with separate 2px row gaps.
+- Increases gem height only from 28px to 32px, with separate 4px row gaps.
   Keeps the compact 120px gem / 130px window widths, existing font, horizontal
   centering, colors and art. The native 24px icon is centered with a 4px inset.
+- Adds a thin, antialiased grey rounded outline to each spell button. The edge
+  is an independent non-interactive decoration, not part of the school-tinted
+  surface, with a transparent center that cannot cover the icon or text.
 - Increases the spell window height to contain all eight rows. No changes to
   inventory, bags, Actions, health, attack or any other window.
 - Adds a regression check that rejects the previous clipped label geometry.
