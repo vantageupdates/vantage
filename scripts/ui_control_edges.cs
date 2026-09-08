@@ -77,7 +77,8 @@ public static class VantageControlEdgesRenderer {
                         int rgb=y<=9 ? 255 : 0;
                         bool divider=false;
                         for(int i=1;i<5;i++) if(x==i*width/5-1) divider=true;
-                        if(divider) { alpha=26; rgb=255; }
+                        // Slight visibility lift only: 14% white, still translucent.
+                        if(divider) { alpha=36; rgb=255; }
                         atlas.SetPixel(start+x,12+y,Color.FromArgb(alpha,rgb,rgb,rgb));
                     }
                 }

@@ -1,5 +1,30 @@
 # VantageUI releases
 
+## 1.44.63
+
+Install folder: `VantageUI-v1.44.63`.
+
+- Changes the integrated casting gauge from fixed gold to the same 23-color
+  perceptual palette used by health: red at the start, orange and yellow in
+  between, and regular green in the final fifth of casting.
+- Reverses the color thresholds for native EQType 7, which measures remaining
+  casting time and counts down from full to empty. Color changes track actual
+  client progress, not a repeating animation or a guessed spell duration.
+- Uses the existing paired-gauge clipping technique with the original thin
+  casting texture, preserving its 240x11 geometry, depth, position, and name.
+  All added layers precede the name and disappear at zero fill; no idle color
+  stripe or new standalone casting window.
+- Makes the four live health separators slightly easier to see: white alpha
+  rises from 26 to 36 out of 255 (10% to 14%), retaining one-pixel widths,
+  placement and transparency. Applies to player, target, party and pet HP.
+  Empty health rows still show no permanent markers. All other atlas pixels,
+  health colors and shading remain unchanged.
+- No spell-gem, inventory, bag, Actions, character INI, or Companion changes.
+  School-based coloring is superseded by this requested progress-based ramp.
+
+Load manually with `/loadskin VantageUI-v1.44.63 1`. Palette and geometry tests
+do not verify native rendering, frame timing, or text contrast in game.
+
 ## 1.44.62
 
 Install folder: `VantageUI-v1.44.62`.

@@ -38,7 +38,7 @@ def test_reproduces_four_actual_ui54_target_symbol_table_errors():
     parent = item(xml, 'Screen', 'TargetWindow')
     # Recreate 1.44.54 membership, excluding later intermediate-color layers.
     for piece in list(parent.findall('Pieces')):
-        if (piece.text or '').startswith('VantageTarget_HP_S'):
+        if (piece.text or '').startswith(('VantageTarget_HP_S', 'VantageCast_R')):
             parent.remove(piece)
     xml.remove(parent)
     xml.insert(1, parent)
@@ -296,7 +296,7 @@ def test_native_edge_atlas_has_transparent_hp_relief_and_fine_gold():
             for y in range(12, 32):
                 color = pixel(x, y)
                 if x in columns and 15 <= y < 30:
-                    assert color == (255, 255, 255, 26)
+                    assert color == (255, 255, 255, 36)
                 assert color[3] <= 50
                 if y < 15 or y >= 30:
                     assert color[3] == 0
