@@ -131,8 +131,13 @@ them in `uifiles\.vantage-ui-registry.json`, with the namespace lock
 `uifiles\.vantage-ui-update.lock`. The legacy `uifiles\VantageUI` folder remains
 untouched.
 
-The updater records one active managed version and one previous managed version;
-both selections are retained even when a user later edits their files. “Active”
+The updater retains the active managed version and two earlier fallback versions
+(three folders in normal upgrade order). The shared registry still records the
+active and immediate previous selection; both are retained even when edited.
+The second older fallback is chosen from registered, non-retired versions in
+numeric version order, never from a scan of arbitrary skin folders. Following a
+rollback, a newer previous selection is additionally protected, as are other
+newer registered versions. “Active”
 means the updater's selection; it does not mean EverQuest has loaded that folder.
 Only older registered cleanup candidates whose complete contents still match
 their recorded release may be deleted. A modified registered candidate is

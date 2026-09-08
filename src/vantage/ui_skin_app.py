@@ -402,7 +402,7 @@ class SkinWindow:
                 "No recargues la UI durante la operación; tras el éxito usa "
                 f"/loadskin {next_folder} 1. La limpieza de versiones antiguas esperará a que cierres el juego."
                 if self.allow_game_running else "EverQuest debe estar cerrado.")
-            if not self._confirm("Actualizar VantageUI", f"Se instalará uifiles\\{next_folder}.\nSe conservarán la versión seleccionada y una anterior.\nLas carpetas modificadas, no administradas y VantageUI antigua no se borran.\n\n" + live_copy):
+            if not self._confirm("Actualizar VantageUI", f"Se instalará uifiles\\{next_folder}.\nSe conservarán la versión seleccionada y dos anteriores de respaldo.\nLas carpetas modificadas, no administradas y VantageUI antigua no se borran.\n\n" + live_copy):
                 self.automatic.set(False)
                 self.pending = False
                 self._save()

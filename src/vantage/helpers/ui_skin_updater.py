@@ -943,6 +943,34 @@ def _delete_empty_directory(path, expected_id, before_delete):
             path.rmdir()
 
 
+def _retained_folders(registry):
+    """Keep the selection, its rollback target and two older fallback slots.
+
+    The previous target counts toward the two older fallbacks when it is older
+    than active. After rollback, a newer previous target is additionally kept.
+    Choose only registered, non-retired names; never enumerate skin directories
+    or mistake a partially deleted quarantine for a usable fallback.
+    """
+    active = registry["active"]
+    keep = {name for name in (active, registry["previous"]) if name}
+    if not active:
+        return keep
+    def version_key(name):
+        return tuple(map(int, _folder_version(name).split(".")))
+    active_version = version_key(active)
+    older = sorted((name for name, record in registry["managed"].items()
+                    if not record["quarantine"] and version_key(name) < active_version),
+                   key=version_key, reverse=True)
+    fallbacks = sum(version_key(name) < active_version for name in keep)
+    for name in older:
+        if fallbacks >= 2:
+            break
+        if name not in keep:
+            keep.add(name)
+            fallbacks += 1
+    return keep
+
+
 def _prune(target, registry, snapshot, log):
     """Best effort after commit. Only registered, exact older folders qualify."""
     warnings = []
@@ -956,7 +984,7 @@ def _prune(target, registry, snapshot, log):
     except Exception as error:
         warn(f"UI installed; cleanup deferred because the game state is unknown: {error}")
         return registry, snapshot, tuple(warnings)
-    keep = {registry["active"], registry["previous"]}
+    keep = _retained_folders(registry)
     for name in list(registry["managed"]):
         if name in keep:
             continue

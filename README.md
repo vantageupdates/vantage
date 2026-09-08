@@ -124,8 +124,9 @@ Companion incluye un panel independiente **VantageUI** para instalar y mantener
 la skin opcional incluida en este repositorio. Cada lanzamiento UI se instala en
 una carpeta propia como `EverQuest\uifiles\VantageUI-v1.44.67`; la carpeta
 legada `VantageUI` permanece intacta. El actualizador verifica los archivos,
-conserva la selección activa y una anterior incluso si el usuario las edita, y
-solo elimina versiones administradas más antiguas que sigan intactas. Las
+conserva la selección activa y dos versiones anteriores de respaldo, y
+solo elimina versiones administradas más antiguas que sigan intactas. La activa
+y el destino de restauración siempre se conservan, incluso con cambios locales. Las
 carpetas modificadas se conservan con aviso y las no administradas no se adoptan
 ni se inspeccionan. Por defecto EverQuest debe estar cerrado; el modo opcional
 para instalar una carpeta nueva con el juego abierto siempre difiere la limpieza.
