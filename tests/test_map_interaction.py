@@ -154,8 +154,16 @@ def test_poi_labels_remain_readable_in_overview_and_respect_toggle():
         assert point.text.scale() == pytest.approx(1.0)
         assert point.text.deviceTransform(
             canvas.viewportTransform()).m11() == pytest.approx(1.0)
+        assert point._point_size <= 8.0
+        assert 'font-weight:500' in point.text.toHtml().replace(' ', '')
         assert '#f4ead4' in point.text.toHtml().lower()
         assert '#071014' in point.text.toHtml().lower()
+        point_rect = point.text.deviceTransform(
+            canvas.viewportTransform()).mapRect(point.text.boundingRect())
+        upper_rect = upper_point.text.deviceTransform(
+            canvas.viewportTransform()).mapRect(
+                upper_point.text.boundingRect())
+        assert not point_rect.intersects(upper_rect)
         assert 'visible points of interest' in (
             canvas.accessibleDescription().lower())
         assert 'bank' in canvas.accessibleDescription().lower()
@@ -179,8 +187,59 @@ def test_poi_labels_remain_readable_in_overview_and_respect_toggle():
         assert upper_point.text.opacity() == 0
         assert not point.text.isVisible()
         assert not upper_point.text.isVisible()
+        assert not point.leader.isVisible()
+        assert not upper_point.leader.isVisible()
         assert 'points of interest are hidden' in (
             canvas.accessibleDescription().lower())
+    finally:
+        config.data["maps"].clear()
+        config.data["maps"].update(original)
+        canvas.close()
+
+
+def test_west_commonlands_overview_packs_all_poi_labels_without_overlap():
+    app = _app()
+    original = dict(config.data.setdefault("maps", {}))
+    canvas = MapCanvas()
+    canvas.resize(415, 347)
+    canvas.show()
+
+    try:
+        config.data["maps"].update({
+            "show_poi": True, "use_z_layers": False,
+            "current_z_alpha": 85, "other_z_alpha": 25,
+            "closest_z_alpha": 55, "line_width": 1,
+            "show_grid": True, "grid_line_width": 1,
+            "show_mouse_location": True,
+        })
+        canvas._data = MapData("west commonlands")
+        canvas._z_index = 0
+        canvas._draw()
+        geometry = canvas._data.geometry
+        scene_rect = canvas._scene.sceneRect()
+        scene_rect.adjust(
+            -geometry.width * 2, -geometry.height * 2,
+            geometry.width * 2, geometry.height * 2)
+        canvas.setSceneRect(scene_rect)
+        canvas.fit_overview()
+        app.processEvents()
+
+        label_rects = []
+        for z in canvas._data.keys():
+            for point in canvas._data[z]["poi"]:
+                label_rects.append(
+                    point.text.deviceTransform(
+                        canvas.viewportTransform()).mapRect(
+                            point.text.boundingRect()))
+
+        assert len(label_rects) == 19
+        viewport = canvas.viewport().rect().adjusted(4, 4, -4, -4)
+        assert all(viewport.contains(rect.toRect()) for rect in label_rects)
+        for index, rect in enumerate(label_rects):
+            padded = rect.adjusted(-1, -1, 1, 1)
+            assert all(
+                not padded.intersects(other.adjusted(-1, -1, 1, 1))
+                for other in label_rects[index + 1:])
     finally:
         config.data["maps"].clear()
         config.data["maps"].update(original)

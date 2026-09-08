@@ -4,7 +4,7 @@ import traceback
 import os
 
 import pathvalidate
-from PySide6.QtCore import Qt, QPoint, Signal, QTimer
+from PySide6.QtCore import Qt, QPoint, QPointF, QRectF, QLineF, Signal, QTimer
 from PySide6.QtGui import QPainter, QTransform, QColor, QPen, QAction
 from PySide6.QtWidgets import (QApplication, QGraphicsScene, QGraphicsView,
                              QInputDialog, QMenu, QLineEdit, QFrame, QLabel,
@@ -201,6 +201,7 @@ class MapCanvas(QGraphicsView):
         for z in self._data.keys():
             self._scene.addItem(self._data[z]['paths'])
             for p in self._data[z]['poi']:
+                self._scene.addItem(p.leader)
                 self._scene.addItem(p.text)
 
         self._scene.addItem(self._data.grid)
@@ -269,6 +270,7 @@ class MapCanvas(QGraphicsView):
                     current=is_current_z,
                     layered=config.data['maps']['use_z_layers'])
                 p.text.setVisible(labels_visible)
+                p.leader.setVisible(False)
                 if not labels_visible:
                     p.text.setOpacity(0)
                 else:
@@ -343,6 +345,8 @@ class MapCanvas(QGraphicsView):
         else:
             self._data.grid.setVisible(False)
 
+        self._layout_poi_labels(current_z_level, labels_visible)
+
     def to_scale(self, float_value=1.0):
         return float_value / self._scale
 
@@ -379,6 +383,166 @@ class MapCanvas(QGraphicsView):
             self._poi_accessible_description = description
             self.setAccessibleDescription(description)
 
+    def _layout_poi_labels(self, current_z_level, labels_visible):
+        """Pack every visible POI label in viewport space without overlap."""
+        if not labels_visible or not self._data:
+            return
+
+        viewport_bounds = QRectF(self.viewport().rect()).adjusted(
+            5.0, 5.0, -5.0, -5.0)
+        reserved = []
+        if self.location_overlay.isVisible():
+            reserved.append(QRectF(
+                self.location_overlay.geometry()).adjusted(
+                    -4.0, -4.0, 4.0, 4.0))
+
+        labels = []
+        anchor_bounds = viewport_bounds.adjusted(-12.0, -12.0, 12.0, 12.0)
+        for z in self._data.keys():
+            for point in self._data[z]['poi']:
+                anchor = QPointF(self.mapFromScene(QPointF(
+                    point.location.x, point.location.y)))
+                # A zoomed or panned view must not pull off-screen POIs into
+                # the visible lanes.  They retain their natural map position.
+                if not anchor_bounds.contains(anchor):
+                    continue
+                bounds = point.text.boundingRect()
+                labels.append((
+                    z != current_z_level,
+                    -int(point.location.size),
+                    anchor.y(), anchor.x(), point.label.casefold(),
+                    point, anchor, bounds.width(), bounds.height()))
+        labels.sort(key=lambda entry: entry[:5])
+        # A compact viewport has finite label lanes.  Very dense city maps
+        # can contain 200+ POIs; keep every label at its map anchor, but only
+        # run collision packing for the number the viewport can display as
+        # distinct rows.  This keeps /loc refreshes responsive.
+        pack_limit = max(
+            24, min(72, int(viewport_bounds.height() // 18.0) * 3))
+        labels = labels[:pack_limit]
+
+        inverse, invertible = self.viewportTransform().inverted()
+        if not invertible:
+            return
+        cell_size = 24.0
+        occupied_cells = {}
+
+        def rect_cells(rect):
+            left = int(rect.left() // cell_size)
+            right = int(rect.right() // cell_size)
+            top = int(rect.top() // cell_size)
+            bottom = int(rect.bottom() // cell_size)
+            for column in range(left, right + 1):
+                for row in range(top, bottom + 1):
+                    yield column, row
+
+        def add_occupied(rect):
+            for cell in rect_cells(rect):
+                occupied_cells.setdefault(cell, []).append(rect)
+
+        def nearby_occupied(rect):
+            found = []
+            seen = set()
+            for cell in rect_cells(rect):
+                for blocker in occupied_cells.get(cell, ()):
+                    identity = id(blocker)
+                    if identity not in seen:
+                        seen.add(identity)
+                        found.append(blocker)
+            return found
+
+        for rect in reserved:
+            add_occupied(rect)
+        for (*_, point, anchor, width, height) in labels:
+            candidates = self._poi_label_candidates(
+                anchor, width, height, viewport_bounds)
+            best_rect = None
+            best_score = None
+            for index, rect in enumerate(candidates):
+                probe = rect.adjusted(-2.0, -1.0, 2.0, 1.0)
+                inside = rect.intersected(viewport_bounds)
+                outside_area = max(
+                    0.0, (rect.width() * rect.height()) -
+                    (inside.width() * inside.height()))
+                overlap_area = 0.0
+                for blocker in nearby_occupied(probe):
+                    overlap = probe.intersected(blocker)
+                    overlap_area += max(
+                        0.0, overlap.width() * overlap.height())
+                center = rect.center()
+                distance = ((center.x() - anchor.x()) ** 2 +
+                            (center.y() - anchor.y()) ** 2) ** 0.5
+                score = (outside_area * 1000.0) + (
+                    overlap_area * 100.0) + (distance * 0.05) + (
+                        index * 0.001)
+                if best_score is None or score < best_score:
+                    best_score = score
+                    best_rect = rect
+                if outside_area == 0.0 and overlap_area == 0.0:
+                    best_rect = rect
+                    break
+
+            if best_rect is None:
+                continue
+            point.text.setPos(inverse.map(best_rect.topLeft()))
+            padded = best_rect.adjusted(-2.0, -1.0, 2.0, 1.0)
+            add_occupied(padded)
+
+            nearest = QPointF(
+                min(max(anchor.x(), best_rect.left()), best_rect.right()),
+                min(max(anchor.y(), best_rect.top()), best_rect.bottom()))
+            distance = ((nearest.x() - anchor.x()) ** 2 +
+                        (nearest.y() - anchor.y()) ** 2) ** 0.5
+            if distance > 3.5:
+                point.leader.setLine(QLineF(
+                    QPointF(point.location.x, point.location.y),
+                    inverse.map(nearest)))
+                point.leader.setVisible(True)
+
+    @staticmethod
+    def _poi_label_candidates(anchor, width, height, viewport_bounds):
+        """Return deterministic nearby label positions in device pixels."""
+        gap = 5.0
+        centered_y = anchor.y() - (height / 2.0)
+        candidates = [
+            QRectF(anchor.x() + gap, centered_y, width, height),
+            QRectF(anchor.x() - width - gap, centered_y, width, height),
+            QRectF(anchor.x() - (width / 2.0),
+                   anchor.y() - height - gap, width, height),
+            QRectF(anchor.x() - (width / 2.0),
+                   anchor.y() + gap, width, height),
+        ]
+        row_step = height + 3.0
+        for ring in range(1, 11):
+            for direction in (-1.0, 1.0):
+                row_y = centered_y + (direction * row_step * ring)
+                candidates.extend((
+                    QRectF(anchor.x() + gap, row_y, width, height),
+                    QRectF(anchor.x() - width - gap,
+                           row_y, width, height)))
+        # Dense merchant hubs can contain more labels than the local rings
+        # can place.  Add nearest-first viewport lanes as a final fallback so
+        # every visible label stays readable instead of stacking in the map's
+        # center.  Leader lines preserve the relationship to the map anchor.
+        lane_rects = []
+        lane_x = (
+            viewport_bounds.left(),
+            viewport_bounds.center().x() - (width / 2.0),
+            viewport_bounds.right() - width)
+        row_step = height + 3.0
+        row_y = viewport_bounds.top()
+        while row_y + height <= viewport_bounds.bottom():
+            for x in lane_x:
+                rect = QRectF(x, row_y, width, height)
+                center = rect.center()
+                distance = ((center.x() - anchor.x()) ** 2 +
+                            (center.y() - anchor.y()) ** 2)
+                lane_rects.append((distance, rect))
+            row_y += row_step
+        candidates.extend(
+            rect for _, rect in sorted(lane_rects, key=lambda row: row[0]))
+        return candidates
+
     def center(self):
         player = None
         if self._data:
@@ -403,6 +567,9 @@ class MapCanvas(QGraphicsView):
         self._manual_view = False
         self.update_(ratio)
         self.centerOn(geometry.center_x, geometry.center_y)
+        self._layout_poi_labels(
+            geometry.z_groups[self._z_index],
+            config.data['maps']['show_poi'])
 
     def remove_player(self, name):
         player = self._data.players.pop(name)

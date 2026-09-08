@@ -48,18 +48,53 @@ class PointOfInterest:
         self.__dict__.update(kwargs)
         self.text = QGraphicsTextItem()
         self.label = self.location.text.replace('_', ' ')
-        self._font_size = 1 + self.location.size
+        # EQ map files use sizes 2 and 3 for most labels.  Feeding those
+        # values to HTML's relative <font size> scale made overview labels
+        # render like headings.  Keep a compact point-size scale instead.
+        self._base_point_size = max(
+            7.5, min(8.5, 6.0 + (float(self.location.size) * 0.75)))
+        self._point_size = self._base_point_size
+        self.text.document().setDocumentMargin(1.5)
+        self.leader = QGraphicsLineItem()
+        leader_pen = QPen(QColor('#8d846f'), 1.0)
+        leader_pen.setCosmetic(True)
+        self.leader.setPen(leader_pen)
+        self.leader.setZValue(1.9)
+        self.leader.setOpacity(0.62)
+        self.leader.hide()
         self.set_z_state(current=True, layered=False)
         self.text.setZValue(2)
         self.text.setFlag(
             QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
         self.text.setPos(self.location.x, self.location.y)
 
-    def update_(self, _scale):
-        # The map position still follows the scene, while the label retains a
-        # readable device-pixel size at overview and close zoom levels.
+    def update_(self, scene_per_pixel):
+        """Reset a compact label beside its map anchor before layout."""
+        overview_size = max(7.0, self._base_point_size - 0.5)
+        point_size = (
+            overview_size if float(scene_per_pixel or 1.0) >= 6.0
+            else self._base_point_size)
+        if point_size != self._point_size:
+            self._point_size = point_size
+            self._render_text()
         self.text.setScale(1.0)
-        self.text.setPos(self.location.x, self.location.y)
+        scene_per_pixel = max(0.0001, float(scene_per_pixel or 1.0))
+        self.text.setPos(
+            self.location.x - (4.0 * scene_per_pixel),
+            self.location.y - (
+                self.text.boundingRect().height() * 0.5 * scene_per_pixel))
+        self.leader.hide()
+
+    def _render_text(self):
+        current, layered = getattr(self, '_z_state', (True, False))
+        marker = '' if not layered else ('● ' if current else '○ ')
+        weight = 500 if current else 400
+        italic = 'normal' if current else 'italic'
+        label = html.escape(f'{marker}{self.label}')
+        self.text.setHtml(
+            "<span style=\"color:#f4ead4; background-color:#071014; "
+            f"font-size:{self._point_size:.1f}pt; font-weight:{weight}; "
+            f"font-style:{italic};\">{label}</span>")
 
     def set_z_state(self, current, layered):
         """Render readable text with a non-color cue for map Z context."""
@@ -67,12 +102,7 @@ class PointOfInterest:
         if getattr(self, '_z_state', None) == state:
             return
         self._z_state = state
-        marker = '' if not layered else ('● ' if current else '○ ')
-        style = 'font-weight: 700;' if current else 'font-style: italic;'
-        label = html.escape(f'{marker}{self.label}')
-        self.text.setHtml(
-            "<span style='color: #f4ead4; background-color: #071014; "
-            f"{style}'><font size='{self._font_size}'>{label}</font></span>")
+        self._render_text()
         if layered:
             state = 'current Z layer' if current else 'other Z layer'
             self.text.setToolTip(f'{self.label} · {state}')
