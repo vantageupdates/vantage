@@ -1,6 +1,6 @@
 [project]
 name = "vantage"
-version = "1.44.62"
+version = "1.44.63"
 authors = [
   { name="Vantage contributors" },
 ]

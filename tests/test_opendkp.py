@@ -2,10 +2,14 @@ import base64
 import copy
 import json
 
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication
+
 from vantage.helpers import config
 from vantage.helpers.opendkp import (
     auction_bids, auction_id, auction_item_name, decode_token_username,
     normalize_guild_slug, rows_from_payload, watch_matches)
+from vantage.parsers.opendkp import OpenDKP, SortItem, _date_cell
 
 
 def test_generic_guild_normalization_accepts_slug_or_opendkp_address_only():
@@ -64,3 +68,39 @@ def test_quickbar_catalog_exposes_one_generic_opendkp_window():
     assert matches == [
         ("opendkp", "OpenDKP · DKP & Bids", "ph-gavel", "windows")]
 
+
+def test_history_dates_sort_chronologically_and_support_date_event_search():
+    app = QApplication.instance() or QApplication([])
+    class FilterHarness:
+        MAX_TABLE_ROWS = 100
+        result = ""
+
+        def _set_result(self, text):
+            self.result = text
+
+    harness = FilterHarness()
+    table = OpenDKP._table(
+        harness, ("Date", "Raid / event"), "Test history",
+        (0, Qt.SortOrder.DescendingOrder))
+    OpenDKP._set_rows(harness, table, [
+        (_date_cell("2025-12-31T23:30:00Z"), "Temple clear"),
+        (_date_cell("2026-07-04T01:30:00Z"), "Sky raid"),
+    ])
+    assert table.item(0, 1).text() == "Sky raid"
+    table.sortItems(0, Qt.SortOrder.AscendingOrder)
+    assert table.item(0, 1).text() == "Temple clear"
+    OpenDKP._filter_table(harness, table, "2026-07-04 sky")
+    visible_events = [
+        table.item(row, 1).text() for row in range(table.rowCount())
+        if not table.isRowHidden(row)]
+    assert visible_events == ["Sky raid"]
+    assert harness.result == "1 matching row"
+    table.deleteLater()
+    app.processEvents()
+
+
+def test_numeric_sort_keys_do_not_sort_formatted_dkp_as_text():
+    low = SortItem("950.0", sort_value=950)
+    high = SortItem("1,200.0", sort_value=1200)
+    assert low < high
+    assert not high < low

@@ -51,15 +51,54 @@ def _percent(value):
 
 
 def _date_text(value, with_time=False):
-    raw = str(value or "").strip()
-    if not raw:
-        return "—"
-    try:
-        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    parsed = _parse_date(value)
+    if parsed is not None:
         local = parsed.astimezone()
         return local.strftime("%b %d, %Y · %I:%M %p" if with_time else "%b %d, %Y")
-    except (TypeError, ValueError):
-        return raw[:24]
+    raw = str(value or "").strip()
+    return raw[:24] if raw else "—"
+
+
+def _parse_date(value):
+    """Return a timezone-aware datetime for OpenDKP's common date shapes."""
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, (int, float)):
+        amount = float(value)
+        if amount > 10_000_000_000:  # tolerate millisecond Unix timestamps
+            amount /= 1000
+        try:
+            parsed = datetime.fromtimestamp(amount, timezone.utc)
+        except (OSError, OverflowError, ValueError):
+            return None
+    else:
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
+    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
+
+
+def _date_cell(value, source=None, with_time=False):
+    """Build a correctly sortable date cell with flexible search aliases."""
+    parsed = _parse_date(value)
+    text = _date_text(value, with_time=with_time)
+    raw = str(value or "").strip()
+    aliases = [text, raw]
+    if parsed is not None:
+        local = parsed.astimezone()
+        aliases.extend((
+            local.strftime("%Y-%m-%d"),
+            local.strftime("%m/%d/%Y"),
+            local.strftime("%m/%d/%y"),
+            local.strftime("%B %d %Y"),
+        ))
+    search_text = " ".join(dict.fromkeys(alias for alias in aliases if alias))
+    sort_value = parsed.timestamp() if parsed is not None else float("-inf")
+    return text, source, sort_value, search_text
 
 
 def _auction_end(auction):
@@ -104,12 +143,14 @@ def _wins(auction):
 
 
 class SortItem(QTableWidgetItem):
-    """Table item with an optional numeric sort key and attached source row."""
+    """Table item with a typed sort key, source row, and search aliases."""
 
-    def __init__(self, text, source=None, sort_value=None):
+    def __init__(self, text, source=None, sort_value=None, search_text=None):
         super().__init__(str(text))
         if source is not None:
             self.setData(Qt.ItemDataRole.UserRole, source)
+        if search_text is not None:
+            self.setData(Qt.ItemDataRole.UserRole + 1, str(search_text))
         self._sort_value = sort_value
 
     def __lt__(self, other):
@@ -373,9 +414,11 @@ class OpenDKP(ParserWindow):
 
         split = QSplitter(Qt.Orientation.Horizontal)
         self.character_loot = self._table(
-            ("Date", "Item", "DKP", "Raid"), "Selected character loot")
+            ("Date", "Item", "DKP", "Raid / event"),
+            "Selected character loot", (0, Qt.SortOrder.DescendingOrder))
         self.character_raids = self._table(
-            ("Date", "Raid", "Awarded", "Spent"), "Selected character raids")
+            ("Date", "Raid / event", "Awarded", "Spent"),
+            "Selected character raids", (0, Qt.SortOrder.DescendingOrder))
         split.addWidget(self._titled_table("Recent loot", self.character_loot))
         split.addWidget(self._titled_table("Recent raids", self.character_raids))
         split.setSizes([480, 480])
@@ -387,7 +430,7 @@ class OpenDKP(ParserWindow):
             "Search character, class, or rank…", self._filter_standings)
         self.standings_table = self._table(
             ("Character", "Class", "Level", "Rank", "DKP", "30d", "60d", "90d", "Life"),
-            "OpenDKP standings")
+            "OpenDKP standings", (0, Qt.SortOrder.AscendingOrder))
         layout.addWidget(self.standings_table, 1)
         return page
 
@@ -407,12 +450,14 @@ class OpenDKP(ParserWindow):
         left_layout.setContentsMargins(0, 0, 0, 0)
         live_tables = QSplitter(Qt.Orientation.Vertical)
         self.active_table = self._table(
-            ("Item", "Time", "Bids", "High", "My bid"), "Live OpenDKP auctions")
+            ("Item", "Time", "Bids", "High", "My bid"),
+            "Live OpenDKP auctions", (1, Qt.SortOrder.AscendingOrder))
         self.active_table.itemSelectionChanged.connect(self._auction_selected)
         live_tables.addWidget(self.active_table)
         self.bid_table = self._table(
             ("Character", "Rank", "DKP", "Priority", "Time"),
-            "Bids in the selected OpenDKP auction")
+            "Bids in the selected OpenDKP auction",
+            (2, Qt.SortOrder.DescendingOrder))
         live_tables.addWidget(self._titled_table("Selected auction bids", self.bid_table))
         live_tables.setSizes([260, 135])
         left_layout.addWidget(live_tables, 1)
@@ -507,10 +552,10 @@ class OpenDKP(ParserWindow):
         live_layout.addWidget(split)
 
         results, results_layout, self.auctions_search = self._search_page(
-            "Search item or winner…", self._filter_auctions)
+            "Search date, item, or winner…", self._filter_auctions)
         self.auctions_table = self._table(
             ("Date", "Item", "Winner", "DKP", "Auction"),
-            "OpenDKP auction results")
+            "OpenDKP auction results", (0, Qt.SortOrder.DescendingOrder))
         results_layout.addWidget(self.auctions_table, 1)
         self.auction_tabs.addTab(live, "Live & bid")
         self.auction_tabs.addTab(results, "Results")
@@ -523,34 +568,36 @@ class OpenDKP(ParserWindow):
 
     def _build_loot(self):
         page, layout, self.loot_search = self._search_page(
-            "Search item, character, or raid…", self._filter_loot)
+            "Search date, item, character, or raid/event…", self._filter_loot)
         self.loot_summary = QLabel("No loot loaded")
         self.loot_summary.setObjectName("OpenDkpInlineSummary")
         layout.addWidget(self.loot_summary)
         self.loot_table = self._table(
-            ("Date", "Item", "Character", "DKP", "Raid"), "OpenDKP loot history")
+            ("Date", "Item", "Character", "DKP", "Raid / event"),
+            "OpenDKP loot history", (0, Qt.SortOrder.DescendingOrder))
         layout.addWidget(self.loot_table, 1)
         return page
 
     def _build_raids(self):
         page, layout, self.raids_search = self._search_page(
-            "Search raid or pool…", self._filter_raids)
+            "Search date, raid/event, or pool…", self._filter_raids)
         self.raids_table = self._table(
-            ("Date", "Raid", "Pool", "Items", "Awarded", "Spent", "Ticks"),
-            "OpenDKP raid history")
+            ("Date", "Raid / event", "Pool", "Items", "Awarded", "Spent", "Ticks"),
+            "OpenDKP raid history", (0, Qt.SortOrder.DescendingOrder))
         layout.addWidget(self.raids_table, 1)
         return page
 
     def _build_adjustments(self):
         page, layout, self.adjustments_search = self._search_page(
-            "Search character, adjustment, or description…", self._filter_adjustments)
+            "Search date, character, adjustment, or description…",
+            self._filter_adjustments)
         self.adjustments_hint = QLabel(
             "Adjustments load only when this tab is opened to keep startup fast.")
         self.adjustments_hint.setObjectName("OpenDkpInlineSummary")
         layout.addWidget(self.adjustments_hint)
         self.adjustments_table = self._table(
             ("Date", "Character", "Value", "Adjustment", "Description"),
-            "OpenDKP adjustments")
+            "OpenDKP adjustments", (0, Qt.SortOrder.DescendingOrder))
         layout.addWidget(self.adjustments_table, 1)
         return page
 
@@ -579,7 +626,7 @@ class OpenDKP(ParserWindow):
         button.clicked.connect(callback)
         return button
 
-    def _table(self, headers, accessible_name):
+    def _table(self, headers, accessible_name, default_sort=None):
         table = QTableWidget(0, len(headers))
         table.setHorizontalHeaderLabels(headers)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -592,6 +639,9 @@ class OpenDKP(ParserWindow):
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         table.horizontalHeader().setStretchLastSection(True)
         table.horizontalHeader().setMinimumSectionSize(44)
+        table.horizontalHeader().setSortIndicatorShown(True)
+        if default_sort is not None:
+            table.horizontalHeader().setSortIndicator(*default_sort)
         table.setAccessibleName(accessible_name)
         table.setAccessibleDescription(
             "Sortable table. Click a heading to sort; drag heading dividers to resize columns.")
@@ -881,8 +931,9 @@ class OpenDKP(ParserWindow):
                 if isinstance(cell, QTableWidgetItem):
                     item = cell
                 elif isinstance(cell, tuple):
-                    text, source, sort_value = (cell + (None, None))[:3]
-                    item = SortItem(text, source, sort_value)
+                    text, source, sort_value, search_text = (
+                        cell + (None, None, None))[:4]
+                    item = SortItem(text, source, sort_value, search_text)
                 else:
                     item = SortItem(cell)
                 table.setItem(row_index, column, item)
@@ -979,23 +1030,27 @@ class OpenDKP(ParserWindow):
                 _clean(item.get("CharacterName"), "").casefold() == name.casefold()]
         loot.sort(key=lambda item: str(item.get("Timestamp") or ""), reverse=True)
         self._set_rows(self.character_loot, [
-            (_date_text(item.get("Timestamp")), _clean(item.get("ItemName")),
-             _number(item.get("DKP"), 1), _clean(item.get("Raid"))) for item in loot[:100]])
+            (_date_cell(item.get("Timestamp")), _clean(item.get("ItemName")),
+             (_number(item.get("DKP"), 1), None, float(item.get("DKP") or 0)),
+             _clean(item.get("Raid"))) for item in loot[:100]])
         raids = self._datasets["character_raids"][:100]
         if not raids:
             # Keep useful guild context visible when a tenant does not expose
             # the optional character-raids route.
             raids = self._datasets["raids"][:100]
         self._set_rows(self.character_raids, [
-            (_date_text(raid.get("Timestamp")), _clean(raid.get("Name")),
-             _number(raid.get("DKPAwarded"), 1), _number(raid.get("DKPSpent"), 1))
+            (_date_cell(raid.get("Timestamp")), _clean(raid.get("Name")),
+             (_number(raid.get("DKPAwarded"), 1), None,
+              float(raid.get("DKPAwarded") or 0)),
+             (_number(raid.get("DKPSpent"), 1), None,
+              float(raid.get("DKPSpent") or 0)))
             for raid in raids])
 
     def _populate_items(self):
         items = sorted(self._datasets["items"],
                        key=lambda item: str(item.get("Timestamp") or ""), reverse=True)
         self._set_rows(self.loot_table, [
-            (_date_text(item.get("Timestamp")),
+            (_date_cell(item.get("Timestamp")),
              (_clean(item.get("ItemName")), item, _clean(item.get("ItemName")).casefold()),
              _clean(item.get("CharacterName")),
              (_number(item.get("DKP"), 1), None, float(item.get("DKP") or 0)),
@@ -1012,7 +1067,7 @@ class OpenDKP(ParserWindow):
         raids = sorted(self._datasets["raids"],
                        key=lambda raid: str(raid.get("Timestamp") or ""), reverse=True)
         self._set_rows(self.raids_table, [
-            (_date_text(raid.get("Timestamp")),
+            (_date_cell(raid.get("Timestamp")),
              (_clean(raid.get("Name")), raid, _clean(raid.get("Name")).casefold()),
              _clean((raid.get("Pool") or {}).get("Name") if isinstance(raid.get("Pool"), dict)
                     else raid.get("PoolName")),
@@ -1029,7 +1084,7 @@ class OpenDKP(ParserWindow):
             winners = _wins(auction) or [("No winner", None)]
             for winner, value in winners:
                 rows.append((
-                    _date_text(auction.get("EndTimestamp") or auction.get("Timestamp")),
+                    _date_cell(auction.get("EndTimestamp") or auction.get("Timestamp")),
                     (auction_item_name(auction), auction, auction_item_name(auction).casefold()),
                     winner,
                     (_number(value), None, float(value or 0)),
@@ -1043,7 +1098,7 @@ class OpenDKP(ParserWindow):
             self._datasets["adjustments"],
             key=lambda row: str(row.get("Timestamp") or ""), reverse=True)
         self._set_rows(self.adjustments_table, [
-            (_date_text(row.get("Timestamp")),
+            (_date_cell(row.get("Timestamp")),
              _clean((row.get("Character") or {}).get("Name")
                     if isinstance(row.get("Character"), dict)
                     else row.get("CharacterName")),
@@ -1069,7 +1124,9 @@ class OpenDKP(ParserWindow):
                     and int(bid.get("CharacterId") or 0) in linked_ids]
             rows.append((
                 (auction_item_name(auction), auction, auction_item_name(auction).casefold()),
-                _remaining_text(auction),
+                (_remaining_text(auction), None,
+                 (_auction_end(auction).timestamp()
+                  if _auction_end(auction) is not None else float("inf"))),
                 (_number(len(bids)), None, len(bids)),
                 (_number(max(values) if values else 0), None, max(values) if values else 0),
                 (_number(max(mine)) if mine else "—", None, max(mine) if mine else -1),
@@ -1163,7 +1220,8 @@ class OpenDKP(ParserWindow):
              _clean(bid.get("Rank")),
              (_number(bid.get("Value")), None, float(bid.get("Value") or 0)),
              (_number(bid.get("Priority")), None, float(bid.get("Priority") or 0)),
-             _date_text(bid.get("Timestamp") or bid.get("Date"), with_time=True))
+             _date_cell(
+                 bid.get("Timestamp") or bid.get("Date"), with_time=True))
             for bid in bids])
         existing = self._my_bid(auction)
         if existing:
@@ -1239,10 +1297,16 @@ class OpenDKP(ParserWindow):
         terms = str(text or "").casefold().split()
         visible = 0
         for row in range(table.rowCount()):
-            haystack = " ".join(
-                table.item(row, column).text()
-                for column in range(table.columnCount())
-                if table.item(row, column) is not None).casefold()
+            values = []
+            for column in range(table.columnCount()):
+                item = table.item(row, column)
+                if item is None:
+                    continue
+                values.append(item.text())
+                aliases = item.data(Qt.ItemDataRole.UserRole + 1)
+                if aliases:
+                    values.append(str(aliases))
+            haystack = " ".join(values).casefold()
             show = all(term in haystack for term in terms)
             table.setRowHidden(row, not show)
             visible += int(show)
