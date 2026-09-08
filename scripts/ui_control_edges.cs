@@ -1,5 +1,5 @@
 // Code-native skin primitives, adapted from the existing SoftGoldRenderer.
-// Generates only the dedicated control-edge atlas; never processes item art.
+// Generates dedicated control edges and Actions button cells; never item art.
 using System;
 using System.IO;
 using System.Drawing;
@@ -101,6 +101,51 @@ public static class VantageControlEdgesRenderer {
                 }
                 for(int y=0;y<28;y++) for(int x=0;x<120;x++)
                     atlas.SetPixel(2+x,34+y,edge.GetPixel(x,y));
+            }
+            // Actions-only art matches the 128x18 hitboxes exactly. The shared
+            // 120x24 A_Btn* sprites stay unchanged for every other window.
+            // Crop each state before resampling so neighboring states cannot
+            // bleed into its rounded edges; keep six clear atlas rows between.
+            string buttonSource=Path.Combine(Path.GetDirectoryName(destination),
+                "window_pieces03_modern.png");
+            using(var source=new Bitmap(buttonSource))
+            using(var maskHigh=new Bitmap(512,72,PixelFormat.Format32bppArgb))
+            using(var mask=new Bitmap(128,18,PixelFormat.Format32bppArgb)) {
+                // The original atlas has a faint opaque backdrop outside its
+                // corners. Mask it away, rather than inheriting squared tips.
+                using(var g=Graphics.FromImage(maskHigh))
+                using(var path=Round(0,0,512,72,16))
+                using(var brush=new SolidBrush(Color.White)) {
+                    g.SmoothingMode=SmoothingMode.AntiAlias;
+                    g.FillPath(brush,path);
+                }
+                using(var g=Graphics.FromImage(mask)) {
+                    g.InterpolationMode=InterpolationMode.HighQualityBicubic;
+                    g.PixelOffsetMode=PixelOffsetMode.HighQuality;
+                    g.DrawImage(maskHigh,new Rectangle(0,0,128,18),
+                        0,0,512,72,GraphicsUnit.Pixel);
+                }
+                for(int state=0;state<5;state++) {
+                    using(var cell=source.Clone(new Rectangle(100,state*24,120,24),
+                        PixelFormat.Format32bppArgb))
+                    using(var small=new Bitmap(128,18,PixelFormat.Format32bppArgb))
+                    using(var attributes=new ImageAttributes()) {
+                        attributes.SetWrapMode(WrapMode.TileFlipXY);
+                        using(var g=Graphics.FromImage(small)) {
+                            g.InterpolationMode=InterpolationMode.HighQualityBicubic;
+                            g.PixelOffsetMode=PixelOffsetMode.HighQuality;
+                            g.DrawImage(cell,new Rectangle(0,0,128,18),
+                                0,0,120,24,GraphicsUnit.Pixel,attributes);
+                        }
+                        for(int y=0;y<18;y++) for(int x=0;x<128;x++) {
+                            Color c=small.GetPixel(x,y);
+                            int alpha=(c.A*mask.GetPixel(x,y).A+127)/255;
+                            atlas.SetPixel(352+x,4+state*24+y,
+                                alpha==0 ? Color.Transparent :
+                                Color.FromArgb(alpha,c.R,c.G,c.B));
+                        }
+                    }
+                }
             }
             using(var output=new BinaryWriter(File.Create(destination))) {
                 byte[] header=new byte[18]; header[2]=2; header[13]=2;

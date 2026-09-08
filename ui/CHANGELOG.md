@@ -1,5 +1,22 @@
 # VantageUI releases
 
+## 1.44.64
+
+Install folder: `VantageUI-v1.44.64`.
+
+- Reduce Camp, Sit/Stand, and Walk/Run buttons from 134x20 to 128x18,
+  retaining their centers and leaving four clear pixels between rows.
+- Give all five visual states dedicated, exactly sized rounded artwork.
+  Each state is cropped before resampling so neighboring sprites cannot
+  bleed into the gap. Keep the existing soft relief and restrained gold rim.
+- Keep the Actions window at 144x182 and preserve native labels, aliases,
+  stats, resist icons, tabs, and every other window's shared button artwork.
+- Preserve the health/casting gradients, spell gems, inventory, and attack rim.
+
+Load manually with `/loadskin VantageUI-v1.44.64 1`. Geometry, texture bounds,
+transparent gutters, and native control references are tested automatically;
+the final appearance still needs checking in EverQuest after a manual reload.
+
 ## 1.44.63
 
 Install folder: `VantageUI-v1.44.63`.

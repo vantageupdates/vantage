@@ -486,16 +486,16 @@ def test_actions_alias_rows_have_real_gaps_and_clipping_safe_page_height():
     page = _item(root, "Page", "ActionsMainPage")
     pieces = [piece.text.strip() for piece in page.findall("Pieces")]
     states = {
-        "Normal": "A_BtnNormal",
-        "Pressed": "A_BtnPressed",
-        "Flyby": "A_BtnFlyby",
-        "Disabled": "A_BtnDisabled",
-        "PressedFlyby": "A_BtnPressedFlyby",
+        "Normal": "A_VantageActionsNormal",
+        "Pressed": "A_VantageActionsPressed",
+        "Flyby": "A_VantageActionsFlyby",
+        "Disabled": "A_VantageActionsDisabled",
+        "PressedFlyby": "A_VantageActionsPressedFlyby",
     }
     rows = (
-        (86, ("AMP_CampButton",)),
-        (108, ("AMP_SitButton", "AMP_StandButton")),
-        (130, ("AMP_RunButton", "AMP_WalkButton")),
+        (87, ("AMP_CampButton",)),
+        (109, ("AMP_SitButton", "AMP_StandButton")),
+        (131, ("AMP_RunButton", "AMP_WalkButton")),
     )
     representatives = {}
     for y, aliases in rows:
@@ -504,7 +504,11 @@ def test_actions_alias_rows_have_real_gaps_and_clipping_safe_page_height():
             button = _item(root, "Button", name)
             assert button.findtext("ScreenID") == name
             assert pieces.count(name) == 1
-            assert _rect(button) == (1, y, 134, 20)
+            assert _rect(button) == (4, y, 128, 18)
+            # Preserve the row centers and native font/text instead of
+            # compressing labels along with the smaller button surfaces.
+            assert button.find("Font") is None
+            assert button.findtext("Text") == name.removeprefix("AMP_").removesuffix("Button")
             draw = button.find("ButtonDrawTemplate")
             assert draw is not None
             assert {state: draw.findtext(state) for state in states} == states
@@ -512,8 +516,8 @@ def test_actions_alias_rows_have_real_gaps_and_clipping_safe_page_height():
         assert len(set(alias_rects)) == 1
         representatives[str(y)] = alias_rects[0]
     _assert_nonoverlapping(representatives)
-    assert 108 - (86 + 20) == 2
-    assert 130 - (108 + 20) == 2
+    assert 109 - (87 + 18) == 4
+    assert 131 - (109 + 18) == 4
 
     animations = _root("EQUI_Animations.xml")
     templates = _root("EQUI_Templates.xml")
@@ -534,8 +538,62 @@ def test_actions_alias_rows_have_real_gaps_and_clipping_safe_page_height():
             tab_heights.add(_pair(_only_frame(icon), "Size", "CX", "CY")[1])
     assert tab_heights == {18}
     conservative_page_height = 182 - top_height - bottom_height - 18
-    assert conservative_page_height - (130 + 20) >= 4
-    assert conservative_page_height - (130 + 20) <= 6
+    assert conservative_page_height - (131 + 18) == 7
+
+
+@pytest.mark.parametrize("state,index", [
+    ("Normal", 0), ("Flyby", 1), ("Pressed", 2),
+    ("PressedFlyby", 3), ("Disabled", 4),
+])
+def test_actions_button_art_matches_hitbox_and_has_clear_rounded_gutters(state, index):
+    root = _root("EQUI_ActionsWindow.xml")
+    animation_name = f"A_VantageActions{state}"
+    animation = _item(root, "Ui2DAnimation", animation_name)
+    frame = _only_frame(animation)
+    assert frame.findtext("Texture") == "VantageControlEdges.tga"
+    assert _rect(frame) == (352, 4 + index * 24, 128, 18)
+    assert _pair(frame, "Hotspot", "X", "Y") == (0, 0)
+    assert animation.findtext("Cycle") == "true"
+    assert frame.findtext("Duration") == "1000"
+    expected_users = {
+        "AMP_CampButton", "AMP_SitButton", "AMP_StandButton",
+        "AMP_RunButton", "AMP_WalkButton",
+    }
+    users = set()
+    for node in root.findall("Button"):
+        if node.findtext(f"ButtonDrawTemplate/{state}") == animation_name:
+            users.add(node.attrib["item"])
+            assert list(root).index(animation) < list(root).index(node)
+            assert _pair(node, "Size", "CX", "CY") == (128, 18)
+    assert users == expected_users
+
+    # Other windows keep their shared, unscaled 120x24 button states.
+    shared = _root("EQUI_Animations.xml")
+    original = _item(shared, "Ui2DAnimation", f"A_Btn{state}")
+    original_frame = _only_frame(original)
+    assert original_frame.findtext("Texture") == "window_pieces03_modern.png"
+    assert _rect(original_frame) == (100, index * 24, 120, 24)
+
+    # Inspect the shipping texture, not just the XML rectangles. These cells
+    # are flat, top-origin uncompressed 32-bit BGRA with transparent gutters.
+    atlas = (SKIN_DIR / "VantageControlEdges.tga").read_bytes()
+    assert atlas[:3] == bytes((0, 0, 2))
+    assert atlas[12:18] == bytes((0, 2, 128, 0, 32, 40))
+    assert len(atlas) == 18 + 512 * 128 * 4
+
+    def alpha(x, y):
+        return atlas[18 + (y * 512 + x) * 4 + 3]
+
+    x, y, width, height = _rect(frame)
+    _assert_in_bounds((x, y, width, height), (512, 128))
+    assert alpha(x + width // 2, y + height // 2) >= 240
+    for px, py in ((x, y), (x + width - 1, y),
+                   (x, y + height - 1), (x + width - 1, y + height - 1)):
+        assert alpha(px, py) <= 16
+    for py in range(y - 1, y + height + 1):
+        assert alpha(x - 1, py) == alpha(x + width, py) == 0
+    for px in range(x - 1, x + width + 1):
+        assert alpha(px, y - 1) == alpha(px, y + height) == 0
 
 
 def test_attack_indicator_follows_full_client_perimeter_not_the_name_row():

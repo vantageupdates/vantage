@@ -656,16 +656,68 @@
   </Button>
 
 	
+  <!-- Dedicated, size-matched Actions art; preserve the shared A_Btn* states. -->
+  <Ui2DAnimation item="A_VantageActionsNormal">
+    <Cycle>true</Cycle>
+    <Frames>
+      <Texture>VantageControlEdges.tga</Texture>
+      <Location><X>352</X><Y>4</Y></Location>
+      <Size><CX>128</CX><CY>18</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageActionsFlyby">
+    <Cycle>true</Cycle>
+    <Frames>
+      <Texture>VantageControlEdges.tga</Texture>
+      <Location><X>352</X><Y>28</Y></Location>
+      <Size><CX>128</CX><CY>18</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageActionsPressed">
+    <Cycle>true</Cycle>
+    <Frames>
+      <Texture>VantageControlEdges.tga</Texture>
+      <Location><X>352</X><Y>52</Y></Location>
+      <Size><CX>128</CX><CY>18</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageActionsPressedFlyby">
+    <Cycle>true</Cycle>
+    <Frames>
+      <Texture>VantageControlEdges.tga</Texture>
+      <Location><X>352</X><Y>76</Y></Location>
+      <Size><CX>128</CX><CY>18</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageActionsDisabled">
+    <Cycle>true</Cycle>
+    <Frames>
+      <Texture>VantageControlEdges.tga</Texture>
+      <Location><X>352</X><Y>100</Y></Location>
+      <Size><CX>128</CX><CY>18</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+
   <Button item="AMP_CampButton">
     <ScreenID>AMP_CampButton</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>1</X>
-      <Y>86</Y>
+      <X>4</X>
+      <Y>87</Y>
     </Location>
     <Size>
-      <CX>134</CX>
-      <CY>20</CY>
+      <CX>128</CX>
+      <CY>18</CY>
     </Size>
     <Text>Camp</Text>
     <TextColor>
@@ -674,11 +726,11 @@
       <B>222</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageActionsNormal</Normal>
+      <Pressed>A_VantageActionsPressed</Pressed>
+      <Flyby>A_VantageActionsFlyby</Flyby>
+      <Disabled>A_VantageActionsDisabled</Disabled>
+      <PressedFlyby>A_VantageActionsPressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
 
@@ -686,12 +738,12 @@
     <ScreenID>AMP_SitButton</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>1</X>
-      <Y>108</Y>
+      <X>4</X>
+      <Y>109</Y>
     </Location>
     <Size>
-      <CX>134</CX>
-      <CY>20</CY>
+      <CX>128</CX>
+      <CY>18</CY>
     </Size>
     <Text>Sit</Text>
     <TextColor>
@@ -700,11 +752,11 @@
       <B>222</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageActionsNormal</Normal>
+      <Pressed>A_VantageActionsPressed</Pressed>
+      <Flyby>A_VantageActionsFlyby</Flyby>
+      <Disabled>A_VantageActionsDisabled</Disabled>
+      <PressedFlyby>A_VantageActionsPressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
 
@@ -712,12 +764,12 @@
     <ScreenID>AMP_StandButton</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>1</X>
-      <Y>108</Y>
+      <X>4</X>
+      <Y>109</Y>
     </Location>
     <Size>
-      <CX>134</CX>
-      <CY>20</CY>
+      <CX>128</CX>
+      <CY>18</CY>
     </Size>
     <Text>Stand</Text>
     <TextColor>
@@ -726,11 +778,11 @@
       <B>222</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageActionsNormal</Normal>
+      <Pressed>A_VantageActionsPressed</Pressed>
+      <Flyby>A_VantageActionsFlyby</Flyby>
+      <Disabled>A_VantageActionsDisabled</Disabled>
+      <PressedFlyby>A_VantageActionsPressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
 
@@ -738,12 +790,12 @@
     <ScreenID>AMP_RunButton</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>1</X>
-      <Y>130</Y>
+      <X>4</X>
+      <Y>131</Y>
     </Location>
     <Size>
-      <CX>134</CX>
-      <CY>20</CY>
+      <CX>128</CX>
+      <CY>18</CY>
     </Size>
     <Text>Run</Text>
     <TextColor>
@@ -752,11 +804,11 @@
       <B>222</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageActionsNormal</Normal>
+      <Pressed>A_VantageActionsPressed</Pressed>
+      <Flyby>A_VantageActionsFlyby</Flyby>
+      <Disabled>A_VantageActionsDisabled</Disabled>
+      <PressedFlyby>A_VantageActionsPressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
 
@@ -764,12 +816,12 @@
     <ScreenID>AMP_WalkButton</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>1</X>
-      <Y>130</Y>
+      <X>4</X>
+      <Y>131</Y>
     </Location>
     <Size>
-      <CX>134</CX>
-      <CY>20</CY>
+      <CX>128</CX>
+      <CY>18</CY>
     </Size>
     <Text>Walk</Text>
     <TextColor>
@@ -778,11 +830,11 @@
       <B>222</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageActionsNormal</Normal>
+      <Pressed>A_VantageActionsPressed</Pressed>
+      <Flyby>A_VantageActionsFlyby</Flyby>
+      <Disabled>A_VantageActionsDisabled</Disabled>
+      <PressedFlyby>A_VantageActionsPressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
 	
