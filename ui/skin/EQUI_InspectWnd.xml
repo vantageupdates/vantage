@@ -17,7 +17,7 @@
     <EQType>8001</EQType>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
@@ -37,7 +37,7 @@
     <EQType>8002</EQType>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
@@ -57,7 +57,7 @@
     <EQType>8003</EQType>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
@@ -77,7 +77,7 @@
     <EQType>8004</EQType>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
@@ -97,7 +97,7 @@
     <EQType>8005</EQType>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
@@ -117,7 +117,7 @@
     <EQType>8006</EQType>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
@@ -137,7 +137,7 @@
     <EQType>8007</EQType>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
@@ -157,7 +157,7 @@
     <EQType>8008</EQType>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
@@ -177,7 +177,7 @@
     <EQType>8009</EQType>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
@@ -197,7 +197,7 @@
     <EQType>8010</EQType>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
@@ -217,7 +217,7 @@
     <EQType>8011</EQType>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
@@ -237,7 +237,7 @@
     <EQType>8012</EQType>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
@@ -257,7 +257,7 @@
     <EQType>8013</EQType>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
@@ -277,7 +277,7 @@
     <EQType>8014</EQType>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
@@ -297,7 +297,7 @@
     <EQType>8015</EQType>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
@@ -317,7 +317,7 @@
     <EQType>8016</EQType>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
@@ -337,7 +337,7 @@
     <EQType>8017</EQType>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
@@ -357,7 +357,7 @@
     <EQType>8018</EQType>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
@@ -377,7 +377,7 @@
     <EQType>8019</EQType>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
@@ -397,7 +397,7 @@
     <EQType>8020</EQType>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
   </InvSlot>
@@ -417,7 +417,7 @@
     <EQType>8021</EQType>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
     <TooltipReference />
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>

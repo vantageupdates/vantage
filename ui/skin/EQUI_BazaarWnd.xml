@@ -34,6 +34,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot1">
     <ScreenID>BZR_BazaarSlot1</ScreenID>
@@ -52,6 +53,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot2">
     <ScreenID>BZR_BazaarSlot2</ScreenID>
@@ -70,6 +72,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot3">
     <ScreenID>BZR_BazaarSlot3</ScreenID>
@@ -88,6 +91,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot4">
     <ScreenID>BZR_BazaarSlot4</ScreenID>
@@ -106,6 +110,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot5">
     <ScreenID>BZR_BazaarSlot5</ScreenID>
@@ -124,6 +129,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot6">
     <ScreenID>BZR_BazaarSlot6</ScreenID>
@@ -142,6 +148,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot7">
     <ScreenID>BZR_BazaarSlot7</ScreenID>
@@ -160,6 +167,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot8">
     <ScreenID>BZR_BazaarSlot8</ScreenID>
@@ -178,6 +186,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot9">
     <ScreenID>BZR_BazaarSlot9</ScreenID>
@@ -196,6 +205,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot10">
     <ScreenID>BZR_BazaarSlot10</ScreenID>
@@ -214,6 +224,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot11">
     <ScreenID>BZR_BazaarSlot11</ScreenID>
@@ -232,6 +243,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot12">
     <ScreenID>BZR_BazaarSlot12</ScreenID>
@@ -250,6 +262,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot13">
     <ScreenID>BZR_BazaarSlot13</ScreenID>
@@ -268,6 +281,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot14">
     <ScreenID>BZR_BazaarSlot14</ScreenID>
@@ -286,6 +300,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot15">
     <ScreenID>BZR_BazaarSlot15</ScreenID>
@@ -304,6 +319,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot16">
     <ScreenID>BZR_BazaarSlot16</ScreenID>
@@ -322,6 +338,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot17">
     <ScreenID>BZR_BazaarSlot17</ScreenID>
@@ -340,6 +357,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot18">
     <ScreenID>BZR_BazaarSlot18</ScreenID>
@@ -358,6 +376,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot19">
     <ScreenID>BZR_BazaarSlot19</ScreenID>
@@ -376,6 +395,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot20">
     <ScreenID>BZR_BazaarSlot20</ScreenID>
@@ -394,6 +414,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot21">
     <ScreenID>BZR_BazaarSlot21</ScreenID>
@@ -412,6 +433,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot22">
     <ScreenID>BZR_BazaarSlot22</ScreenID>
@@ -430,6 +452,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot23">
     <ScreenID>BZR_BazaarSlot23</ScreenID>
@@ -448,6 +471,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot24">
     <ScreenID>BZR_BazaarSlot24</ScreenID>
@@ -466,6 +490,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot25">
     <ScreenID>BZR_BazaarSlot25</ScreenID>
@@ -484,6 +509,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot26">
     <ScreenID>BZR_BazaarSlot26</ScreenID>
@@ -502,6 +528,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot27">
     <ScreenID>BZR_BazaarSlot27</ScreenID>
@@ -520,6 +547,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot28">
     <ScreenID>BZR_BazaarSlot28</ScreenID>
@@ -538,6 +566,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot29">
     <ScreenID>BZR_BazaarSlot29</ScreenID>
@@ -556,6 +585,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot30">
     <ScreenID>BZR_BazaarSlot30</ScreenID>
@@ -574,6 +604,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot31">
     <ScreenID>BZR_BazaarSlot31</ScreenID>
@@ -592,6 +623,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot32">
     <ScreenID>BZR_BazaarSlot32</ScreenID>
@@ -610,6 +642,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot33">
     <ScreenID>BZR_BazaarSlot33</ScreenID>
@@ -628,6 +661,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot34">
     <ScreenID>BZR_BazaarSlot34</ScreenID>
@@ -646,6 +680,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot35">
     <ScreenID>BZR_BazaarSlot35</ScreenID>
@@ -664,6 +699,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot36">
     <ScreenID>BZR_BazaarSlot36</ScreenID>
@@ -682,6 +718,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot37">
     <ScreenID>BZR_BazaarSlot37</ScreenID>
@@ -700,6 +737,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot38">
     <ScreenID>BZR_BazaarSlot38</ScreenID>
@@ -718,6 +756,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot39">
     <ScreenID>BZR_BazaarSlot39</ScreenID>
@@ -736,6 +775,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot40">
     <ScreenID>BZR_BazaarSlot40</ScreenID>
@@ -754,6 +794,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot41">
     <ScreenID>BZR_BazaarSlot41</ScreenID>
@@ -772,6 +813,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot42">
     <ScreenID>BZR_BazaarSlot42</ScreenID>
@@ -790,6 +832,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot43">
     <ScreenID>BZR_BazaarSlot43</ScreenID>
@@ -808,6 +851,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot44">
     <ScreenID>BZR_BazaarSlot44</ScreenID>
@@ -826,6 +870,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot45">
     <ScreenID>BZR_BazaarSlot45</ScreenID>
@@ -844,6 +889,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot46">
     <ScreenID>BZR_BazaarSlot46</ScreenID>
@@ -862,6 +908,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot47">
     <ScreenID>BZR_BazaarSlot47</ScreenID>
@@ -880,6 +927,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot48">
     <ScreenID>BZR_BazaarSlot48</ScreenID>
@@ -898,6 +946,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot49">
     <ScreenID>BZR_BazaarSlot49</ScreenID>
@@ -916,6 +965,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot50">
     <ScreenID>BZR_BazaarSlot50</ScreenID>
@@ -934,6 +984,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot51">
     <ScreenID>BZR_BazaarSlot51</ScreenID>
@@ -952,6 +1003,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot52">
     <ScreenID>BZR_BazaarSlot52</ScreenID>
@@ -970,6 +1022,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot53">
     <ScreenID>BZR_BazaarSlot53</ScreenID>
@@ -988,6 +1041,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot54">
     <ScreenID>BZR_BazaarSlot54</ScreenID>
@@ -1006,6 +1060,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot55">
     <ScreenID>BZR_BazaarSlot55</ScreenID>
@@ -1024,6 +1079,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot56">
     <ScreenID>BZR_BazaarSlot56</ScreenID>
@@ -1042,6 +1098,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot57">
     <ScreenID>BZR_BazaarSlot57</ScreenID>
@@ -1060,6 +1117,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot58">
     <ScreenID>BZR_BazaarSlot58</ScreenID>
@@ -1078,6 +1136,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot59">
     <ScreenID>BZR_BazaarSlot59</ScreenID>
@@ -1096,6 +1155,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot60">
     <ScreenID>BZR_BazaarSlot60</ScreenID>
@@ -1114,6 +1174,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot61">
     <ScreenID>BZR_BazaarSlot61</ScreenID>
@@ -1132,6 +1193,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot62">
     <ScreenID>BZR_BazaarSlot62</ScreenID>
@@ -1150,6 +1212,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot63">
     <ScreenID>BZR_BazaarSlot63</ScreenID>
@@ -1168,6 +1231,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot64">
     <ScreenID>BZR_BazaarSlot64</ScreenID>
@@ -1186,6 +1250,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot65">
     <ScreenID>BZR_BazaarSlot65</ScreenID>
@@ -1204,6 +1269,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot66">
     <ScreenID>BZR_BazaarSlot66</ScreenID>
@@ -1222,6 +1288,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot67">
     <ScreenID>BZR_BazaarSlot67</ScreenID>
@@ -1240,6 +1307,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot68">
     <ScreenID>BZR_BazaarSlot68</ScreenID>
@@ -1258,6 +1326,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot69">
     <ScreenID>BZR_BazaarSlot69</ScreenID>
@@ -1276,6 +1345,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot70">
     <ScreenID>BZR_BazaarSlot70</ScreenID>
@@ -1294,6 +1364,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot71">
     <ScreenID>BZR_BazaarSlot71</ScreenID>
@@ -1312,6 +1383,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot72">
     <ScreenID>BZR_BazaarSlot72</ScreenID>
@@ -1330,6 +1402,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot73">
     <ScreenID>BZR_BazaarSlot73</ScreenID>
@@ -1348,6 +1421,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot74">
     <ScreenID>BZR_BazaarSlot74</ScreenID>
@@ -1366,6 +1440,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot75">
     <ScreenID>BZR_BazaarSlot75</ScreenID>
@@ -1384,6 +1459,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot76">
     <ScreenID>BZR_BazaarSlot76</ScreenID>
@@ -1402,6 +1478,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot77">
     <ScreenID>BZR_BazaarSlot77</ScreenID>
@@ -1420,6 +1497,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot78">
     <ScreenID>BZR_BazaarSlot78</ScreenID>
@@ -1438,6 +1516,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BZR_BazaarSlot79">
     <ScreenID>BZR_BazaarSlot79</ScreenID>
@@ -1456,6 +1535,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <Screen item="BZW_BazaarSlotsWnd">
     <ScreenID>BZW_BazaarSlotsWnd</ScreenID>&gt;

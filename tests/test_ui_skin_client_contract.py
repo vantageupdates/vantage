@@ -211,6 +211,46 @@ def test_spell_outline_is_a_fine_grey_rounded_ring_with_no_center_paint():
     assert any(pixel(x, 16)[3] > 70 for x in range(117, 120))
 
 
+@pytest.mark.parametrize('name,top,height', [
+    ('V3_CastHolder', 0, 28), ('V3_CastBackground', 28, 28),
+    ('V3_CastHighlight', 56, 28), ('V3_CastHeaderNormal', 84, 14),
+    ('V3_CastHeaderPressed', 98, 14), ('V3_CastHeaderFlyby', 112, 14),
+    ('V3_CastHeaderPressedFlyby', 126, 14),
+])
+def test_spell_native_art_has_no_opaque_backing_outside_rounded_corners(name, top, height):
+    animation = item(root('EQUI_Animations.xml'), 'Ui2DAnimation', name)
+    assert rect(animation.find('Frames')) == (0, top, 120, height)
+    assert animation.findtext('Frames/Texture') == 'v3_controls.tga'
+    data = (SKIN / 'v3_controls.tga').read_bytes()
+    assert data[:3] == bytes((0, 0, 2))
+    assert data[12:18] == bytes((0, 1, 0, 1, 32, 40))
+    def pixel(x, y):
+        i = 18 + ((top + y) * 256 + x) * 4
+        return tuple(data[i:i + 4])
+    for x in (0, 1, 118, 119):
+        for y in (0, height - 1):
+            assert pixel(x, y) == (0, 0, 0, 0), 'No baked black corner plate'
+    for y in (0, 1, height - 2, height - 1):
+        assert pixel(0, y) == pixel(119, y) == (0, 0, 0, 0)
+    if name == 'V3_CastHighlight':
+        assert all(pixel(x, y) == (0, 0, 0, 0) for x in range(120) for y in range(height))
+    else:
+        assert pixel(60, height // 2)[3] == 255
+        assert len({pixel(x, y)[3] for x in range(7) for y in range(7)}) >= 6
+
+
+@pytest.mark.parametrize('kind,name', [('Button', 'CSPW_SpellBook')] + [
+    ('SpellGem', f'CSPW_Spell{i}') for i in range(8)
+])
+def test_spell_rounded_art_is_not_backed_by_a_native_square_control(kind, name):
+    xml = root('EQUI_CastSpellWnd.xml')
+    control = item(xml, kind, name)
+    assert control.findtext('Style_Transparent') == 'true'
+    assert control.findtext('Style_Border') == 'false'
+    assert control.findtext('ScreenID') == name
+    assert item(xml, 'Screen', 'CastSpellWnd').findtext('Style_Transparent') == 'false'
+
+
 def test_player_name_hp_and_mana_do_not_overlap():
     xml = root('EQUI_PlayerWindow.xml')
     name = rect(item(xml, 'Label', 'Player_Name'))

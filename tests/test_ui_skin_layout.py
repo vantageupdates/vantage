@@ -377,6 +377,7 @@ def test_all_drawable_inventory_slots_use_the_dedicated_gold_border():
         ("EQUI_Inventoryd.xml", "InvSlot0", (1, 1)),
     }
     for filename, slot in drawable:
+        assert slot.findtext("Style_Transparent") == "true", (filename, slot.attrib["item"])
         assert slot.findtext("Style_Border") == "true", (filename, slot.attrib["item"])
         assert slot.findtext("DrawTemplate") == "WDT_VantageSlotGold", (
             filename,
@@ -402,9 +403,9 @@ def test_gold_slot_edge_and_health_tick_resources_are_complete_and_in_bounds():
     expected_sizes = {
         **{
             f"A_VantageSlotGold{role}": (
-                (3, 1)
+                (6, 1)
                 if role in {"TopLeft", "TopRight", "BottomLeft", "BottomRight"}
-                else (1, 2)
+                else (1, 5)
                 if role in {"LeftTop", "LeftBottom", "RightTop", "RightBottom"}
                 else (1, 1)
             )
@@ -559,6 +560,8 @@ def test_actions_alias_rows_have_real_gaps_and_clipping_safe_page_height():
             # Preserve the row centers and native font/text instead of
             # compressing labels along with the smaller button surfaces.
             assert button.find("Font") is None
+            assert button.findtext("Style_Transparent") == "true"
+            assert button.findtext("Style_Border") == "false"
             assert button.findtext("Text") == name.removeprefix("AMP_").removesuffix("Button")
             draw = button.find("ButtonDrawTemplate")
             assert draw is not None
@@ -638,6 +641,15 @@ def test_actions_button_art_matches_hitbox_and_has_clear_rounded_gutters(state, 
     x, y, width, height = _rect(frame)
     _assert_in_bounds((x, y, width, height), (512, 128))
     assert alpha(x + width // 2, y + height // 2) >= 240
+    # A broad, symmetrical curve in every state, not a one-pixel corner cut.
+    for dy in range(height):
+        for dx in range(width):
+            a = alpha(x + dx, y + dy)
+            assert a == alpha(x + width - 1 - dx, y + dy)
+            assert a == alpha(x + dx, y + height - 1 - dy)
+    assert all(alpha(x + dx, y) == 0 for dx in range(5))
+    assert all(alpha(x, y + dy) == 0 for dy in range(5))
+    assert len({alpha(x + dx, y + dy) for dx in range(9) for dy in range(9)}) >= 8
     for px, py in ((x, y), (x + width - 1, y),
                    (x, y + height - 1), (x + width - 1, y + height - 1)):
         assert alpha(px, py) <= 16

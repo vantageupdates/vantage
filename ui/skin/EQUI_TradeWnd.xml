@@ -41,6 +41,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot9">
     <ScreenID>TRDW_TradeSlot9</ScreenID>
@@ -59,6 +60,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot10">
     <ScreenID>TRDW_TradeSlot10</ScreenID>
@@ -77,6 +79,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot11">
     <ScreenID>TRDW_TradeSlot11</ScreenID>
@@ -95,6 +98,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot12">
     <ScreenID>TRDW_TradeSlot12</ScreenID>
@@ -113,6 +117,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot13">
     <ScreenID>TRDW_TradeSlot13</ScreenID>
@@ -131,6 +136,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot14">
     <ScreenID>TRDW_TradeSlot14</ScreenID>
@@ -149,6 +155,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot15">
     <ScreenID>TRDW_TradeSlot15</ScreenID>
@@ -167,6 +174,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <Button item="TRDW_HisMoney0">
     <ScreenID>TRDW_HisMoney0</ScreenID>
@@ -360,6 +368,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot1">
     <ScreenID>TRDW_TradeSlot1</ScreenID>
@@ -378,6 +387,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot2">
     <ScreenID>TRDW_TradeSlot2</ScreenID>
@@ -396,6 +406,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot3">
     <ScreenID>TRDW_TradeSlot3</ScreenID>
@@ -414,6 +425,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot4">
     <ScreenID>TRDW_TradeSlot4</ScreenID>
@@ -432,6 +444,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot5">
     <ScreenID>TRDW_TradeSlot5</ScreenID>
@@ -450,6 +463,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot6">
     <ScreenID>TRDW_TradeSlot6</ScreenID>
@@ -468,6 +482,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="TRDW_TradeSlot7">
     <ScreenID>TRDW_TradeSlot7</ScreenID>
@@ -486,6 +501,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <Button item="TRDW_MyMoney0">
     <ScreenID>TRDW_MyMoney0</ScreenID>

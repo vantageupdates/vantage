@@ -40,6 +40,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="GVW_MyItemSlot1">
     <ScreenID>GVW_MyItemSlot1</ScreenID>
@@ -58,6 +59,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="GVW_MyItemSlot2">
     <ScreenID>GVW_MyItemSlot2</ScreenID>
@@ -76,6 +78,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="GVW_MyItemSlot3">
     <ScreenID>GVW_MyItemSlot3</ScreenID>
@@ -94,6 +97,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <Button item="GVW_MyMoney0">
     <ScreenID>GVW_MyMoney0</ScreenID>

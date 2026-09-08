@@ -40,6 +40,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BIGB_BankSlot1">
     <ScreenID>BIGB_BankSlot1</ScreenID>
@@ -58,6 +59,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BIGB_BankSlot2">
     <ScreenID>BIGB_BankSlot2</ScreenID>
@@ -76,6 +78,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BIGB_BankSlot3">
     <ScreenID>BIGB_BankSlot3</ScreenID>
@@ -94,6 +97,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BIGB_BankSlot4">
     <ScreenID>BIGB_BankSlot4</ScreenID>
@@ -112,6 +116,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BIGB_BankSlot5">
     <ScreenID>BIGB_BankSlot5</ScreenID>
@@ -130,6 +135,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BIGB_BankSlot6">
     <ScreenID>BIGB_BankSlot6</ScreenID>
@@ -148,6 +154,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BIGB_BankSlot7">
     <ScreenID>BIGB_BankSlot7</ScreenID>
@@ -166,6 +173,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BIGB_BankSlot8">
     <ScreenID>BIGB_BankSlot8</ScreenID>
@@ -184,6 +192,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BIGB_BankSlot9">
     <ScreenID>BIGB_BankSlot9</ScreenID>
@@ -202,6 +211,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BIGB_BankSlot10">
     <ScreenID>BIGB_BankSlot10</ScreenID>
@@ -220,6 +230,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BIGB_BankSlot11">
     <ScreenID>BIGB_BankSlot11</ScreenID>
@@ -238,6 +249,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BIGB_BankSlot12">
     <ScreenID>BIGB_BankSlot12</ScreenID>
@@ -256,6 +268,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BIGB_BankSlot13">
     <ScreenID>BIGB_BankSlot13</ScreenID>
@@ -274,6 +287,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BIGB_BankSlot14">
     <ScreenID>BIGB_BankSlot14</ScreenID>
@@ -292,6 +306,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BIGB_BankSlot15">
     <ScreenID>BIGB_BankSlot15</ScreenID>
@@ -310,6 +325,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <Button item="BIGB_AutoButton">
     <ScreenID>AutoButton</ScreenID>
@@ -377,6 +393,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="BIGB_SharedBankSlot1">
     <ScreenID>BIGB_SharedBankSlot1</ScreenID>
@@ -395,6 +412,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <Button item="BIGB_SharedMoney0">
     <ScreenID>BIGB_SharedMoney0</ScreenID>

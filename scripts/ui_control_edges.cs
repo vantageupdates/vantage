@@ -36,28 +36,115 @@ public static class VantageControlEdgesRenderer {
         p.AddArc(x+w-d,y+h-d,d,d,0,90); p.AddArc(x,y+h-d,d,d,90,90);
         p.CloseFigure(); return p;
     }
+    // Exact pixel coverage, without bicubic ringing or a baked square backdrop.
+    // Negative distance is inside the rounded rectangle. Coordinates are local.
+    static double RoundedDistance(double x,double y,int w,int h,double radius,double inset) {
+        double qx=Math.Abs(x-w/2.0)-(w/2.0-inset-radius);
+        double qy=Math.Abs(y-h/2.0)-(h/2.0-inset-radius);
+        return Math.Sqrt(Math.Pow(Math.Max(qx,0),2)+Math.Pow(Math.Max(qy,0),2))
+            +Math.Min(Math.Max(qx,qy),0)-radius;
+    }
+    static int RoundedAlpha(int x,int y,int w,int h,double radius,double inset) {
+        int inside=0;
+        for(int sy=0;sy<8;sy++) for(int sx=0;sx<8;sx++)
+            if(RoundedDistance(x+(sx+0.5)/8,y+(sy+0.5)/8,w,h,radius,inset)<=0) inside++;
+        return (255*inside+32)/64;
+    }
+    static Color ActionsPixel(int x,int y,int state,int width=128) {
+        int alpha=RoundedAlpha(x,y,width,18,7,0.5);
+        if(alpha==0) return Color.Transparent;
+        double t=(y+0.5)/18;
+        bool down=state==2 || state==3;
+        double tone=down ? 17+9*t : 30-13*t+9*Math.Exp(-Math.Pow((t-0.22)/0.20,2));
+        if(state==1 || state==3) tone+=7;
+        if(state==4) tone=16+4*(1-t);
+        double depth=Math.Max(0,-RoundedDistance(x+0.5,y+0.5,width,18,7,0.5));
+        double rim=0.18*Math.Exp(-Math.Pow(depth/0.65,2));
+        // Only the fine structural rim is gold; the softly raised face is neutral.
+        return Color.FromArgb(alpha,(int)Math.Round(tone*(1-rim)+158*rim),
+            (int)Math.Round(tone*(1-rim)+131*rim),(int)Math.Round(tone*(1-rim)+75*rim));
+    }
+    public static void RepairSpellCorners(string destination) {
+        if(Path.GetFileName(destination)!="v3_controls.tga")
+            throw new ArgumentException("Only the spell control atlas is supported.");
+        byte[] data=File.ReadAllBytes(destination);
+        if(data.Length<18+256*256*4 || data[0]!=0 || data[1]!=0 || data[2]!=2
+            || data[12]!=0 || data[13]!=1 || data[14]!=0 || data[15]!=1
+            || data[16]!=32 || data[17]!=40)
+            throw new ArgumentException("Expected the reviewed top-origin 256x256 BGRA atlas.");
+        // Clip every native layer, including all four Spells header states.
+        // Min (not multiplication) makes repeated repairs byte-idempotent.
+        int[,] cells={{0,28},{28,28},{56,28},{84,14},{98,14},{112,14},{126,14}};
+        for(int n=0;n<cells.GetLength(0);n++) {
+            int top=cells[n,0], height=cells[n,1];
+            double radius=height==28 ? 6 : 5;
+            for(int y=0;y<height;y++) for(int x=0;x<120;x++) {
+                int i=18+((top+y)*256+x)*4;
+                int coverage=RoundedAlpha(x,y,120,height,radius,0.25);
+                data[i+3]=(byte)Math.Min(data[i+3],coverage);
+                if(data[i+3]==0) data[i]=data[i+1]=data[i+2]=0;
+            }
+        }
+        File.WriteAllBytes(destination,data);
+    }
+    public static void RepairSlotCorners(string destination) {
+        string name=Path.GetFileName(destination);
+        if(name!="VantageSlotHints.tga" && name!="classic_pieces01.tga")
+            throw new ArgumentException("Only the two native slot background atlases are supported.");
+        byte[] data=File.ReadAllBytes(destination);
+        if(data.Length<18+256*256*4 || data[0]!=0 || data[1]!=0 || data[2]!=2
+            || data[12]!=0 || data[13]!=1 || data[14]!=0 || data[15]!=1
+            || data[16]!=32 || data[17]!=40)
+            throw new ArgumentException("Expected the reviewed top-origin 256x256 BGRA atlas.");
+        int count=name=="VantageSlotHints.tga" ? 18 : 1;
+        for(int cell=0;cell<count;cell++) {
+            int left=count==18 ? 2+(cell%6)*42 : 0;
+            int top=count==18 ? 2+(cell/6)*42 : 117;
+            for(int y=0;y<40;y++) for(int x=0;x<40;x++) {
+                int i=18+((top+y)*256+left+x)*4;
+                data[i+3]=(byte)Math.Min(data[i+3],RoundedAlpha(x,y,40,40,6,0.25));
+                if(data[i+3]==0) data[i]=data[i+1]=data[i+2]=0;
+            }
+        }
+        File.WriteAllBytes(destination,data);
+    }
+    public static void RepairTitleButtonCorners(string destination) {
+        if(Path.GetFileName(destination)!="quickbar_frames.tga")
+            throw new ArgumentException("Only the reviewed title-control atlas is supported.");
+        byte[] data=File.ReadAllBytes(destination);
+        if(data.Length!=18+512*512*4 || data[0]!=0 || data[1]!=0 || data[2]!=2
+            || data[12]!=0 || data[13]!=2 || data[14]!=0 || data[15]!=2
+            || data[16]!=32 || data[17]!=40)
+            throw new ArgumentException("Expected the reviewed top-origin 512x512 BGRA atlas.");
+        // Both native Close and Minimize, in every interactive state. Do not
+        // touch title strips, frame art, glyph centers or any other controls.
+        for(int kind=0;kind<2;kind++) for(int state=0;state<5;state++) {
+            int left=(kind==0?148:364)+state*14, top=kind==0?2:42;
+            for(int y=0;y<12;y++) for(int x=0;x<12;x++) {
+                int i=18+((top+y)*512+left+x)*4;
+                data[i+3]=(byte)Math.Min(data[i+3],RoundedAlpha(x,y,12,12,5.5,0.5));
+                if(data[i+3]==0) data[i]=data[i+1]=data[i+2]=0;
+            }
+        }
+        File.WriteAllBytes(destination,data);
+    }
     public static void Render(string destination) {
         if(Path.GetFileName(destination)!="VantageControlEdges.tga")
             throw new ArgumentException("Only the dedicated edge atlas is supported.");
         using(var atlas=new Bitmap(512,128,PixelFormat.Format32bppArgb))
-        using(var large=new Bitmap(160,160,PixelFormat.Format32bppArgb))
         using(var frame=new Bitmap(40,40,PixelFormat.Format32bppArgb)) {
-            using(var g=Graphics.FromImage(large))
-            using(var path=Round(2.4f,2.4f,155.2f,155.2f,8))
-            using(var pen=new Pen(Color.FromArgb(120,108,91,61),2.2f)) {
-                g.SmoothingMode=SmoothingMode.AntiAlias;
-                g.DrawPath(pen,path);
-            }
-            using(var g=Graphics.FromImage(frame)) {
-                g.InterpolationMode=InterpolationMode.HighQualityBicubic;
-                g.PixelOffsetMode=PixelOffsetMode.HighQuality;
-                g.DrawImage(large,new Rectangle(0,0,40,40),0,0,160,160,GraphicsUnit.Pixel);
+            for(int y=0;y<40;y++) for(int x=0;x<40;x++) {
+                int coverage=RoundedAlpha(x,y,40,40,6,0.5)-RoundedAlpha(x,y,40,40,5.4,1.1);
+                int alpha=(Math.Max(0,coverage)*120+127)/255;
+                frame.SetPixel(x,y,alpha==0 ? Color.Transparent : Color.FromArgb(alpha,108,91,61));
             }
             // x, y, width, height, source x, source y. Keep every XML slice exact.
-            int[,] slices={ {2,2,3,1,0,0},{7,2,1,1,20,0},{10,2,3,1,37,0},
-                {15,2,1,2,39,1},{18,2,1,1,39,20},{21,2,1,2,39,37},
-                {24,2,3,1,37,39},{29,2,1,1,20,39},{32,2,3,1,0,39},
-                {37,2,1,2,0,1},{40,2,1,1,0,20},{43,2,1,2,0,37} };
+            // Wider corner spans leave the diagonal clear without changing the
+            // one-pixel client inset or the native inventory icon rectangles.
+            int[,] slices={ {2,2,6,1,0,0},{10,2,1,1,20,0},{13,2,6,1,34,0},
+                {21,2,1,5,39,1},{24,2,1,1,39,20},{27,2,1,5,39,34},
+                {30,2,6,1,34,39},{38,2,1,1,20,39},{41,2,6,1,0,39},
+                {49,2,1,5,0,1},{52,2,1,1,0,20},{55,2,1,5,0,34} };
             for(int n=0;n<slices.GetLength(0);n++)
                 for(int y=0;y<slices[n,3];y++) for(int x=0;x<slices[n,2];x++)
                     atlas.SetPixel(slices[n,0]+x,slices[n,1]+y,
@@ -104,49 +191,18 @@ public static class VantageControlEdgesRenderer {
             }
             // Actions-only art matches the 128x18 hitboxes exactly. The shared
             // 120x24 A_Btn* sprites stay unchanged for every other window.
-            // Crop each state before resampling so neighboring states cannot
-            // bleed into its rounded edges; keep six clear atlas rows between.
-            string buttonSource=Path.Combine(Path.GetDirectoryName(destination),
-                "window_pieces03_modern.png");
-            using(var source=new Bitmap(buttonSource))
-            using(var maskHigh=new Bitmap(512,72,PixelFormat.Format32bppArgb))
-            using(var mask=new Bitmap(128,18,PixelFormat.Format32bppArgb)) {
-                // The original atlas has a faint opaque backdrop outside its
-                // corners. Mask it away, rather than inheriting squared tips.
-                using(var g=Graphics.FromImage(maskHigh))
-                using(var path=Round(0,0,512,72,16))
-                using(var brush=new SolidBrush(Color.White)) {
-                    g.SmoothingMode=SmoothingMode.AntiAlias;
-                    g.FillPath(brush,path);
-                }
-                using(var g=Graphics.FromImage(mask)) {
-                    g.InterpolationMode=InterpolationMode.HighQualityBicubic;
-                    g.PixelOffsetMode=PixelOffsetMode.HighQuality;
-                    g.DrawImage(maskHigh,new Rectangle(0,0,128,18),
-                        0,0,512,72,GraphicsUnit.Pixel);
-                }
-                for(int state=0;state<5;state++) {
-                    using(var cell=source.Clone(new Rectangle(100,state*24,120,24),
-                        PixelFormat.Format32bppArgb))
-                    using(var small=new Bitmap(128,18,PixelFormat.Format32bppArgb))
-                    using(var attributes=new ImageAttributes()) {
-                        attributes.SetWrapMode(WrapMode.TileFlipXY);
-                        using(var g=Graphics.FromImage(small)) {
-                            g.InterpolationMode=InterpolationMode.HighQualityBicubic;
-                            g.PixelOffsetMode=PixelOffsetMode.HighQuality;
-                            g.DrawImage(cell,new Rectangle(0,0,128,18),
-                                0,0,120,24,GraphicsUnit.Pixel,attributes);
-                        }
-                        for(int y=0;y<18;y++) for(int x=0;x<128;x++) {
-                            Color c=small.GetPixel(x,y);
-                            int alpha=(c.A*mask.GetPixel(x,y).A+127)/255;
-                            atlas.SetPixel(352+x,4+state*24+y,
-                                alpha==0 ? Color.Transparent :
-                                Color.FromArgb(alpha,c.R,c.G,c.B));
-                        }
-                    }
-                }
-            }
+            // Rebuild the five faces at final size instead of squeezing old
+            // 24px artwork. Equal-radius corners and six clear atlas rows.
+            for(int state=0;state<5;state++)
+                for(int y=0;y<18;y++) for(int x=0;x<128;x++)
+                    atlas.SetPixel(352+x,4+state*24+y,ActionsPixel(x,y,state));
+            // Pet's half-width commands get native 62x18 art, not a squashed
+            // wide button. These isolated cells never overlap existing art.
+            int[,] petCells={{128,34},{256,34},{256,54},{256,74},{256,94}};
+            for(int state=0;state<5;state++)
+                for(int y=0;y<18;y++) for(int x=0;x<62;x++)
+                    atlas.SetPixel(petCells[state,0]+x,petCells[state,1]+y,
+                        ActionsPixel(x,y,state,62));
             // Compact identity tab. Neutral fill, softly rounded gold rim;
             // version text is a native XML label, never baked into the image.
             using(var high=new Bitmap(808,80,PixelFormat.Format32bppArgb))

@@ -158,21 +158,62 @@
       <Duration>1000</Duration>
     </Frames>
   </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantagePetNormal">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageControlEdges.tga</Texture>
+      <Location><X>128</X><Y>34</Y></Location>
+      <Size><CX>62</CX><CY>18</CY></Size>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantagePetFlyby">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageControlEdges.tga</Texture>
+      <Location><X>256</X><Y>34</Y></Location>
+      <Size><CX>62</CX><CY>18</CY></Size>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantagePetPressed">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageControlEdges.tga</Texture>
+      <Location><X>256</X><Y>54</Y></Location>
+      <Size><CX>62</CX><CY>18</CY></Size>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantagePetPressedFlyby">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageControlEdges.tga</Texture>
+      <Location><X>256</X><Y>74</Y></Location>
+      <Size><CX>62</CX><CY>18</CY></Size>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantagePetDisabled">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageControlEdges.tga</Texture>
+      <Location><X>256</X><Y>94</Y></Location>
+      <Size><CX>62</CX><CY>18</CY></Size>
+    </Frames>
+  </Ui2DAnimation>
   <Button item="PIW_AttackButton">
     <ScreenID>AttackButton</ScreenID>
     <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>7</X>
-      <Y>41</Y>
+      <X>4</X>
+      <Y>42</Y>
     </Location>
     <Size>
-      <CX>122</CX>
-      <CY>20</CY>
+      <CX>128</CX>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <TooltipReference>Pet Attack</TooltipReference>
     <Style_Checkbox>false</Style_Checkbox>
     <!--<RadioGroup/>-->
@@ -183,11 +224,11 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageActionsNormal</Normal>
+      <Pressed>A_VantageActionsPressed</Pressed>
+      <Flyby>A_VantageActionsFlyby</Flyby>
+      <Disabled>A_VantageActionsDisabled</Disabled>
+      <PressedFlyby>A_VantageActionsPressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <Button item="PIW_FollowButton">
@@ -195,16 +236,17 @@
     <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>7</X>
-      <Y>61</Y>
+      <X>4</X>
+      <Y>64</Y>
     </Location>
     <Size>
-      <CX>61</CX>
-      <CY>20</CY>
+      <CX>62</CX>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <TooltipReference>Pet Follow Me</TooltipReference>
     <Style_Checkbox>false</Style_Checkbox>
     <!--<RadioGroup/>-->
@@ -215,11 +257,11 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantagePetNormal</Normal>
+      <Pressed>A_VantagePetPressed</Pressed>
+      <Flyby>A_VantagePetFlyby</Flyby>
+      <Disabled>A_VantagePetDisabled</Disabled>
+      <PressedFlyby>A_VantagePetPressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <Button item="PIW_TauntButton">
@@ -227,16 +269,17 @@
     <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>68</X>
-      <Y>61</Y>
+      <X>70</X>
+      <Y>64</Y>
     </Location>
     <Size>
-      <CX>61</CX>
-      <CY>20</CY>
+      <CX>62</CX>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <TooltipReference>Pet Taunt</TooltipReference>
     <Style_Checkbox>false</Style_Checkbox>
     <!--<RadioGroup/>-->
@@ -247,11 +290,11 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantagePetNormal</Normal>
+      <Pressed>A_VantagePetPressed</Pressed>
+      <Flyby>A_VantagePetFlyby</Flyby>
+      <Disabled>A_VantagePetDisabled</Disabled>
+      <PressedFlyby>A_VantagePetPressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <Button item="PIW_GuardButton">
@@ -259,16 +302,17 @@
     <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>7</X>
-      <Y>81</Y>
+      <X>4</X>
+      <Y>86</Y>
     </Location>
     <Size>
-      <CX>61</CX>
-      <CY>20</CY>
+      <CX>62</CX>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <TooltipReference>Pet Guard Here</TooltipReference>
     <Style_Checkbox>false</Style_Checkbox>
     <!--<RadioGroup/>-->
@@ -279,11 +323,11 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantagePetNormal</Normal>
+      <Pressed>A_VantagePetPressed</Pressed>
+      <Flyby>A_VantagePetFlyby</Flyby>
+      <Disabled>A_VantagePetDisabled</Disabled>
+      <PressedFlyby>A_VantagePetPressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <Button item="PIW_SitButton">
@@ -291,16 +335,17 @@
     <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>68</X>
-      <Y>81</Y>
+      <X>70</X>
+      <Y>86</Y>
     </Location>
     <Size>
-      <CX>61</CX>
-      <CY>20</CY>
+      <CX>62</CX>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <TooltipReference>Pet Sit Down</TooltipReference>
     <Style_Checkbox>false</Style_Checkbox>
     <!--<RadioGroup/>-->
@@ -311,11 +356,11 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantagePetNormal</Normal>
+      <Pressed>A_VantagePetPressed</Pressed>
+      <Flyby>A_VantagePetFlyby</Flyby>
+      <Disabled>A_VantagePetDisabled</Disabled>
+      <PressedFlyby>A_VantagePetPressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- The stand button will ignore its own size/location and always be under the sit button (for smooth toggling) -->
@@ -324,16 +369,17 @@
     <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>68</X>
-      <Y>81</Y>
+      <X>70</X>
+      <Y>86</Y>
     </Location>
     <Size>
-      <CX>61</CX>
-      <CY>20</CY>
+      <CX>62</CX>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <TooltipReference>Pet Stand Up</TooltipReference>
     <Style_Checkbox>false</Style_Checkbox>
     <!--<RadioGroup/>-->
@@ -344,11 +390,11 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantagePetNormal</Normal>
+      <Pressed>A_VantagePetPressed</Pressed>
+      <Flyby>A_VantagePetFlyby</Flyby>
+      <Disabled>A_VantagePetDisabled</Disabled>
+      <PressedFlyby>A_VantagePetPressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <Button item="PIW_BackButton">
@@ -356,16 +402,17 @@
     <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>7</X>
-      <Y>101</Y>
+      <X>4</X>
+      <Y>108</Y>
     </Location>
     <Size>
-      <CX>61</CX>
-      <CY>20</CY>
+      <CX>62</CX>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <TooltipReference>Pet Back Off</TooltipReference>
     <Style_Checkbox>false</Style_Checkbox>
     <!--<RadioGroup/>-->
@@ -376,11 +423,11 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantagePetNormal</Normal>
+      <Pressed>A_VantagePetPressed</Pressed>
+      <Flyby>A_VantagePetFlyby</Flyby>
+      <Disabled>A_VantagePetDisabled</Disabled>
+      <PressedFlyby>A_VantagePetPressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <Button item="PIW_LostButton">
@@ -388,16 +435,17 @@
     <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>68</X>
-      <Y>101</Y>
+      <X>70</X>
+      <Y>108</Y>
     </Location>
     <Size>
-      <CX>61</CX>
-      <CY>20</CY>
+      <CX>62</CX>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <TooltipReference>Pet Get Lost</TooltipReference>
     <Style_Checkbox>false</Style_Checkbox>
     <!--<RadioGroup/>-->
@@ -408,11 +456,11 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantagePetNormal</Normal>
+      <Pressed>A_VantagePetPressed</Pressed>
+      <Flyby>A_VantagePetFlyby</Flyby>
+      <Disabled>A_VantagePetDisabled</Disabled>
+      <PressedFlyby>A_VantagePetPressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Pet Gauge -->

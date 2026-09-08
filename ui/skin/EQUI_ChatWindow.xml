@@ -3,16 +3,17 @@
   <Schema xmlns="EverQuestData" xmlns:dt="EverQuestDataTypes" />
   <Editbox item="CW_ChatInput">
     <ScreenID>CWChatInput</ScreenID>
-    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
     <RelativePosition>true</RelativePosition>
     <AutoStretch>true</AutoStretch>
     <LeftAnchorOffset>6</LeftAnchorOffset>
-    <TopAnchorOffset>21</TopAnchorOffset>
-    <RightAnchorOffset>1</RightAnchorOffset>
-    <BottomAnchorOffset>0</BottomAnchorOffset>
+    <TopAnchorOffset>27</TopAnchorOffset>
+    <RightAnchorOffset>6</RightAnchorOffset>
+    <BottomAnchorOffset>6</BottomAnchorOffset>
     <TopAnchorToTop>false</TopAnchorToTop>
     <RightAnchorToLeft>false</RightAnchorToLeft>
     <BottomAnchorToTop>false</BottomAnchorToTop>
+    <Style_Border>true</Style_Border>
     <Style_Transparent>true</Style_Transparent>
   </Editbox>
   <STMLbox item="CW_ChatOutput">
@@ -24,7 +25,7 @@
     <LeftAnchorOffset>10</LeftAnchorOffset>
     <TopAnchorOffset>1</TopAnchorOffset>
     <RightAnchorOffset>1</RightAnchorOffset>
-    <BottomAnchorOffset>22</BottomAnchorOffset>
+    <BottomAnchorOffset>30</BottomAnchorOffset>
     <RightAnchorToLeft>false</RightAnchorToLeft>
     <BottomAnchorToTop>false</BottomAnchorToTop>
     <Style_Border>false</Style_Border>

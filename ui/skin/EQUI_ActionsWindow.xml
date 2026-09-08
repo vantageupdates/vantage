@@ -710,6 +710,8 @@
 
   <Button item="AMP_CampButton">
     <ScreenID>AMP_CampButton</ScreenID>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>4</X>
@@ -736,6 +738,8 @@
 
   <Button item="AMP_SitButton">
     <ScreenID>AMP_SitButton</ScreenID>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>4</X>
@@ -762,6 +766,8 @@
 
   <Button item="AMP_StandButton">
     <ScreenID>AMP_StandButton</ScreenID>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>4</X>
@@ -788,6 +794,8 @@
 
   <Button item="AMP_RunButton">
     <ScreenID>AMP_RunButton</ScreenID>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>4</X>
@@ -814,6 +822,8 @@
 
   <Button item="AMP_WalkButton">
     <ScreenID>AMP_WalkButton</ScreenID>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>4</X>

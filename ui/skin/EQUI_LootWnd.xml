@@ -40,6 +40,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot1">
     <ScreenID>LW_LootSlot1</ScreenID>
@@ -58,6 +59,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot2">
     <ScreenID>LW_LootSlot2</ScreenID>
@@ -76,6 +78,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot3">
     <ScreenID>LW_LootSlot3</ScreenID>
@@ -94,6 +97,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot4">
     <ScreenID>LW_LootSlot4</ScreenID>
@@ -112,6 +116,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot5">
     <ScreenID>LW_LootSlot5</ScreenID>
@@ -130,6 +135,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot6">
     <ScreenID>LW_LootSlot6</ScreenID>
@@ -148,6 +154,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot7">
     <ScreenID>LW_LootSlot7</ScreenID>
@@ -166,6 +173,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot8">
     <ScreenID>LW_LootSlot8</ScreenID>
@@ -184,6 +192,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot9">
     <ScreenID>LW_LootSlot9</ScreenID>
@@ -202,6 +211,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot10">
     <ScreenID>LW_LootSlot10</ScreenID>
@@ -220,6 +230,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot11">
     <ScreenID>LW_LootSlot11</ScreenID>
@@ -238,6 +249,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot12">
     <ScreenID>LW_LootSlot12</ScreenID>
@@ -256,6 +268,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot13">
     <ScreenID>LW_LootSlot13</ScreenID>
@@ -274,6 +287,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot14">
     <ScreenID>LW_LootSlot14</ScreenID>
@@ -292,6 +306,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot15">
     <ScreenID>LW_LootSlot15</ScreenID>
@@ -310,6 +325,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot16">
     <ScreenID>LW_LootSlot16</ScreenID>
@@ -328,6 +344,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot17">
     <ScreenID>LW_LootSlot17</ScreenID>
@@ -346,6 +363,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot18">
     <ScreenID>LW_LootSlot18</ScreenID>
@@ -364,6 +382,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot19">
     <ScreenID>LW_LootSlot19</ScreenID>
@@ -382,6 +401,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot20">
     <ScreenID>LW_LootSlot20</ScreenID>
@@ -400,6 +420,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot21">
     <ScreenID>LW_LootSlot21</ScreenID>
@@ -418,6 +439,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot22">
     <ScreenID>LW_LootSlot22</ScreenID>
@@ -436,6 +458,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot23">
     <ScreenID>LW_LootSlot23</ScreenID>
@@ -454,6 +477,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot24">
     <ScreenID>LW_LootSlot24</ScreenID>
@@ -472,6 +496,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot25">
     <ScreenID>LW_LootSlot25</ScreenID>
@@ -490,6 +515,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot26">
     <ScreenID>LW_LootSlot26</ScreenID>
@@ -508,6 +534,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot27">
     <ScreenID>LW_LootSlot27</ScreenID>
@@ -526,6 +553,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot28">
     <ScreenID>LW_LootSlot28</ScreenID>
@@ -544,6 +572,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot29">
     <ScreenID>LW_LootSlot29</ScreenID>
@@ -562,6 +591,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot30">
     <ScreenID>LW_LootSlot30</ScreenID>
@@ -580,6 +610,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <InvSlot item="LW_LootSlot31">
     <ScreenID>LW_LootSlot31</ScreenID>
@@ -598,6 +629,7 @@
     <ItemOffsetY>2</ItemOffsetY>
     <Style_Border>true</Style_Border>
     <DrawTemplate>WDT_VantageSlotGold</DrawTemplate>
+    <Style_Transparent>true</Style_Transparent>
   </InvSlot>
   <Screen item="LW_LootInvWnd">
     <ScreenID>LootInvWnd</ScreenID>

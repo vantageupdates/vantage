@@ -1,5 +1,33 @@
 # VantageUI releases
 
+## 1.44.67
+
+Install folder: `VantageUI-v1.44.67`.
+
+- Rebuild Camp, Sit/Stand and Run/Walk button faces at their native 128x18 size,
+  with symmetrical 7px rounded ends, smooth neutral relief and a fine gold rim.
+  Preserve the 144x182 window, native actions, text, and four-pixel row gaps.
+- Remove the nearly opaque dark corner backing from spell gem holder/background
+  layers and all Spells header states. Use an antialiased rounded alpha mask;
+  preserve central artwork, icon sockets, school tints and the grey outline.
+- Make these controls' native background transparent and disable their extra
+  border, so the image's rounded corners reveal the existing parent surface.
+  Do not change parent window opacity, tint, positions, or character INIs.
+- Remove pointed dark corners from all 18 equipment slot hints and the shared
+  empty-slot background; smooth the thin gold frame across all 435 drawable
+  inventory slots. Preserve slot sizes, item artwork and native bindings.
+- Raise the chat input 6px above the bottom frame, retain its 21px height and
+  use a thin gold outline with even side margins and a gap below the output.
+- Separate Pet commands by 4px in both directions, using native-size rounded
+  button faces. Preserve the 144x135 window, pet health/buffs and native commands.
+- Clear dark tips around Close and Minimize in every button state without
+  changing their symbols, positions or titlebar behavior.
+- Preserve the original spellbar, casting footer and all health bars.
+  The inventory tab now reads "VantageUI  v1.44.67".
+
+Load manually with `/loadskin VantageUI-v1.44.67 1`. Asset coverage and native
+bindings are checked automatically; final appearance still needs an EQ reload.
+
 ## 1.44.66
 
 Install folder: `VantageUI-v1.44.66`.

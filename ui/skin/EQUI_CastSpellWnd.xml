@@ -28,6 +28,7 @@
   </StaticAnimation>
   <Button item="CSPW_SpellBook">
     <ScreenID>CSPW_SpellBook</ScreenID>
+    <Style_Border>false</Style_Border>
     <RelativePosition>true</RelativePosition>
     <Font>1</Font>
     <Location>
@@ -38,7 +39,7 @@
       <CX>120</CX>
       <CY>14</CY>
     </Size>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Spells</Text>
     <TextColor>
@@ -56,6 +57,8 @@
   </Button>
   <SpellGem item="CSPW_Spell0">
     <ScreenID>CSPW_Spell0</ScreenID>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>1</X>
@@ -97,6 +100,8 @@
   </Label>
   <SpellGem item="CSPW_Spell1">
     <ScreenID>CSPW_Spell1</ScreenID>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>1</X>
@@ -138,6 +143,8 @@
   </Label>
   <SpellGem item="CSPW_Spell2">
     <ScreenID>CSPW_Spell2</ScreenID>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>1</X>
@@ -179,6 +186,8 @@
   </Label>
   <SpellGem item="CSPW_Spell3">
     <ScreenID>CSPW_Spell3</ScreenID>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>1</X>
@@ -220,6 +229,8 @@
   </Label>
   <SpellGem item="CSPW_Spell4">
     <ScreenID>CSPW_Spell4</ScreenID>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>1</X>
@@ -261,6 +272,8 @@
   </Label>
   <SpellGem item="CSPW_Spell5">
     <ScreenID>CSPW_Spell5</ScreenID>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>1</X>
@@ -302,6 +315,8 @@
   </Label>
   <SpellGem item="CSPW_Spell6">
     <ScreenID>CSPW_Spell6</ScreenID>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>1</X>
@@ -343,6 +358,8 @@
   </Label>
   <SpellGem item="CSPW_Spell7">
     <ScreenID>CSPW_Spell7</ScreenID>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>1</X>

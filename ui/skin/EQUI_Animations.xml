@@ -59,12 +59,12 @@
     <Frames>
       <Texture>VantageControlEdges.tga</Texture>
       <Location>
-        <X>43</X>
+        <X>55</X>
         <Y>2</Y>
       </Location>
       <Size>
         <CX>1</CX>
-        <CY>2</CY>
+        <CY>5</CY>
       </Size>
     </Frames>
   </Ui2DAnimation>
@@ -73,7 +73,7 @@
     <Frames>
       <Texture>VantageControlEdges.tga</Texture>
       <Location>
-        <X>40</X>
+        <X>52</X>
         <Y>2</Y>
       </Location>
       <Size>
@@ -87,12 +87,12 @@
     <Frames>
       <Texture>VantageControlEdges.tga</Texture>
       <Location>
-        <X>37</X>
+        <X>49</X>
         <Y>2</Y>
       </Location>
       <Size>
         <CX>1</CX>
-        <CY>2</CY>
+        <CY>5</CY>
       </Size>
     </Frames>
   </Ui2DAnimation>
@@ -101,11 +101,11 @@
     <Frames>
       <Texture>VantageControlEdges.tga</Texture>
       <Location>
-        <X>32</X>
+        <X>41</X>
         <Y>2</Y>
       </Location>
       <Size>
-        <CX>3</CX>
+        <CX>6</CX>
         <CY>1</CY>
       </Size>
     </Frames>
@@ -115,7 +115,7 @@
     <Frames>
       <Texture>VantageControlEdges.tga</Texture>
       <Location>
-        <X>29</X>
+        <X>38</X>
         <Y>2</Y>
       </Location>
       <Size>
@@ -129,11 +129,11 @@
     <Frames>
       <Texture>VantageControlEdges.tga</Texture>
       <Location>
-        <X>24</X>
+        <X>30</X>
         <Y>2</Y>
       </Location>
       <Size>
-        <CX>3</CX>
+        <CX>6</CX>
         <CY>1</CY>
       </Size>
     </Frames>
@@ -143,12 +143,12 @@
     <Frames>
       <Texture>VantageControlEdges.tga</Texture>
       <Location>
-        <X>21</X>
+        <X>27</X>
         <Y>2</Y>
       </Location>
       <Size>
         <CX>1</CX>
-        <CY>2</CY>
+        <CY>5</CY>
       </Size>
     </Frames>
   </Ui2DAnimation>
@@ -157,7 +157,7 @@
     <Frames>
       <Texture>VantageControlEdges.tga</Texture>
       <Location>
-        <X>18</X>
+        <X>24</X>
         <Y>2</Y>
       </Location>
       <Size>
@@ -171,12 +171,12 @@
     <Frames>
       <Texture>VantageControlEdges.tga</Texture>
       <Location>
-        <X>15</X>
+        <X>21</X>
         <Y>2</Y>
       </Location>
       <Size>
         <CX>1</CX>
-        <CY>2</CY>
+        <CY>5</CY>
       </Size>
     </Frames>
   </Ui2DAnimation>
@@ -185,11 +185,11 @@
     <Frames>
       <Texture>VantageControlEdges.tga</Texture>
       <Location>
-        <X>10</X>
+        <X>13</X>
         <Y>2</Y>
       </Location>
       <Size>
-        <CX>3</CX>
+        <CX>6</CX>
         <CY>1</CY>
       </Size>
     </Frames>
@@ -199,7 +199,7 @@
     <Frames>
       <Texture>VantageControlEdges.tga</Texture>
       <Location>
-        <X>7</X>
+        <X>10</X>
         <Y>2</Y>
       </Location>
       <Size>
@@ -217,7 +217,7 @@
         <Y>2</Y>
       </Location>
       <Size>
-        <CX>3</CX>
+        <CX>6</CX>
         <CY>1</CY>
       </Size>
     </Frames>
