@@ -146,6 +146,14 @@ def load_release(path):
 
 def create_manifest(assets, release):
     validate_names(assets)
+    # A visible skin version must identify this exact delivery. Refuse a stale
+    # tab rather than rewriting the canonical source or silently shipping it.
+    for name, data in assets.items():
+        if name.casefold() == "equi_hotbuttonwnd.xml":
+            labels = ET.fromstring(data).findall("./Label[@item='HB_VantageVersionLabel']")
+            expected = "VantageUI  v" + release["version"]
+            if len(labels) != 1 or labels[0].findtext("Text") != expected:
+                raise PackageError("Visible VantageUI version tab must match release: " + expected)
     manifest = dict(release)
     manifest["files"] = [
         {"path": name, "size": len(assets[name]), "sha256": hashlib.sha256(assets[name]).hexdigest()}
@@ -203,8 +211,8 @@ def package_skin(skin_directory, release_path, output_directory):
     output_directory = Path(output_directory).absolute()
     if output_directory == skin_directory or skin_directory in output_directory.parents:
         raise PackageError("Package output must not be inside the skin source")
-    _prepare_output_directory(output_directory)
     manifest = create_manifest(assets, release)
+    _prepare_output_directory(output_directory)
     # ZIP_STORED avoids compression-library/version variance. The entire skin is
     # small; stable bytes across machines matter more than transport compression.
     handle, temporary = tempfile.mkstemp(prefix=".vantage-ui-", dir=str(output_directory))

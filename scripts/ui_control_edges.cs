@@ -147,6 +147,28 @@ public static class VantageControlEdgesRenderer {
                     }
                 }
             }
+            // Compact identity tab. Neutral fill, softly rounded gold rim;
+            // version text is a native XML label, never baked into the image.
+            using(var high=new Bitmap(808,80,PixelFormat.Format32bppArgb))
+            using(var tab=new Bitmap(202,20,PixelFormat.Format32bppArgb)) {
+                using(var g=Graphics.FromImage(high))
+                using(var path=Round(1.6f,1.6f,804.8f,76.8f,18))
+                using(var fill=new LinearGradientBrush(new Rectangle(0,0,808,80),
+                    Color.FromArgb(24,25,27),Color.FromArgb(11,12,14),90f))
+                using(var rim=new Pen(Color.FromArgb(115,158,131,75),2.4f)) {
+                    g.SmoothingMode=SmoothingMode.AntiAlias;
+                    g.FillPath(fill,path);
+                    g.DrawPath(rim,path);
+                }
+                using(var g=Graphics.FromImage(tab)) {
+                    g.InterpolationMode=InterpolationMode.HighQualityBicubic;
+                    g.PixelOffsetMode=PixelOffsetMode.HighQuality;
+                    g.DrawImage(high,new Rectangle(0,0,202,20),
+                        0,0,808,80,GraphicsUnit.Pixel);
+                }
+                for(int y=0;y<20;y++) for(int x=0;x<202;x++)
+                    atlas.SetPixel(2+x,70+y,tab.GetPixel(x,y));
+            }
             using(var output=new BinaryWriter(File.Create(destination))) {
                 byte[] header=new byte[18]; header[2]=2; header[13]=2;
                 header[14]=128; header[16]=32; header[17]=40; output.Write(header);

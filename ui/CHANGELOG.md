@@ -1,5 +1,24 @@
 # VantageUI releases
 
+## 1.44.65
+
+Install folder: `VantageUI-v1.44.65`.
+
+- Add a compact, rounded identity tab above the inventory/hotbutton grid,
+  with centered gold text reading "VantageUI  v1.44.65" on a dark neutral surface.
+- Reserve 22px above the existing grid. The window remains 215px wide and
+  becomes 237px high; all buttons, equipment, and bags keep their sizes,
+  native bindings, columns, and spacing.
+- Retain opaque window backgrounds and keep the tab inside the native client
+  bounds. Its soft gold rim does not extend into the item slots.
+- Packaging now rejects a missing, duplicate, or stale visible version label.
+  Future releases must update the tab text alongside their release metadata.
+- Preserve the separated Actions buttons and all health/casting/spell changes.
+
+Load manually with `/loadskin VantageUI-v1.44.65 1`. Layout, asset bounds, and
+version consistency are checked automatically. Native appearance needs an
+EverQuest reload; no character positions or INIs are edited.
+
 ## 1.44.64
 
 Install folder: `VantageUI-v1.44.64`.

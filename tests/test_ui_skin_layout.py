@@ -2,6 +2,7 @@ from copy import deepcopy
 from collections import Counter
 from itertools import combinations
 from pathlib import Path
+import json
 import xml.etree.ElementTree as ET
 import pytest
 
@@ -48,12 +49,12 @@ def _assert_nonoverlapping(rectangles):
         assert not overlaps, f"{left_name} overlaps {right_name}"
 
 
-def _assert_uniform_equipment_columns(rectangles):
+def _assert_uniform_equipment_columns(rectangles, y_offset=0):
     assert len(rectangles) == 21
     assert Counter(r[0] for r in rectangles.values()) == {86: 7, 115: 7, 144: 7}
     for x in (86, 115, 144):
         column = sorted(r for r in rectangles.values() if r[0] == x)
-        assert column == [(x, 1 + 29 * row, 29, 29) for row in range(7)]
+        assert column == [(x, 1 + y_offset + 29 * row, 29, 29) for row in range(7)]
 
 
 def _signature(element):
@@ -186,7 +187,9 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
     root = _root("EQUI_HotButtonWnd.xml")
     window = _item(root, "Screen", "HotButtonWnd")
     window_size = _pair(window, "Size", "CX", "CY")
-    assert window_size == (215, 215)
+    assert window_size == (215, 237)
+    # Only add a 22px identity band; retain the exact 215px body grid.
+    header_height = 22
     # Inventory sizing is independent: never enlarge Actions to match it.
     assert window.findtext("Style_VScroll") == "false"
     assert window.findtext("Style_HScroll") == "false"
@@ -197,7 +200,7 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
     for index in range(1, 11):
         name = f"HB_Button{index}"
         button = _item(root, "Button", name)
-        expected_location = (1 + 41 * ((index - 1) % 2), 1 + 41 * ((index - 1) // 2))
+        expected_location = (1 + 41 * ((index - 1) % 2), 1 + header_height + 41 * ((index - 1) // 2))
         rect = _rect(button)
         assert button.findtext("ScreenID") == name
         assert rect == (*expected_location, 40, 40)
@@ -263,20 +266,21 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
         assert slot.findtext("ScreenID") == name
         assert int(slot.findtext("EQType")) == eq_type
         rect = _rect(slot)
-        assert rect == (*gear_locations[name], 29, 29)
+        gx, gy = gear_locations[name]
+        assert rect == (gx, gy + header_height, 29, 29)
         _assert_in_bounds(rect, window_size)
         assert pieces.count(name) == 1
         inventory[name] = rect
 
     assert set(gear_types.values()) == set(range(1, 22))
-    _assert_uniform_equipment_columns(inventory)
+    _assert_uniform_equipment_columns(inventory, y_offset=header_height)
     for index in range(1, 9):
         name = f"Newslot{index}"
         slot = _item(root, "InvSlot", name)
         assert slot.findtext("ScreenID") == name
         assert int(slot.findtext("EQType")) == 21 + index
         rect = _rect(slot)
-        expected_location = (178, (1, 26, 52, 77, 103, 128, 154, 179)[index - 1])
+        expected_location = (178, header_height + (1, 26, 52, 77, 103, 128, 154, 179)[index - 1])
         assert rect == (*expected_location, 25, 25)
         _assert_in_bounds(rect, window_size)
         assert pieces.count(name) == 1
@@ -300,6 +304,53 @@ def test_uniform_equipment_guard_rejects_the_previous_detached_ammo_slot():
     equipment['14'] = (176, 0, 31, 31)
     with pytest.raises(AssertionError):
         _assert_uniform_equipment_columns(equipment)
+
+
+def test_hotbar_gold_version_tab_is_bound_to_release_and_clear_of_the_grid():
+    root = _root("EQUI_HotButtonWnd.xml")
+    window = _item(root, "Screen", "HotButtonWnd")
+    label = _item(root, "Label", "HB_VantageVersionLabel")
+    tab = _item(root, "StaticAnimation", "HB_VantageBrandTab")
+    animation = _item(root, "Ui2DAnimation", "A_VantageBrandTab")
+    release = json.loads((SKIN_DIR.parent / "release.json").read_text())
+    assert label.findtext("Text") == f"VantageUI  v{release['version']}"
+    assert label.findtext("Font") == "2"
+    assert label.findtext("NoWrap") == label.findtext("AlignCenter") == "true"
+    assert label.find("EQType") is None  # Never let live game data overwrite it.
+    assert _rect(label) == (5, 5, 194, 14)
+    assert tuple(int(label.findtext(f"TextColor/{c}")) for c in "RGB") == (218, 188, 119)
+    assert _rect(tab) == (1, 1, 202, 20)
+    assert tab.findtext("Animation") == animation.attrib["item"]
+    assert tab.findtext("AutoDraw") == "true"
+    assert animation.findtext("Cycle") == "false"
+    assert window.findtext("Style_Transparent") == "false"
+    assert window.findtext("DrawTemplate") == "WDT_RoundedNoTitle"
+    assert _rect(window)[2:] == (215, 237)
+    assert list(root).index(animation) < list(root).index(tab) < list(root).index(label) < list(root).index(window)
+    pieces = [p.text.strip() for p in window.findall("Pieces")]
+    assert pieces[:2] == ["HB_VantageBrandTab", "HB_VantageVersionLabel"]
+    assert pieces.count("HB_VantageBrandTab") == pieces.count("HB_VantageVersionLabel") == 1
+    for name in pieces[2:]:
+        node = next(n for n in root if n.attrib.get("item") == name)
+        x, y, width, height = _rect(node)
+        if x < 0:  # Existing hidden native paging controls remain hidden.
+            assert (x, y, width, height) == (-1, -1, 1, 1)
+        else:
+            assert y >= 23
+            _assert_in_bounds((x, y, width, height), (207, 229))
+
+    frame = _only_frame(animation)
+    assert frame.findtext("Texture") == "VantageControlEdges.tga"
+    assert _rect(frame) == (2, 70, 202, 20)
+    _assert_in_bounds(_rect(frame), (512, 128))
+    atlas = (SKIN_DIR / "VantageControlEdges.tga").read_bytes()
+    assert atlas[12:18] == bytes((0, 2, 128, 0, 32, 40))
+    def alpha(x, y):
+        return atlas[18 + (y * 512 + x) * 4 + 3]
+    assert alpha(103, 80) == 255
+    assert all(alpha(x, y) <= 16 for x in (2, 203) for y in (70, 89))
+    assert all(alpha(x, y) == 0 for x in range(1, 205) for y in (69, 90))
+    assert all(alpha(x, y) == 0 for x in (1, 204) for y in range(69, 91))
 
 
 def test_all_drawable_inventory_slots_use_the_dedicated_gold_border():
