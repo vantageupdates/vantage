@@ -19,7 +19,7 @@ from vantage.helpers.scaled_tooltip import (
 
 
 DESIGN_SIZES = {
-    "quickbar": QSize(654, 67),
+    "quickbar": QSize(679, 67),
     "maps": QSize(400, 400),
     # The 260 px logical width fits every authored header control. Physical
     # resizing still scales the entire replica down uniformly.
@@ -29,6 +29,7 @@ DESIGN_SIZES = {
     "combat": QSize(520, 300),
     "heals": QSize(520, 220),
     "market": QSize(980, 620),
+    "opendkp": QSize(980, 620),
     "zones": QSize(900, 560),
     # Never derive the logical Quest canvas from a previously saved physical
     # size. Doing so enlarged/cropped its contents after reopening a small
@@ -1178,6 +1179,7 @@ class ParserWindow(QWidget):
             "maps": "Maps", "spells": "Buffs & Triggers",
             "timers": "Smart Timers", "combat": "Combat",
             "heals": "Heal Chain", "market": "Market",
+            "opendkp": "Appearance",
             "quickbar": "Quick Bar", "tick": "Appearance",
         }.get(self.name, "Appearance")
 

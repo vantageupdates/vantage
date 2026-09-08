@@ -17,6 +17,7 @@ WINDOW_ICONS = {
     "combat": "ph-sword",
     "heals": "ph-heal",
     "market": "ph-storefront",
+    "opendkp": "ph-gavel",
     "zones": "ph-compass",
     "quests": "ph-quest-scroll",
     "vantage_ui": "ph-layout",

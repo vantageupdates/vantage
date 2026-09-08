@@ -11,7 +11,8 @@ from vantage.helpers.notification_routes import (
 
 EXPECTED_ROUTES = {
     'spell_fading', 'spell_resisted', 'spell_worn_off', 'tell_message',
-    'hail', 'smart_timer', 'raid_encounter', 'market_sale', 'death_loop'}
+    'hail', 'smart_timer', 'raid_encounter', 'market_sale',
+    'opendkp_auction', 'death_loop'}
 
 
 @pytest.fixture(autouse=True)

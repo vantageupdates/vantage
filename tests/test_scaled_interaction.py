@@ -265,7 +265,7 @@ def test_scaled_panels_keep_keyboard_pointer_and_tooltips(tmp_path):
     assert result["missing_timer_tooltips"] == []
     assert result["map_manual_pan"] is True
     assert result["minimum_sizes"] == {
-        "quickbar": [245, 25],
+        "quickbar": [255, 25],
         "maps": [320, 320], "spells": [210, 111],
         "tick": [208, 114],
         "timers": [300, min(
@@ -273,6 +273,7 @@ def test_scaled_panels_keep_keyboard_pointer_and_tooltips(tmp_path):
             result["timer_screen_height"])],
         "combat": [416, 240],
         "heals": [416, 176], "market": [784, 496],
+        "opendkp": [784, 496],
         "zones": [720, 448], "quests": [720, 580],
         "vantage_ui": [560, 432]}
     assert result["minimum_sizes"]["timers"] == [
@@ -282,7 +283,7 @@ def test_scaled_panels_keep_keyboard_pointer_and_tooltips(tmp_path):
     assert result["missing_by_panel"] == {
         "quickbar": [], "maps": [], "spells": [], "tick": [],
         "timers": [], "combat": [],
-        "heals": [], "market": [], "zones": [], "quests": [],
+        "heals": [], "market": [], "opendkp": [], "zones": [], "quests": [],
         "vantage_ui": [],
         "overlay_editor": []}
     assert all(

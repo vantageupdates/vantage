@@ -34,6 +34,7 @@ from vantage.parsers.heals import HealChain
 from vantage.parsers.maps import Maps
 from vantage.parsers.maps.window import MapsSignals
 from vantage.parsers.market import GEAR_COLUMN_DEFAULT_WIDTHS, GreenMarket
+from vantage.parsers.opendkp import OpenDKP
 from vantage.parsers.zones import Zones
 from vantage.parsers.quests import Quests
 from vantage.parsers.vantage_ui import VantageUI, version_is_newer
@@ -50,7 +51,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=61,
+    patch=62,
     build=""
 )
 
@@ -266,10 +267,12 @@ class VantageApp(QApplication):
         tick = ServerTick()
         spells.spell_faded.connect(tick.spell_faded)
         timers = SpawnTimers()
-        self._splash.step("Preparing combat, Market, Zones, Quests, and VantageUI…", 70)
+        self._splash.step(
+            "Preparing combat, Market, OpenDKP, Zones, Quests, and VantageUI…", 70)
         combat = Combat()
         heals = HealChain()
         market = GreenMarket()
+        opendkp = OpenDKP()
         zones = Zones()
         quests = Quests()
         vantage_ui = VantageUI()
@@ -281,6 +284,7 @@ class VantageApp(QApplication):
             "combat": combat,
             "heals": heals,
             "market": market,
+            "opendkp": opendkp,
             "zones": zones,
             "quests": quests,
             "vantage_ui": vantage_ui,
@@ -296,6 +300,7 @@ class VantageApp(QApplication):
             self._parsers_dict["combat"],
             self._parsers_dict["heals"],
             self._parsers_dict["market"],
+            self._parsers_dict["opendkp"],
             self._parsers_dict["zones"],
             self._parsers_dict["quests"],
             self._parsers_dict["vantage_ui"],
@@ -1090,6 +1095,7 @@ class VantageApp(QApplication):
                 "timers": "Smart Timers",
                 "heals": "Heal Chain",
                 "market": "Market",
+                "opendkp": "OpenDKP",
                 "zones": "Zones",
                 "quests": "Quests",
                 "vantage_ui": "VantageUI",

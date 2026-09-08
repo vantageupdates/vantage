@@ -16,7 +16,9 @@ EverQuest and Project 1999 community. We gratefully acknowledge:
 - the [Brewall mapping community](https://github.com/RedGuides/brewall-maps)
   for classic community map resources; and
 - the [respawntimer community data](https://github.com/perotan/respawntimer),
-  used as a reference when normalizing zone respawn facts.
+  used as a reference when normalizing zone respawn facts; and
+- [OpenDKP](https://www.opendkp.com/), whose public and authenticated APIs are
+  used only when a user configures their own guild profile.
 
 GINA and GamParse are acknowledged only as community inspiration and for
 compatibility with familiar workflows. Vantage does not claim that their
@@ -40,10 +42,17 @@ Market values are attributed in-app to PigParse Green. Project 1999 Wiki is a se
 
 Class, race and equipment-slot metadata is loaded from the P99 Planner community snapshot of Project 1999 Wiki data. It is not used as a price source. Optional mobile Internet sharing uses Cloudflare Quick Tunnels and downloads the official signed `cloudflared` Windows binary only with the user's approval.
 
+The optional OpenDKP window connects directly to `api.opendkp.com`, the
+guild's `*.opendkp.com` site, AWS Cognito for user-requested sign-in, and the
+OpenDKP live-auction websocket. Public browsing does not require an account.
+Passwords are not persisted; renewable session tokens are stored in Windows
+Credential Manager. OpenDKP is not bundled, mirrored, or represented as a
+Vantage service.
+
 The Windows release is a single-file executable. Runtime configuration and downloaded/cache data are stored under `%LOCALAPPDATA%\Vantage`, never beside the executable, unless a developer explicitly sets the test-only `VANTAGE_DATA_DIR` override.
 
 The included Brewall 2024 map archive was supplied by the user for this build.
-EverQuest, Project 1999, PigParse and Brewall are not affiliated with this
+EverQuest, Project 1999, PigParse, OpenDKP and Brewall are not affiliated with this
 project. Their names and trademarks remain the property of their respective
 owners.
 

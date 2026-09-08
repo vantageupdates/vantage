@@ -10,6 +10,7 @@ QUICKBAR_ITEMS = (
     ("combat", "Combat Parser", "ph-sword", "windows"),
     ("heals", "Heal Chain", "ph-heal", "windows"),
     ("market", "Market", "ph-storefront", "windows"),
+    ("opendkp", "OpenDKP · DKP & Bids", "ph-gavel", "windows"),
     ("zones", "Zones", "ph-compass", "windows"),
     ("quests", "Quests", "ph-quest-scroll", "windows"),
     ("vantage_ui", "VantageUI", "ph-layout", "windows"),

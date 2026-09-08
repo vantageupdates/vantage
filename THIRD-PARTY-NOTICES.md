@@ -54,7 +54,7 @@ bundle their proprietary code, artwork, sounds, or databases.
 
 Vantage acknowledges the nParse project and contributors, PigParse / EqTool,
 the Project 1999 Wiki and P99 Planner communities, the Brewall mapping
-community, and respawntimer community data. Their roles and source links are
+community, respawntimer community data, and the OpenDKP service/API. Their roles and source links are
 described in `SOURCE-NOTICE.md`.
 
 GINA and GamParse are mentioned only as community inspiration and to describe

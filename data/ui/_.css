@@ -2054,3 +2054,133 @@ QLineEdit#MarketAuctionSearchInput {
     border-radius: 6px;
     gridline-color: #2A3840;
 }
+
+/* OpenDKP: compact smoked-glass data workspace for any guild. */
+#OpenDkpGuildBar, #OpenDkpCharacterBar, #OpenDkpBidBar, #OpenDkpFooter {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 rgba(25, 38, 46, 238), stop:1 rgba(10, 17, 22, 242));
+    border: 1px solid #40515C;
+    border-radius: 6px;
+}
+#OpenDkpFieldLabel, #OpenDkpMetricLabel, #OpenDkpPanelHelp,
+#OpenDkpInlineSummary, #OpenDkpResultStatus {
+    color: #AFC0C6;
+}
+#OpenDkpFieldLabel, #OpenDkpPanelTitle {
+    color: #E9D59A;
+    font-weight: 700;
+}
+#OpenDkpStatusPill, #OpenDkpConnectionState {
+    color: #C8D2D6;
+    background-color: #111A20;
+    border: 1px solid #40515C;
+    border-left: 3px solid #75858D;
+    border-radius: 5px;
+    padding: 3px 7px;
+    font-weight: 700;
+}
+#OpenDkpStatusPill[state="loading"],
+#OpenDkpConnectionState[state="connecting"],
+#OpenDkpConnectionState[state="saved"] {
+    color: #FFE6A5;
+    border-left-color: #D2A84D;
+    background-color: #241F14;
+}
+#OpenDkpStatusPill[state="ready"],
+#OpenDkpConnectionState[state="connected"],
+#OpenDkpConnectionState[state="live"] {
+    color: #B7F1E4;
+    border-left-color: #55C6AF;
+    background-color: #10231F;
+}
+#OpenDkpStatusPill[state="error"],
+#OpenDkpConnectionState[state="error"],
+#OpenDkpConnectionState[state="expired"],
+#OpenDkpConnectionState[state="reconnecting"] {
+    color: #FFD0C8;
+    border-left-color: #D46D5F;
+    background-color: #281715;
+}
+QProgressBar#OpenDkpProgress {
+    min-width: 72px;
+    max-width: 110px;
+    min-height: 8px;
+    max-height: 8px;
+    background-color: #091014;
+    border: 1px solid #40515C;
+    border-radius: 3px;
+}
+QProgressBar#OpenDkpProgress::chunk {
+    background-color: #D2A84D;
+    border-radius: 2px;
+}
+QTabWidget#OpenDkpTabs::pane, QTabWidget#OpenDkpAuctionTabs::pane {
+    background-color: rgba(8, 14, 18, 244);
+    border: 1px solid #40515C;
+    border-radius: 6px;
+    top: -1px;
+}
+QTabWidget#OpenDkpTabs QTabBar::tab,
+QTabWidget#OpenDkpAuctionTabs QTabBar::tab {
+    color: #B6C1C5;
+    background-color: #10181D;
+    border: 1px solid #34434E;
+    border-bottom: 2px solid #34434E;
+    min-height: 23px;
+    padding: 3px 11px;
+    margin-right: 2px;
+    font-weight: 700;
+}
+QTabWidget#OpenDkpTabs QTabBar::tab:selected,
+QTabWidget#OpenDkpAuctionTabs QTabBar::tab:selected {
+    color: #FFF4D3;
+    background-color: #2C2517;
+    border-color: #806B3F;
+    border-bottom-color: #D2A84D;
+}
+#OpenDkpMetricStrip, #OpenDkpTableCard, #OpenDkpWatchPanel {
+    background-color: rgba(12, 20, 25, 232);
+    border: 1px solid #34434E;
+    border-radius: 6px;
+}
+#OpenDkpMetricCard {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #1B2A31, stop:1 #0E171C);
+    border: 1px solid #40515C;
+    border-top: 2px solid #9A7D42;
+    border-radius: 5px;
+}
+#OpenDkpMetricValue {
+    color: #FFF1C5;
+    font-size: 15px;
+    font-weight: 700;
+}
+#OpenDkpCharacterIdentity, #OpenDkpBidSelection {
+    color: #D8E5E8;
+    font-weight: 700;
+}
+#OpenDkpTabs QTableWidget, #OpenDkpAuctionTabs QTableWidget,
+#OpenDkpWatchPanel QListWidget {
+    color: #E4ECEE;
+    background-color: #091014;
+    alternate-background-color: #101A20;
+    border: 1px solid #34434E;
+    border-radius: 4px;
+    gridline-color: #293740;
+    outline: none;
+}
+#OpenDkpTabs QTableWidget::item:selected,
+#OpenDkpAuctionTabs QTableWidget::item:selected,
+#OpenDkpWatchPanel QListWidget::item:selected {
+    color: #FFF5D7;
+    background-color: #493D24;
+    border: 1px solid #B6934F;
+}
+#OpenDkpTabs QTableWidget:focus, #OpenDkpAuctionTabs QTableWidget:focus,
+#OpenDkpWatchPanel QListWidget:focus {
+    border: 2px solid #F0C778;
+}
+#OpenDkpTabs QSpinBox, #OpenDkpTabs QComboBox, #OpenDkpTabs QLineEdit,
+#OpenDkpGuildBar QComboBox {
+    min-height: 24px;
+}

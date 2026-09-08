@@ -25,7 +25,7 @@ QUEST_CHECKLIST_MAX_TOTAL_BYTES = 384 * 1024
 # content, and checklist progress must never be inferred as "UI" and erased.
 UI_PRESENTATION_DEFAULTS = {
     ('general', 'startup_window_state'): 'rolled',
-    ('quickbar', 'geometry'): [10, 10, 654, 67],
+    ('quickbar', 'geometry'): [10, 10, 679, 67],
     ('quickbar', 'toggled'): True,
     ('quickbar', 'auto_hide_menu'): False,
     ('quickbar', 'always_on_top'): True,
@@ -96,6 +96,14 @@ UI_PRESENTATION_DEFAULTS = {
     ('market', 'frameless'): True,
     ('market', 'collapsed'): False,
     ('market', 'gear_column_widths'): {},
+    ('opendkp', 'geometry'): [200, 110, 980, 620],
+    ('opendkp', 'toggled'): False,
+    ('opendkp', 'opacity'): 100,
+    ('opendkp', 'clickthrough'): False,
+    ('opendkp', 'auto_hide_menu'): False,
+    ('opendkp', 'always_on_top'): False,
+    ('opendkp', 'frameless'): True,
+    ('opendkp', 'collapsed'): False,
     ('zones', 'geometry'): [210, 120, 900, 560],
     ('zones', 'toggled'): False,
     ('zones', 'opacity'): 100,
@@ -569,8 +577,8 @@ def verify_settings():
     # interactive and never creates another normal Windows taskbar entry.
     data['quickbar'] = data.get('quickbar', {})
     data['quickbar']['geometry'] = get_setting(
-        data['quickbar'].get('geometry', [10, 10, 654, 67]),
-        [10, 10, 654, 67],
+        data['quickbar'].get('geometry', [10, 10, 679, 67]),
+        [10, 10, 679, 67],
         lambda value: isinstance(value, list) and len(value) == 4)
     for key, default in (
             ('toggled', True), ('auto_hide_menu', False),
@@ -1212,6 +1220,66 @@ def verify_settings():
         key: _bounded_int(width, 60, 38, 640)
         for key, width in raw_market_widths.items()
         if key in market_column_keys}
+
+    # Generic OpenDKP profiles. Each guild keeps its own selected character,
+    # username, and auction watchlist; secrets remain in Windows Credential
+    # Manager and must never enter this JSON file.
+    data['opendkp'] = data.get('opendkp', {})
+    if not isinstance(data['opendkp'], dict):
+        data['opendkp'] = {}
+    data['opendkp']['geometry'] = get_setting(
+        data['opendkp'].get('geometry', [200, 110, 980, 620]),
+        [200, 110, 980, 620],
+        lambda value: (isinstance(value, list) and len(value) == 4 and
+                       all(isinstance(item, int) for item in value) and
+                       value[2] > 0 and value[3] > 0))
+    for key, default in (
+            ('toggled', False), ('clickthrough', False),
+            ('auto_hide_menu', False), ('always_on_top', False),
+            ('frameless', True)):
+        data['opendkp'][key] = get_setting(
+            data['opendkp'].get(key, default), default)
+    data['opendkp']['clickthrough'] = False
+    data['opendkp']['opacity'] = get_setting(
+        data['opendkp'].get('opacity', 100), 100,
+        lambda value: 40 <= value <= 100)
+    raw_profiles = data['opendkp'].get('guilds', [])
+    raw_profiles = raw_profiles if isinstance(raw_profiles, list) else []
+    guilds = []
+    known_slugs = set()
+    for raw_profile in raw_profiles:
+        if not isinstance(raw_profile, dict):
+            continue
+        slug = str(raw_profile.get('slug') or '').strip().casefold()[:63]
+        if (slug in known_slugs or not re.fullmatch(
+                r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', slug)):
+            continue
+        known_slugs.add(slug)
+        watches = []
+        raw_watches = raw_profile.get('watch_items', [])
+        if isinstance(raw_watches, list):
+            for raw_watch in raw_watches:
+                watch = ' '.join(str(raw_watch or '').split())[:96]
+                if watch and watch.casefold() not in {
+                        value.casefold() for value in watches}:
+                    watches.append(watch)
+        guilds.append({
+            'slug': slug,
+            'name': ' '.join(str(raw_profile.get('name') or slug).split())[:120],
+            'url': f'https://{slug}.opendkp.com',
+            'character_id': _bounded_int(
+                raw_profile.get('character_id', 0), 0, 0, 2147483647),
+            'character_name': ' '.join(str(
+                raw_profile.get('character_name') or '').split())[:80],
+            'username': ' '.join(str(
+                raw_profile.get('username') or '').split())[:160],
+            'watch_items': watches[:64],
+        })
+    data['opendkp']['guilds'] = guilds[:12]
+    active_guild = str(
+        data['opendkp'].get('active_guild') or '').strip().casefold()
+    data['opendkp']['active_guild'] = (
+        active_guild if active_guild in known_slugs else '')
 
     # Independent Project 1999 zone browser. Preserve the legacy Market tab's
     # last selection once when an existing profile is upgraded.
