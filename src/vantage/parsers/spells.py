@@ -92,6 +92,17 @@ AMBIGUOUS_EXTERNAL_SELF_BUFFS = {
 }
 
 
+def _focus_spell_control(widget):
+    """Restore keyboard focus only while the Qt control still exists."""
+    try:
+        if widget is not None:
+            widget.setFocus(Qt.FocusReason.OtherFocusReason)
+    except RuntimeError:
+        # Clearing a whole target destroys its children before an older queued
+        # focus handoff can run. There is no surviving control to focus then.
+        return
+
+
 @functools.lru_cache(maxsize=1)
 def _p99_click_spell_names():
     """Return the shipped Project 1999 Wiki clicky item/effect index."""
@@ -1865,7 +1876,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.63')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.64')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -2643,11 +2654,11 @@ class SpellTarget(QFrame):
         self.target_label.setMinimumHeight(20)
         self.target_label.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.target_label.installEventFilter(self)
-        self.target_label.clicked.connect(
-            lambda: self._target_menu(self.target_label.rect().center()))
+        self.target_label.clicked.connect(self._remove)
         self.target_label.setContextMenuPolicy(
             Qt.ContextMenuPolicy.CustomContextMenu)
         self.target_label.customContextMenuRequested.connect(self._target_menu)
+        self.set_instance_number(self.instance_number, self.instance_total)
         self._layout.addWidget(self.target_label, 0)
         self._layout.addStretch()
 
@@ -2673,8 +2684,8 @@ class SpellTarget(QFrame):
         elif owner and hasattr(owner, '_sync_empty_state'):
             QTimer.singleShot(0, owner._sync_empty_state)
         if focus_target is not None:
-            QTimer.singleShot(0, lambda: focus_target.setFocus(
-                Qt.FocusReason.OtherFocusReason))
+            QTimer.singleShot(
+                0, lambda widget=focus_target: _focus_spell_control(widget))
 
     def spell_widgets(self):
         """Returns a list of all SpellWidgets."""
@@ -2705,6 +2716,21 @@ class SpellTarget(QFrame):
         self.instance_number = max(1, int(number))
         self.instance_total = max(1, int(total))
         if self.name.startswith('__'):
+            display = self.title.title()
+            effects = [
+                string.capwords(str(widget.spell.name))
+                for widget in self.spell_widgets() if not widget._removed]
+            effect_text = (
+                ' Active effects: ' + ', '.join(effects) + '.' if effects else '')
+            tooltip = (
+                f'{display} spell timers · click, Enter, Space, Delete, or '
+                'Backspace to clear this entire buff list. Right-click for '
+                'the clear action.' + effect_text)
+            self.target_label.setText(display)
+            self.target_label.setToolTip(tooltip)
+            self.target_label.setAccessibleName(
+                f'{display}; clear entire buff list')
+            self.target_label.setAccessibleDescription(tooltip)
             return
         base = self.title.title()
         # A/B markers identify simultaneous same-named mobs. A lone mob does
@@ -2723,8 +2749,8 @@ class SpellTarget(QFrame):
         if self.is_named:
             tooltip = (
                 'Named NPC · Vantage keeps one spell target instance in this zone. '
-                'Click, Enter, Space, or right-click for actions; press Delete '
-                'to remove its timers.' +
+                'Click, Enter, Space, Delete, or Backspace to clear this name\'s '
+                'entire buff list. Right-click for naming actions.' +
                 effect_text)
         elif int(total) > 1:
             tooltip = (
@@ -2732,13 +2758,13 @@ class SpellTarget(QFrame):
                 'Vantage separated '
                 f'{total} active mobs with stable markers; right-click to name '
                 'this one by location. A death line removes the oldest matching '
-                'instance. Click, Enter, or Space for actions; press Delete to '
-                'remove this one.' + effect_text)
+                'instance. Click, Enter, Space, Delete, or Backspace clears this '
+                'name\'s entire buff list.' + effect_text)
         else:
             tooltip = (
-                'Tracked hostile mob · click, Enter, Space, or right-click for '
-                'actions such as naming it by location. Press Delete to remove '
-                'this target and its spell timers.' +
+                'Tracked hostile mob · click, Enter, Space, Delete, or Backspace '
+                'to clear this name\'s entire buff list. Right-click for naming '
+                'actions.' +
                 effect_text)
         self.target_label.setToolTip(tooltip)
         self.target_label.setAccessibleName(display)
@@ -2746,6 +2772,19 @@ class SpellTarget(QFrame):
 
     def _target_menu(self, position):
         menu = QMenu(self)
+        if self.name.startswith('__'):
+            labels = {
+                '__you__': 'Clear all your buffs',
+                '__custom__': 'Clear all custom timers',
+                '__utility__': 'Clear all cooldowns',
+            }
+            clear_all = menu.addAction(labels.get(
+                self.name, 'Clear this entire buff list'))
+            clear_all.setToolTip(
+                'Remove every spell timer shown under this name')
+            if menu.exec(self.target_label.mapToGlobal(position)) == clear_all:
+                self._remove()
+            return
         rename = menu.addAction('Name this mob…')
         rename.setToolTip(
             'Give this tracked instance a location label such as Entrance or Ramp')
@@ -2755,7 +2794,7 @@ class SpellTarget(QFrame):
             'same-named mobs must be distinguished')
         clear.setEnabled(bool(self.alias))
         menu.addSeparator()
-        remove = menu.addAction('Remove this mob and its spell timers')
+        remove = menu.addAction('Clear this mob\'s entire buff list')
         action = menu.exec(self.target_label.mapToGlobal(position))
         if action == rename:
             value, accepted = QInputDialog.getText(
@@ -3218,8 +3257,8 @@ class SpellWidget(QFrame):
         if owner and hasattr(owner, '_spell_widget_removed'):
             owner._spell_widget_removed(target)
         if focus_target is not None:
-            QTimer.singleShot(0, lambda: focus_target.setFocus(
-                Qt.FocusReason.OtherFocusReason))
+            QTimer.singleShot(
+                0, lambda widget=focus_target: _focus_spell_control(widget))
 
     def _fading_notice(self, remaining_seconds):
         target = self.parentWidget()

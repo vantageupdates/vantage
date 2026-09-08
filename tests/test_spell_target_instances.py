@@ -106,6 +106,23 @@ def test_target_header_can_be_focused_and_removed_with_delete():
     assert container.get_spell_target_by_name("a frost giant") is None
 
 
+def test_target_header_left_click_clears_its_entire_buff_list():
+    app = _app()
+    container = SpellContainer()
+    now = datetime.datetime.now()
+    container.add_spell(_pacify(), now, "a frost giant")
+    container.add_spell(_fetter(), now, "a frost giant")
+    target = container.get_spell_target_by_name("a frost giant")
+
+    assert [widget.spell.name for widget in target.spell_widgets()] == [
+        "Pacify", "Fetter"]
+    assert "clear this name's entire buff list" in target.target_label.toolTip()
+    target.target_label.click()
+    app.processEvents()
+
+    assert container.get_spell_target_by_name("a frost giant") is None
+
+
 def test_late_same_name_landing_recasts_old_instance_instead_of_splitting():
     _app()
     container = SpellContainer()
