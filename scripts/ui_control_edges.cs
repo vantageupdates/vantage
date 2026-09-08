@@ -169,6 +169,55 @@ public static class VantageControlEdgesRenderer {
                 for(int y=0;y<20;y++) for(int x=0;x<202;x++)
                     atlas.SetPixel(2+x,70+y,tab.GetPixel(x,y));
             }
+            // A slim spell-window footer; never change any gem or existing bar.
+            using(var high=new Bitmap(480,60,PixelFormat.Format32bppArgb))
+            using(var footer=new Bitmap(120,15,PixelFormat.Format32bppArgb)) {
+                using(var g=Graphics.FromImage(high))
+                using(var path=Round(1.6f,1.6f,476.8f,56.8f,16))
+                using(var fill=new LinearGradientBrush(new Rectangle(0,0,480,60),
+                    Color.FromArgb(24,25,27),Color.FromArgb(11,12,14),90f))
+                using(var rim=new Pen(Color.FromArgb(90,158,131,75),2f)) {
+                    g.SmoothingMode=SmoothingMode.AntiAlias;
+                    g.FillPath(fill,path);
+                    g.DrawPath(rim,path);
+                }
+                using(var g=Graphics.FromImage(footer)) {
+                    g.InterpolationMode=InterpolationMode.HighQualityBicubic;
+                    g.PixelOffsetMode=PixelOffsetMode.HighQuality;
+                    g.DrawImage(high,new Rectangle(0,0,120,15),
+                        0,0,480,60,GraphicsUnit.Pixel);
+                }
+                for(int y=0;y<15;y++) for(int x=0;x<120;x++)
+                    atlas.SetPixel(2+x,96+y,footer.GetPixel(x,y));
+            }
+            string barSource=Path.Combine(Path.GetDirectoryName(destination),"dzbars.png");
+            using(var source=new Bitmap(barSource))
+            using(var cell=source.Clone(new Rectangle(0,200,240,11),PixelFormat.Format32bppArgb))
+            using(var fill=new Bitmap(116,9,PixelFormat.Format32bppArgb))
+            using(var attributes=new ImageAttributes()) {
+                attributes.SetWrapMode(WrapMode.TileFlipXY);
+                using(var g=Graphics.FromImage(fill)) {
+                    g.InterpolationMode=InterpolationMode.HighQualityBicubic;
+                    g.PixelOffsetMode=PixelOffsetMode.HighQuality;
+                    g.DrawImage(cell,new Rectangle(0,0,116,9),0,0,240,11,
+                        GraphicsUnit.Pixel,attributes);
+                }
+                // Fourfold sampled pill mask removes the original atlas
+                // backdrop from the ends while preserving its soft relief.
+                for(int y=0;y<9;y++) for(int x=0;x<116;x++) {
+                    int covered=0;
+                    for(int sy=0;sy<4;sy++) for(int sx=0;sx<4;sx++) {
+                        float px=x+(sx+0.5f)/4, py=y+(sy+0.5f)/4;
+                        float dx=px<4.5f ? px-4.5f : px>111.5f ? px-111.5f : 0;
+                        float dy=py-4.5f;
+                        if(dx*dx+dy*dy<=20.25f) covered++;
+                    }
+                    Color c=fill.GetPixel(x,y);
+                    int alpha=(c.A*covered+8)/16;
+                    atlas.SetPixel(128+x,96+y,alpha==0 ? Color.Transparent :
+                        Color.FromArgb(alpha,c.R,c.G,c.B));
+                }
+            }
             using(var output=new BinaryWriter(File.Create(destination))) {
                 byte[] header=new byte[18]; header[2]=2; header[13]=2;
                 header[14]=128; header[16]=32; header[17]=40; output.Write(header);

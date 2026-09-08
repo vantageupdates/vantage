@@ -22,6 +22,8 @@ SAMPLES = tuple((s['hp'], tuple(s['rgb'])) for s in PALETTE['samples'])
 LAYERS = tuple((100 - SAMPLES[i][0], SAMPLES[i-1][1])
                for i in range(len(SAMPLES)-1, 0, -1))
 PREFIX = 'VantageCast_R'
+FOOTER_PREFIX = 'CSPW_Cast_R'
+FOOTER_BASE = 'CSPW_CastingProgress'
 
 
 def item(root, kind, name):
@@ -60,24 +62,26 @@ def replace_block(text, kind, name, replacement):
     return result
 
 
-def refine(text, animation_text):
+def refine(text, animation_text, *, base_name='Target_Casting_Gauge',
+           parent_name='TargetWindow', prefix=PREFIX):
     text = text.replace('\r\n', '\n')
     root = ET.fromstring(text)
-    if any(n.get('item', '').startswith(PREFIX) for n in root):
+    if any(n.get('item', '').startswith(prefix) for n in root):
         raise ValueError('Cast layers already exist; inspect instead of stacking them again')
-    base = deepcopy(item(root, 'Gauge', 'Target_Casting_Gauge'))
+    base = deepcopy(item(root, 'Gauge', base_name))
     if base.findtext('EQType') != '7':
         raise ValueError('Expected native remaining-cast binding 7')
-    parent = deepcopy(item(root, 'Screen', 'TargetWindow'))
-    fill = item(ET.fromstring(animation_text), 'Ui2DAnimation',
-                base.findtext('GaugeDrawTemplate/Fill'))
+    parent = deepcopy(item(root, 'Screen', parent_name))
+    fill_name = base.findtext('GaugeDrawTemplate/Fill')
+    fill_root = root if root.findall(f"Ui2DAnimation[@item='{fill_name}']") else ET.fromstring(animation_text)
+    fill = item(fill_root, 'Ui2DAnimation', fill_name)
     width, height = (int(base.findtext('Size/' + p)) for p in ('CX', 'CY'))
     x, y = (int(base.findtext('Location/' + p)) for p in ('X', 'Y'))
     origin = int(fill.findtext('Frames/Location/X'))
     tint(base, SAMPLES[-1][1])
     definitions, pieces = [], []
     for threshold, color in LAYERS:
-        name = f'{PREFIX}{threshold:02}'
+        name = f'{prefix}{threshold:02}'
         offset, cut = 100 * threshold, width * threshold // 100
         animation = deepcopy(fill)
         animation.set('item', name + 'Fill')
@@ -122,11 +126,77 @@ def refine(text, animation_text):
                          '\n'.join(map(serialize, definitions + [parent])))
 
 
+def add_spell_footer(text):
+    """Append one real native countdown, never a timer or per-gem imitation."""
+    root = ET.fromstring(text)
+    if any(n.get('item', '').startswith(('CSPW_Cast', 'A_CSPW_Cast')) for n in root):
+        raise ValueError('Spell footer already exists; inspect instead of stacking it')
+    parent = deepcopy(item(root, 'Screen', 'CastSpellWnd'))
+    if (parent.findtext('Size/CX'), parent.findtext('Size/CY')) != ('130', '280'):
+        raise ValueError('Unexpected spell window layout')
+    definitions = ET.fromstring("""<XML>
+  <Ui2DAnimation item="A_CSPW_CastFooter">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageControlEdges.tga</Texture>
+      <Location><X>2</X><Y>96</Y></Location>
+      <Size><CX>120</CX><CY>15</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_CSPW_CastFill">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageControlEdges.tga</Texture>
+      <Location><X>128</X><Y>96</Y></Location>
+      <Size><CX>116</CX><CY>9</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <StaticAnimation item="CSPW_CastFooter">
+    <ScreenID>CSPW_CastFooter</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location><X>1</X><Y>274</Y></Location>
+    <Size><CX>120</CX><CY>15</CY></Size>
+    <Animation>A_CSPW_CastFooter</Animation>
+    <AutoDraw>true</AutoDraw>
+  </StaticAnimation>
+  <Gauge item="CSPW_CastingProgress">
+    <RelativePosition>true</RelativePosition>
+    <Location><X>3</X><Y>277</Y></Location>
+    <Size><CX>116</CX><CY>9</CY></Size>
+    <GaugeOffsetX>0</GaugeOffsetX>
+    <GaugeOffsetY>0</GaugeOffsetY>
+    <Text></Text>
+    <TextOffsetX>8000</TextOffsetX>
+    <Style_VScroll>false</Style_VScroll>
+    <Style_HScroll>false</Style_HScroll>
+    <Style_Transparent>true</Style_Transparent>
+    <TooltipReference>Spell casting progress</TooltipReference>
+    <FillTint><R>0</R><G>240</G><B>0</B><Alpha>255</Alpha></FillTint>
+    <DrawLinesFill>false</DrawLinesFill>
+    <EQType>7</EQType>
+    <GaugeDrawTemplate><Fill>A_CSPW_CastFill</Fill></GaugeDrawTemplate>
+  </Gauge>
+</XML>""")
+    set_value(parent, 'Size/CY', 300)
+    for name in ('CSPW_CastFooter', FOOTER_BASE):
+        ET.SubElement(parent, 'Pieces').text = name
+    text = replace_block(text, 'Screen', 'CastSpellWnd',
+                         '\n'.join(map(serialize, [*definitions, parent])))
+    return refine(text, '', base_name=FOOTER_BASE, parent_name='CastSpellWnd',
+                  prefix=FOOTER_PREFIX)
+
+
 if __name__ == '__main__':
     folder = Path(sys.argv[1])
-    path = folder / 'EQUI_TargetWindow.xml'
+    footer = '--spell-footer' in sys.argv[2:]
+    path = folder / ('EQUI_CastSpellWnd.xml' if footer else 'EQUI_TargetWindow.xml')
     original = path.read_text(encoding='ascii')
-    revised = refine(original, (folder / 'EQUI_Animations.xml').read_text(encoding='ascii'))
+    revised = (add_spell_footer(original) if footer else
+               refine(original, (folder / 'EQUI_Animations.xml').read_text(encoding='ascii')))
     lines = list(difflib.unified_diff(original.splitlines(), revised.splitlines(), n=3, lineterm=''))
     print('*** Begin Patch')
     print('*** Update File: ' + str(path))

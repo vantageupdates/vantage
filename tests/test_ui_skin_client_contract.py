@@ -141,7 +141,7 @@ def test_spell_gems_have_room_for_names_inset_icons_and_row_gaps(index):
     header = item(xml, 'Button', 'CSPW_SpellBook')
     assert rect(header) == (1, 1, 120, 14)
     assert window.findtext('Size/CX') == '130'
-    assert window.findtext('Size/CY') == '280'
+    assert window.findtext('Size/CY') == '300'
 
 
 @pytest.mark.parametrize('index', range(8))

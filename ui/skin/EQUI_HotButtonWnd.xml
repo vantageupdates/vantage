@@ -1549,7 +1549,7 @@
     <RelativePosition>true</RelativePosition>
     <Location><X>5</X><Y>5</Y></Location>
     <Size><CX>194</CX><CY>14</CY></Size>
-    <Text>VantageUI  v1.44.65</Text>
+    <Text>VantageUI  v1.44.66</Text>
     <TextColor><R>218</R><G>188</G><B>119</B></TextColor>
     <NoWrap>true</NoWrap>
     <AlignCenter>true</AlignCenter>

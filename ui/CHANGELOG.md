@@ -1,5 +1,25 @@
 # VantageUI releases
 
+## 1.44.66
+
+Install folder: `VantageUI-v1.44.66`.
+
+- Add a 15px rounded casting tab below the last spell gem, with a 116x9
+  inset progress bar. The spell window grows only 20px, from 130x280 to 130x300.
+- Read the real native casting gauge (EQType 7), including interrupted casts;
+  no simulated timers, per-gem progress imitation, or runtime hooks.
+- Reuse the existing 23-color red-to-yellow-to-green casting ramp. The
+  remaining-time fill counts down, reaches green near completion, and is empty
+  while idle. Preserve the existing casting bar in the Target window.
+- Keep every spell gem, icon, outline, and text rectangle unchanged. The
+  footer is separated from the last label and remains inside the native frame.
+- Retain the gold inventory identity tab, now showing "VantageUI  v1.44.66".
+
+Load manually with `/loadskin VantageUI-v1.44.66 1`. Automated tests cover both
+bar widths, live-fill boundaries, empty state, palette order, atlas gutters,
+and unchanged spell controls. Native casting and interruption rendering still
+need verification in EverQuest.
+
 ## 1.44.65
 
 Install folder: `VantageUI-v1.44.65`.

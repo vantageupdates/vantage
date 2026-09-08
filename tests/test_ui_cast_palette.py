@@ -80,9 +80,8 @@ def test_all_cast_layers_preserve_binding_texture_origin_size_and_draw_order():
     assert hidden.findtext('Size/CX') == hidden.findtext('Size/CY') == '0'
 
 
-def model_pixels(remaining):
+def model_pixels(remaining, width=240):
     """Existing paired-gauge geometry model, not the native game renderer."""
-    width = 240
     end = width * remaining // 100
     pixels = [cast.SAMPLES[-1][1]] * end + [None] * (width - end)
     for threshold, color in cast.LAYERS:
@@ -97,9 +96,10 @@ def model_pixels(remaining):
 
 
 @pytest.mark.parametrize('remaining', range(101))
-def test_countdown_never_paints_past_live_fill_or_leaves_idle_color(remaining):
-    pixels = model_pixels(remaining)
-    end = 240 * remaining // 100
+@pytest.mark.parametrize('width', (240, 116))
+def test_countdown_never_paints_past_live_fill_or_leaves_idle_color(remaining, width):
+    pixels = model_pixels(remaining, width)
+    end = width * remaining // 100
     assert all(c is None for c in pixels[end:])
     assert all(c is not None for c in pixels[:end])
     if remaining == 0:
@@ -146,3 +146,102 @@ def test_generator_changes_only_cast_binding_color_and_its_added_pieces():
         assert ET.tostring(left) == ET.tostring(right), name
     with pytest.raises(ValueError, match='already exist'):
         cast.refine(text, (SKIN / 'EQUI_Animations.xml').read_text(encoding='ascii'))
+
+
+def test_spell_footer_is_a_native_countdown_below_unchanged_gems():
+    root = ET.parse(SKIN / 'EQUI_CastSpellWnd.xml').getroot()
+    parent = cast.item(root, 'Screen', 'CastSpellWnd')
+    footer = cast.item(root, 'StaticAnimation', 'CSPW_CastFooter')
+    base = cast.item(root, 'Gauge', cast.FOOTER_BASE)
+    assert rect(parent)[2:] == (130, 300)
+    assert rect(footer) == (1, 274, 120, 15)
+    assert rect(base) == (3, 277, 116, 9)
+    assert base.findtext('EQType') == '7'
+    assert base.find('ScreenID') is None
+    assert base.findtext('TextOffsetX') == '8000'
+    assert base.findtext('Style_Transparent') == 'true'
+    assert base.findtext('GaugeOffsetX') == base.findtext('GaugeOffsetY') == '0'
+    assert rgb(base) == cast.SAMPLES[-1][1]
+    assert footer.findtext('AutoDraw') == 'true'
+    assert footer.findtext('Animation') == 'A_CSPW_CastFooter'
+    for i in range(8):
+        gem = cast.item(root, 'SpellGem', f'CSPW_Spell{i}')
+        assert rect(gem) == (1, 18 + i * 32, 120, 28)
+        label = cast.item(root, 'Label', f'CSPW_Spell{i}_Name')
+        assert rect(label) == (32, 22 + i * 32, 85, 26)
+        assert rect(label)[1] + rect(label)[3] <= rect(footer)[1] - 2
+    pieces = [p.text for p in parent.findall('Pieces')]
+    order = {n.get('item'): i for i, n in enumerate(root)}
+    sequence = ['CSPW_CastFooter', cast.FOOTER_BASE]
+    for threshold, color in cast.LAYERS:
+        name = f'{cast.FOOTER_PREFIX}{threshold:02}'
+        cut = 116 * threshold // 100
+        a, b = (cast.item(root, 'Gauge', name + s) for s in ('A', 'B'))
+        clip = cast.item(root, 'Screen', name + 'A_X')
+        animation = cast.item(root, 'Ui2DAnimation', name + 'Fill')
+        assert rect(a) == (0, 0, 10000 - 100 * threshold, 9)
+        assert rect(b) == (3 + cut, 277, 116 - cut, 9)
+        assert rect(clip) == (3, 277, cut, 9)
+        assert a.findtext('GaugeOffsetX') == str(-100 * threshold)
+        assert b.findtext('GaugeOffsetX') == str(-cut)
+        assert clip.findtext('Pieces') == name + 'A'
+        assert clip.findtext('Style_Transparent') == 'true'
+        assert animation.findtext('Frames/Texture') == 'VantageControlEdges.tga'
+        assert animation.findtext('Frames/Location/X') == str(128 - 100 * threshold)
+        assert animation.findtext('Frames/Location/Y') == '96'
+        assert animation.findtext('Frames/Size/CY') == '9'
+        for gauge in (a, b):
+            assert gauge.findtext('EQType') == '7'
+            assert gauge.find('ScreenID') is None
+            assert gauge.findtext('Style_Transparent') == 'true'
+            assert rgb(gauge) == color
+        assert order[name + 'Fill'] < order[name + 'A'] < order[name + 'A_X'] < order['CastSpellWnd']
+        sequence.extend((name + 'A_X', name + 'B'))
+    assert pieces[-len(sequence):] == sequence
+    assert all(pieces.count(p) == 1 for p in sequence)
+    assert 274 + 15 <= 300 - 8 - 3
+
+
+def test_spell_footer_cells_have_rounded_corners_and_clear_atlas_gutters():
+    root = ET.parse(SKIN / 'EQUI_CastSpellWnd.xml').getroot()
+    atlas = (SKIN / 'VantageControlEdges.tga').read_bytes()
+    assert atlas[12:18] == bytes((0, 2, 128, 0, 32, 40))
+    def alpha(x, y):
+        return atlas[18 + (y * 512 + x) * 4 + 3]
+    for name, expected in (
+        ('A_CSPW_CastFooter', (2, 96, 120, 15)),
+        ('A_CSPW_CastFill', (128, 96, 116, 9)),
+    ):
+        frame = cast.item(root, 'Ui2DAnimation', name).find('Frames')
+        assert rect(frame) == expected
+        x, y, w, h = expected
+        assert alpha(x + w // 2, y + h // 2) == 255
+        assert all(alpha(px, py) <= 16 for px in (x, x+w-1) for py in (y, y+h-1))
+        assert all(alpha(px, py) == 0 for px in range(x-1, x+w+1) for py in (y-1, y+h))
+        assert all(alpha(px, py) == 0 for px in (x-1, x+w) for py in range(y-1, y+h+1))
+
+
+def test_footer_generator_preserves_existing_spell_nodes_and_rejects_duplicate():
+    text = (SKIN / 'EQUI_CastSpellWnd.xml').read_text(encoding='ascii')
+    root = ET.fromstring(text)
+    with pytest.raises(ValueError, match='already exists'):
+        cast.add_spell_footer(text)
+    for node in list(root):
+        if node.get('item', '').startswith(('CSPW_Cast', 'A_CSPW_Cast')):
+            root.remove(node)
+    parent = cast.item(root, 'Screen', 'CastSpellWnd')
+    for piece in list(parent.findall('Pieces')):
+        if piece.text.startswith('CSPW_Cast'):
+            parent.remove(piece)
+    cast.set_value(parent, 'Size/CY', 280)
+    ET.indent(root, space='  ')
+    rebuilt = ET.fromstring(cast.add_spell_footer(ET.tostring(root, encoding='unicode')))
+    for node in root:
+        name = node.get('item')
+        if not name or name == 'CastSpellWnd':
+            continue
+        left, right = deepcopy(node), deepcopy(cast.item(rebuilt, node.tag, name))
+        left.tail = right.tail = None
+        ET.indent(left)
+        ET.indent(right)
+        assert ET.tostring(left) == ET.tostring(right), name
