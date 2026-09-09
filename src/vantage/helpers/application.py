@@ -268,7 +268,7 @@ class VantageApp(QApplication):
         spells.spell_faded.connect(tick.spell_faded)
         timers = SpawnTimers()
         self._splash.step(
-            "Preparing combat, Market, OpenDKP, Zones, Quests, and VantageUI…", 70)
+            "Preparing combat, Market, guild data, Zones, Quests, and VantageUI…", 70)
         combat = Combat()
         heals = HealChain()
         market = GreenMarket()
@@ -1095,7 +1095,7 @@ class VantageApp(QApplication):
                 "timers": "Smart Timers",
                 "heals": "Heal Chain",
                 "market": "Market",
-                "opendkp": "OpenDKP",
+                "opendkp": "Guild DKP & More",
                 "zones": "Zones",
                 "quests": "Quests",
                 "vantage_ui": "VantageUI",

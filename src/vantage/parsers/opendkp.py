@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import statistics
+import uuid
 import webbrowser
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
+from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QComboBox, QDialog, QDialogButtonBox,
     QFormLayout, QFrame, QGridLayout, QHeaderView, QLabel, QLineEdit,
@@ -17,6 +19,8 @@ from PySide6.QtWidgets import (
 
 from vantage.helpers import config
 from vantage.helpers.icons import game_icon
+from vantage.helpers.guild_spreadsheet import (
+    MAX_DOWNLOAD_BYTES, normalize_google_sheet_url, parse_spreadsheet_csv)
 from vantage.helpers.opendkp import (
     OpenDkpClient, auction_bids, auction_id, auction_item_name,
     normalize_guild_slug, rows_from_payload, watch_matches)
@@ -207,12 +211,13 @@ class OpenDkpLoginDialog(QDialog):
 
 
 class OpenDKP(ParserWindow):
-    """A compact, guild-agnostic OpenDKP surface."""
+    """Guild-agnostic OpenDKP and public spreadsheet workspace."""
 
     name = "opendkp"
     _allow_clickthrough = False
     _minimum_scale = 0.80
     MAX_TABLE_ROWS = 2000
+    MAX_SHEET_TABLE_ROWS = 3000
 
     def parse(self, _timestamp, _text):
         """OpenDKP is network-driven and intentionally ignores EQ log lines."""
@@ -220,10 +225,15 @@ class OpenDKP(ParserWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("OpenDKP · Vantage")
-        self._title.setText("OpenDKP")
-        self._title.setToolTip("DKP, raids, loot, auctions, and bids for any OpenDKP guild")
+        self.setWindowTitle("Guild DKP & More · Vantage")
+        self._title.setText("Guild DKP & More")
+        self._title.setToolTip(
+            "OpenDKP plus independent public Google Sheets panels for any guild")
         self.client = OpenDkpClient(self)
+        self.sheet_network = QNetworkAccessManager(self)
+        self._sheet_views = {}
+        self._sheet_replies = {}
+        self._editing_sheet_id = ""
         self._guild_details = {}
         self._datasets = {
             "dkp": [], "characters": [], "raids": [], "items": [],
@@ -331,6 +341,7 @@ class OpenDKP(ParserWindow):
         self.tabs.addTab(self._build_loot(), "Loot")
         self.tabs.addTab(self._build_raids(), "Raids")
         self.tabs.addTab(self._build_adjustments(), "Adjustments")
+        self.tabs.addTab(self._build_sheets(), "Guild Sheets")
         ensure_tab_tooltips(self.tabs, {
             "Overview": "Your selected character's DKP, attendance, loot, and raids",
             "Standings": "Search and sort every guild character's DKP and attendance",
@@ -338,6 +349,8 @@ class OpenDKP(ParserWindow):
             "Loot": "Search recorded loot and DKP prices",
             "Raids": "Browse recent guild raids and totals",
             "Adjustments": "Search DKP additions and deductions",
+            "Guild Sheets": (
+                "Add public Google Sheets as separate searchable guild panels"),
         })
         self.tabs.currentChanged.connect(self._tab_changed)
         self.content.addWidget(self.tabs, 1)
@@ -600,6 +613,365 @@ class OpenDKP(ParserWindow):
             "OpenDKP adjustments", (0, Qt.SortOrder.DescendingOrder))
         layout.addWidget(self.adjustments_table, 1)
         return page
+
+    def _build_sheets(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(7, 6, 7, 6)
+        layout.setSpacing(5)
+
+        intro = QLabel(
+            "Add any public guild Google Sheet. Each saved link gets its own "
+            "searchable panel, so DKP, loot, inventory, bounties, or other "
+            "guild lists can stay separate.")
+        intro.setWordWrap(True)
+        intro.setObjectName("OpenDkpPanelHelp")
+        layout.addWidget(intro)
+
+        editor = QFrame()
+        editor.setObjectName("OpenDkpGuildBar")
+        editor_layout = QGridLayout(editor)
+        editor_layout.setContentsMargins(7, 5, 7, 5)
+        editor_layout.setHorizontalSpacing(5)
+        editor_layout.setVerticalSpacing(4)
+        name_label = QLabel("Panel name")
+        self.sheet_name = QLineEdit()
+        self.sheet_name.setPlaceholderText("Loot, DKP, inventory…")
+        self.sheet_name.setClearButtonEnabled(True)
+        self.sheet_name.setAccessibleName("Guild spreadsheet panel name")
+        clear_sheet_name = self.sheet_name.findChild(QToolButton)
+        if clear_sheet_name:
+            clear_sheet_name.setAccessibleName("Clear sheet panel name")
+            clear_sheet_name.setToolTip("Clear the sheet panel name")
+        name_label.setBuddy(self.sheet_name)
+        editor_layout.addWidget(name_label, 0, 0)
+        editor_layout.addWidget(self.sheet_name, 0, 1)
+        url_label = QLabel("Google Sheet")
+        self.sheet_url = QLineEdit()
+        self.sheet_url.setPlaceholderText(
+            "Paste a public docs.google.com/spreadsheets link…")
+        self.sheet_url.setClearButtonEnabled(True)
+        self.sheet_url.setAccessibleName("Public Google Sheets link")
+        self.sheet_url.setToolTip(
+            "The sheet must be shared as Anyone with the link or Published to web")
+        clear_sheet_url = self.sheet_url.findChild(QToolButton)
+        if clear_sheet_url:
+            clear_sheet_url.setAccessibleName("Clear Google Sheets link")
+            clear_sheet_url.setToolTip("Clear the Google Sheets link")
+        self.sheet_url.returnPressed.connect(self._save_sheet)
+        url_label.setBuddy(self.sheet_url)
+        editor_layout.addWidget(url_label, 1, 0)
+        editor_layout.addWidget(self.sheet_url, 1, 1)
+        self.sheet_new_button = self._make_button(
+            "New panel", "add", self._new_sheet,
+            "Clear these fields to add another independent spreadsheet panel")
+        editor_layout.addWidget(self.sheet_new_button, 0, 2)
+        self.sheet_save_button = self._make_button(
+            "Add sheet", "ph-download", self._save_sheet,
+            "Save this public spreadsheet and load it in its own panel")
+        editor_layout.addWidget(self.sheet_save_button, 1, 2)
+        editor_layout.setColumnStretch(1, 1)
+        layout.addWidget(editor)
+
+        self.sheet_tabs = QTabWidget()
+        self.sheet_tabs.setObjectName("GuildSpreadsheetTabs")
+        self.sheet_tabs.setAccessibleName("Saved guild spreadsheet panels")
+        self.sheet_tabs.setToolTip(
+            "Each tab is an independent Google Sheet; add as many guild panels as needed")
+        self.sheet_tabs.currentChanged.connect(self._sheet_tab_changed)
+        layout.addWidget(self.sheet_tabs, 1)
+        self._rebuild_sheet_tabs()
+        return page
+
+    def _sheet_sources(self):
+        return config.data.setdefault("opendkp", {}).setdefault("sheets", [])
+
+    def _sheet_source(self, source_id):
+        return next((
+            source for source in self._sheet_sources()
+            if source.get("id") == source_id), None)
+
+    def _new_sheet(self):
+        self._editing_sheet_id = ""
+        self.sheet_name.clear()
+        self.sheet_url.clear()
+        self.sheet_save_button.setText("Add sheet")
+        self.sheet_name.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _save_sheet(self):
+        name = " ".join(self.sheet_name.text().split())[:120]
+        url = self.sheet_url.text().strip()[:2048]
+        if not name:
+            self._set_result("Enter a short name for this sheet panel", announce=True)
+            self.sheet_name.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        try:
+            normalize_google_sheet_url(url)
+        except ValueError as error:
+            self._set_result(str(error), announce=True)
+            self.sheet_url.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        sources = self._sheet_sources()
+        source = self._sheet_source(self._editing_sheet_id)
+        if source is None:
+            if len(sources) >= 24:
+                self._set_result(
+                    "Remove a sheet before adding another (24 panel limit)",
+                    announce=True)
+                return False
+            source = {"id": uuid.uuid4().hex}
+            sources.append(source)
+        else:
+            reply = self._sheet_replies.pop(source["id"], None)
+            if reply is not None:
+                reply.abort()
+        source.update({"name": name, "url": url})
+        self._editing_sheet_id = source["id"]
+        config.data["opendkp"]["active_sheet"] = source["id"]
+        config.save()
+        self._rebuild_sheet_tabs(source["id"])
+        self._refresh_sheet(source["id"])
+        self._set_result(f"Saved sheet panel: {name}", announce=True)
+        return True
+
+    def _rebuild_sheet_tabs(self, selected_id=""):
+        if not hasattr(self, "sheet_tabs"):
+            return
+        selected_id = selected_id or config.data.get(
+            "opendkp", {}).get("active_sheet", "")
+        self.sheet_tabs.blockSignals(True)
+        while self.sheet_tabs.count():
+            old = self.sheet_tabs.widget(0)
+            self.sheet_tabs.removeTab(0)
+            old.deleteLater()
+        self._sheet_views = {}
+        selected_index = -1
+        sources = self._sheet_sources()
+        if not sources:
+            empty = QLabel(
+                "No guild sheets yet\n\nName a panel, paste a public Google "
+                "Sheets link, and choose Add sheet.")
+            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            empty.setWordWrap(True)
+            empty.setObjectName("OpenDkpPanelHelp")
+            self.sheet_tabs.addTab(empty, "Add your first sheet")
+            self.sheet_tabs.setTabToolTip(
+                0, "Add the first public Google Sheet for this guild workspace")
+            self.sheet_tabs.blockSignals(False)
+            self._new_sheet()
+            return
+        for index, source in enumerate(sources):
+            source_id = source["id"]
+            panel = QWidget()
+            panel.setProperty("sheetId", source_id)
+            panel_layout = QVBoxLayout(panel)
+            panel_layout.setContentsMargins(5, 5, 5, 5)
+            panel_layout.setSpacing(4)
+            actions = QHBoxLayout()
+            search = QLineEdit()
+            search.setPlaceholderText(f"Search {source['name']}…")
+            search.setClearButtonEnabled(True)
+            search.setAccessibleName(f"Search {source['name']} spreadsheet")
+            clear_search = search.findChild(QToolButton)
+            if clear_search:
+                clear_search.setAccessibleName(
+                    f"Clear {source['name']} spreadsheet search")
+                clear_search.setToolTip(
+                    f"Clear the search in {source['name']}")
+            search.textChanged.connect(
+                lambda text, key=source_id: self._filter_sheet(key, text))
+            actions.addWidget(search, 1)
+            refresh = self._make_button(
+                "Refresh", "refresh",
+                lambda _checked=False, key=source_id: self._refresh_sheet(key),
+                f"Reload {source['name']} from Google Sheets")
+            actions.addWidget(refresh)
+            actions.addWidget(self._make_button(
+                "Open", "ph-file-search",
+                lambda _checked=False, key=source_id: self._open_sheet(key),
+                f"Open {source['name']} in your browser"))
+            actions.addWidget(self._make_button(
+                "Remove", "delete",
+                lambda _checked=False, key=source_id: self._remove_sheet(key),
+                f"Remove the {source['name']} panel from Vantage"))
+            panel_layout.addLayout(actions)
+            status = QLabel("Not loaded yet")
+            status.setObjectName("OpenDkpInlineSummary")
+            status.setAccessibleName(f"{source['name']}: not loaded yet")
+            panel_layout.addWidget(status)
+            table = self._table(
+                ("Waiting for data",), f"{source['name']} spreadsheet")
+            panel_layout.addWidget(table, 1)
+            self._sheet_views[source_id] = {
+                "panel": panel, "search": search, "status": status,
+                "table": table, "refresh": refresh, "loaded": False,
+                "summary": "Not loaded yet"}
+            self.sheet_tabs.addTab(panel, source["name"])
+            self.sheet_tabs.setTabToolTip(
+                index, f"Search and sort the {source['name']} Google Sheet")
+            if source_id == selected_id:
+                selected_index = index
+        self.sheet_tabs.setCurrentIndex(max(0, selected_index))
+        self.sheet_tabs.blockSignals(False)
+        self._sheet_tab_changed(self.sheet_tabs.currentIndex())
+
+    def _sheet_tab_changed(self, index):
+        panel = self.sheet_tabs.widget(index) if index >= 0 else None
+        source_id = str(panel.property("sheetId") or "") if panel else ""
+        source = self._sheet_source(source_id)
+        if source is None:
+            return
+        self._editing_sheet_id = source_id
+        self.sheet_name.setText(source["name"])
+        self.sheet_url.setText(source["url"])
+        self.sheet_save_button.setText("Save changes")
+        config.data["opendkp"]["active_sheet"] = source_id
+        config.save()
+        view = self._sheet_views.get(source_id, {})
+        if not view.get("loaded") and source_id not in self._sheet_replies:
+            self._refresh_sheet(source_id)
+
+    def _open_sheet(self, source_id):
+        source = self._sheet_source(source_id)
+        if source:
+            webbrowser.open(source["url"])
+
+    def _remove_sheet(self, source_id):
+        source = self._sheet_source(source_id)
+        if source is None:
+            return False
+        if QMessageBox.question(
+                self, "Remove sheet panel",
+                f"Remove {source['name']} from Vantage? The Google Sheet is "
+                "not changed.") != QMessageBox.StandardButton.Yes:
+            return False
+        reply = self._sheet_replies.pop(source_id, None)
+        if reply is not None:
+            reply.abort()
+        config.data["opendkp"]["sheets"] = [
+            item for item in self._sheet_sources()
+            if item.get("id") != source_id]
+        if config.data["opendkp"].get("active_sheet") == source_id:
+            config.data["opendkp"]["active_sheet"] = ""
+        config.save()
+        self._editing_sheet_id = ""
+        self._rebuild_sheet_tabs()
+        self._set_result(f"Removed sheet panel: {source['name']}", announce=True)
+        return True
+
+    def _refresh_sheet(self, source_id):
+        source = self._sheet_source(source_id)
+        view = self._sheet_views.get(source_id)
+        if source is None or view is None or source_id in self._sheet_replies:
+            return False
+        try:
+            csv_url = normalize_google_sheet_url(source["url"])
+        except ValueError as error:
+            self._set_sheet_status(source_id, str(error), "error", announce=True)
+            return False
+        request = QNetworkRequest(QUrl(csv_url))
+        request.setHeader(
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
+        request.setAttribute(
+            QNetworkRequest.Attribute.RedirectPolicyAttribute,
+            QNetworkRequest.RedirectPolicy.NoLessSafeRedirectPolicy)
+        request.setTransferTimeout(12000)
+        reply = self.sheet_network.get(request)
+        self._sheet_replies[source_id] = reply
+        view["refresh"].setEnabled(False)
+        self._set_sheet_status(source_id, "Loading public Google Sheet…", "loading")
+        reply.finished.connect(
+            lambda key=source_id, current=reply:
+            self._sheet_finished(key, current))
+        return True
+
+    def _sheet_finished(self, source_id, reply):
+        if self._sheet_replies.get(source_id) is not reply:
+            reply.deleteLater()
+            return
+        self._sheet_replies.pop(source_id, None)
+        view = self._sheet_views.get(source_id)
+        if view is not None:
+            view["refresh"].setEnabled(True)
+        try:
+            if reply.error() != QNetworkReply.NetworkError.NoError:
+                raise ValueError(reply.errorString())
+            payload = bytes(reply.readAll())
+            if len(payload) > MAX_DOWNLOAD_BYTES:
+                raise ValueError("The spreadsheet is larger than Vantage's 8 MB limit")
+            if payload.lstrip().lower().startswith((b"<!doctype html", b"<html")):
+                raise ValueError("Google returned a web page instead of public CSV data")
+            data = parse_spreadsheet_csv(payload)
+            self._populate_sheet(source_id, data)
+        except ValueError as error:
+            self._set_sheet_status(
+                source_id,
+                f"Could not load this sheet · {error}. Make it public as Anyone "
+                "with the link or Publish to web, then Refresh.",
+                "error", announce=True)
+        finally:
+            reply.deleteLater()
+
+    def _populate_sheet(self, source_id, data):
+        view = self._sheet_views.get(source_id)
+        source = self._sheet_source(source_id)
+        if view is None or source is None:
+            return
+        table = view["table"]
+        table.setSortingEnabled(False)
+        table.clear()
+        table.setColumnCount(len(data.headers))
+        table.setHorizontalHeaderLabels(data.headers)
+        displayed = data.rows[:self.MAX_SHEET_TABLE_ROWS]
+        table.setRowCount(len(displayed))
+        for row_index, row in enumerate(displayed):
+            for column, value in enumerate(row):
+                table.setItem(row_index, column, SortItem(value))
+        table.setSortingEnabled(True)
+        table.horizontalHeader().setSortIndicator(0, Qt.SortOrder.AscendingOrder)
+        table.sortItems(0, Qt.SortOrder.AscendingOrder)
+        ensure_table_header_tooltips(table, source["name"].casefold())
+        view["loaded"] = True
+        suffix = " · source truncated safely" if data.truncated else ""
+        if len(data.rows) > len(displayed):
+            suffix += f" · showing first {len(displayed):,}"
+        summary = f"{len(data.rows):,} rows · {data.kind}{suffix}"
+        view["summary"] = summary
+        self._set_sheet_status(source_id, summary, "ready", announce=True)
+        self._filter_sheet(source_id, view["search"].text())
+
+    def _filter_sheet(self, source_id, text):
+        view = self._sheet_views.get(source_id)
+        if view is None or not view.get("loaded"):
+            return
+        terms = str(text or "").casefold().split()
+        table = view["table"]
+        visible = 0
+        for row in range(table.rowCount()):
+            haystack = " ".join(
+                table.item(row, column).text()
+                for column in range(table.columnCount())
+                if table.item(row, column) is not None).casefold()
+            shown = all(term in haystack for term in terms)
+            table.setRowHidden(row, not shown)
+            visible += int(shown)
+        text_value = (view["summary"] if not terms else
+                      f"{visible:,} matching rows · {view['summary']}")
+        self._set_sheet_status(source_id, text_value, "ready")
+
+    def _set_sheet_status(self, source_id, text, state, announce=False):
+        view = self._sheet_views.get(source_id)
+        if view is None:
+            return
+        label = view["status"]
+        label.setText(str(text))
+        label.setProperty("state", state)
+        label.style().unpolish(label)
+        label.style().polish(label)
+        source = self._sheet_source(source_id) or {"name": "Guild sheet"}
+        label.setAccessibleName(f"{source['name']}: {text}")
+        if announce:
+            self._announce(str(text), state == "error")
 
     def _search_page(self, placeholder, callback):
         page = QWidget()

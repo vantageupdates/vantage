@@ -29,6 +29,8 @@ def test_elevated_helper_installs_and_reports_hotbutton(tmp_path):
         "ini_path": str(ini),
         "trade_type": "WTS",
         "lines": ["WTS Manastone 80k PST"],
+        "hotbar_page": 3,
+        "hotbar_button": 6,
     }), encoding="utf-8")
 
     assert process_elevated_hotbutton_request(request, nonce) == 0
@@ -37,11 +39,11 @@ def test_elevated_helper_installs_and_reports_hotbutton(tmp_path):
         request.with_suffix(".result.json").read_text(encoding="utf-8"))
     assert result["ok"] is True
     assert result["slots"] == ["Page2Button1"]
-    assert result["hotbar_slots"] == ["Page1Button1"]
+    assert result["hotbar_slots"] == ["Page3Button6"]
     assert Path(result["backup"]).read_bytes() == original
     assert "Page2Button1Line1=/auction WTS Manastone 80k PST" in (
         ini.read_text(encoding="cp1252"))
-    assert "Page1Button1=E10" in ini.read_text(encoding="cp1252")
+    assert "Page3Button6=E10" in ini.read_text(encoding="cp1252")
     assert not request.exists()
 
 
@@ -71,13 +73,19 @@ def test_composer_retries_permission_denial_through_uac(monkeypatch, tmp_path):
     pending = SimpleNamespace(
         request_path=request, result_path=result, nonce="nonce")
     previous_logs = config.data.setdefault("general", {}).get("eq_log_dir", "")
+    previous_page = config.data.setdefault("market", {}).get(
+        "auction_hotbar_page", 1)
+    previous_button = config.data["market"].get("auction_hotbar_button", 1)
     try:
+        monkeypatch.setattr(config, "save", lambda: None)
         monkeypatch.setattr(market_module, "everquest_running", lambda: False)
         config.data["general"]["eq_log_dir"] = str(logs)
         composer = AuctionComposer()
         composer.set_catalog([GearItem("Manastone", id=6040, peqId=13401)])
         composer.item_search.setText("Manastone")
         assert composer.add_search_item()
+        composer.hotbar_page.setCurrentIndex(3)
+        composer.hotbar_button_number.setCurrentIndex(6)
         composer.camped_out.setChecked(True)
         monkeypatch.setattr(
             market_module, "install_auction_hotbuttons",
@@ -107,6 +115,8 @@ def test_composer_retries_permission_denial_through_uac(monkeypatch, tmp_path):
         composer.close()
     finally:
         config.data["general"]["eq_log_dir"] = previous_logs
+        config.data["market"]["auction_hotbar_page"] = previous_page
+        config.data["market"]["auction_hotbar_button"] = previous_button
 
 
 def test_composer_queues_until_everquest_fully_closes(monkeypatch, tmp_path):
@@ -119,7 +129,11 @@ def test_composer_queues_until_everquest_fully_closes(monkeypatch, tmp_path):
     states = iter((True, False))
     calls = []
     previous_logs = config.data.setdefault("general", {}).get("eq_log_dir", "")
+    previous_page = config.data.setdefault("market", {}).get(
+        "auction_hotbar_page", 1)
+    previous_button = config.data["market"].get("auction_hotbar_button", 1)
     try:
+        monkeypatch.setattr(config, "save", lambda: None)
         config.data["general"]["eq_log_dir"] = str(logs)
         monkeypatch.setattr(
             market_module, "everquest_running", lambda: next(states))
@@ -132,6 +146,8 @@ def test_composer_queues_until_everquest_fully_closes(monkeypatch, tmp_path):
         composer.set_catalog([GearItem("Manastone", id=6040, peqId=13401)])
         composer.item_search.setText("Manastone")
         assert composer.add_search_item()
+        composer.hotbar_page.setCurrentIndex(3)
+        composer.hotbar_button_number.setCurrentIndex(6)
         composer.camped_out.setChecked(True)
 
         assert composer.install_hotbuttons() is True
@@ -143,8 +159,11 @@ def test_composer_queues_until_everquest_fully_closes(monkeypatch, tmp_path):
 
         assert len(calls) == 1
         assert calls[0][0] == str(ini)
+        assert calls[0][3:] == (4, 7)
         assert "Installed WTS" in composer.preview_status.text()
         assert not composer.camped_out.isChecked()
         composer.close()
     finally:
         config.data["general"]["eq_log_dir"] = previous_logs
+        config.data["market"]["auction_hotbar_page"] = previous_page
+        config.data["market"]["auction_hotbar_button"] = previous_button

@@ -39,15 +39,20 @@ def test_token_username_decode_never_requires_or_exposes_a_secret():
     assert decode_token_username("not-a-token") == ""
 
 
-def test_opendkp_profiles_are_bounded_generic_and_never_store_passwords():
+def test_opendkp_profiles_and_sheets_are_bounded_and_never_store_passwords():
     original = copy.deepcopy(config.data)
     try:
+        sheet_id = "a" * 32
         config.data = {"opendkp": {"active_guild": "GUILD-ONE", "guilds": [{
             "slug": "GUILD-ONE", "name": " Any Guild ",
             "character_id": "25", "character_name": " A Character ",
             "username": " Account ", "password": "must-not-survive",
             "watch_items": [" Cloak  of Flames ", "cloak of flames", "Manastone"],
-        }, {"slug": "bad guild"}]}}
+        }, {"slug": "bad guild"}], "active_sheet": sheet_id, "sheets": [{
+            "id": sheet_id, "name": " Guild Loot ",
+            "url": "https://docs.google.com/spreadsheets/d/" + "x" * 32 +
+                   "/edit?gid=0",
+        }, {"id": "bad", "name": "Unsafe", "url": "https://example.com"}]}}
         config.verify_settings()
         assert config.data["opendkp"]["active_guild"] == "guild-one"
         assert config.data["opendkp"]["guilds"] == [{
@@ -58,6 +63,12 @@ def test_opendkp_profiles_are_bounded_generic_and_never_store_passwords():
             "watch_items": ["Cloak of Flames", "Manastone"],
         }]
         assert "password" not in json.dumps(config.data["opendkp"]).casefold()
+        assert config.data["opendkp"]["sheets"] == [{
+            "id": sheet_id, "name": "Guild Loot",
+            "url": "https://docs.google.com/spreadsheets/d/" + "x" * 32 +
+                   "/edit?gid=0",
+        }]
+        assert config.data["opendkp"]["active_sheet"] == sheet_id
     finally:
         config.data = original
 
@@ -66,7 +77,7 @@ def test_quickbar_catalog_exposes_one_generic_opendkp_window():
     from vantage.helpers.quickbar_items import QUICKBAR_ITEMS
     matches = [item for item in QUICKBAR_ITEMS if item[0] == "opendkp"]
     assert matches == [
-        ("opendkp", "OpenDKP · DKP & Bids", "ph-gavel", "windows")]
+        ("opendkp", "Guild DKP & More", "ph-gavel", "windows")]
 
 
 def test_history_dates_sort_chronologically_and_support_date_event_search():

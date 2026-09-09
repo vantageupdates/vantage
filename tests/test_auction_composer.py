@@ -1,3 +1,5 @@
+import pytest
+
 from PySide6.QtWidgets import QApplication, QSpinBox
 
 import vantage.parsers.market as market_module
@@ -252,7 +254,7 @@ def test_wtb_is_simple_and_does_not_require_an_inventory_export():
     composer.close()
 
 
-def test_installer_preserves_existing_hotbar_and_uses_first_free_slot(tmp_path):
+def test_installer_preserves_existing_hotbar_and_uses_selected_slot(tmp_path):
     ini = tmp_path / "Etsy_P1999Green.ini"
     ini.write_text(
         "[HotButtons]\n"
@@ -262,7 +264,9 @@ def test_installer_preserves_existing_hotbar_and_uses_first_free_slot(tmp_path):
         "\n[Socials]\n",
         encoding="cp1252")
 
-    install_auction_hotbuttons(ini, ["WTS Manastone 80k PST"])
+    install_auction_hotbuttons(
+        ini, ["WTS Manastone 80k PST"], hotbar_page=1,
+        hotbar_button=3)
 
     installed = ini.read_text(encoding="cp1252")
     assert "Page1Button1=B0" in installed
@@ -270,6 +274,31 @@ def test_installer_preserves_existing_hotbar_and_uses_first_free_slot(tmp_path):
     assert "Page1Button4=G4" in installed
     assert "Page1Button3=E10" in installed
     assert "Page2Button1Name=V-WTS1" in installed
+
+
+def test_installer_places_button_on_requested_page_and_button(tmp_path):
+    ini = tmp_path / "Etsy_P1999Green.ini"
+    ini.write_text("[HotButtons]\n\n[Socials]\n", encoding="cp1252")
+
+    _socials, hotbar_slots, _backup = install_auction_hotbuttons(
+        ini, ["WTS Manastone 80k PST"], hotbar_page=4,
+        hotbar_button=7)
+
+    assert hotbar_slots == ("Page4Button7",)
+    assert "Page4Button7=E10" in ini.read_text(encoding="cp1252")
+
+
+def test_installer_refuses_to_replace_selected_existing_button(tmp_path):
+    ini = tmp_path / "Etsy_P1999Green.ini"
+    original = "[HotButtons]\nPage3Button5=B0\n\n[Socials]\n"
+    ini.write_text(original, encoding="cp1252")
+
+    with pytest.raises(ValueError, match="page 3, button 5 is already in use"):
+        install_auction_hotbuttons(
+            ini, ["WTS Manastone 80k PST"], hotbar_page=3,
+            hotbar_button=5)
+
+    assert ini.read_text(encoding="cp1252") == original
 
 
 def test_reinstall_reuses_vantage_hotbar_without_duplicates(tmp_path):

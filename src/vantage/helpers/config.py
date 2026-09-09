@@ -1196,6 +1196,10 @@ def verify_settings():
         data['market'].get('auto_consider_lookup', False), False)
     data['market']['live_alerts_enabled'] = get_setting(
         data['market'].get('live_alerts_enabled', True), True)
+    data['market']['auction_hotbar_page'] = _bounded_int(
+        data['market'].get('auction_hotbar_page', 1), 1, 1, 10)
+    data['market']['auction_hotbar_button'] = _bounded_int(
+        data['market'].get('auction_hotbar_button', 1), 1, 1, 10)
     data['market'].pop('live_alert_sound_enabled', None)
     raw_live_watches = get_setting(
         data['market'].get('live_watch_items', []), [],
@@ -1280,6 +1284,31 @@ def verify_settings():
         data['opendkp'].get('active_guild') or '').strip().casefold()
     data['opendkp']['active_guild'] = (
         active_guild if active_guild in known_slugs else '')
+    raw_sheets = data['opendkp'].get('sheets', [])
+    raw_sheets = raw_sheets if isinstance(raw_sheets, list) else []
+    sheets = []
+    known_sheet_ids = set()
+    for raw_sheet in raw_sheets:
+        if not isinstance(raw_sheet, dict):
+            continue
+        sheet_id = str(raw_sheet.get('id') or '').strip().casefold()
+        name = ' '.join(str(raw_sheet.get('name') or '').split())[:120]
+        url = str(raw_sheet.get('url') or '').strip()[:2048]
+        if (sheet_id in known_sheet_ids or
+                not re.fullmatch(r'[0-9a-f]{32}', sheet_id) or not name or
+                not re.match(
+                    r'^https://docs\.google\.com/spreadsheets/', url,
+                    re.IGNORECASE)):
+            continue
+        known_sheet_ids.add(sheet_id)
+        sheets.append({'id': sheet_id, 'name': name, 'url': url})
+    data['opendkp']['sheets'] = sheets[:24]
+    known_sheet_ids = {
+        sheet['id'] for sheet in data['opendkp']['sheets']}
+    active_sheet = str(
+        data['opendkp'].get('active_sheet') or '').strip().casefold()
+    data['opendkp']['active_sheet'] = (
+        active_sheet if active_sheet in known_sheet_ids else '')
 
     # Independent Project 1999 zone browser. Preserve the legacy Market tab's
     # last selection once when an existing profile is upgraded.

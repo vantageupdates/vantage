@@ -2794,7 +2794,7 @@ class AuctionComposer(QWidget):
         self.guide.setWordWrap(True)
         self.guide.setToolTip(
             "Copy pastes clean chat text immediately. Install WTS/WTB button "
-            "creates an EQ Social and places it on the first free Hotbar 1 slot; "
+            "creates an EQ Social at the Hotbar 1 page and button you choose; "
             "WTS keeps clickable Titanium links.")
         root.addWidget(self.guide)
 
@@ -2818,14 +2818,6 @@ class AuctionComposer(QWidget):
         self.character_ini.currentIndexChanged.connect(
             self._sync_hotbutton_enabled)
         source_row.addWidget(self.character_ini)
-        self.camped_out = QCheckBox("Ready to install")
-        self.camped_out.setAccessibleName(
-            "Confirm the auction hotbar button is ready to install")
-        self.camped_out.setToolTip(
-            "If EverQuest is open, Vantage queues the button and installs it "
-            "automatically after eqgame.exe closes")
-        self.camped_out.toggled.connect(self._sync_hotbutton_enabled)
-        source_row.addWidget(self.camped_out)
         self.paste_help_button = QPushButton("How to paste")
         self.paste_help_button.setIcon(game_icon("help"))
         self.paste_help_button.setCheckable(True)
@@ -2889,17 +2881,60 @@ class AuctionComposer(QWidget):
         self.copy_button.setEnabled(False)
         self.copy_button.clicked.connect(self.copy_next)
         picker.addWidget(self.copy_button)
+        root.addLayout(picker)
+
+        hotbar_row = QHBoxLayout()
+        hotbar_row.setSpacing(4)
+        hotbar_label = QLabel("Install on Hotbar")
+        hotbar_label.setObjectName("MarketGearSource")
+        hotbar_row.addWidget(hotbar_label)
+        self.hotbar_page = QComboBox()
+        self.hotbar_page.setAccessibleName("WTS or WTB hotbar page")
+        self.hotbar_page.setToolTip(
+            "Choose the exact EverQuest Hotbar 1 page for this button")
+        for page in range(1, 11):
+            self.hotbar_page.addItem(f"Page {page}", page)
+        saved_page = max(1, min(
+            10, int(config.data.get("market", {}).get(
+                "auction_hotbar_page", 1))))
+        self.hotbar_page.setCurrentIndex(saved_page - 1)
+        self.hotbar_page.currentIndexChanged.connect(
+            self._hotbar_location_changed)
+        hotbar_row.addWidget(self.hotbar_page)
+        self.hotbar_button_number = QComboBox()
+        self.hotbar_button_number.setAccessibleName("WTS or WTB hotbar button")
+        self.hotbar_button_number.setToolTip(
+            "Choose the exact button on that Hotbar 1 page")
+        for button in range(1, 11):
+            self.hotbar_button_number.addItem(f"Button {button}", button)
+        saved_button = max(1, min(
+            10, int(config.data.get("market", {}).get(
+                "auction_hotbar_button", 1))))
+        self.hotbar_button_number.setCurrentIndex(saved_button - 1)
+        self.hotbar_button_number.currentIndexChanged.connect(
+            self._hotbar_location_changed)
+        hotbar_row.addWidget(self.hotbar_button_number)
+        hotbar_row.addStretch(1)
+        self.camped_out = QCheckBox("Ready")
+        self.camped_out.setAccessibleName(
+            "Confirm the auction hotbar button is ready to install")
+        self.camped_out.setToolTip(
+            "If EverQuest is open, Vantage queues the button and installs it "
+            "automatically after eqgame.exe closes")
+        self.camped_out.toggled.connect(self._sync_hotbutton_enabled)
+        hotbar_row.addWidget(self.camped_out)
         self.hotbutton_button = QPushButton("Install WTS button…")
         self.hotbutton_button.setIcon(game_icon("export"))
         self.hotbutton_button.setAccessibleName(
             "Install WTS Hotbar button with clickable item links")
         self.hotbutton_button.setToolTip(
-            "Create the linked WTS Social and place it in the first free Hotbar 1 "
-            "slot. If EQ is open, Vantage waits until it closes.")
+            "Create the linked WTS Social at the selected Hotbar page and button. "
+            "If more than one macro is needed, the rest use the next open slots. "
+            "If EQ is open, Vantage waits until it closes.")
         self.hotbutton_button.setEnabled(False)
         self.hotbutton_button.clicked.connect(self.install_hotbuttons)
-        picker.addWidget(self.hotbutton_button)
-        root.addLayout(picker)
+        hotbar_row.addWidget(self.hotbutton_button)
+        root.addLayout(hotbar_row)
 
         self.advanced_toggle = QPushButton("Message options")
         self.advanced_toggle.setIcon(game_icon("chevron-bottom"))
@@ -3072,9 +3107,11 @@ class AuctionComposer(QWidget):
             f"Install {trade_type} EQ Hotbar button" +
             (" with clickable item links" if selling else " using plain text"))
         self.hotbutton_button.setToolTip(
-            f"Create this {trade_type} Social and place it in a free Hotbar 1 slot" +
+            f"Create this {trade_type} Social at the selected Hotbar 1 page "
+            "and button" +
             (" with clickable item links" if selling else " as plain text") +
-            ". If EQ is open, Vantage waits until it closes")
+            ". Additional macros continue in the next open slots. If EQ is open, "
+            "Vantage waits until it closes")
         self.copy_button.setText("Copy WTS" if selling else "Copy WTB")
         self._sync_copy_button_accessibility()
         self.paste_note.setText(
@@ -3083,6 +3120,14 @@ class AuctionComposer(QWidget):
              "Copy WTB = plain text · Install WTB button = plain-text hotbar."))
         self._refresh_catalog_model()
         self._rebuild()
+
+    def _hotbar_location_changed(self, *_args):
+        market_settings = config.data.setdefault("market", {})
+        market_settings["auction_hotbar_page"] = int(
+            self.hotbar_page.currentData() or 1)
+        market_settings["auction_hotbar_button"] = int(
+            self.hotbar_button_number.currentData() or 1)
+        config.save()
 
     @staticmethod
     def _character_ini_label(path):
@@ -3403,6 +3448,8 @@ class AuctionComposer(QWidget):
             return False
         trade_type = "WTB" if self.trade_type.currentIndex() == 1 else "WTS"
         linked_lines = tuple(self._linked_lines)
+        hotbar_page = int(self.hotbar_page.currentData() or 1)
+        hotbar_button = int(self.hotbar_button_number.currentData() or 1)
         try:
             running = everquest_running()
         except Exception as error:
@@ -3412,7 +3459,7 @@ class AuctionComposer(QWidget):
             return False
         if running:
             self._queued_hotbutton_install = (
-                selected, linked_lines, trade_type)
+                selected, linked_lines, trade_type, hotbar_page, hotbar_button)
             self._hotbutton_game_timer.start()
             self._sync_hotbutton_enabled()
             self._set_preview_status(
@@ -3421,12 +3468,14 @@ class AuctionComposer(QWidget):
                 announce=True)
             return True
         return self._install_hotbuttons_now(
-            selected, linked_lines, trade_type)
+            selected, linked_lines, trade_type, hotbar_page, hotbar_button)
 
-    def _install_hotbuttons_now(self, selected, linked_lines, trade_type):
+    def _install_hotbuttons_now(
+            self, selected, linked_lines, trade_type, hotbar_page,
+            hotbar_button):
         try:
             slots, hotbar_slots, backup = install_auction_hotbuttons(
-                selected, linked_lines, trade_type)
+                selected, linked_lines, trade_type, hotbar_page, hotbar_button)
         except OSError as error:
             permission_denied = (
                 isinstance(error, PermissionError) or
@@ -3435,7 +3484,8 @@ class AuctionComposer(QWidget):
                 "access is denied" in str(error).casefold())
             if permission_denied:
                 return self._request_elevated_hotbutton_install(
-                    selected, linked_lines, trade_type)
+                    selected, linked_lines, trade_type, hotbar_page,
+                    hotbar_button)
             self._set_preview_status(
                 f"Hotbutton not installed · {error}", announce=True)
             return False
@@ -3467,7 +3517,8 @@ class AuctionComposer(QWidget):
         self._hotbutton_game_timer.stop()
         self._sync_hotbutton_enabled()
         self._set_preview_status(
-            f"EverQuest closed · installing {queued[2]} hotbar button…",
+            f"EverQuest closed · installing {queued[2]} on Hotbar page "
+            f"{queued[3]}, button {queued[4]}…",
             announce=True)
         self._install_hotbuttons_now(*queued)
 
@@ -3487,10 +3538,11 @@ class AuctionComposer(QWidget):
         self.camped_out.setChecked(False)
 
     def _request_elevated_hotbutton_install(
-            self, selected, linked_lines, trade_type):
+            self, selected, linked_lines, trade_type, hotbar_page,
+            hotbar_button):
         try:
             pending = request_elevated_hotbutton_install(
-                selected, linked_lines, trade_type)
+                selected, linked_lines, trade_type, hotbar_page, hotbar_button)
         except (OSError, ValueError) as error:
             pending = None
             detail = str(error)
