@@ -147,14 +147,17 @@ def test_linked_wts_installs_into_free_p99_social_with_backup(tmp_path):
     linked = compose_auction_lines([
         AuctionEntry(14701, "Black Sapphire Electrum Earring", "599p")])
 
-    slots, backup = install_auction_hotbuttons(ini, linked)
+    slots, hotbar_slots, backup = install_auction_hotbuttons(ini, linked)
 
     assert slots == ("Page2Button2",)
+    assert hotbar_slots == ("Page1Button1",)
     assert backup.read_bytes() == original.encode("cp1252")
     installed = ini.read_bytes().decode("cp1252")
     assert "Page2Button1Name=KeepMe" in installed
-    assert "Page2Button2Name=VantageWTS1" in installed
+    assert "Page2Button2Name=V-WTS1" in installed
     assert "Page2Button2Line1=/auction WTS " in installed
+    assert "[HotButtons]" in installed
+    assert "Page1Button1=E11" in installed
     assert P99_ITEM_LINK_DELIMITER in installed
     assert "00396D" in installed
     assert "[ChatManager]" in installed
@@ -169,19 +172,22 @@ def test_plain_wtb_installs_separately_without_replacing_wts_buttons(tmp_path):
         "Page2Button1Line1=/auction WTS Manastone 90k PST\r\n")
     ini.write_bytes(original.encode("cp1252"))
 
-    slots, _backup = install_auction_hotbuttons(
+    slots, hotbar_slots, _backup = install_auction_hotbuttons(
         ini, ["WTB Manastone 80k PST"], "WTB")
 
     assert slots == ("Page2Button2",)
+    assert hotbar_slots == ("Page1Button1",)
     installed = ini.read_text(encoding="cp1252")
     assert "Page2Button1Name=VantageWTS1" in installed
     assert "Page2Button1Line1=/auction WTS Manastone 90k PST" in installed
-    assert "Page2Button2Name=VantageWTB1" in installed
+    assert "Page2Button2Name=V-WTB1" in installed
     assert "Page2Button2Line1=/auction WTB Manastone 80k PST" in installed
+    assert "Page1Button1=E11" in installed
     assert P99_ITEM_LINK_DELIMITER not in installed
 
 
-def test_clickable_install_uses_inline_detected_character_without_dialog(tmp_path):
+def test_clickable_install_uses_inline_detected_character_without_dialog(
+        monkeypatch, tmp_path):
     _app()
     eq_root = tmp_path / "EverQuest"
     logs = eq_root / "Logs"
@@ -191,6 +197,7 @@ def test_clickable_install_uses_inline_detected_character_without_dialog(tmp_pat
     general = config.data.setdefault("general", {})
     previous_logs = general.get("eq_log_dir", "")
     try:
+        monkeypatch.setattr(market_module, "everquest_running", lambda: False)
         config.data["general"]["eq_log_dir"] = str(logs)
         composer = AuctionComposer()
         composer.set_catalog([GearItem(
@@ -206,6 +213,7 @@ def test_clickable_install_uses_inline_detected_character_without_dialog(tmp_pat
         assert "Installed" in composer.preview_status.text()
         assert "Page2Button1Line1=/auction WTS" in ini.read_text(
             encoding="cp1252")
+        assert "Page1Button1=E10" in ini.read_text(encoding="cp1252")
         assert not composer.camped_out.isChecked()
         composer.close()
     finally:
@@ -235,13 +243,47 @@ def test_wtb_is_simple_and_does_not_require_an_inventory_export():
     assert not composer.hotbutton_button.isHidden()
     assert composer.hotbutton_button.text() == "Install WTB button…"
     assert composer.hotbutton_button.accessibleName() == \
-        "Install WTB EQ Social button using plain text"
+        "Install WTB EQ Hotbar button using plain text"
     assert composer.add_search_item()
     assert composer.copy_next()
     assert app.clipboard().text() == "WTB Manastone PST"
     assert composer.copy_button.accessibleName() == \
         "Copy WTB 1/1 auction message"
     composer.close()
+
+
+def test_installer_preserves_existing_hotbar_and_uses_first_free_slot(tmp_path):
+    ini = tmp_path / "Etsy_P1999Green.ini"
+    ini.write_text(
+        "[HotButtons]\n"
+        "Page1Button1=B0\n"
+        "Page1Button2=J10\n"
+        "Page1Button4=G4\n"
+        "\n[Socials]\n",
+        encoding="cp1252")
+
+    install_auction_hotbuttons(ini, ["WTS Manastone 80k PST"])
+
+    installed = ini.read_text(encoding="cp1252")
+    assert "Page1Button1=B0" in installed
+    assert "Page1Button2=J10" in installed
+    assert "Page1Button4=G4" in installed
+    assert "Page1Button3=E10" in installed
+    assert "Page2Button1Name=V-WTS1" in installed
+
+
+def test_reinstall_reuses_vantage_hotbar_without_duplicates(tmp_path):
+    ini = tmp_path / "Etsy_P1999Green.ini"
+    ini.write_text("[HotButtons]\n\n[Socials]\n", encoding="cp1252")
+
+    install_auction_hotbuttons(ini, ["WTS First Item 10p PST"])
+    install_auction_hotbuttons(ini, ["WTS Second Item 20p PST"])
+
+    installed = ini.read_text(encoding="cp1252")
+    assert installed.count("Page1Button1=E10") == 1
+    assert installed.count("Name=V-WTS1") == 1
+    assert "WTS Second Item 20p PST" in installed
+    assert "WTS First Item 10p PST" not in installed
 
 
 def test_advanced_templates_are_hidden_until_requested():

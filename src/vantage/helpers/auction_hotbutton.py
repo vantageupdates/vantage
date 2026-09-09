@@ -23,6 +23,9 @@ _SOCIAL_KEY_RX = re.compile(
 _P99_CHARACTER_RX = re.compile(
     r"_(?:project1999|p1999(?:green|blue|pvp|red))\.ini$", re.IGNORECASE)
 _REQUEST_NAME_RX = re.compile(r"^hotbutton-[0-9a-f]{32}\.json$")
+_HOTBUTTON_KEY_RX = re.compile(
+    r"^(Page(?P<page>\d+)Button(?P<button>\d+))\s*=\s*(?P<value>.*)$",
+    re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -42,8 +45,83 @@ def _validated_character_ini(ini_path):
     return target
 
 
+def _section_bounds(rows, name, *, create=False):
+    heading = f"[{name}]".casefold()
+    start = next((
+        index for index, row in enumerate(rows)
+        if row.strip().casefold() == heading), None)
+    if start is None:
+        if not create:
+            return None, None
+        if rows and rows[-1].strip():
+            rows.append("")
+        rows.append(f"[{name}]")
+        start = len(rows) - 1
+    end = next((
+        index for index in range(start + 1, len(rows))
+        if rows[index].strip().startswith("[") and
+        rows[index].strip().endswith("]")), len(rows))
+    return start, end
+
+
+def _social_reference(slot):
+    match = re.fullmatch(
+        r"Page(?P<page>\d+)Button(?P<button>\d+)", str(slot),
+        re.IGNORECASE)
+    if not match:
+        raise ValueError("Invalid Social button slot")
+    page = int(match.group("page"))
+    button = int(match.group("button"))
+    if not (1 <= page <= 10 and 1 <= button <= 10):
+        raise ValueError("Invalid Social button slot")
+    return f"E{(page - 1) * 10 + button - 1}"
+
+
+def _install_hotbar_references(rows, previous_socials, installed_socials):
+    """Put each managed Social into a free bar-1 hotbutton without clobbering."""
+    start, end = _section_bounds(rows, "HotButtons", create=True)
+    old_references = {
+        _social_reference(slot).casefold() for slot in previous_socials}
+    kept = []
+    occupied = set()
+    reusable = []
+    for row in rows[start + 1:end]:
+        match = _HOTBUTTON_KEY_RX.match(row.strip())
+        if not match:
+            kept.append(row)
+            continue
+        key = match.group(1)
+        key_folded = key.casefold()
+        value = match.group("value").strip()
+        reference = value.split(",", 1)[0].strip().casefold()
+        if reference in old_references:
+            reusable.append(key)
+            continue
+        if not value:
+            continue
+        occupied.add(key_folded)
+        kept.append(row)
+
+    available = reusable + [
+        f"Page{page}Button{button}"
+        for page in range(1, 11) for button in range(1, 11)
+        if f"page{page}button{button}" not in occupied and
+        f"page{page}button{button}" not in {
+            key.casefold() for key in reusable}]
+    if len(available) < len(installed_socials):
+        raise ValueError("There are not enough empty buttons on Hotbar 1")
+    additions = [
+        f"{available[index]}={_social_reference(slot)}"
+        for index, slot in enumerate(installed_socials)]
+    if kept and kept[-1].strip() and additions:
+        kept.append("")
+    kept.extend(additions)
+    rows[start + 1:end] = kept
+    return tuple(available[:len(installed_socials)])
+
+
 def install_auction_hotbuttons(ini_path, lines, trade_type="WTS"):
-    """Install WTS or WTB lines into unused P99 Social buttons safely."""
+    """Install P99 Socials and expose them on free Hotbar 1 buttons safely."""
     trade_type = "WTB" if str(trade_type).strip().upper() == "WTB" else "WTS"
     target = _validated_character_ini(ini_path)
     commands = [
@@ -57,23 +135,14 @@ def install_auction_hotbuttons(ini_path, lines, trade_type="WTS"):
     original = target.read_bytes()
     text = original.decode("cp1252")
     rows = text.splitlines()
-    section_start = next((
-        index for index, row in enumerate(rows)
-        if row.strip().casefold() == "[socials]"), None)
-    if section_start is None:
-        if rows and rows[-1].strip():
-            rows.append("")
-        rows.append("[Socials]")
-        section_start = len(rows) - 1
-    section_end = next((
-        index for index in range(section_start + 1, len(rows))
-        if rows[index].strip().startswith("[") and
-        rows[index].strip().endswith("]")), len(rows))
+    section_start, section_end = _section_bounds(
+        rows, "Socials", create=True)
 
     vantage_slots = set()
     for row in rows[section_start + 1:section_end]:
         match = re.match(
-            rf"^(Page\d+Button\d+)Name\s*=\s*Vantage{trade_type}\d*\s*$",
+            rf"^(Page\d+Button\d+)Name\s*=\s*"
+            rf"(?:Vantage{trade_type}|V-{trade_type})\d*\s*$",
             row.strip(), re.IGNORECASE)
         if match:
             vantage_slots.add(match.group(1).casefold())
@@ -102,7 +171,7 @@ def install_auction_hotbuttons(ini_path, lines, trade_type="WTS"):
         prefix = available[index - 1]
         installed.append(prefix)
         additions.extend((
-            f"{prefix}Name=Vantage{trade_type}{index}",
+            f"{prefix}Name=V-{trade_type}{index}",
             f"{prefix}Color=0"))
         additions.extend(
             f"{prefix}Line{line_number}={command}"
@@ -114,6 +183,8 @@ def install_auction_hotbuttons(ini_path, lines, trade_type="WTS"):
         rebuilt_section.append("")
     rebuilt_section.extend(additions)
     updated = rows[:section_start + 1] + rebuilt_section + rows[section_end:]
+    hotbar_slots = _install_hotbar_references(
+        updated, vantage_slots, installed)
     payload = ("\r\n".join(updated).rstrip() + "\r\n").encode("cp1252")
 
     backup = target.with_suffix(target.suffix + ".vantage-backup")
@@ -125,7 +196,7 @@ def install_auction_hotbuttons(ini_path, lines, trade_type="WTS"):
     finally:
         if temporary.exists():
             temporary.unlink()
-    return tuple(installed), backup
+    return tuple(installed), hotbar_slots, backup
 
 
 def elevated_hotbutton_command(request_path, nonce, *, current_executable=None,
@@ -203,7 +274,7 @@ def process_elevated_hotbutton_request(request_path, nonce):
         if not isinstance(lines, list) or not all(
                 isinstance(line, str) for line in lines):
             raise ValueError("Hotbutton request lines are invalid")
-        slots, backup = install_auction_hotbuttons(
+        slots, hotbar_slots, backup = install_auction_hotbuttons(
             payload.get("ini_path", ""), lines,
             payload.get("trade_type", "WTS"))
         result = {
@@ -211,6 +282,7 @@ def process_elevated_hotbutton_request(request_path, nonce):
             "nonce": nonce,
             "trade_type": payload.get("trade_type", "WTS"),
             "slots": list(slots),
+            "hotbar_slots": list(hotbar_slots),
             "backup": str(backup),
         }
         exit_code = 0

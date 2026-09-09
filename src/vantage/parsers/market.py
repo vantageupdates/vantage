@@ -41,6 +41,7 @@ from vantage.helpers.icons import game_icon
 from vantage.helpers.friends_manager import everquest_root_from_logs
 from vantage.helpers.parser import ParserWindow
 from vantage.helpers.portable import data_dir
+from vantage.helpers.ui_skin_updater import game_running as everquest_running
 from vantage.helpers.responsive import (
     ResponsiveActionBar, ensure_tab_tooltips, ensure_table_header_tooltips,
     scrollable)
@@ -2771,6 +2772,11 @@ class AuctionComposer(QWidget):
         self._copy_index = 0
         self._token_target = None
         self._pending_hotbutton_install = None
+        self._queued_hotbutton_install = None
+        self._hotbutton_game_timer = QTimer(self)
+        self._hotbutton_game_timer.setInterval(1000)
+        self._hotbutton_game_timer.timeout.connect(
+            self._install_queued_hotbutton_when_game_closes)
         self._hotbutton_poll_attempts = 0
         self._hotbutton_poll_timer = QTimer(self)
         self._hotbutton_poll_timer.setInterval(250)
@@ -2783,23 +2789,24 @@ class AuctionComposer(QWidget):
 
         self.guide = QLabel(
             "Search item → Add → set price and quantity → Copy WTS. "
-            "Use Install WTS button for clickable links.")
+            "Install WTS creates a clickable EQ hotbar button.")
         self.guide.setObjectName("MarketStatSummary")
         self.guide.setWordWrap(True)
         self.guide.setToolTip(
             "Copy pastes clean chat text immediately. Install WTS/WTB button "
-            "creates EQ Socials; WTS keeps clickable Titanium links.")
+            "creates an EQ Social and places it on the first free Hotbar 1 slot; "
+            "WTS keeps clickable Titanium links.")
         root.addWidget(self.guide)
 
         source_row = QHBoxLayout()
         source_row.setSpacing(4)
         self.link_status = QLabel(
-            "WTS Social buttons preserve clickable links · no inventory file needed")
+            "WTS hotbar buttons preserve clickable links · no inventory file needed")
         self.link_status.setObjectName("MarketGearSource")
         self.link_status.setAccessibleName("P99 item link source")
         self.link_status.setToolTip(
-            "Vantage can install WTS with clickable links or plain-text WTB into "
-            "separate character Social buttons.")
+            "Vantage installs a managed Social and exposes it on a free Hotbar 1 "
+            "button. Existing buttons are never replaced.")
         source_row.addWidget(self.link_status, 1)
         self.character_ini = QComboBox()
         self.character_ini.setObjectName("AuctionCharacterIni")
@@ -2811,12 +2818,12 @@ class AuctionComposer(QWidget):
         self.character_ini.currentIndexChanged.connect(
             self._sync_hotbutton_enabled)
         source_row.addWidget(self.character_ini)
-        self.camped_out = QCheckBox("Fully camped out")
+        self.camped_out = QCheckBox("Ready to install")
         self.camped_out.setAccessibleName(
-            "Confirm the selected character is fully camped out")
+            "Confirm the auction hotbar button is ready to install")
         self.camped_out.setToolTip(
-            "Required because EverQuest overwrites character INI files while "
-            "the character is logged in")
+            "If EverQuest is open, Vantage queues the button and installs it "
+            "automatically after eqgame.exe closes")
         self.camped_out.toggled.connect(self._sync_hotbutton_enabled)
         source_row.addWidget(self.camped_out)
         self.paste_help_button = QPushButton("How to paste")
@@ -2830,8 +2837,9 @@ class AuctionComposer(QWidget):
 
         self.paste_help = QLabel(
             "In EverQuest: Alt+O → Keys → bind “Paste from Clipboard” once. "
-            "Copy WTS/WTB pastes plain text. To create Social buttons, fully camp "
-            "out and use Install WTS/WTB button; they load on the next login.")
+            "Copy WTS/WTB pastes plain text. Install WTS/WTB creates the Social "
+            "and its Hotbar 1 button. If EQ is open, close it once; Vantage waits "
+            "and installs automatically for the next login.")
         self.paste_help.setObjectName("MarketGearSource")
         self.paste_help.setWordWrap(True)
         self.paste_help.setVisible(False)
@@ -2884,10 +2892,10 @@ class AuctionComposer(QWidget):
         self.hotbutton_button = QPushButton("Install WTS button…")
         self.hotbutton_button.setIcon(game_icon("export"))
         self.hotbutton_button.setAccessibleName(
-            "Install WTS Social button with clickable item links")
+            "Install WTS Hotbar button with clickable item links")
         self.hotbutton_button.setToolTip(
-            "Install this WTS into free EQ Social buttons with clickable item links; "
-            "fully camp out first")
+            "Create the linked WTS Social and place it in the first free Hotbar 1 "
+            "slot. If EQ is open, Vantage waits until it closes.")
         self.hotbutton_button.setEnabled(False)
         self.hotbutton_button.clicked.connect(self.install_hotbuttons)
         picker.addWidget(self.hotbutton_button)
@@ -3056,23 +3064,23 @@ class AuctionComposer(QWidget):
             "Install WTB button.")
         trade_type = "WTS" if selling else "WTB"
         self.link_status.setText(
-            "WTS Social buttons preserve clickable links · no inventory file needed"
+            "WTS hotbar buttons preserve clickable links · no inventory file needed"
             if selling else
-            "WTB Social buttons use clean plain text · no inventory file needed")
+            "WTB hotbar buttons use clean plain text · no inventory file needed")
         self.hotbutton_button.setText(f"Install {trade_type} button…")
         self.hotbutton_button.setAccessibleName(
-            f"Install {trade_type} EQ Social button" +
+            f"Install {trade_type} EQ Hotbar button" +
             (" with clickable item links" if selling else " using plain text"))
         self.hotbutton_button.setToolTip(
-            f"Install this {trade_type} into free EQ Social buttons" +
+            f"Create this {trade_type} Social and place it in a free Hotbar 1 slot" +
             (" with clickable item links" if selling else " as plain text") +
-            "; fully camp out first")
+            ". If EQ is open, Vantage waits until it closes")
         self.copy_button.setText("Copy WTS" if selling else "Copy WTB")
         self._sync_copy_button_accessibility()
         self.paste_note.setText(
-            ("Copy WTS = plain text · Install WTS button = clickable Social."
+            ("Copy WTS = plain text · Install WTS button = clickable hotbar."
              if selling else
-             "Copy WTB = plain text · Install WTB button = plain-text Social."))
+             "Copy WTB = plain text · Install WTB button = plain-text hotbar."))
         self._refresh_catalog_model()
         self._rebuild()
 
@@ -3128,7 +3136,8 @@ class AuctionComposer(QWidget):
             self._linked_lines and
             self.character_ini.currentData() and
             self.camped_out.isChecked() and
-            self._pending_hotbutton_install is None))
+            self._pending_hotbutton_install is None and
+            self._queued_hotbutton_install is None))
 
     def _sync_copy_button_accessibility(self):
         trade_type = "WTB" if self.trade_type.currentIndex() == 1 else "WTS"
@@ -3389,13 +3398,35 @@ class AuctionComposer(QWidget):
             return False
         if not self.camped_out.isChecked():
             self._set_preview_status(
-                "Fully camp the selected character out, then check the confirmation",
+                "Check Ready to install, then use the WTS/WTB button",
                 announce=True)
             return False
+        trade_type = "WTB" if self.trade_type.currentIndex() == 1 else "WTS"
+        linked_lines = tuple(self._linked_lines)
         try:
-            trade_type = "WTB" if self.trade_type.currentIndex() == 1 else "WTS"
-            slots, backup = install_auction_hotbuttons(
-                selected, self._linked_lines, trade_type)
+            running = everquest_running()
+        except Exception as error:
+            self._set_preview_status(
+                f"Hotbutton not installed · cannot safely check EverQuest · {error}",
+                announce=True)
+            return False
+        if running:
+            self._queued_hotbutton_install = (
+                selected, linked_lines, trade_type)
+            self._hotbutton_game_timer.start()
+            self._sync_hotbutton_enabled()
+            self._set_preview_status(
+                f"Queued {trade_type} · fully close EverQuest once; Vantage will "
+                "install it automatically for your next login",
+                announce=True)
+            return True
+        return self._install_hotbuttons_now(
+            selected, linked_lines, trade_type)
+
+    def _install_hotbuttons_now(self, selected, linked_lines, trade_type):
+        try:
+            slots, hotbar_slots, backup = install_auction_hotbuttons(
+                selected, linked_lines, trade_type)
         except OSError as error:
             permission_denied = (
                 isinstance(error, PermissionError) or
@@ -3404,7 +3435,7 @@ class AuctionComposer(QWidget):
                 "access is denied" in str(error).casefold())
             if permission_denied:
                 return self._request_elevated_hotbutton_install(
-                    selected, trade_type)
+                    selected, linked_lines, trade_type)
             self._set_preview_status(
                 f"Hotbutton not installed · {error}", announce=True)
             return False
@@ -3412,24 +3443,54 @@ class AuctionComposer(QWidget):
             self._set_preview_status(
                 f"Hotbutton not installed · {error}", announce=True)
             return False
-        self._finish_hotbutton_install(trade_type, slots, backup)
+        self._finish_hotbutton_install(
+            trade_type, slots, hotbar_slots, backup)
         return True
 
-    def _finish_hotbutton_install(self, trade_type, slots, backup):
-        slot_names = ", ".join(
+    def _install_queued_hotbutton_when_game_closes(self):
+        queued = self._queued_hotbutton_install
+        if queued is None:
+            self._hotbutton_game_timer.stop()
+            return
+        try:
+            if everquest_running():
+                return
+        except Exception as error:
+            self._queued_hotbutton_install = None
+            self._hotbutton_game_timer.stop()
+            self._sync_hotbutton_enabled()
+            self._set_preview_status(
+                f"Hotbutton not installed · cannot safely check EverQuest · {error}",
+                announce=True)
+            return
+        self._queued_hotbutton_install = None
+        self._hotbutton_game_timer.stop()
+        self._sync_hotbutton_enabled()
+        self._set_preview_status(
+            f"EverQuest closed · installing {queued[2]} hotbar button…",
+            announce=True)
+        self._install_hotbuttons_now(*queued)
+
+    def _finish_hotbutton_install(
+            self, trade_type, slots, hotbar_slots, backup):
+        social_names = ", ".join(
             re.sub(r"^Page(\d+)Button(\d+)$", r"page \1, button \2", slot)
             for slot in slots)
+        hotbar_names = ", ".join(
+            re.sub(r"^Page(\d+)Button(\d+)$", r"page \1, button \2", slot)
+            for slot in hotbar_slots)
         backup_name = Path(backup).name
         self._set_preview_status(
-            f"Installed {trade_type} · {slot_names} · backup {backup_name} · "
-            "relog and open Socials",
+            f"Installed {trade_type} · Hotbar 1 {hotbar_names} · "
+            f"Socials {social_names} · backup {backup_name} · ready for next login",
             announce=True)
         self.camped_out.setChecked(False)
 
-    def _request_elevated_hotbutton_install(self, selected, trade_type):
+    def _request_elevated_hotbutton_install(
+            self, selected, linked_lines, trade_type):
         try:
             pending = request_elevated_hotbutton_install(
-                selected, self._linked_lines, trade_type)
+                selected, linked_lines, trade_type)
         except (OSError, ValueError) as error:
             pending = None
             detail = str(error)
@@ -3488,6 +3549,7 @@ class AuctionComposer(QWidget):
             return
         self._finish_hotbutton_install(
             result.get("trade_type", "WTS"), result.get("slots", ()),
+            result.get("hotbar_slots", ()),
             result.get("backup", "character.ini.vantage-backup"))
 
 
@@ -4152,7 +4214,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(requested.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.67")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_finished(
             reply, requested, cached_path))
@@ -4292,7 +4354,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(target.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.67")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_npc_drops_finished(
             reply, mob, target, key, cache_path))
@@ -4612,7 +4674,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.67")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
         reply = self._network.get(request)
         timer = QTimer(self)
         timer.setSingleShot(True)
@@ -4697,7 +4759,7 @@ class GreenMarket(ParserWindow):
             return None
         request = QNetworkRequest(QUrl(safe_url))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.67")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
         reply = self._network.get(request)
         timer = QTimer(self)
         timer.setSingleShot(True)
@@ -4803,7 +4865,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.67")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._wiki_entity_finished(
             reply, card, cache_path, target, kind))
@@ -4892,7 +4954,7 @@ class GreenMarket(ParserWindow):
                     filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.67")
+                    "Vantage/1.44.68")
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
                     lambda: self._wiki_icon_finished(
@@ -5145,7 +5207,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.67")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -5168,7 +5230,7 @@ class GreenMarket(ParserWindow):
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
                 QNetworkRequest.KnownHeaders.UserAgentHeader,
-                "Vantage/1.44.67")
+                "Vantage/1.44.68")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -5529,7 +5591,7 @@ class GreenMarket(ParserWindow):
         self.status.setText(f"Refreshing PigParse {server}…")
         request = QNetworkRequest(QUrl(market_endpoint(server)))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.67")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
         reply = self._network.get(request)
         reply.setProperty("market_server", server)
         reply.finished.connect(lambda: self._finished(reply))
@@ -5657,7 +5719,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(market_detail_api(server).format(
             item_name=quote(name, safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.67")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.setProperty("market_server", server)
