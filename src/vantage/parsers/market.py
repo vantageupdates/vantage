@@ -12,7 +12,6 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
 import sqlite3
 import statistics
 from urllib.parse import quote, unquote, urljoin, urlparse
@@ -35,6 +34,9 @@ from PySide6.QtWidgets import (
 
 from vantage.helpers import config, resource_path
 from vantage.helpers.audio import audio_muted, notification_sound, play_alert
+from vantage.helpers.auction_hotbutton import (
+    install_auction_hotbuttons, read_elevated_hotbutton_result,
+    request_elevated_hotbutton_install)
 from vantage.helpers.icons import game_icon
 from vantage.helpers.friends_manager import everquest_root_from_logs
 from vantage.helpers.parser import ParserWindow
@@ -595,109 +597,6 @@ def compose_auction_lines(
     if group:
         lines.append(render_message(group))
     return lines
-
-
-_SOCIAL_KEY_RX = re.compile(
-    r"^(Page(?P<page>\d+)Button(?P<button>\d+))"
-    r"(?:Name|Color|Line[1-5])\s*=", re.IGNORECASE)
-
-
-def install_auction_hotbuttons(ini_path, lines, trade_type="WTS"):
-    """Install WTS or WTB auction lines into free P99 social buttons safely.
-
-    WTS lines may contain Titanium item-link control bytes; WTB lines remain
-    plain text. Each type owns only its own Vantage social slots, so installing
-    WTB buttons never replaces an existing Vantage WTS set (or vice versa).
-    """
-    trade_type = "WTB" if str(trade_type).strip().upper() == "WTB" else "WTS"
-    target = Path(ini_path).expanduser().resolve(strict=True)
-    if not target.is_file() or target.suffix.casefold() != ".ini":
-        raise ValueError("Choose a Project 1999 character INI file")
-    if not re.search(
-            r"_(?:project1999|p1999(?:green|blue|pvp|red))\.ini$",
-            target.name, re.IGNORECASE):
-        raise ValueError("This does not look like a Project 1999 character INI")
-
-    commands = [
-        line if str(line).lstrip().startswith("/") else f"/auction {line}"
-        for line in (lines or ()) if str(line).strip()]
-    if not commands:
-        raise ValueError("Add at least one item before installing a hotbutton")
-    chunks = [commands[index:index + 5]
-              for index in range(0, len(commands), 5)]
-
-    original = target.read_bytes()
-    text = original.decode("cp1252")
-    rows = text.splitlines()
-    section_start = next((
-        index for index, row in enumerate(rows)
-        if row.strip().casefold() == "[socials]"), None)
-    if section_start is None:
-        if rows and rows[-1].strip():
-            rows.append("")
-        rows.append("[Socials]")
-        section_start = len(rows) - 1
-    section_end = next((
-        index for index in range(section_start + 1, len(rows))
-        if rows[index].strip().startswith("[") and
-        rows[index].strip().endswith("]")), len(rows))
-
-    vantage_slots = set()
-    for row in rows[section_start + 1:section_end]:
-        match = re.match(
-            rf"^(Page\d+Button\d+)Name\s*=\s*Vantage{trade_type}\d*\s*$",
-            row.strip(), re.IGNORECASE)
-        if match:
-            vantage_slots.add(match.group(1).casefold())
-
-    kept = []
-    occupied = set()
-    for row in rows[section_start + 1:section_end]:
-        match = _SOCIAL_KEY_RX.match(row.strip())
-        prefix = match.group(1).casefold() if match else ""
-        if prefix and prefix in vantage_slots:
-            continue
-        if prefix:
-            occupied.add(prefix)
-        kept.append(row)
-
-    available = [
-        f"Page{page}Button{button}"
-        for page in range(2, 11) for button in range(1, 11)
-        if f"page{page}button{button}" not in occupied]
-    if len(available) < len(chunks):
-        raise ValueError("There are not enough empty social buttons on pages 2–10")
-
-    additions = []
-    installed = []
-    for index, command_group in enumerate(chunks, 1):
-        prefix = available[index - 1]
-        installed.append(prefix)
-        additions.extend((
-            f"{prefix}Name=Vantage{trade_type}{index}",
-            f"{prefix}Color=0"))
-        additions.extend(
-            f"{prefix}Line{line_number}={command}"
-            for line_number, command in enumerate(command_group, 1))
-        additions.append("")
-
-    rebuilt_section = kept
-    if rebuilt_section and rebuilt_section[-1].strip():
-        rebuilt_section.append("")
-    rebuilt_section.extend(additions)
-    updated = rows[:section_start + 1] + rebuilt_section + rows[section_end:]
-    payload = ("\r\n".join(updated).rstrip() + "\r\n").encode("cp1252")
-
-    backup = target.with_suffix(target.suffix + ".vantage-backup")
-    shutil.copy2(target, backup)
-    temporary = target.with_suffix(target.suffix + ".vantage-tmp")
-    try:
-        temporary.write_bytes(payload)
-        os.replace(temporary, target)
-    finally:
-        if temporary.exists():
-            temporary.unlink()
-    return tuple(installed), backup
 
 
 def _wiki_cache_paths(name, server="Green"):
@@ -2871,6 +2770,12 @@ class AuctionComposer(QWidget):
         self._linked_lines = []
         self._copy_index = 0
         self._token_target = None
+        self._pending_hotbutton_install = None
+        self._hotbutton_poll_attempts = 0
+        self._hotbutton_poll_timer = QTimer(self)
+        self._hotbutton_poll_timer.setInterval(250)
+        self._hotbutton_poll_timer.timeout.connect(
+            self._poll_elevated_hotbutton_install)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(5, 4, 5, 5)
@@ -3222,7 +3127,8 @@ class AuctionComposer(QWidget):
         self.hotbutton_button.setEnabled(bool(
             self._linked_lines and
             self.character_ini.currentData() and
-            self.camped_out.isChecked()))
+            self.camped_out.isChecked() and
+            self._pending_hotbutton_install is None))
 
     def _sync_copy_button_accessibility(self):
         trade_type = "WTB" if self.trade_type.currentIndex() == 1 else "WTS"
@@ -3490,19 +3396,99 @@ class AuctionComposer(QWidget):
             trade_type = "WTB" if self.trade_type.currentIndex() == 1 else "WTS"
             slots, backup = install_auction_hotbuttons(
                 selected, self._linked_lines, trade_type)
-        except (OSError, UnicodeError, ValueError) as error:
+        except OSError as error:
+            permission_denied = (
+                isinstance(error, PermissionError) or
+                getattr(error, "winerror", None) == 5 or
+                "permission denied" in str(error).casefold() or
+                "access is denied" in str(error).casefold())
+            if permission_denied:
+                return self._request_elevated_hotbutton_install(
+                    selected, trade_type)
             self._set_preview_status(
                 f"Hotbutton not installed · {error}", announce=True)
             return False
+        except (UnicodeError, ValueError) as error:
+            self._set_preview_status(
+                f"Hotbutton not installed · {error}", announce=True)
+            return False
+        self._finish_hotbutton_install(trade_type, slots, backup)
+        return True
+
+    def _finish_hotbutton_install(self, trade_type, slots, backup):
         slot_names = ", ".join(
             re.sub(r"^Page(\d+)Button(\d+)$", r"page \1, button \2", slot)
             for slot in slots)
+        backup_name = Path(backup).name
         self._set_preview_status(
-            f"Installed {trade_type} · {slot_names} · backup {backup.name} · "
+            f"Installed {trade_type} · {slot_names} · backup {backup_name} · "
             "relog and open Socials",
             announce=True)
         self.camped_out.setChecked(False)
+
+    def _request_elevated_hotbutton_install(self, selected, trade_type):
+        try:
+            pending = request_elevated_hotbutton_install(
+                selected, self._linked_lines, trade_type)
+        except (OSError, ValueError) as error:
+            pending = None
+            detail = str(error)
+        else:
+            detail = ""
+        if pending is None:
+            self._set_preview_status(
+                "Windows permission was not granted · run Vantage as administrator "
+                "and try again" + (f" · {detail}" if detail else ""),
+                announce=True)
+            return False
+        self._pending_hotbutton_install = pending
+        self._hotbutton_poll_attempts = 0
+        self._hotbutton_poll_timer.start()
+        self._sync_hotbutton_enabled()
+        self._set_preview_status(
+            "Windows permission required · approve the UAC prompt; Vantage will "
+            "finish this hotbutton automatically",
+            announce=True)
         return True
+
+    def _poll_elevated_hotbutton_install(self):
+        pending = self._pending_hotbutton_install
+        if pending is None:
+            self._hotbutton_poll_timer.stop()
+            return
+        self._hotbutton_poll_attempts += 1
+        try:
+            result = read_elevated_hotbutton_result(pending)
+        except (OSError, ValueError, json.JSONDecodeError) as error:
+            self._pending_hotbutton_install = None
+            self._hotbutton_poll_timer.stop()
+            self._sync_hotbutton_enabled()
+            self._set_preview_status(
+                f"Hotbutton not installed · invalid Windows response · {error}",
+                announce=True)
+            return
+        if result is None:
+            if self._hotbutton_poll_attempts < 480:
+                return
+            pending.request_path.unlink(missing_ok=True)
+            self._pending_hotbutton_install = None
+            self._hotbutton_poll_timer.stop()
+            self._sync_hotbutton_enabled()
+            self._set_preview_status(
+                "Hotbutton not installed · Windows permission request timed out",
+                announce=True)
+            return
+        self._pending_hotbutton_install = None
+        self._hotbutton_poll_timer.stop()
+        self._sync_hotbutton_enabled()
+        if not result.get("ok"):
+            self._set_preview_status(
+                f"Hotbutton not installed · {result.get('error', 'Windows denied access')}",
+                announce=True)
+            return
+        self._finish_hotbutton_install(
+            result.get("trade_type", "WTS"), result.get("slots", ()),
+            result.get("backup", "character.ini.vantage-backup"))
 
 
 class GreenMarket(ParserWindow):
@@ -4166,7 +4152,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(requested.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.66")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.67")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_finished(
             reply, requested, cached_path))
@@ -4306,7 +4292,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(target.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.66")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.67")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_npc_drops_finished(
             reply, mob, target, key, cache_path))
@@ -4626,7 +4612,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.66")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.67")
         reply = self._network.get(request)
         timer = QTimer(self)
         timer.setSingleShot(True)
@@ -4711,7 +4697,7 @@ class GreenMarket(ParserWindow):
             return None
         request = QNetworkRequest(QUrl(safe_url))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.66")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.67")
         reply = self._network.get(request)
         timer = QTimer(self)
         timer.setSingleShot(True)
@@ -4817,7 +4803,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.66")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.67")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._wiki_entity_finished(
             reply, card, cache_path, target, kind))
@@ -4906,7 +4892,7 @@ class GreenMarket(ParserWindow):
                     filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.66")
+                    "Vantage/1.44.67")
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
                     lambda: self._wiki_icon_finished(
@@ -5159,7 +5145,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.66")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.67")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -5182,7 +5168,7 @@ class GreenMarket(ParserWindow):
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
                 QNetworkRequest.KnownHeaders.UserAgentHeader,
-                "Vantage/1.44.66")
+                "Vantage/1.44.67")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -5543,7 +5529,7 @@ class GreenMarket(ParserWindow):
         self.status.setText(f"Refreshing PigParse {server}…")
         request = QNetworkRequest(QUrl(market_endpoint(server)))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.66")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.67")
         reply = self._network.get(request)
         reply.setProperty("market_server", server)
         reply.finished.connect(lambda: self._finished(reply))
@@ -5671,7 +5657,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(market_detail_api(server).format(
             item_name=quote(name, safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.66")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.67")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.setProperty("market_server", server)

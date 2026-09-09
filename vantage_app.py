@@ -26,6 +26,14 @@ def _enable_crisp_windows_rendering():
             pass
 
 if __name__ == "__main__":
+    if "--install-auction-hotbuttons" in sys.argv:
+        from vantage.helpers.auction_hotbutton import (
+            process_elevated_hotbutton_request)
+        index = sys.argv.index("--install-auction-hotbuttons")
+        arguments = sys.argv[index + 1:index + 3]
+        if len(arguments) != 2:
+            raise SystemExit(2)
+        raise SystemExit(process_elevated_hotbutton_request(*arguments))
     # This mode must run before the Companion single-instance guard. A user
     # with only the one-file Vantage.exe can therefore approve normal Windows
     # elevation and open the same verified standalone VantageUI updater while
