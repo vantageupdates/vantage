@@ -1,5 +1,20 @@
 # VantageUI releases
 
+## 1.44.71
+
+Install folder: `VantageUI-v1.44.71`.
+
+- Polish Group Invite/Disband and their Follow/Decline aliases with rounded
+  70x16 native-size faces, a fine neutral-gray rim and distinct hover, pressed
+  and disabled states. Keep corners transparent, without shared-art stretching.
+- Separate the two buttons by five pixels, align them with the stats panel,
+  and use the smaller native Font 2 for centered, unclipped captions.
+- Preserve all native IDs, visibility/enable logic, group members, personal
+  stats, gauges, window dimensions, and other controls/artwork.
+
+Load manually with `/loadskin VantageUI-v1.44.71 1`. Native game rendering
+still requires review in EverQuest; automated checks verify layout and assets.
+
 ## 1.44.70
 
 Install folder: `VantageUI-v1.44.70`.
