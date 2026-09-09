@@ -1,5 +1,25 @@
 # VantageUI releases
 
+## 1.44.68
+
+Install folder: `VantageUI-v1.44.68`.
+
+- Replace the plain inventory-header name with the approved fantasy-style
+  "Vantage UI" wordmark in satin gold. Keep the release version as a native
+  readable label in its own fine rounded frame. The 215x237 window, 202x20
+  header, ten buttons, 21 equipment slots and eight bag slots are unchanged.
+- Polish Options with native-size rounded button states and two-pixel gaps in
+  stacked rows. Keep persistent checked-state feedback, use muted gold selected
+  tabs and thinner field/list outlines. Preserve all settings, bindings, page
+  membership, window size, sliders and keyboard-assignment behavior.
+- The separate UI updater now includes the retention policy already shipped in
+  Companion 1.44.66: active plus two older fallbacks, with active/previous safety
+  guarantees. Cleanup never runs while EQ is open; modified or unmanaged folders
+  remain protected. This release does not change or rebuild Companion.
+
+Load manually with `/loadskin VantageUI-v1.44.68 1`. Texture/geometry and automated
+tests are verified; actual in-game rendering and interaction require manual review.
+
 ## 1.44.67
 
 Install folder: `VantageUI-v1.44.67`.

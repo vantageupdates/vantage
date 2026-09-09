@@ -151,7 +151,7 @@ def create_manifest(assets, release):
     for name, data in assets.items():
         if name.casefold() == "equi_hotbuttonwnd.xml":
             labels = ET.fromstring(data).findall("./Label[@item='HB_VantageVersionLabel']")
-            expected = "VantageUI  v" + release["version"]
+            expected = "v" + release["version"]
             if len(labels) != 1 or labels[0].findtext("Text") != expected:
                 raise PackageError("Visible VantageUI version tab must match release: " + expected)
     manifest = dict(release)

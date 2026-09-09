@@ -313,12 +313,12 @@ def test_hotbar_gold_version_tab_is_bound_to_release_and_clear_of_the_grid():
     tab = _item(root, "StaticAnimation", "HB_VantageBrandTab")
     animation = _item(root, "Ui2DAnimation", "A_VantageBrandTab")
     release = json.loads((SKIN_DIR.parent / "release.json").read_text())
-    assert label.findtext("Text") == f"VantageUI  v{release['version']}"
+    assert label.findtext("Text") == f"v{release['version']}"
     assert label.findtext("Font") == "2"
     assert label.findtext("NoWrap") == label.findtext("AlignCenter") == "true"
     assert label.find("EQType") is None  # Never let live game data overwrite it.
-    assert _rect(label) == (5, 5, 194, 14)
-    assert tuple(int(label.findtext(f"TextColor/{c}")) for c in "RGB") == (218, 188, 119)
+    assert _rect(label) == (129, 5, 56, 14)
+    assert tuple(int(label.findtext(f"TextColor/{c}")) for c in "RGB") == (218, 195, 147)
     assert _rect(tab) == (1, 1, 202, 20)
     assert tab.findtext("Animation") == animation.attrib["item"]
     assert tab.findtext("AutoDraw") == "true"
@@ -340,17 +340,20 @@ def test_hotbar_gold_version_tab_is_bound_to_release_and_clear_of_the_grid():
             _assert_in_bounds((x, y, width, height), (207, 229))
 
     frame = _only_frame(animation)
-    assert frame.findtext("Texture") == "VantageControlEdges.tga"
-    assert _rect(frame) == (2, 70, 202, 20)
-    _assert_in_bounds(_rect(frame), (512, 128))
-    atlas = (SKIN_DIR / "VantageControlEdges.tga").read_bytes()
-    assert atlas[12:18] == bytes((0, 2, 128, 0, 32, 40))
+    assert tab.findtext("TooltipReference") == "Vantage UI"
+    assert frame.findtext("Texture") == "VantageBrandHeader.tga"
+    assert _rect(frame) == (2, 2, 202, 20)
+    _assert_in_bounds(_rect(frame), (256, 32))
+    texture = _item(root, "TextureInfo", "VantageBrandHeader.tga")
+    assert _pair(texture, "Size", "CX", "CY") == (256, 32)
+    atlas = (SKIN_DIR / "VantageBrandHeader.tga").read_bytes()
+    assert atlas[12:18] == bytes((0, 1, 32, 0, 32, 40))
     def alpha(x, y):
-        return atlas[18 + (y * 512 + x) * 4 + 3]
-    assert alpha(103, 80) == 255
-    assert all(alpha(x, y) <= 16 for x in (2, 203) for y in (70, 89))
-    assert all(alpha(x, y) == 0 for x in range(1, 205) for y in (69, 90))
-    assert all(alpha(x, y) == 0 for x in (1, 204) for y in range(69, 91))
+        return atlas[18 + (y * 256 + x) * 4 + 3]
+    assert alpha(103, 12) == 255
+    assert all(alpha(x, y) <= 16 for x in (2, 203) for y in (2, 21))
+    assert all(alpha(x, y) == 0 for x in range(1, 205) for y in (1, 22))
+    assert all(alpha(x, y) == 0 for x in (1, 204) for y in range(1, 23))
 
 
 def test_all_drawable_inventory_slots_use_the_dedicated_gold_border():

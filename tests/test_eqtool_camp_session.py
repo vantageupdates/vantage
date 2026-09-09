@@ -117,7 +117,10 @@ def panel_tooltip(panel, control):
 
 
 app = VantageApp([])
-app._camp_sessions.delay_ms = 35
+# First layout/tooltip rendering can exceed 35ms on a loaded Windows host.
+# Keep the preparing state alive long enough to inspect it; still exercise
+# actual timer completion and wait past the same deadline after cancellation.
+app._camp_sessions.delay_ms = 1000
 spells = app._parsers_dict['spells']
 maps = app._parsers_dict['maps']
 if spells._collapsed:
@@ -137,7 +140,7 @@ camp_status = spells.camp_status_widget()
 preparing_tooltip = panel_tooltip(spells, camp_status)
 preparing_expected = camp_status.toolTip()
 preparing_text = camp_status.text()
-QTest.qWait(60)
+QTest.qWait(1100)
 app.processEvents()
 
 target = spells._spell_container.get_spell_target_by_name('__you__')
@@ -167,7 +170,7 @@ welcome_status_cleared = (
 maps._map.add_player('__you__', now, MapPoint(x=12, y=22, z=4))
 app._parse((now, CAMP_PREPARING_LINE, 'Alice', 'Green'))
 app._parse((now, CAMP_ABANDONED_LINE, 'Alice', 'Green'))
-QTest.qWait(60)
+QTest.qWait(1100)
 app.processEvents()
 target = spells._spell_container.get_spell_target_by_name('__you__')
 after_abandon_names = sorted(

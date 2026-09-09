@@ -1,22 +1,53 @@
 <?xml version="1.0" encoding="us-ascii"?>
 <XML ID="EQInterfaceDefinitionLanguage">
   <Schema xmlns="EverQuestData" xmlns:dt="EverQuestDataTypes" />
+  <!-- Preserve WDT_Inner background, scrollbars and native chrome; only the border changes. -->
+  <WindowDrawTemplate item="WDT_VantageOptionsField"><Background>wnd_bg_modern.png</Background><VSBTemplate><UpButton><Normal>A_VSBUpNormal</Normal><Pressed>A_VSBUpNormal</Pressed><Flyby>A_VSBUpNormal</Flyby><Disabled>A_VSBUpNormal</Disabled><PressedFlyby>A_VSBUpNormal</PressedFlyby></UpButton><DownButton><Normal>A_VSBDownNormal</Normal><Pressed>A_VSBDownNormal</Pressed><Flyby>A_VSBDownNormal</Flyby><Disabled>A_VSBDownNormal</Disabled><PressedFlyby>A_VSBDownNormal</PressedFlyby></DownButton><Thumb><Top>A_VSBThumbTop</Top><Bottom>A_VSBThumbBottom</Bottom><Middle>A_VSBThumbMiddle</Middle><OverlapLeft>0</OverlapLeft><OverlapTop>0</OverlapTop><OverlapRight>0</OverlapRight><OverlapBottom>0</OverlapBottom></Thumb><MiddleTextureInfo>scrollbar_gutter.tga</MiddleTextureInfo></VSBTemplate><HSBTemplate><UpButton><Normal>A_HSBLeftNormal</Normal><Pressed>A_HSBLeftPressed</Pressed><Flyby>A_HSBLeftFlyby</Flyby><Disabled>A_HSBLeftDisabled</Disabled><PressedFlyby>A_HSBLeftPressedFlyby</PressedFlyby></UpButton><DownButton><Normal>A_HSBRightNormal</Normal><Pressed>A_HSBRightPressed</Pressed><Flyby>A_HSBRightFlyby</Flyby><Disabled>A_HSBRightDisabled</Disabled><PressedFlyby>A_HSBRightPressedFlyby</PressedFlyby></DownButton><Thumb><Right>A_HSBThumbRight</Right><Left>A_HSBThumbLeft</Left><Middle>A_HSBThumbMiddle</Middle><OverlapLeft>0</OverlapLeft><OverlapTop>0</OverlapTop><OverlapRight>0</OverlapRight><OverlapBottom>0</OverlapBottom></Thumb><MiddleTextureInfo>scrollbar_gutter.tga</MiddleTextureInfo><MiddleTint><Alpha>255</Alpha><R>128</R><G>128</G><B>128</B></MiddleTint></HSBTemplate><CloseBox><Normal>A_CloseBtnNormal</Normal><Pressed>A_CloseBtnPressed</Pressed><Flyby>A_CloseBtnFlyby</Flyby><Disabled>A_CloseBtnDisabled</Disabled><PressedFlyby>A_CloseBtnPressedFlyby</PressedFlyby></CloseBox><QMarkBox><Normal>A_QMarkBtnNormal</Normal><Pressed>A_QMarkBtnPressed</Pressed><Flyby>A_QMarkBtnFlyby</Flyby><Disabled>A_QMarkBtnDisabled</Disabled><PressedFlyby>A_QMarkBtnPressedFlyby</PressedFlyby></QMarkBox><MinimizeBox><Normal>A_MinimizeBtnNormal</Normal><Pressed>A_MinimizeBtnPressed</Pressed><Flyby>A_MinimizeBtnFlyby</Flyby><Disabled>A_MinimizeBtnDisabled</Disabled><PressedFlyby>A_MinimizeBtnPressedFlyby</PressedFlyby></MinimizeBox><TileBox><Normal>A_TileBtnNormal</Normal><Pressed>A_TileBtnPressed</Pressed><Flyby>A_TileBtnFlyby</Flyby><Disabled>A_TileBtnDisabled</Disabled><PressedFlyby>A_TileBtnPressedFlyby</PressedFlyby></TileBox><Border><TopLeft>A_VantageSlotGoldTopLeft</TopLeft><Top>A_VantageSlotGoldTop</Top><TopRight>A_VantageSlotGoldTopRight</TopRight><RightTop>A_VantageSlotGoldRightTop</RightTop><Right>A_VantageSlotGoldRight</Right><RightBottom>A_VantageSlotGoldRightBottom</RightBottom><BottomRight>A_VantageSlotGoldBottomRight</BottomRight><Bottom>A_VantageSlotGoldBottom</Bottom><BottomLeft>A_VantageSlotGoldBottomLeft</BottomLeft><LeftTop>A_VantageSlotGoldLeftTop</LeftTop><Left>A_VantageSlotGoldLeft</Left><LeftBottom>A_VantageSlotGoldLeftBottom</LeftBottom><OverlapLeft>0</OverlapLeft><OverlapTop>0</OverlapTop><OverlapRight>0</OverlapRight><OverlapBottom>0</OverlapBottom></Border><Titlebar><Right>A_WindowTitleRight</Right><Left>A_WindowTitleLeft</Left><Middle>A_WindowTitleMiddle</Middle><OverlapLeft>0</OverlapLeft><OverlapTop>0</OverlapTop><OverlapRight>0</OverlapRight><OverlapBottom>0</OverlapBottom></Titlebar></WindowDrawTemplate>
+  <!-- Options-only native-size button states. -->
+  <TextureInfo item="VantageOptionsControls.tga"><Size><CX>512</CX><CY>256</CY></Size></TextureInfo>
+  <Ui2DAnimation item="A_VantageOpt150x18Normal"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>2</X><Y>2</Y></Location><Size><CX>150</CX><CY>18</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageOpt150x18Flyby"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>2</X><Y>24</Y></Location><Size><CX>150</CX><CY>18</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageOpt150x18Pressed"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>2</X><Y>46</Y></Location><Size><CX>150</CX><CY>18</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageOpt150x18PressedFlyby"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>2</X><Y>68</Y></Location><Size><CX>150</CX><CY>18</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageOpt150x18Disabled"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>2</X><Y>90</Y></Location><Size><CX>150</CX><CY>18</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageOpt150x16Normal"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>156</X><Y>2</Y></Location><Size><CX>150</CX><CY>16</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageOpt150x16Flyby"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>156</X><Y>24</Y></Location><Size><CX>150</CX><CY>16</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageOpt150x16Pressed"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>156</X><Y>46</Y></Location><Size><CX>150</CX><CY>16</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageOpt150x16PressedFlyby"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>156</X><Y>68</Y></Location><Size><CX>150</CX><CY>16</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageOpt150x16Disabled"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>156</X><Y>90</Y></Location><Size><CX>150</CX><CY>16</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageOpt50x22Normal"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>310</X><Y>2</Y></Location><Size><CX>50</CX><CY>22</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageOpt50x22Flyby"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>310</X><Y>28</Y></Location><Size><CX>50</CX><CY>22</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageOpt50x22Pressed"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>310</X><Y>54</Y></Location><Size><CX>50</CX><CY>22</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageOpt50x22PressedFlyby"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>310</X><Y>80</Y></Location><Size><CX>50</CX><CY>22</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageOpt50x22Disabled"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>310</X><Y>106</Y></Location><Size><CX>50</CX><CY>22</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageOpt150x20Normal"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>2</X><Y>124</Y></Location><Size><CX>150</CX><CY>20</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageOpt150x20Flyby"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>2</X><Y>148</Y></Location><Size><CX>150</CX><CY>20</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageOpt150x20Pressed"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>2</X><Y>172</Y></Location><Size><CX>150</CX><CY>20</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageOpt150x20PressedFlyby"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>2</X><Y>196</Y></Location><Size><CX>150</CX><CY>20</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageOpt150x20Disabled"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>2</X><Y>220</Y></Location><Size><CX>150</CX><CY>20</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageOpt26x22Normal"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>364</X><Y>2</Y></Location><Size><CX>26</CX><CY>22</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageOpt26x22Flyby"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>364</X><Y>28</Y></Location><Size><CX>26</CX><CY>22</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageOpt26x22Pressed"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>364</X><Y>54</Y></Location><Size><CX>26</CX><CY>22</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageOpt26x22PressedFlyby"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>364</X><Y>80</Y></Location><Size><CX>26</CX><CY>22</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageOpt26x22Disabled"><Cycle>false</Cycle><Frames><Texture>VantageOptionsControls.tga</Texture><Location><X>364</X><Y>106</Y></Location><Size><CX>26</CX><CY>22</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
   <!-- *********** Options Tab Window, General Options Page *********** -->
   <!-- Fast Item Destroy -->
   <Button item="OGP_FastItemDestroyCheckbox">
     <ScreenID>OGP_FastItemDestroyCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>15</Y>
+      <Y>16</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Fast Item Destroy</Text>
     <TextColor>
@@ -25,28 +56,30 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- AA No Confirm -->
   <Button item="OGP_AANoConfirmCheckbox">
     <ScreenID>OGP_AANoConfirmCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>115</Y>
+      <Y>116</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Fast AA Purchase</Text>
     <TextColor>
@@ -56,28 +89,30 @@
     </TextColor>
     <TooltipReference>Toggle whether you want to spend AA points without a confirmation window.</TooltipReference>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Adventure Merchant No Confirm -->
   <Button item="OGP_AdvMerchantNoConfirmCheckbox">
     <ScreenID>OGP_AdvMerchantNoConfirmCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>135</Y>
+      <Y>136</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Fast Adv Purchase</Text>
     <TextColor>
@@ -87,28 +122,30 @@
     </TextColor>
     <TooltipReference>Toggle whether you want to spend Adventure Points without a confirmation window.</TooltipReference>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Leadership No Confirm -->
   <Button item="OGP_LeadershipNoConfirmCheckbox">
     <ScreenID>OGP_LeadershipNoConfirmCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>155</Y>
+      <Y>156</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Fast Leadership Purchase</Text>
     <TextColor>
@@ -118,28 +155,30 @@
     </TextColor>
     <TooltipReference>Toggle whether you want to spend leadership points without a confirmation window.</TooltipReference>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Accept guild invites -->
   <Button item="OGP_GuildInvitesCheckbox">
     <ScreenID>OGP_GuildInvitesCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>35</Y>
+      <Y>36</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Receive Guild Invites</Text>
     <TextColor>
@@ -148,28 +187,30 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Autosplit loot -->
   <Button item="OGP_LootAutosplitCheckbox">
     <ScreenID>OGP_LootAutosplitCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>55</Y>
+      <Y>56</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Autosplit</Text>
     <TextColor>
@@ -178,11 +219,11 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Player trade options -->
@@ -209,7 +250,7 @@
   </Label>
   <Combobox item="OGP_PlayerTradeCombobox">
     <ScreenID>OGP_PlayerTradeCombobox</ScreenID>
-    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <DrawTemplate>WDT_VantageOptionsField</DrawTemplate>
     <Location>
       <X>200</X>
       <Y>250</Y>
@@ -227,18 +268,20 @@
   </Combobox>
   <Button item="OGP_SystemInfoButton">
     <ScreenID>OGP_SystemInfoButton</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>215</Y>
+      <Y>216</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Allow SysInfo Send</Text>
     <TextColor>
@@ -247,28 +290,30 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Newbie Left-click text -->
   <Button item="OGP_LeftClickHelpText">
     <ScreenID>OGP_LeftClickHelpText</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>235</Y>
+      <Y>236</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Target Click Shows Help</Text>
     <TooltipReference>Show help text when you left click on a target object or player.</TooltipReference>
@@ -278,27 +323,29 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <Button item="OGP_UseTellWindowsCheckbox">
     <ScreenID>OGP_UseTellWindowsCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>255</Y>
+      <Y>256</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Use Tell Windows</Text>
     <TooltipReference>Toggle whether you want tells to appear in their own separate chat windows.</TooltipReference>
@@ -308,28 +355,30 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Allow/prevent the game from making your character duck to squeeze into small spaces -->
   <Button item="OGP_AllowAutoDuckCheckbox">
     <ScreenID>OGP_AllowAutoDuckCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>275</Y>
+      <Y>276</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Allow Auto-duck</Text>
     <TooltipReference>Toggle whether you will let the game make you duck to fit into small spaces.</TooltipReference>
@@ -339,28 +388,30 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Allow/prevent the game from making your character stand when you press forward -->
   <Button item="OGP_AllowAutoStandCheckbox">
     <ScreenID>OGP_AllowAutoStandCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>295</Y>
+      <Y>296</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Allow Auto-stand</Text>
     <TooltipReference>Toggle whether moving forward automatically makes your character stand up if sitting.</TooltipReference>
@@ -370,28 +421,30 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Allow/prevent the game from making your character stand when you press forward -->
   <Button item="OGP_AutojoinCheckbox">
     <ScreenID>OGP_Autojoin</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>315</Y>
+      <Y>316</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Join General Channels</Text>
     <TooltipReference>Toggle whether to autojoin general help chat channels.</TooltipReference>
@@ -401,28 +454,30 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Auto Consent Group -->
   <Button item="OGP_AutoConsentGroupCheckbox">
     <ScreenID>OGP_AutoConsentGroupCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>335</Y>
+      <Y>336</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Auto Consent Group</Text>
     <TooltipReference>Toggle whether to automatically give your group consent to move your corpse.</TooltipReference>
@@ -432,28 +487,30 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Auto Consent Raid -->
   <Button item="OGP_AutoConsentRaidCheckbox">
     <ScreenID>OGP_AutoConsentRaidCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>355</Y>
+      <Y>356</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Auto Consent Raid</Text>
     <TooltipReference>Toggle whether to automatically give your raid consent to move your corpse.</TooltipReference>
@@ -463,28 +520,30 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Auto Consent Guild -->
   <Button item="OGP_AutoConsentGuildCheckbox">
     <ScreenID>OGP_AutoConsentGuildCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>375</Y>
+      <Y>376</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Auto Consent Guild</Text>
     <TooltipReference>Toggle whether to automatically give your guild consent to move your corpse.</TooltipReference>
@@ -494,28 +553,30 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Load a new UI skin -->
   <Button item="OGP_LoadSkinButton">
     <ScreenID>OGP_LoadSkinButton</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>200</X>
-      <Y>345</Y>
+      <Y>346</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>false</Style_Checkbox>
     <Text>Load UI Skin</Text>
     <TooltipReference>Load a new look and style for your EverQuest UI.</TooltipReference>
@@ -525,11 +586,11 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Item dropping options -->
@@ -556,7 +617,7 @@
   </Label>
   <Combobox item="OGP_ItemDroppingCombobox">
     <ScreenID>OGP_ItemDroppingCombobox</ScreenID>
-    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <DrawTemplate>WDT_VantageOptionsField</DrawTemplate>
     <Location>
       <X>200</X>
       <Y>199</Y>
@@ -617,7 +678,7 @@
   </Label>
   <Combobox item="OGP_FontSelector">
     <ScreenID>OGP_FontSelector</ScreenID>
-    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <DrawTemplate>WDT_VantageOptionsField</DrawTemplate>
     <Location>
       <X>200</X>
       <Y>305</Y>
@@ -632,18 +693,20 @@
   </Combobox>
   <Button item="OGP_ChangeFont">
     <ScreenID>OGP_ChangeFont</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>316</X>
-      <Y>305</Y>
+      <Y>306</Y>
     </Location>
     <Size>
       <CX>50</CX>
-      <CY>24</CY>
+      <CY>22</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>false</Style_Checkbox>
     <Text>Accept</Text>
     <TextColor>
@@ -652,28 +715,30 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt50x22Normal</Normal>
+      <Pressed>A_VantageOpt50x22Pressed</Pressed>
+      <Flyby>A_VantageOpt50x22Flyby</Flyby>
+      <Disabled>A_VantageOpt50x22Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt50x22PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Anonymous -->
   <Button item="OGP_AnonymousCheckbox">
     <ScreenID>OGP_AnonymousCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>75</Y>
+      <Y>76</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Anonymous</Text>
     <TextColor>
@@ -682,28 +747,30 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Roleplaying -->
   <Button item="OGP_RoleplayingCheckbox">
     <ScreenID>OGP_RoleplayingCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>95</Y>
+      <Y>96</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Roleplaying</Text>
     <TextColor>
@@ -712,27 +779,29 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <Button item="OGP_PetWindowPopupCheckbox">
     <ScreenID>OGP_PetWindowPopupCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>175</Y>
+      <Y>176</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Pet Window Popup</Text>
     <TextColor>
@@ -741,27 +810,29 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <Button item="OGP_AllowContextMenusCheckbox">
     <ScreenID>OGP_AllowContextMenusCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>195</Y>
+      <Y>196</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Allow Context Menus</Text>
     <TextColor>
@@ -770,11 +841,11 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Sound realism value -->
@@ -948,18 +1019,20 @@
   <!-- Environment sounds -->
   <Button item="OGP_EnvSoundsCheckbox">
     <ScreenID>OGP_EnvSoundsCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>200</X>
-      <Y>130</Y>
+      <Y>131</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Environment Sounds</Text>
     <TextColor>
@@ -968,28 +1041,30 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Combat Music -->
   <Button item="OGP_CombatMusicCheckbox">
     <ScreenID>OGP_CombatMusicCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>200</X>
-      <Y>155</Y>
+      <Y>156</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Combat Music</Text>
     <TextColor>
@@ -998,11 +1073,11 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- General options page -->
@@ -1016,16 +1091,8 @@
     <TooltipReference />
     <DrawTemplate>WDT_Def</DrawTemplate>
     <TabText>General</TabText>
-    <TabTextColor>
-      <R>170</R>
-      <G>180</G>
-      <B>194</B>
-    </TabTextColor>
-    <TabTextActiveColor>
-      <R>217</R>
-      <G>79</G>
-      <B>216</B>
-    </TabTextActiveColor>
+    <TabTextColor><R>180</R><G>180</G><B>180</B></TabTextColor>
+    <TabTextActiveColor><R>218</R><G>195</G><B>147</B></TabTextActiveColor>
     <Style_Sizable>true</Style_Sizable>
     <Pieces>OGP_FastItemDestroyCheckbox</Pieces>
     <Pieces>OGP_GuildInvitesCheckbox</Pieces>
@@ -1071,18 +1138,20 @@
   <!-- PCNames -->
   <Button item="ODP_PCNamesCheckbox">
     <ScreenID>ODP_PCNamesCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>12</Y>
+      <Y>13</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>18</CY>
+      <CY>16</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Show PC Names</Text>
     <TooltipReference>Show/hide the names over other players.</TooltipReference>
@@ -1092,28 +1161,30 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x16Normal</Normal>
+      <Pressed>A_VantageOpt150x16Pressed</Pressed>
+      <Flyby>A_VantageOpt150x16Flyby</Flyby>
+      <Disabled>A_VantageOpt150x16Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x16PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- NPCNames  -->
   <Button item="ODP_NPCNamesCheckbox">
     <ScreenID>ODP_NPCNamesCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>30</Y>
+      <Y>31</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>18</CY>
+      <CY>16</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Show NPC Names</Text>
     <TooltipReference>Show/hide the names over NPCs.</TooltipReference>
@@ -1123,28 +1194,30 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x16Normal</Normal>
+      <Pressed>A_VantageOpt150x16Pressed</Pressed>
+      <Flyby>A_VantageOpt150x16Flyby</Flyby>
+      <Disabled>A_VantageOpt150x16Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x16PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Show 3D Target Ring -->
   <Button item="ODP_ShowTargetRingCheckbox">
     <ScreenID>ODP_ShowTargetRingCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>48</Y>
+      <Y>49</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>18</CY>
+      <CY>16</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Show 3D Target Ring</Text>
     <TooltipReference>A colored ring appears around your current target's feet.</TooltipReference>
@@ -1154,28 +1227,30 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x16Normal</Normal>
+      <Pressed>A_VantageOpt150x16Pressed</Pressed>
+      <Flyby>A_VantageOpt150x16Flyby</Flyby>
+      <Disabled>A_VantageOpt150x16Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x16PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Level of Detail -->
   <Button item="ODP_LevelOfDetailCheckbox">
     <ScreenID>ODP_LevelOfDetailCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>66</Y>
+      <Y>67</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>18</CY>
+      <CY>16</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Level of Detail</Text>
     <TooltipReference>Some models adjust their detail depending on their distance from you.</TooltipReference>
@@ -1185,28 +1260,30 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x16Normal</Normal>
+      <Pressed>A_VantageOpt150x16Pressed</Pressed>
+      <Flyby>A_VantageOpt150x16Flyby</Flyby>
+      <Disabled>A_VantageOpt150x16Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x16PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Toggle Show Helm -->
   <Button item="ODP_ShowHelmCheckbox">
     <ScreenID>ODP_ShowHelmCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>84</Y>
+      <Y>85</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>18</CY>
+      <CY>16</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Show My Helm</Text>
     <TooltipReference>Toggle whether your helm is visible or not.</TooltipReference>
@@ -1216,28 +1293,30 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x16Normal</Normal>
+      <Pressed>A_VantageOpt150x16Pressed</Pressed>
+      <Flyby>A_VantageOpt150x16Flyby</Flyby>
+      <Disabled>A_VantageOpt150x16Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x16PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Switch to fullscreen mode. -->
   <Button item="ODP_SetFullscreenButton">
     <ScreenID>ODP_SetFullscreenButton</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>106</Y>
+      <Y>107</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>18</CY>
+      <CY>16</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Text>Switch to Fullscreen</Text>
     <TooltipReference>Set the current window mode to be full screen.</TooltipReference>
     <TextColor>
@@ -1246,28 +1325,30 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x16Normal</Normal>
+      <Pressed>A_VantageOpt150x16Pressed</Pressed>
+      <Flyby>A_VantageOpt150x16Flyby</Flyby>
+      <Disabled>A_VantageOpt150x16Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x16PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Switch to windowed mode. -->
   <Button item="ODP_SetWindowedButton">
     <ScreenID>ODP_SetWindowedButton</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>106</Y>
+      <Y>107</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>18</CY>
+      <CY>16</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Text>Switch to Windowed</Text>
     <TooltipReference>Set the current window mode to be windowed.</TooltipReference>
     <TextColor>
@@ -1276,28 +1357,30 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x16Normal</Normal>
+      <Pressed>A_VantageOpt150x16Pressed</Pressed>
+      <Flyby>A_VantageOpt150x16Flyby</Flyby>
+      <Disabled>A_VantageOpt150x16Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x16PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Video modes -->
   <Button item="ODP_VideoModesButton">
     <ScreenID>ODP_VideoModesButton</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>124</Y>
+      <Y>125</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>18</CY>
+      <CY>16</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Text>Video Modes</Text>
     <TooltipReference>Select your screen's resolution, color, and refresh rate settings.</TooltipReference>
     <TextColor>
@@ -1306,11 +1389,11 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x16Normal</Normal>
+      <Pressed>A_VantageOpt150x16Pressed</Pressed>
+      <Flyby>A_VantageOpt150x16Flyby</Flyby>
+      <Disabled>A_VantageOpt150x16Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x16PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Delay before fading slider -->
@@ -1673,7 +1756,7 @@
   </Label>
   <Combobox item="ODP_LoadScreenCombobox">
     <ScreenID>ODP_LoadScreenCombobox</ScreenID>
-    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <DrawTemplate>WDT_VantageOptionsField</DrawTemplate>
     <Location>
       <X>272</X>
       <Y>8</Y>
@@ -1717,7 +1800,7 @@
   </Label>
   <Combobox item="ODP_SkyCombobox">
     <ScreenID>ODP_SkyCombobox</ScreenID>
-    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <DrawTemplate>WDT_VantageOptionsField</DrawTemplate>
     <Location>
       <X>272</X>
       <Y>35</Y>
@@ -1891,7 +1974,7 @@
   </Label>
   <Combobox item="ODP_SpellParticlesNearClipCombobox">
     <ScreenID>ODP_SpellParticlesNearClipCombobox</ScreenID>
-    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <DrawTemplate>WDT_VantageOptionsField</DrawTemplate>
     <Location>
       <X>75</X>
       <Y>6</Y>
@@ -1932,7 +2015,7 @@
   </Label>
   <Combobox item="ODP_SpellParticlesDensityCombobox">
     <ScreenID>ODP_SpellParticlesDensityCombobox</ScreenID>
-    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <DrawTemplate>WDT_VantageOptionsField</DrawTemplate>
     <Location>
       <X>75</X>
       <Y>36</Y>
@@ -1973,7 +2056,7 @@
   </Label>
   <Combobox item="ODP_SpellParticlesFilterCombobox">
     <ScreenID>ODP_SpellParticlesFilterCombobox</ScreenID>
-    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <DrawTemplate>WDT_VantageOptionsField</DrawTemplate>
     <Location>
       <X>75</X>
       <Y>66</Y>
@@ -2059,16 +2142,8 @@
     <Style_Transparent>false</Style_Transparent>
     <DrawTemplate>WDT_Def</DrawTemplate>
     <TabText>Spell</TabText>
-    <TabTextColor>
-      <R>170</R>
-      <G>180</G>
-      <B>194</B>
-    </TabTextColor>
-    <TabTextActiveColor>
-      <R>217</R>
-      <G>79</G>
-      <B>216</B>
-    </TabTextActiveColor>
+    <TabTextColor><R>180</R><G>180</G><B>180</B></TabTextColor>
+    <TabTextActiveColor><R>218</R><G>195</G><B>147</B></TabTextActiveColor>
     <Style_Sizable>true</Style_Sizable>
     <Pieces>ODP_SpellParticlesNearClipLabel</Pieces>
     <Pieces>ODP_SpellParticlesDensityLabel</Pieces>
@@ -2104,7 +2179,7 @@
   </Label>
   <Combobox item="ODP_EnvironmentParticlesNearClipCombobox">
     <ScreenID>ODP_EnvironmentParticlesNearClipCombobox</ScreenID>
-    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <DrawTemplate>WDT_VantageOptionsField</DrawTemplate>
     <Location>
       <X>75</X>
       <Y>6</Y>
@@ -2145,7 +2220,7 @@
   </Label>
   <Combobox item="ODP_EnvironmentParticlesDensityCombobox">
     <ScreenID>ODP_EnvironmentParticlesDensityCombobox</ScreenID>
-    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <DrawTemplate>WDT_VantageOptionsField</DrawTemplate>
     <Location>
       <X>75</X>
       <Y>36</Y>
@@ -2227,16 +2302,8 @@
     <Style_Transparent>false</Style_Transparent>
     <DrawTemplate>WDT_Def</DrawTemplate>
     <TabText>Env</TabText>
-    <TabTextColor>
-      <R>170</R>
-      <G>180</G>
-      <B>194</B>
-    </TabTextColor>
-    <TabTextActiveColor>
-      <R>217</R>
-      <G>79</G>
-      <B>216</B>
-    </TabTextActiveColor>
+    <TabTextColor><R>180</R><G>180</G><B>180</B></TabTextColor>
+    <TabTextActiveColor><R>218</R><G>195</G><B>147</B></TabTextActiveColor>
     <Style_Sizable>true</Style_Sizable>
     <Pieces>ODP_EnvironmentParticlesNearClipLabel</Pieces>
     <Pieces>ODP_EnvironmentParticlesDensityLabel</Pieces>
@@ -2270,7 +2337,7 @@
   </Label>
   <Combobox item="ODP_ActorParticlesNearClipCombobox">
     <ScreenID>ODP_ActorParticlesNearClipCombobox</ScreenID>
-    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <DrawTemplate>WDT_VantageOptionsField</DrawTemplate>
     <Location>
       <X>75</X>
       <Y>6</Y>
@@ -2311,7 +2378,7 @@
   </Label>
   <Combobox item="ODP_ActorParticlesDensityCombobox">
     <ScreenID>ODP_ActorParticlesDensityCombobox</ScreenID>
-    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <DrawTemplate>WDT_VantageOptionsField</DrawTemplate>
     <Location>
       <X>75</X>
       <Y>36</Y>
@@ -2352,7 +2419,7 @@
   </Label>
   <Combobox item="ODP_ActorParticlesFilterCombobox">
     <ScreenID>ODP_ActorParticlesFilterCombobox</ScreenID>
-    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <DrawTemplate>WDT_VantageOptionsField</DrawTemplate>
     <Location>
       <X>75</X>
       <Y>66</Y>
@@ -2438,16 +2505,8 @@
     <Style_Transparent>false</Style_Transparent>
     <DrawTemplate>WDT_Def</DrawTemplate>
     <TabText>Player</TabText>
-    <TabTextColor>
-      <R>170</R>
-      <G>180</G>
-      <B>194</B>
-    </TabTextColor>
-    <TabTextActiveColor>
-      <R>217</R>
-      <G>79</G>
-      <B>216</B>
-    </TabTextActiveColor>
+    <TabTextColor><R>180</R><G>180</G><B>180</B></TabTextColor>
+    <TabTextActiveColor><R>218</R><G>195</G><B>147</B></TabTextActiveColor>
     <Style_Sizable>true</Style_Sizable>
     <Pieces>ODP_ActorParticlesNearClipLabel</Pieces>
     <Pieces>ODP_ActorParticlesDensityLabel</Pieces>
@@ -2484,18 +2543,20 @@
   <!-- Advanced Display Options -->
   <Button item="ODP_AdvancedButton">
     <ScreenID>ODP_AdvancedButton</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>190</X>
-      <Y>350</Y>
+      <Y>351</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Text>Advanced</Text>
     <TooltipReference>Pop up the advanced display options window.</TooltipReference>
     <TextColor>
@@ -2504,11 +2565,11 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Display options page -->
@@ -2521,16 +2582,8 @@
     <Style_Transparent>false</Style_Transparent>
     <DrawTemplate>WDT_Def</DrawTemplate>
     <TabText>Display</TabText>
-    <TabTextColor>
-      <R>170</R>
-      <G>180</G>
-      <B>194</B>
-    </TabTextColor>
-    <TabTextActiveColor>
-      <R>217</R>
-      <G>79</G>
-      <B>216</B>
-    </TabTextActiveColor>
+    <TabTextColor><R>180</R><G>180</G><B>180</B></TabTextColor>
+    <TabTextActiveColor><R>218</R><G>195</G><B>147</B></TabTextActiveColor>
     <Style_Sizable>true</Style_Sizable>
     <Pieces>ODP_PCNamesCheckbox</Pieces>
     <Pieces>ODP_NPCNamesCheckbox</Pieces>
@@ -2576,18 +2629,20 @@
   <!-- Invert Y Axis -->
   <Button item="OMP_InvertYAxisCheckbox">
     <ScreenID>OMP_InvertYAxisCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>10</Y>
+      <Y>11</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Invert Y Axis</Text>
     <TextColor>
@@ -2596,28 +2651,30 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Look Spring  -->
   <Button item="OMP_LookSpringCheckbox">
     <ScreenID>OMP_LookSpringCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>30</Y>
+      <Y>31</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Look Spring</Text>
     <TextColor>
@@ -2626,28 +2683,30 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Mouse look -->
   <Button item="OMP_MouseLookCheckbox">
     <ScreenID>OMP_MouseLookCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>50</Y>
+      <Y>51</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Mouse Look</Text>
     <TextColor>
@@ -2656,28 +2715,30 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Mouse Wheel Zoom -->
   <Button item="OMP_MouseWheelZoomCheckbox">
     <ScreenID>OMP_MouseWheelZoomCheckbox</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>10</X>
-      <Y>70</Y>
+      <Y>71</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Mouse Wheel Zoom</Text>
     <TextColor>
@@ -2686,29 +2747,31 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Mouse Left and Right Handedness -->
   <Button item="OMP_MouseHandedness">
     <ScreenID>OMP_MouseHandedness</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <TooltipReference>Toggle this to swap the mouse's left and right buttons.</TooltipReference>
     <Location>
       <X>10</X>
-      <Y>90</Y>
+      <Y>91</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Right-handed mouse</Text>
     <TextColor>
@@ -2717,11 +2780,11 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Mouse sensitivity -->
@@ -2791,16 +2854,8 @@
     <TooltipReference />
     <DrawTemplate>WDT_Def</DrawTemplate>
     <TabText>Mouse</TabText>
-    <TabTextColor>
-      <R>170</R>
-      <G>180</G>
-      <B>194</B>
-    </TabTextColor>
-    <TabTextActiveColor>
-      <R>217</R>
-      <G>79</G>
-      <B>216</B>
-    </TabTextActiveColor>
+    <TabTextColor><R>180</R><G>180</G><B>180</B></TabTextColor>
+    <TabTextActiveColor><R>218</R><G>195</G><B>147</B></TabTextActiveColor>
     <Style_Sizable>true</Style_Sizable>
     <Pieces>OMP_InvertYAxisCheckbox</Pieces>
     <Pieces>OMP_LookSpringCheckbox</Pieces>
@@ -2836,7 +2891,7 @@
   </Label>
   <Combobox item="OKP_KeyboardFilterCombobox">
     <ScreenID>OKP_KeyboardFilterCombobox</ScreenID>
-    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <DrawTemplate>WDT_VantageOptionsField</DrawTemplate>
     <Location>
       <X>20</X>
       <Y>24</Y>
@@ -2864,18 +2919,20 @@
   <!-- Default keys button -->
   <Button item="OKP_DefaultKeysButton">
     <ScreenID>OKP_DefaultKeysButton</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>200</X>
-      <Y>15</Y>
+      <Y>16</Y>
     </Location>
     <Size>
       <CX>150</CX>
-      <CY>20</CY>
+      <CY>18</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Text>Reload defaults</Text>
     <TextColor>
       <R>240</R>
@@ -2883,17 +2940,17 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x18Normal</Normal>
+      <Pressed>A_VantageOpt150x18Pressed</Pressed>
+      <Flyby>A_VantageOpt150x18Flyby</Flyby>
+      <Disabled>A_VantageOpt150x18Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x18PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <!-- Keyboard assignment list -->
   <Listbox item="OKP_KeyboardAssignmentList">
     <ScreenID>OKP_KeyboardAssignmentList</ScreenID>
-    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <DrawTemplate>WDT_VantageOptionsField</DrawTemplate>
     <RelativePosition>true</RelativePosition>
     <AutoStretch>true</AutoStretch>
     <TopAnchorToTop>true</TopAnchorToTop>
@@ -2929,16 +2986,8 @@
     <Style_Transparent>false</Style_Transparent>
     <DrawTemplate>WDT_Def</DrawTemplate>
     <TabText>Keys</TabText>
-    <TabTextColor>
-      <R>170</R>
-      <G>180</G>
-      <B>194</B>
-    </TabTextColor>
-    <TabTextActiveColor>
-      <R>217</R>
-      <G>79</G>
-      <B>216</B>
-    </TabTextActiveColor>
+    <TabTextColor><R>180</R><G>180</G><B>180</B></TabTextColor>
+    <TabTextActiveColor><R>218</R><G>195</G><B>147</B></TabTextActiveColor>
     <Style_Sizable>true</Style_Sizable>
     <Pieces>OKP_KeyboardAssignmentList</Pieces>
     <Pieces>OKP_DefaultKeysButton</Pieces>
@@ -2948,7 +2997,7 @@
   <!-- *********** Options Tab Window, Chat Filters Page *********** -->
   <Listbox item="OFP_FilterList">
     <ScreenID>FilterList</ScreenID>
-    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <DrawTemplate>WDT_VantageOptionsField</DrawTemplate>
     <RelativePosition>true</RelativePosition>
     <AutoStretch>true</AutoStretch>
     <TopAnchorToTop>true</TopAnchorToTop>
@@ -2972,7 +3021,7 @@
   </Listbox>
   <Combobox item="OFP_FilterComboBox">
     <ScreenID>FilterComboBox</ScreenID>
-    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <DrawTemplate>WDT_VantageOptionsField</DrawTemplate>
     <AutoStretch>true</AutoStretch>
     <TopAnchorToTop>false</TopAnchorToTop>
     <BottomAnchorToTop>false</BottomAnchorToTop>
@@ -2995,16 +3044,8 @@
     <Style_Transparent>false</Style_Transparent>
     <DrawTemplate>WDT_Def</DrawTemplate>
     <TabText>Filters</TabText>
-    <TabTextColor>
-      <R>170</R>
-      <G>180</G>
-      <B>194</B>
-    </TabTextColor>
-    <TabTextActiveColor>
-      <R>217</R>
-      <G>79</G>
-      <B>216</B>
-    </TabTextActiveColor>
+    <TabTextColor><R>180</R><G>180</G><B>180</B></TabTextColor>
+    <TabTextActiveColor><R>218</R><G>195</G><B>147</B></TabTextActiveColor>
     <Style_Sizable>true</Style_Sizable>
     <Pieces>OFP_FilterList</Pieces>
     <Pieces>OFP_FilterComboBox</Pieces>
@@ -3012,6 +3053,7 @@
   <!-- *********** Options Tab Window, Chat Colors Page *********** -->
   <Button item="OCP_UserColorDefault">
     <ScreenID>UserColorDefault</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <RelativePosition>true</RelativePosition>
     <AutoStretch>true</AutoStretch>
@@ -3019,11 +3061,12 @@
     <BottomAnchorToTop>true</BottomAnchorToTop>
     <LeftAnchorToLeft>true</LeftAnchorToLeft>
     <RightAnchorToLeft>false</RightAnchorToLeft>
-    <TopAnchorOffset>8</TopAnchorOffset>
+    <TopAnchorOffset>9</TopAnchorOffset>
     <LeftAnchorOffset>50</LeftAnchorOffset>
     <RightAnchorOffset>50</RightAnchorOffset>
-    <BottomAnchorOffset>30</BottomAnchorOffset>
-    <Style_Transparent>false</Style_Transparent>
+    <BottomAnchorOffset>29</BottomAnchorOffset>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>false</Style_Checkbox>
     <Text>Reset Default Colors</Text>
     <TextColor>
@@ -3032,16 +3075,16 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x20Normal</Normal>
+      <Pressed>A_VantageOpt150x20Pressed</Pressed>
+      <Flyby>A_VantageOpt150x20Flyby</Flyby>
+      <Disabled>A_VantageOpt150x20Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x20PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <Listbox item="OCP_ColorChooseList">
     <ScreenID>ColorChooseList</ScreenID>
-    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <DrawTemplate>WDT_VantageOptionsField</DrawTemplate>
     <RelativePosition>true</RelativePosition>
     <AutoStretch>true</AutoStretch>
     <TopAnchorToTop>true</TopAnchorToTop>
@@ -3065,6 +3108,7 @@
   </Listbox>
   <Button item="OCP_UserColorChange">
     <ScreenID>UserColorChange</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <RelativePosition>true</RelativePosition>
     <AutoStretch>true</AutoStretch>
@@ -3072,11 +3116,12 @@
     <BottomAnchorToTop>false</BottomAnchorToTop>
     <LeftAnchorToLeft>true</LeftAnchorToLeft>
     <RightAnchorToLeft>false</RightAnchorToLeft>
-    <TopAnchorOffset>30</TopAnchorOffset>
+    <TopAnchorOffset>29</TopAnchorOffset>
     <LeftAnchorOffset>70</LeftAnchorOffset>
     <RightAnchorOffset>70</RightAnchorOffset>
-    <BottomAnchorOffset>8</BottomAnchorOffset>
-    <Style_Transparent>false</Style_Transparent>
+    <BottomAnchorOffset>9</BottomAnchorOffset>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>false</Style_Checkbox>
     <Text>Change Selected Color</Text>
     <TextColor>
@@ -3085,11 +3130,11 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt150x20Normal</Normal>
+      <Pressed>A_VantageOpt150x20Pressed</Pressed>
+      <Flyby>A_VantageOpt150x20Flyby</Flyby>
+      <Disabled>A_VantageOpt150x20Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt150x20PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <Page item="OptionsColorPage">
@@ -3101,16 +3146,8 @@
     <Style_Transparent>false</Style_Transparent>
     <DrawTemplate>WDT_Def</DrawTemplate>
     <TabText>Colors</TabText>
-    <TabTextColor>
-      <R>170</R>
-      <G>180</G>
-      <B>194</B>
-    </TabTextColor>
-    <TabTextActiveColor>
-      <R>217</R>
-      <G>79</G>
-      <B>216</B>
-    </TabTextActiveColor>
+    <TabTextColor><R>180</R><G>180</G><B>180</B></TabTextColor>
+    <TabTextActiveColor><R>218</R><G>195</G><B>147</B></TabTextActiveColor>
     <Style_Sizable>true</Style_Sizable>
     <Pieces>OCP_UserColorDefault</Pieces>
     <Pieces>OCP_ColorChooseList</Pieces>
@@ -3142,7 +3179,7 @@
     <ScreenID>PathToAddressBookField</ScreenID>
     <RelativePosition>true</RelativePosition>
     <AutoStretch>true</AutoStretch>
-    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <DrawTemplate>WDT_VantageOptionsField</DrawTemplate>
     <Style_Border>true</Style_Border>
     <LeftAnchorOffset>10</LeftAnchorOffset>
     <TopAnchorOffset>30</TopAnchorOffset>
@@ -3160,17 +3197,19 @@
   </Editbox>
   <Button item="OMP_FileDialogButton">
     <ScreenID>FileDialogButton</ScreenID>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <AutoStretch>true</AutoStretch>
     <LeftAnchorOffset>34</LeftAnchorOffset>
-    <TopAnchorOffset>31</TopAnchorOffset>
+    <TopAnchorOffset>32</TopAnchorOffset>
     <RightAnchorOffset>8</RightAnchorOffset>
-    <BottomAnchorOffset>55</BottomAnchorOffset>
+    <BottomAnchorOffset>54</BottomAnchorOffset>
     <TopAnchorToTop>true</TopAnchorToTop>
     <BottomAnchorToTop>true</BottomAnchorToTop>
     <LeftAnchorToLeft>false</LeftAnchorToLeft>
     <RightAnchorToLeft>false</RightAnchorToLeft>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <Style_Checkbox>false</Style_Checkbox>
     <Text>...</Text>
     <TooltipReference>File Selector</TooltipReference>
@@ -3180,11 +3219,11 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_SmallBtnNormal</Normal>
-      <Pressed>A_SmallBtnPressed</Pressed>
-      <Flyby>A_SmallBtnFlyby</Flyby>
-      <Disabled>A_SmallBtnDisabled</Disabled>
-      <PressedFlyby>A_SmallBtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageOpt26x22Normal</Normal>
+      <Pressed>A_VantageOpt26x22Pressed</Pressed>
+      <Flyby>A_VantageOpt26x22Flyby</Flyby>
+      <Disabled>A_VantageOpt26x22Disabled</Disabled>
+      <PressedFlyby>A_VantageOpt26x22PressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <Label item="OMP_MailForwardingLabel">
@@ -3383,16 +3422,8 @@
     <Style_Transparent>false</Style_Transparent>
     <DrawTemplate>WDT_Def</DrawTemplate>
     <TabText>Mail</TabText>
-    <TabTextColor>
-      <R>170</R>
-      <G>180</G>
-      <B>194</B>
-    </TabTextColor>
-    <TabTextActiveColor>
-      <R>217</R>
-      <G>79</G>
-      <B>216</B>
-    </TabTextActiveColor>
+    <TabTextColor><R>180</R><G>180</G><B>180</B></TabTextColor>
+    <TabTextActiveColor><R>218</R><G>195</G><B>147</B></TabTextActiveColor>
     <Style_Sizable>true</Style_Sizable>
     <Pieces>OMP_PathToAddressBookLabel</Pieces>
     <Pieces>OMP_PathToAddressbookField</Pieces>

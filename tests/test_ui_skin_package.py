@@ -51,9 +51,10 @@ def test_manifest_exact_bytes_flat_entries_and_deterministic_archive(candidate):
 
 
 @pytest.mark.parametrize("label", [
-    "", '<Label item="HB_VantageVersionLabel"><Text>VantageUI  v1.44.51</Text></Label>',
+    "", '<Label item="HB_VantageVersionLabel"><Text>v1.44.51</Text></Label>',
     '<Label item="HB_VantageVersionLabel"><Text>VantageUI</Text></Label>',
-    '<Label item="HB_VantageVersionLabel"><Text>VantageUI  v1.44.52</Text></Label>' * 2,
+    '<Label item="HB_VantageVersionLabel"><Text>v1.44.52</Text></Label>' * 2,
+    '<Label item="HB_VantageVersionLabel"><Text>VantageUI  v1.44.52</Text></Label>',
 ])
 def test_package_refuses_missing_stale_or_duplicate_visible_version(candidate, label):
     skin, release, output = candidate
@@ -65,7 +66,7 @@ def test_package_refuses_missing_stale_or_duplicate_visible_version(candidate, l
 
 def test_package_preserves_correct_visible_version_bytes(candidate):
     skin, release, output = candidate
-    data = b'<XML><Label item="HB_VantageVersionLabel"><Text>VantageUI  v1.44.52</Text></Label></XML>'
+    data = b'<XML><Label item="HB_VantageVersionLabel"><Text>v1.44.52</Text></Label></XML>'
     (skin / "EQUI_HotButtonWnd.xml").write_bytes(data)
     package.package_skin(skin, release, output)
     with zipfile.ZipFile(output / package.PAYLOAD_NAME) as archive:
@@ -207,5 +208,5 @@ def test_repository_snapshot_parses_and_matches_release_contract():
     assert "EQUI_CastSpellWnd.xml" in assets
     assert "SIDL.xml" in assets
     release = package.load_release(root / "ui" / "release.json")
-    assert release == {"schema": 2, "version": "1.44.67",
-                       "skin_folder": "VantageUI-v1.44.67"}
+    assert release == {"schema": 2, "version": "1.44.68",
+                       "skin_folder": "VantageUI-v1.44.68"}
