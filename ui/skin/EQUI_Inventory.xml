@@ -2,6 +2,479 @@
 <XML ID = "EQInterfaceDefinitionLanguage">
 	<Schema xmlns = "EverQuestData" xmlns:dt = "EverQuestDataTypes"/>
 
+  <TextureInfo item="VantageStatIcons.tga">
+    <Size>
+      <CX>64</CX>
+      <CY>64</CY>
+    </Size>
+  </TextureInfo>
+  <TextureInfo item="VantageMoneyControls.tga">
+    <Size>
+      <CX>64</CX>
+      <CY>128</CY>
+    </Size>
+  </TextureInfo>
+  <Ui2DAnimation item="A_VantageStatHP">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageStatIcons.tga</Texture>
+      <Location>
+        <X>2</X>
+        <Y>2</Y>
+      </Location>
+      <Size>
+        <CX>12</CX>
+        <CY>12</CY>
+      </Size>
+    </Frames>
+  </Ui2DAnimation>
+  <StaticAnimation item="IW_StatHPIcon">
+    <ScreenID>IW_StatHPIcon</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>239</X>
+      <Y>51</Y>
+    </Location>
+    <Size>
+      <CX>12</CX>
+      <CY>12</CY>
+    </Size>
+    <Animation>A_VantageStatHP</Animation>
+  </StaticAnimation>
+  <Ui2DAnimation item="A_VantageStatMANA">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageStatIcons.tga</Texture>
+      <Location>
+        <X>18</X>
+        <Y>2</Y>
+      </Location>
+      <Size>
+        <CX>12</CX>
+        <CY>12</CY>
+      </Size>
+    </Frames>
+  </Ui2DAnimation>
+  <StaticAnimation item="IW_StatMANAIcon">
+    <ScreenID>IW_StatMANAIcon</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>239</X>
+      <Y>65</Y>
+    </Location>
+    <Size>
+      <CX>12</CX>
+      <CY>12</CY>
+    </Size>
+    <Animation>A_VantageStatMANA</Animation>
+  </StaticAnimation>
+  <Ui2DAnimation item="A_VantageStatAC">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageStatIcons.tga</Texture>
+      <Location>
+        <X>34</X>
+        <Y>2</Y>
+      </Location>
+      <Size>
+        <CX>12</CX>
+        <CY>12</CY>
+      </Size>
+    </Frames>
+  </Ui2DAnimation>
+  <StaticAnimation item="IW_StatACIcon">
+    <ScreenID>IW_StatACIcon</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>239</X>
+      <Y>79</Y>
+    </Location>
+    <Size>
+      <CX>12</CX>
+      <CY>12</CY>
+    </Size>
+    <Animation>A_VantageStatAC</Animation>
+  </StaticAnimation>
+  <Ui2DAnimation item="A_VantageStatATK">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageStatIcons.tga</Texture>
+      <Location>
+        <X>50</X>
+        <Y>2</Y>
+      </Location>
+      <Size>
+        <CX>12</CX>
+        <CY>12</CY>
+      </Size>
+    </Frames>
+  </Ui2DAnimation>
+  <StaticAnimation item="IW_StatATKIcon">
+    <ScreenID>IW_StatATKIcon</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>239</X>
+      <Y>93</Y>
+    </Location>
+    <Size>
+      <CX>12</CX>
+      <CY>12</CY>
+    </Size>
+    <Animation>A_VantageStatATK</Animation>
+  </StaticAnimation>
+  <Ui2DAnimation item="A_VantageStatEXP">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageStatIcons.tga</Texture>
+      <Location>
+        <X>2</X>
+        <Y>18</Y>
+      </Location>
+      <Size>
+        <CX>12</CX>
+        <CY>12</CY>
+      </Size>
+    </Frames>
+  </Ui2DAnimation>
+  <StaticAnimation item="IW_StatEXPIcon">
+    <ScreenID>IW_StatEXPIcon</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>239</X>
+      <Y>115</Y>
+    </Location>
+    <Size>
+      <CX>12</CX>
+      <CY>12</CY>
+    </Size>
+    <Animation>A_VantageStatEXP</Animation>
+  </StaticAnimation>
+  <Ui2DAnimation item="A_VantageStatSTR">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageStatIcons.tga</Texture>
+      <Location>
+        <X>18</X>
+        <Y>18</Y>
+      </Location>
+      <Size>
+        <CX>12</CX>
+        <CY>12</CY>
+      </Size>
+    </Frames>
+  </Ui2DAnimation>
+  <StaticAnimation item="IW_StatSTRIcon">
+    <ScreenID>IW_StatSTRIcon</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>239</X>
+      <Y>145</Y>
+    </Location>
+    <Size>
+      <CX>12</CX>
+      <CY>12</CY>
+    </Size>
+    <Animation>A_VantageStatSTR</Animation>
+  </StaticAnimation>
+  <Ui2DAnimation item="A_VantageStatSTA">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageStatIcons.tga</Texture>
+      <Location>
+        <X>34</X>
+        <Y>18</Y>
+      </Location>
+      <Size>
+        <CX>12</CX>
+        <CY>12</CY>
+      </Size>
+    </Frames>
+  </Ui2DAnimation>
+  <StaticAnimation item="IW_StatSTAIcon">
+    <ScreenID>IW_StatSTAIcon</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>239</X>
+      <Y>159</Y>
+    </Location>
+    <Size>
+      <CX>12</CX>
+      <CY>12</CY>
+    </Size>
+    <Animation>A_VantageStatSTA</Animation>
+  </StaticAnimation>
+  <Ui2DAnimation item="A_VantageStatAGI">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageStatIcons.tga</Texture>
+      <Location>
+        <X>50</X>
+        <Y>18</Y>
+      </Location>
+      <Size>
+        <CX>12</CX>
+        <CY>12</CY>
+      </Size>
+    </Frames>
+  </Ui2DAnimation>
+  <StaticAnimation item="IW_StatAGIIcon">
+    <ScreenID>IW_StatAGIIcon</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>239</X>
+      <Y>173</Y>
+    </Location>
+    <Size>
+      <CX>12</CX>
+      <CY>12</CY>
+    </Size>
+    <Animation>A_VantageStatAGI</Animation>
+  </StaticAnimation>
+  <Ui2DAnimation item="A_VantageStatDEX">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageStatIcons.tga</Texture>
+      <Location>
+        <X>2</X>
+        <Y>34</Y>
+      </Location>
+      <Size>
+        <CX>12</CX>
+        <CY>12</CY>
+      </Size>
+    </Frames>
+  </Ui2DAnimation>
+  <StaticAnimation item="IW_StatDEXIcon">
+    <ScreenID>IW_StatDEXIcon</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>239</X>
+      <Y>187</Y>
+    </Location>
+    <Size>
+      <CX>12</CX>
+      <CY>12</CY>
+    </Size>
+    <Animation>A_VantageStatDEX</Animation>
+  </StaticAnimation>
+  <Ui2DAnimation item="A_VantageStatWIS">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageStatIcons.tga</Texture>
+      <Location>
+        <X>18</X>
+        <Y>34</Y>
+      </Location>
+      <Size>
+        <CX>12</CX>
+        <CY>12</CY>
+      </Size>
+    </Frames>
+  </Ui2DAnimation>
+  <StaticAnimation item="IW_StatWISIcon">
+    <ScreenID>IW_StatWISIcon</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>239</X>
+      <Y>201</Y>
+    </Location>
+    <Size>
+      <CX>12</CX>
+      <CY>12</CY>
+    </Size>
+    <Animation>A_VantageStatWIS</Animation>
+  </StaticAnimation>
+  <Ui2DAnimation item="A_VantageStatINT">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageStatIcons.tga</Texture>
+      <Location>
+        <X>34</X>
+        <Y>34</Y>
+      </Location>
+      <Size>
+        <CX>12</CX>
+        <CY>12</CY>
+      </Size>
+    </Frames>
+  </Ui2DAnimation>
+  <StaticAnimation item="IW_StatINTIcon">
+    <ScreenID>IW_StatINTIcon</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>239</X>
+      <Y>215</Y>
+    </Location>
+    <Size>
+      <CX>12</CX>
+      <CY>12</CY>
+    </Size>
+    <Animation>A_VantageStatINT</Animation>
+  </StaticAnimation>
+  <Ui2DAnimation item="A_VantageStatCHA">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageStatIcons.tga</Texture>
+      <Location>
+        <X>50</X>
+        <Y>34</Y>
+      </Location>
+      <Size>
+        <CX>12</CX>
+        <CY>12</CY>
+      </Size>
+    </Frames>
+  </Ui2DAnimation>
+  <StaticAnimation item="IW_StatCHAIcon">
+    <ScreenID>IW_StatCHAIcon</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>239</X>
+      <Y>229</Y>
+    </Location>
+    <Size>
+      <CX>12</CX>
+      <CY>12</CY>
+    </Size>
+    <Animation>A_VantageStatCHA</Animation>
+  </StaticAnimation>
+  <Ui2DAnimation item="A_VantageMoneyNormal">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageMoneyControls.tga</Texture>
+      <Location>
+        <X>2</X>
+        <Y>2</Y>
+      </Location>
+      <Size>
+        <CX>46</CX>
+        <CY>22</CY>
+      </Size>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageMoneyFlyby">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageMoneyControls.tga</Texture>
+      <Location>
+        <X>2</X>
+        <Y>27</Y>
+      </Location>
+      <Size>
+        <CX>46</CX>
+        <CY>22</CY>
+      </Size>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageMoneyPressed">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageMoneyControls.tga</Texture>
+      <Location>
+        <X>2</X>
+        <Y>52</Y>
+      </Location>
+      <Size>
+        <CX>46</CX>
+        <CY>22</CY>
+      </Size>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageMoneyPressedFlyby">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageMoneyControls.tga</Texture>
+      <Location>
+        <X>2</X>
+        <Y>77</Y>
+      </Location>
+      <Size>
+        <CX>46</CX>
+        <CY>22</CY>
+      </Size>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageMoneyDisabled">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageMoneyControls.tga</Texture>
+      <Location>
+        <X>2</X>
+        <Y>102</Y>
+      </Location>
+      <Size>
+        <CX>46</CX>
+        <CY>22</CY>
+      </Size>
+    </Frames>
+  </Ui2DAnimation>
+  <StaticAnimation item="IW_Coin0Icon">
+    <ScreenID>IW_Coin0Icon</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>82</X>
+      <Y>184</Y>
+    </Location>
+    <Size>
+      <CX>18</CX>
+      <CY>18</CY>
+    </Size>
+    <Animation>A_PlatinumCoin</Animation>
+  </StaticAnimation>
+  <StaticAnimation item="IW_Coin1Icon">
+    <ScreenID>IW_Coin1Icon</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>82</X>
+      <Y>209</Y>
+    </Location>
+    <Size>
+      <CX>18</CX>
+      <CY>18</CY>
+    </Size>
+    <Animation>A_GoldCoin</Animation>
+  </StaticAnimation>
+  <StaticAnimation item="IW_Coin2Icon">
+    <ScreenID>IW_Coin2Icon</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>82</X>
+      <Y>234</Y>
+    </Location>
+    <Size>
+      <CX>18</CX>
+      <CY>18</CY>
+    </Size>
+    <Animation>A_SilverCoin</Animation>
+  </StaticAnimation>
+  <StaticAnimation item="IW_Coin3Icon">
+    <ScreenID>IW_Coin3Icon</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>82</X>
+      <Y>259</Y>
+    </Location>
+    <Size>
+      <CX>18</CX>
+      <CY>18</CY>
+    </Size>
+    <Animation>A_CopperCoin</Animation>
+  </StaticAnimation>
+  <Ui2DAnimation item="A_VantageStatWEIGHT">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageStatIcons.tga</Texture>
+      <Location><X>2</X><Y>50</Y></Location>
+      <Size><CX>12</CX><CY>12</CY></Size>
+    </Frames>
+  </Ui2DAnimation>
+  <StaticAnimation item="IW_StatWEIGHTIcon">
+    <ScreenID>IW_StatWEIGHTIcon</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location><X>4</X><Y>306</Y></Location>
+    <Size><CX>12</CX><CY>12</CY></Size>
+    <Animation>A_VantageStatWEIGHT</Animation>
+  </StaticAnimation>
   <StaticAnimation item="IW_ResistMagicIcon">
     <ScreenID>IW_ResistMagicIcon</ScreenID>
     <RelativePosition>true</RelativePosition>
@@ -802,99 +1275,103 @@
 		<AlignRight>false</AlignRight>
 	</Label>
 
-	<Label item ="IW_HP">
-		<ScreenID>HPLabel</ScreenID>
-		<!--<Font>3</Font>-->
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>245</X>
-			<Y>50</Y>
-		</Location>
-		<Size>
-			<CX>64</CX>
-			<CY>14</CY>
-		</Size>
-		<Text>HP</Text>
+  <Label item="IW_HP">
+    <ScreenID>HPLabel</ScreenID>
+    <!--<Font>3</Font>-->
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>253</X>
+      <Y>50</Y>
+    </Location>
+    <Size>
+      <CX>32</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>HP</Text>
     <TextColor>
-        <R>200</R>
-        <G>120</G>
-        <B>145</B>
+      <R>200</R>
+      <G>120</G>
+      <B>145</B>
     </TextColor>
-		<NoWrap>true</NoWrap>
-		<AlignCenter>false</AlignCenter>
-		<AlignRight>false</AlignRight>
-	</Label>
-	<Label item ="IW_CurrentHP">
-		<ScreenID>HPNumberLabel</ScreenID>
-		<EQType>70</EQType>
-		<!--<Font>3</Font>-->
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>284</X>
-			<Y>50</Y>
-		</Location>
-		<Size>
-			<CX>60</CX>
-			<CY>14</CY>
-		</Size>
-		<Text>0</Text>
-		<TextColor>
-				<R>240</R>
-				<G>243</G>
-				<B>247</B>
-		</TextColor>
-		<NoWrap>true</NoWrap>
-		<AlignCenter>false</AlignCenter>
-		<AlignRight>true</AlignRight>
-		<AlignLeft>false</AlignLeft>
-	</Label>
+    <NoWrap>true</NoWrap>
+    <AlignCenter>false</AlignCenter>
+    <AlignRight>false</AlignRight>
+    <Font>2</Font>
+  </Label>
+  <Label item="IW_CurrentHP">
+    <ScreenID>HPNumberLabel</ScreenID>
+    <EQType>70</EQType>
+    <!--<Font>3</Font>-->
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>289</X>
+      <Y>50</Y>
+    </Location>
+    <Size>
+      <CX>60</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>0</Text>
+    <TextColor>
+      <R>240</R>
+      <G>243</G>
+      <B>247</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+    <AlignCenter>false</AlignCenter>
+    <AlignRight>true</AlignRight>
+    <AlignLeft>false</AlignLeft>
+    <Font>2</Font>
+  </Label>
 
-	<Label item ="IW_MANA">
-		<ScreenID>MANALabel</ScreenID>
-		<!--<Font>3</Font>-->
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>245</X>
-			<Y>64</Y>
-		</Location>
-		<Size>
-			<CX>64</CX>
-			<CY>14</CY>
-		</Size>
-		<Text>MANA</Text>
+  <Label item="IW_MANA">
+    <ScreenID>MANALabel</ScreenID>
+    <!--<Font>3</Font>-->
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>253</X>
+      <Y>64</Y>
+    </Location>
+    <Size>
+      <CX>32</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>MANA</Text>
     <TextColor>
-        <R>200</R>
-        <G>120</G>
-        <B>145</B>
+      <R>200</R>
+      <G>120</G>
+      <B>145</B>
     </TextColor>
-		<NoWrap>true</NoWrap>
-		<AlignCenter>false</AlignCenter>
-		<AlignRight>false</AlignRight>
-	</Label>
-	<Label item ="IW_MANANumber">
-		<ScreenID>MANANumberLabel</ScreenID>
-		<EQType>128</EQType>
-		<!--<Font>3</Font>-->
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>284</X>
-			<Y>64</Y>
-		</Location>
-		<Size>
-			<CX>60</CX>
-			<CY>14</CY>
-		</Size>
-		<Text>0</Text>
-		<TextColor>
-				<R>240</R>
-				<G>243</G>
-				<B>247</B>
-		</TextColor>
-		<NoWrap>true</NoWrap>
-		<AlignCenter>false</AlignCenter>
-		<AlignRight>true</AlignRight>
-		<AlignLeft>false</AlignLeft>
-	</Label>
+    <NoWrap>true</NoWrap>
+    <AlignCenter>false</AlignCenter>
+    <AlignRight>false</AlignRight>
+    <Font>2</Font>
+  </Label>
+  <Label item="IW_MANANumber">
+    <ScreenID>MANANumberLabel</ScreenID>
+    <EQType>128</EQType>
+    <!--<Font>3</Font>-->
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>289</X>
+      <Y>64</Y>
+    </Location>
+    <Size>
+      <CX>60</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>0</Text>
+    <TextColor>
+      <R>240</R>
+      <G>243</G>
+      <B>247</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+    <AlignCenter>false</AlignCenter>
+    <AlignRight>true</AlignRight>
+    <AlignLeft>false</AlignLeft>
+    <Font>2</Font>
+  </Label>
 
 	<Label item ="IW_END">
 		<ScreenID>ENDLabel</ScreenID>
@@ -944,146 +1421,150 @@
 		<AlignLeft>false</AlignLeft>
 	</Label>
 	
-	<Label item ="IW_AC">
-		<ScreenID>ACLabel</ScreenID>
-		<!--<Font>3</Font>-->
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>245</X>
-			<Y>78</Y>
-		</Location>
-		<Size>
-			<CX>64</CX>
-			<CY>14</CY>
-		</Size>
-		<Text>AC</Text>
+  <Label item="IW_AC">
+    <ScreenID>ACLabel</ScreenID>
+    <!--<Font>3</Font>-->
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>253</X>
+      <Y>78</Y>
+    </Location>
+    <Size>
+      <CX>32</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>AC</Text>
     <TextColor>
-        <R>200</R>
-        <G>120</G>
-        <B>145</B>
+      <R>200</R>
+      <G>120</G>
+      <B>145</B>
     </TextColor>
-		<NoWrap>true</NoWrap>
-		<AlignCenter>false</AlignCenter>
-		<AlignRight>false</AlignRight>
-	</Label>
-	<Label item ="IW_ACNumber">
-		<ScreenID>ACNumberLabel</ScreenID>
-		<EQType>22</EQType>
-		<!--<Font>3</Font>-->
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>284</X>
-			<Y>78</Y>
-		</Location>
-		<Size>
-			<CX>60</CX>
-			<CY>14</CY>
-		</Size>
-		<Text>0</Text>
-		<TextColor>
-				<R>240</R>
-				<G>243</G>
-				<B>247</B>
-		</TextColor>
-		<NoWrap>true</NoWrap>
-		<AlignCenter>false</AlignCenter>
-		<AlignRight>true</AlignRight>
-		<AlignLeft>false</AlignLeft>
-	</Label>
-
-	<Label item ="IW_ATK">
-		<ScreenID>ATKLabel</ScreenID>
-		<!--<Font>3</Font>-->
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>245</X>
-			<Y>92</Y>
-		</Location>
-		<Size>
-			<CX>64</CX>
-			<CY>14</CY>
-		</Size>
-		<Text>ATK</Text>
+    <NoWrap>true</NoWrap>
+    <AlignCenter>false</AlignCenter>
+    <AlignRight>false</AlignRight>
+    <Font>2</Font>
+  </Label>
+  <Label item="IW_ACNumber">
+    <ScreenID>ACNumberLabel</ScreenID>
+    <EQType>22</EQType>
+    <!--<Font>3</Font>-->
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>289</X>
+      <Y>78</Y>
+    </Location>
+    <Size>
+      <CX>60</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>0</Text>
     <TextColor>
-        <R>200</R>
-        <G>120</G>
-        <B>145</B>
+      <R>240</R>
+      <G>243</G>
+      <B>247</B>
     </TextColor>
-		<NoWrap>true</NoWrap>
-		<AlignCenter>false</AlignCenter>
-		<AlignRight>false</AlignRight>
-	</Label>
+    <NoWrap>true</NoWrap>
+    <AlignCenter>false</AlignCenter>
+    <AlignRight>true</AlignRight>
+    <AlignLeft>false</AlignLeft>
+    <Font>2</Font>
+  </Label>
 
-	<Label item ="IW_ATKNumber">
-		<ScreenID>ATKNumberLabel</ScreenID>
-		<EQType>23</EQType>
-		<!--<Font>3</Font>-->
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>284</X>
-			<Y>92</Y>
-		</Location>
-		<Size>
-			<CX>60</CX>
-			<CY>14</CY>
-		</Size>
-		<Text>0</Text>
-		<TextColor>
-				<R>240</R>
-				<G>243</G>
-				<B>247</B>
-		</TextColor>
-		<NoWrap>true</NoWrap>
-		<AlignCenter>false</AlignCenter>
-		<AlignRight>true</AlignRight>
-		<AlignLeft>false</AlignLeft>
-	</Label>
+  <Label item="IW_ATK">
+    <ScreenID>ATKLabel</ScreenID>
+    <!--<Font>3</Font>-->
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>253</X>
+      <Y>92</Y>
+    </Location>
+    <Size>
+      <CX>32</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>ATK</Text>
+    <TextColor>
+      <R>200</R>
+      <G>120</G>
+      <B>145</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+    <AlignCenter>false</AlignCenter>
+    <AlignRight>false</AlignRight>
+    <Font>2</Font>
+  </Label>
 
-	<Label item ="IW_NextLevel">
-		<ScreenID>NextLevelLabel</ScreenID>
-		<Font>3</Font>
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>245</X>
-			<Y>114</Y>
-		</Location>
-		<Size>
-			<CX>118</CX>
-			<CY>14</CY>
-		</Size>
-		<Text>EXP</Text>
-		<TextColor>
-				<R>240</R>
-				<G>243</G>
-				<B>247</B>
-		</TextColor>
-		<NoWrap>true</NoWrap>
-		<AlignCenter>false</AlignCenter>
-		<AlignRight>TRUE</AlignRight>
-	</Label>
+  <Label item="IW_ATKNumber">
+    <ScreenID>ATKNumberLabel</ScreenID>
+    <EQType>23</EQType>
+    <!--<Font>3</Font>-->
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>289</X>
+      <Y>92</Y>
+    </Location>
+    <Size>
+      <CX>60</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>0</Text>
+    <TextColor>
+      <R>240</R>
+      <G>243</G>
+      <B>247</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+    <AlignCenter>false</AlignCenter>
+    <AlignRight>true</AlignRight>
+    <AlignLeft>false</AlignLeft>
+    <Font>2</Font>
+  </Label>
 
-	<Label item ="IW_EXP_Percentage">
-		<EQType>26</EQType>
-		<RelativePosition>true</RelativePosition>
-		<Font>3</Font>
-		<Location>
-			<X>284</X>
-			<Y>114</Y>
-		</Location>
-		<Size>
-			<CX>60</CX>
-			<CY>14</CY>
-		</Size>
-		<TextColor>
-				<R>240</R>
-				<G>243</G>
-				<B>247</B>
-		</TextColor>
-		<NoWrap>true</NoWrap>
-		<AlignLeft>false</AlignLeft>
-		<AlignCenter>false</AlignCenter>
-		<AlignRight>true</AlignRight>
-	</Label>	
+  <Label item="IW_NextLevel">
+    <ScreenID>NextLevelLabel</ScreenID>
+    <Font>2</Font>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>253</X>
+      <Y>114</Y>
+    </Location>
+    <Size>
+      <CX>32</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>EXP</Text>
+    <TextColor>
+      <R>240</R>
+      <G>243</G>
+      <B>247</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+    <AlignCenter>false</AlignCenter>
+    <AlignRight>TRUE</AlignRight>
+  </Label>
+
+  <Label item="IW_EXP_Percentage">
+    <EQType>26</EQType>
+    <RelativePosition>true</RelativePosition>
+    <Font>2</Font>
+    <Location>
+      <X>289</X>
+      <Y>114</Y>
+    </Location>
+    <Size>
+      <CX>60</CX>
+      <CY>14</CY>
+    </Size>
+    <TextColor>
+      <R>240</R>
+      <G>243</G>
+      <B>247</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+    <AlignLeft>false</AlignLeft>
+    <AlignCenter>false</AlignCenter>
+    <AlignRight>true</AlignRight>
+  </Label>
 	
 	<Gauge item = "IW_ExpGauge">
 		<ScreenID>ExpGauge</ScreenID>
@@ -1129,28 +1610,28 @@
 		<ScreenID>AltAdvGauge</ScreenID>
 	</Gauge>
 
-	<Label item ="IW_STR">
-		<ScreenID>STRLabel</ScreenID>
-		<!--<Font>3</Font>-->
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>245</X>
-			<Y>144</Y>
-		</Location>
-		<Size>
-			<CX>70</CX>
-			<CY>14</CY>
-		</Size>
-		<Text>STR</Text>
+  <Label item="IW_STR">
+    <ScreenID>STRLabel</ScreenID>
+    <!--<Font>3</Font>-->
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>253</X>
+      <Y>144</Y>
+    </Location>
+    <Size>
+      <CX>58</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>STR</Text>
     <TextColor>
-        <R>57</R>
-        <G>169</G>
-        <B>255</B>
+      <R>57</R>
+      <G>169</G>
+      <B>255</B>
     </TextColor>
-		<NoWrap>true</NoWrap>
-		<AlignCenter>false</AlignCenter>
-		<AlignRight>false</AlignRight>
-	</Label>
+    <NoWrap>true</NoWrap>
+    <AlignCenter>false</AlignCenter>
+    <AlignRight>false</AlignRight>
+  </Label>
 
 	<Label item ="IW_STRNumber">
 		<ScreenID>STRNumberLabel</ScreenID>
@@ -1177,28 +1658,28 @@
 		<AlignLeft>false</AlignLeft>
 	</Label>
 
-	<Label item ="IW_STA">
-		<ScreenID>STALabel</ScreenID>
-		<!--<Font>3</Font>-->
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>245</X>
-			<Y>158</Y>
-		</Location>
-		<Size>
-			<CX>50</CX>
-			<CY>14</CY>
-		</Size>
-		<Text>STA</Text>
+  <Label item="IW_STA">
+    <ScreenID>STALabel</ScreenID>
+    <!--<Font>3</Font>-->
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>253</X>
+      <Y>158</Y>
+    </Location>
+    <Size>
+      <CX>58</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>STA</Text>
     <TextColor>
-        <R>57</R>
-        <G>169</G>
-        <B>255</B>
+      <R>57</R>
+      <G>169</G>
+      <B>255</B>
     </TextColor>
-		<NoWrap>true</NoWrap>
-		<AlignCenter>false</AlignCenter>
-		<AlignRight>false</AlignRight>
-	</Label>
+    <NoWrap>true</NoWrap>
+    <AlignCenter>false</AlignCenter>
+    <AlignRight>false</AlignRight>
+  </Label>
 	<Label item ="IW_STANumber">
 		<ScreenID>STANumberLabel</ScreenID>
 		<EQType>6</EQType>
@@ -1224,28 +1705,28 @@
 		<AlignLeft>false</AlignLeft>
 	</Label>
 
-	<Label item ="IW_DEX">
-		<ScreenID>DEXLabel</ScreenID>
-		<!--<Font>3</Font>-->
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>245</X>
-			<Y>186</Y>
-		</Location>
-		<Size>
-			<CX>50</CX>
-			<CY>14</CY>
-		</Size>
-		<Text>DEX</Text>
+  <Label item="IW_DEX">
+    <ScreenID>DEXLabel</ScreenID>
+    <!--<Font>3</Font>-->
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>253</X>
+      <Y>186</Y>
+    </Location>
+    <Size>
+      <CX>58</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>DEX</Text>
     <TextColor>
-        <R>57</R>
-        <G>169</G>
-        <B>255</B>
+      <R>57</R>
+      <G>169</G>
+      <B>255</B>
     </TextColor>
-		<NoWrap>true</NoWrap>
-		<AlignCenter>false</AlignCenter>
-		<AlignRight>false</AlignRight>
-	</Label>
+    <NoWrap>true</NoWrap>
+    <AlignCenter>false</AlignCenter>
+    <AlignRight>false</AlignRight>
+  </Label>
 
 	<Label item ="IW_DEXNumber">
 		<ScreenID>DEXNumberLabel</ScreenID>
@@ -1272,28 +1753,28 @@
 		<AlignLeft>false</AlignLeft>
 	</Label>
 
-	<Label item ="IW_AGI">
-		<ScreenID>AGILabel</ScreenID>
-		<!--<Font>3</Font>-->
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>245</X>
-			<Y>172</Y>
-		</Location>
-		<Size>
-			<CX>50</CX>
-			<CY>14</CY>
-		</Size>
-		<Text>AGI</Text>
+  <Label item="IW_AGI">
+    <ScreenID>AGILabel</ScreenID>
+    <!--<Font>3</Font>-->
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>253</X>
+      <Y>172</Y>
+    </Location>
+    <Size>
+      <CX>58</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>AGI</Text>
     <TextColor>
-        <R>57</R>
-        <G>169</G>
-        <B>255</B>
+      <R>57</R>
+      <G>169</G>
+      <B>255</B>
     </TextColor>
-		<NoWrap>true</NoWrap>
-		<AlignCenter>false</AlignCenter>
-		<AlignRight>false</AlignRight>
-	</Label>
+    <NoWrap>true</NoWrap>
+    <AlignCenter>false</AlignCenter>
+    <AlignRight>false</AlignRight>
+  </Label>
 
 	<Label item ="IW_AGINumber">
 		<ScreenID>AGINumberLabel</ScreenID>
@@ -1320,28 +1801,28 @@
 		<AlignLeft>false</AlignLeft>
 	</Label>
 
-	<Label item ="IW_WIS">
-		<ScreenID>WISLabel</ScreenID>
-		<!--<Font>3</Font>-->
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>245</X>
-			<Y>200</Y>
-		</Location>
-		<Size>
-			<CX>50</CX>
-			<CY>14</CY>
-		</Size>
-		<Text>WIS</Text>
+  <Label item="IW_WIS">
+    <ScreenID>WISLabel</ScreenID>
+    <!--<Font>3</Font>-->
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>253</X>
+      <Y>200</Y>
+    </Location>
+    <Size>
+      <CX>58</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>WIS</Text>
     <TextColor>
-        <R>57</R>
-        <G>169</G>
-        <B>255</B>
+      <R>57</R>
+      <G>169</G>
+      <B>255</B>
     </TextColor>
-		<NoWrap>true</NoWrap>
-		<AlignCenter>false</AlignCenter>
-		<AlignRight>false</AlignRight>
-	</Label>
+    <NoWrap>true</NoWrap>
+    <AlignCenter>false</AlignCenter>
+    <AlignRight>false</AlignRight>
+  </Label>
 
 	<Label item ="IW_WISNumber">
 		<ScreenID>WISNumberLabel</ScreenID>
@@ -1368,28 +1849,28 @@
 		<AlignLeft>false</AlignLeft>
 	</Label>
 
-	<Label item ="IW_INT">
-		<ScreenID>INTLabel</ScreenID>
-		<!--<Font>3</Font>-->
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>245</X>
-			<Y>214</Y>
-		</Location>
-		<Size>
-			<CX>50</CX>
-			<CY>14</CY>
-		</Size>
-		<Text>INT</Text>
+  <Label item="IW_INT">
+    <ScreenID>INTLabel</ScreenID>
+    <!--<Font>3</Font>-->
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>253</X>
+      <Y>214</Y>
+    </Location>
+    <Size>
+      <CX>58</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>INT</Text>
     <TextColor>
-        <R>57</R>
-        <G>169</G>
-        <B>255</B>
+      <R>57</R>
+      <G>169</G>
+      <B>255</B>
     </TextColor>
-		<NoWrap>true</NoWrap>
-		<AlignCenter>false</AlignCenter>
-		<AlignRight>false</AlignRight>
-	</Label>
+    <NoWrap>true</NoWrap>
+    <AlignCenter>false</AlignCenter>
+    <AlignRight>false</AlignRight>
+  </Label>
 
 	<Label item ="IW_INTNumber">
 		<ScreenID>INTNumberLabel</ScreenID>
@@ -1416,28 +1897,28 @@
 		<AlignLeft>false</AlignLeft>
 	</Label>
 
-	<Label item ="IW_CHA">
-		<ScreenID>CHALabel</ScreenID>
-		<!--<Font>3</Font>-->
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>245</X>
-			<Y>228</Y>
-		</Location>
-		<Size>
-			<CX>50</CX>
-			<CY>14</CY>
-		</Size>
-		<Text>CHA</Text>
+  <Label item="IW_CHA">
+    <ScreenID>CHALabel</ScreenID>
+    <!--<Font>3</Font>-->
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>253</X>
+      <Y>228</Y>
+    </Location>
+    <Size>
+      <CX>58</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>CHA</Text>
     <TextColor>
-        <R>57</R>
-        <G>169</G>
-        <B>255</B>
+      <R>57</R>
+      <G>169</G>
+      <B>255</B>
     </TextColor>
-		<NoWrap>true</NoWrap>
-		<AlignCenter>false</AlignCenter>
-		<AlignRight>false</AlignRight>
-	</Label>
+    <NoWrap>true</NoWrap>
+    <AlignCenter>false</AlignCenter>
+    <AlignRight>false</AlignRight>
+  </Label>
 
 	<Label item ="IW_CHANumber">
 		<ScreenID>CHANumberLabel</ScreenID>
@@ -1704,239 +2185,231 @@
 		<AlignLeft>false</AlignLeft>
 	</Label>
 
-	<Label item ="IW_Weight">
-		<ScreenID>WeightLabel</ScreenID>
-		<Font>3</Font>
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>25</X>
-			<Y>305</Y>
-		</Location>
-		<Size>
-			<CX>100</CX>
-			<CY>30</CY>
-		</Size>
-		<Text>WEIGHT</Text>
-		<TextColor>
-				<R>240</R>
-				<G>243</G>
-				<B>247</B>
-		</TextColor>
-		<NoWrap>true</NoWrap>
-		<AlignCenter>false</AlignCenter>
-		<AlignRight>false</AlignRight>
-	</Label>
+  <Label item="IW_Weight">
+    <ScreenID>WeightLabel</ScreenID>
+    <Font>2</Font>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>20</X>
+      <Y>305</Y>
+    </Location>
+    <Size>
+      <CX>46</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>WEIGHT</Text>
+    <TextColor>
+      <R>240</R>
+      <G>243</G>
+      <B>247</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+    <AlignCenter>false</AlignCenter>
+    <AlignRight>false</AlignRight>
+  </Label>
 
-	<Label item ="IW_CurrentWeight">
-		<ScreenID>WeightNumberLabel</ScreenID>
-		<EQType>24</EQType>
-		<Font>3</Font>
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>45</X>
-			<Y>305</Y>
-		</Location>
-		<Size>
-			<CX>62</CX>
-			<CY>14</CY>
-		</Size>
-		<Text>0</Text>
-		<TextColor>
-				<R>240</R>
-				<G>243</G>
-				<B>247</B>
-		</TextColor>
-		<NoWrap>true</NoWrap>
-		<AlignCenter>false</AlignCenter>
-		<AlignRight>true</AlignRight>
-	</Label>
+  <Label item="IW_CurrentWeight">
+    <ScreenID>WeightNumberLabel</ScreenID>
+    <EQType>24</EQType>
+    <Font>2</Font>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>70</X>
+      <Y>305</Y>
+    </Location>
+    <Size>
+      <CX>42</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>0</Text>
+    <TextColor>
+      <R>240</R>
+      <G>243</G>
+      <B>247</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+    <AlignCenter>false</AlignCenter>
+    <AlignRight>true</AlignRight>
+  </Label>
 
-	<Label item ="IW_WeightNumber">
-		<Font>3</Font>
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>108</X>
-			<Y>305</Y>
-		</Location>
-		<Size>
-			<CX>4</CX>
-			<CY>14</CY>
-		</Size>
-		<Text>/</Text>
-		<TextColor>
-				<R>240</R>
-				<G>243</G>
-				<B>247</B>
-		</TextColor>
-		<NoWrap>true</NoWrap>
-		<AlignCenter>false</AlignCenter>
-		<AlignRight>false</AlignRight>
-	</Label>
+  <Label item="IW_WeightNumber">
+    <Font>2</Font>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>115</X>
+      <Y>305</Y>
+    </Location>
+    <Size>
+      <CX>4</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>/</Text>
+    <TextColor>
+      <R>240</R>
+      <G>243</G>
+      <B>247</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+    <AlignCenter>false</AlignCenter>
+    <AlignRight>false</AlignRight>
+  </Label>
 
-	<Label item ="IW_MaxWeight">
-		<EQType>25</EQType>
-		<Font>3</Font>
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>112</X>
-			<Y>305</Y>
-		</Location>
-		<Size>
-			<CX>32</CX>
-			<CY>14</CY>
-		</Size>
-		<Text></Text>
-		<TextColor>
-				<R>240</R>
-				<G>243</G>
-				<B>247</B>
-		</TextColor>
-		<NoWrap>true</NoWrap>
-		<AlignCenter>false</AlignCenter>
-		<AlignRight>false</AlignRight>
-		<AlignLeft>true</AlignLeft>
-	</Label>
+  <Label item="IW_MaxWeight">
+    <EQType>25</EQType>
+    <Font>2</Font>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>122</X>
+      <Y>305</Y>
+    </Location>
+    <Size>
+      <CX>29</CX>
+      <CY>14</CY>
+    </Size>
+    <Text></Text>
+    <TextColor>
+      <R>240</R>
+      <G>243</G>
+      <B>247</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+    <AlignCenter>false</AlignCenter>
+    <AlignRight>false</AlignRight>
+    <AlignLeft>true</AlignLeft>
+  </Label>
 
-	<Button item = "IW_Money0">
-		<ScreenID>IW_Money0</ScreenID>
-		<!--<Font>3</Font>-->
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>81</X>
-			<Y>180</Y>
-		</Location>
-		<Size>
-			<CX>70</CX>
-			<CY>24</CY>
-		</Size>
-		<Style_Transparent>false</Style_Transparent>
-		<!--<TooltipReference/>-->
-		<Style_Checkbox>false</Style_Checkbox>
-		<!--<RadioGroup/>-->
-		<Text>9999</Text>
-		<TextColor>
-				<R>240</R>
-				<G>243</G>
-				<B>247</B>
-		</TextColor>
-		<ButtonDrawTemplate>
-			<!-- <Normal>A_RecessedCoinBox</Normal> -->
-			<NormalDecal>A_PlatinumCoin</NormalDecal>
-		</ButtonDrawTemplate>
-		<DecalOffset>
-			<X>1</X>
-			<Y>4</Y>
-		</DecalOffset>
-		<DecalSize>
-			<CX>18</CX>
-			<CY>18</CY>
-		</DecalSize>
-	</Button>
-	<Button item = "IW_Money1">
-		<ScreenID>IW_Money1</ScreenID>
-		<!--<Font>3</Font>-->
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>81</X>
-			<Y>205</Y>
-		</Location>
-		<Size>
-			<CX>70</CX>
-			<CY>24</CY>
-		</Size>
-		<Style_Transparent>false</Style_Transparent>
-		<!--<TooltipReference/>-->
-		<Style_Checkbox>false</Style_Checkbox>
-		<!--<RadioGroup/>-->
-		<Text>9999</Text>
-		<TextColor>
-				<R>240</R>
-				<G>243</G>
-				<B>247</B>
-		</TextColor>
-		<ButtonDrawTemplate>
-			<!-- <Normal>A_RecessedCoinBox</Normal> -->
-			<NormalDecal>A_GoldCoin</NormalDecal>
-		</ButtonDrawTemplate>
-		<DecalOffset>
-			<X>1</X>
-			<Y>4</Y>
-		</DecalOffset>
-		<DecalSize>
-			<CX>18</CX>
-			<CY>18</CY>
-		</DecalSize>
-	</Button>
-	<Button item = "IW_Money2">
-		<ScreenID>IW_Money2</ScreenID>
-		<!--<Font>3</Font>-->
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>81</X>
-			<Y>230</Y>
-		</Location>
-		<Size>
-			<CX>70</CX>
-			<CY>24</CY>
-		</Size>
-		<Style_Transparent>false</Style_Transparent>
-		<!--<TooltipReference/>-->
-		<Style_Checkbox>false</Style_Checkbox>
-		<!--<RadioGroup/>-->
-		<Text>9999</Text>
-		<TextColor>
-				<R>240</R>
-				<G>243</G>
-				<B>247</B>
-		</TextColor>
-		<ButtonDrawTemplate>
-			<!-- <Normal>A_RecessedCoinBox</Normal> -->
-			<NormalDecal>A_SilverCoin</NormalDecal>
-		</ButtonDrawTemplate>
-		<DecalOffset>
-			<X>1</X>
-			<Y>4</Y>
-		</DecalOffset>
-		<DecalSize>
-			<CX>18</CX>
-			<CY>18</CY>
-		</DecalSize>
-	</Button>
-	<Button item = "IW_Money3">
-		<ScreenID>IW_Money3</ScreenID>
-		<!--<Font>3</Font>-->
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>81</X>
-			<Y>255</Y>
-		</Location>
-		<Size>
-			<CX>70</CX>
-			<CY>24</CY>
-		</Size>
-		<Style_Transparent>false</Style_Transparent>
-		<!--<TooltipReference/>-->
-		<Style_Checkbox>false</Style_Checkbox>
-		<!--<RadioGroup/>-->
-		<Text>9999</Text>
-		<TextColor>
-				<R>240</R>
-				<G>243</G>
-				<B>247</B>
-		</TextColor>
-		<ButtonDrawTemplate>
-			<!-- <Normal>A_RecessedCoinBox</Normal> -->
-			<NormalDecal>A_CopperCoin</NormalDecal>
-		</ButtonDrawTemplate>
-		<DecalOffset>
-			<X>1</X>
-			<Y>4</Y>
-		</DecalOffset>
-		<DecalSize>
-			<CX>18</CX>
-			<CY>18</CY>
-		</DecalSize>
-	</Button>
+  <Button item="IW_Money0">
+    <ScreenID>IW_Money0</ScreenID>
+    <!--<Font>3</Font>-->
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>105</X>
+      <Y>181</Y>
+    </Location>
+    <Size>
+      <CX>46</CX>
+      <CY>22</CY>
+    </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <!--<TooltipReference/>-->
+    <Style_Checkbox>false</Style_Checkbox>
+    <!--<RadioGroup/>-->
+    <Text>9999</Text>
+    <TextColor>
+      <R>240</R>
+      <G>243</G>
+      <B>247</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_VantageMoneyNormal</Normal>
+      <Flyby>A_VantageMoneyFlyby</Flyby>
+      <Pressed>A_VantageMoneyPressed</Pressed>
+      <PressedFlyby>A_VantageMoneyPressedFlyby</PressedFlyby>
+      <Disabled>A_VantageMoneyDisabled</Disabled>
+    </ButtonDrawTemplate>
+    <Font>2</Font>
+    <Style_Border>false</Style_Border>
+    <TooltipReference>Click the amount to pick up Platinum; drop coins on the amount to deposit.</TooltipReference>
+  </Button>
+  <Button item="IW_Money1">
+    <ScreenID>IW_Money1</ScreenID>
+    <!--<Font>3</Font>-->
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>105</X>
+      <Y>206</Y>
+    </Location>
+    <Size>
+      <CX>46</CX>
+      <CY>22</CY>
+    </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <!--<TooltipReference/>-->
+    <Style_Checkbox>false</Style_Checkbox>
+    <!--<RadioGroup/>-->
+    <Text>9999</Text>
+    <TextColor>
+      <R>240</R>
+      <G>243</G>
+      <B>247</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_VantageMoneyNormal</Normal>
+      <Flyby>A_VantageMoneyFlyby</Flyby>
+      <Pressed>A_VantageMoneyPressed</Pressed>
+      <PressedFlyby>A_VantageMoneyPressedFlyby</PressedFlyby>
+      <Disabled>A_VantageMoneyDisabled</Disabled>
+    </ButtonDrawTemplate>
+    <Font>2</Font>
+    <Style_Border>false</Style_Border>
+    <TooltipReference>Click the amount to pick up Gold; drop coins on the amount to deposit.</TooltipReference>
+  </Button>
+  <Button item="IW_Money2">
+    <ScreenID>IW_Money2</ScreenID>
+    <!--<Font>3</Font>-->
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>105</X>
+      <Y>231</Y>
+    </Location>
+    <Size>
+      <CX>46</CX>
+      <CY>22</CY>
+    </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <!--<TooltipReference/>-->
+    <Style_Checkbox>false</Style_Checkbox>
+    <!--<RadioGroup/>-->
+    <Text>9999</Text>
+    <TextColor>
+      <R>240</R>
+      <G>243</G>
+      <B>247</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_VantageMoneyNormal</Normal>
+      <Flyby>A_VantageMoneyFlyby</Flyby>
+      <Pressed>A_VantageMoneyPressed</Pressed>
+      <PressedFlyby>A_VantageMoneyPressedFlyby</PressedFlyby>
+      <Disabled>A_VantageMoneyDisabled</Disabled>
+    </ButtonDrawTemplate>
+    <Font>2</Font>
+    <Style_Border>false</Style_Border>
+    <TooltipReference>Click the amount to pick up Silver; drop coins on the amount to deposit.</TooltipReference>
+  </Button>
+  <Button item="IW_Money3">
+    <ScreenID>IW_Money3</ScreenID>
+    <!--<Font>3</Font>-->
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>105</X>
+      <Y>256</Y>
+    </Location>
+    <Size>
+      <CX>46</CX>
+      <CY>22</CY>
+    </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <!--<TooltipReference/>-->
+    <Style_Checkbox>false</Style_Checkbox>
+    <!--<RadioGroup/>-->
+    <Text>9999</Text>
+    <TextColor>
+      <R>240</R>
+      <G>243</G>
+      <B>247</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_VantageMoneyNormal</Normal>
+      <Flyby>A_VantageMoneyFlyby</Flyby>
+      <Pressed>A_VantageMoneyPressed</Pressed>
+      <PressedFlyby>A_VantageMoneyPressedFlyby</PressedFlyby>
+      <Disabled>A_VantageMoneyDisabled</Disabled>
+    </ButtonDrawTemplate>
+    <Font>2</Font>
+    <Style_Border>false</Style_Border>
+    <TooltipReference>Click the amount to pick up Copper; drop coins on the amount to deposit.</TooltipReference>
+  </Button>
 
 	<Button item = "IW_Skills">
 		<ScreenID>IW_Skills</ScreenID>
@@ -2496,9 +2969,13 @@
     <Pieces>InvSlot27</Pieces>
     <Pieces>InvSlot28</Pieces>
     <Pieces>InvSlot29</Pieces>
+    <Pieces>IW_Coin0Icon</Pieces>
     <Pieces>IW_Money0</Pieces>
+    <Pieces>IW_Coin1Icon</Pieces>
     <Pieces>IW_Money1</Pieces>
+    <Pieces>IW_Coin2Icon</Pieces>
     <Pieces>IW_Money2</Pieces>
+    <Pieces>IW_Coin3Icon</Pieces>
     <Pieces>IW_Money3</Pieces>
     <Pieces>IW_Skills</Pieces>
     <Pieces>IW_AltAdvBtn</Pieces>
@@ -2507,29 +2984,41 @@
     <Pieces>IW_Level</Pieces>
     <Pieces>IW_Class</Pieces>
     <Pieces>IW_Deity</Pieces>
+    <Pieces>IW_StatHPIcon</Pieces>
     <Pieces>IW_HP</Pieces>
     <Pieces>IW_CurrentHP</Pieces>
+    <Pieces>IW_StatMANAIcon</Pieces>
     <Pieces>IW_MANA</Pieces>
     <Pieces>IW_MANANumber</Pieces>
+    <Pieces>IW_StatACIcon</Pieces>
     <Pieces>IW_AC</Pieces>
     <Pieces>IW_ACNumber</Pieces>
+    <Pieces>IW_StatATKIcon</Pieces>
     <Pieces>IW_ATK</Pieces>
     <Pieces>IW_ATKNumber</Pieces>
+    <Pieces>IW_StatEXPIcon</Pieces>
     <Pieces>IW_NextLevel</Pieces>
     <Pieces>IW_EXP_Percentage</Pieces>
     <Pieces>IW_ExpGauge</Pieces>
+    <Pieces>IW_StatSTRIcon</Pieces>
     <Pieces>IW_STR</Pieces>
     <Pieces>IW_STRNumber</Pieces>
+    <Pieces>IW_StatSTAIcon</Pieces>
     <Pieces>IW_STA</Pieces>
     <Pieces>IW_STANumber</Pieces>
+    <Pieces>IW_StatAGIIcon</Pieces>
     <Pieces>IW_AGI</Pieces>
     <Pieces>IW_AGINumber</Pieces>
+    <Pieces>IW_StatDEXIcon</Pieces>
     <Pieces>IW_DEX</Pieces>
     <Pieces>IW_DEXNumber</Pieces>
+    <Pieces>IW_StatWISIcon</Pieces>
     <Pieces>IW_WIS</Pieces>
     <Pieces>IW_WISNumber</Pieces>
+    <Pieces>IW_StatINTIcon</Pieces>
     <Pieces>IW_INT</Pieces>
     <Pieces>IW_INTNumber</Pieces>
+    <Pieces>IW_StatCHAIcon</Pieces>
     <Pieces>IW_CHA</Pieces>
     <Pieces>IW_CHANumber</Pieces>
     <Pieces>IW_ResistPoisonIcon</Pieces>
@@ -2547,6 +3036,7 @@
     <Pieces>IW_ResistColdIcon</Pieces>
     <Pieces>IW_Cold</Pieces>
     <Pieces>IW_ColdNumber</Pieces>
+    <Pieces>IW_StatWEIGHTIcon</Pieces>
     <Pieces>IW_Weight</Pieces>
     <Pieces>IW_CurrentWeight</Pieces>
     <Pieces>IW_WeightNumber</Pieces>

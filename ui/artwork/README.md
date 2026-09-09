@@ -20,3 +20,33 @@ The version digits are **not** sampled from the reference. The native XML label
 
 Regenerate only into the canonical editing skin, then export with the normal
 UI packaging script. Do not regenerate into an installed version folder.
+
+## Inventory stat sprites
+
+`vantage-stat-icons.png` is the original 1448x1086 RGBA sprite sheet produced by
+the built-in Image Gen tool for UI 1.44.69, not a client dependency. It has real
+transparent alpha. `scripts/ui_inventory_details.cs` preserves that alpha and
+the aspect ratio while packing twelve 12x12 crops into `VantageStatIcons.tga`.
+Sprites are separated by four-pixel atlas gutters. Do not edit resistance or
+coin artwork to regenerate these assets.
+
+Final prompt: create one production game UI sprite atlas for Vantage UI,
+matching tiny classic fantasy RPG resistance symbols, exactly twelve separate
+icons in a four-column, three-row grid. Strong simple silhouettes, tiny
+jewel-like painted 3D relief, top-left highlights, restrained rich colors,
+readable at 12x12. Row 1: ruby heart (HP), blue teardrop crystal (MANA), silver
+kite shield (AC), crossed steel swords (ATK). Row 2: golden four-point star
+(EXP), bronze fist (STR), amber lightning (STA), pale green feather (AGI).
+Row 3: silver hand (DEX), ivory owl (WIS), violet book (INT), gold crown (CHA).
+Same optical size, centered, generous clear gutters; isolated objects without
+tiles, discs, boxes, shadows, external glow, text, numbers or watermark.
+Genuine transparent alpha, no simulated checkerboard; a sprite sheet, not a UI
+mockup. Native-size preview and XML layout checks are not in-game validation.
+
+`vantage-weight-icon.png` was generated separately with the built-in tool after
+the user requested WEIGHT. Final prompt: one squat iron balance-weight with an
+arched handle, broad trapezoid body, dark silver metal, bright top-left bevels
+and a small muted bronze accent. Same tiny painted fantasy RPG style, clear
+12-pixel silhouette, no inscription or frame, no external shadow or glow;
+centered with generous margins and genuine transparent alpha. The packer adds
+it at (2,50) in the expanded 64x64 atlas without altering the first twelve cells.

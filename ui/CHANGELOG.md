@@ -1,5 +1,22 @@
 # VantageUI releases
 
+## 1.44.69
+
+Install folder: `VantageUI-v1.44.69`.
+
+- Add thirteen original, transparent 12-pixel fantasy stat icons alongside HP,
+  MANA, AC, ATK, EXP, WEIGHT and the seven attributes in the main inventory. Align with
+  the existing resistance icons, keep the abbreviations and live native values.
+- Separate each unchanged coin icon from its amount. Amounts remain native
+  money buttons, in small rounded neutral boxes with a restrained gold edge
+  and distinct hover/pressed states. Click or drop on the amount to move money.
+- Preserve inventory size, equipment/bag slots, resistance artwork, XP bindings,
+  Actions, Options and the compact hotbar layout. Bag fullness is not simulated:
+  the legacy XML has no verified per-bag free-slot counter binding.
+
+Load manually with `/loadskin VantageUI-v1.44.69 1`. Artwork/geometry and automated
+tests are checked; native game rendering and money interaction need manual review.
+
 ## 1.44.68
 
 Install folder: `VantageUI-v1.44.68`.
