@@ -71,7 +71,7 @@ def test_inventory_resistance_icons_clear_slots_labels_and_window_edges(school):
     # The rightmost bag column ends at 235; keep real space before the icon.
     for name in ('InvSlot28', 'InvSlot29'):
         sx, sy, sw, sh = rect(item(xml, 'InvSlot', name))
-        assert x >= sx + sw + 4
+        assert x >= sx + sw + 10
     assert x + w + 2 <= lx and lx + lw + 4 <= vx
     assert ly == vy and ly + lh / 2 == y + h / 2
     window = item(xml, 'Screen', 'InventoryWindow')

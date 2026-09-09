@@ -1,5 +1,23 @@
 # VantageUI releases
 
+## 1.44.70
+
+Install folder: `VantageUI-v1.44.70`.
+
+- Give the inventory stat/resistance icon rail a ten-pixel gap from the actual
+  equipment edge and sixteen from bags. The prior rail overlapped the wider
+  equipment column by two pixels, although it cleared bags by four.
+- Extend only the right-hand inventory statistics area by 34 pixels (389x355
+  window). Keep equipment, bags, money, weight, bottom buttons and height fixed.
+- Give HP/MANA and other resource values 72-pixel boxes, attributes/resists
+  38-pixel boxes, and a shared right edge with 17 pixels of outer-frame clearance.
+  Budget for `1,000/1,000` and `1,000` without changing the client's number format.
+- Align the character heading and XP gauge with the expanded stat area while
+  preserving the native labels, values, fonts, animations and XP binding.
+
+Load manually with `/loadskin VantageUI-v1.44.70 1`. Automated layout/asset checks
+are not a substitute for reviewing the new dimensions inside EverQuest.
+
 ## 1.44.69
 
 Install folder: `VantageUI-v1.44.69`.

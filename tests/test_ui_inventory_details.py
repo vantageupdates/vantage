@@ -38,9 +38,9 @@ def test_stat_icons_keep_native_values_and_clear_label_value_gutters(i):
     icon = node('StaticAnimation', f'IW_Stat{stat}Icon')
     label = node('Label', 'IW_NextLevel' if stat == 'EXP' else 'IW_' + stat)
     value = node('Label', VALUES[i])
-    assert rect(icon) == (239, YS[i] + 1, 12, 12)
-    assert rect(label) == (253, YS[i], 32 if i < 5 else 58, 14)
-    assert rect(value) == ((289, YS[i], 60, 14) if i < 5 else (315, YS[i], 30, 14))
+    assert rect(icon) == (251, YS[i] + 1, 12, 12)
+    assert rect(label) == (265, YS[i], 31 if i < 5 else 62, 14)
+    assert rect(value) == ((300, YS[i], 72, 14) if i < 5 else (334, YS[i], 38, 14))
     if i < 5:
         assert label.findtext('Font') == value.findtext('Font') == '2'
     assert value.findtext('EQType') == EQTYPES[i]
@@ -123,9 +123,9 @@ def test_money_faces_have_clear_round_corners_and_separated_states(i, state):
     assert r == g == b and a == 255  # Neutral, never tinted panel faces.
 
 
-def test_inventory_window_and_bag_positions_remain_fixed_without_fake_capacity_gauges():
+def test_inventory_height_and_bag_positions_remain_fixed_without_fake_capacity_gauges():
     root = ET.parse(SKIN / 'EQUI_Inventory.xml').getroot()
-    assert rect(node('Screen', 'InventoryWindow')) == (100, 50, 355, 355)
+    assert rect(node('Screen', 'InventoryWindow')) == (100, 50, 389, 355)
     for i in range(8):
         slot = node('InvSlot', f'InvSlot{i + 22}')
         assert rect(slot) == (156 + 39 * (i // 4), 165 + 39 * (i % 4), 40, 40)

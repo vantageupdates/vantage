@@ -76,7 +76,7 @@ def test_inventory_native_equipment_slots_are_bound_and_nonoverlapping():
     root = _root("EQUI_Inventory.xml")
     window = _item(root, "Screen", "InventoryWindow")
     window_size = _pair(window, "Size", "CX", "CY")
-    assert window_size == (355, 355)
+    assert window_size == (389, 355)
     pieces = [piece.text.strip() for piece in window.findall("Pieces")]
 
     # Preserve the existing minimal InvSlot0 definition rather than inventing a
