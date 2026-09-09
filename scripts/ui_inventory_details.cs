@@ -17,6 +17,14 @@ public static class VantageInventoryDetails {
  }
  public static void Icons(string source,string weightSource,string target,string preview) {
   if(Path.GetFileName(target)!="VantageStatIcons.tga")throw new ArgumentException("Dedicated atlas only");
+  PackIcons(source,weightSource,target,preview,12);
+ }
+ public static void CompactIcons(string source,string weightSource,string target,string preview) {
+  if(Path.GetFileName(target)!="VantageCompactStatIcons.tga")throw new ArgumentException("Dedicated compact atlas only");
+  PackIcons(source,weightSource,target,preview,10);
+ }
+ static void PackIcons(string source,string weightSource,string target,string preview,int size) {
+  float inset=(16-size)/2f;
   using(var s=new Bitmap(source))using(var atlas=new Bitmap(64,64)) {
    if(s.Width!=1448||s.Height!=1086)throw new ArgumentException("Expected approved 1448x1086 RGBA sheet");
    int[] rows={0,375,695,1086};
@@ -28,9 +36,9 @@ public static class VantageInventoryDetails {
      for(int y=rows[row];y<rows[row+1];y++)for(int x=col*362;x<(col+1)*362;x++)
       if(s.GetPixel(x,y).A>=32){left=Math.Min(left,x);right=Math.Max(right,x);top=Math.Min(top,y);bottom=Math.Max(bottom,y);}
      if(right<=left||bottom<=top)throw new Exception("Missing sprite");
-     int w=right-left+1,h=bottom-top+1;float scale=11f/Math.Max(w,h);
+     int w=right-left+1,h=bottom-top+1;float scale=(size-1f)/Math.Max(w,h);
      // Preserve the generated alpha and aspect ratio, with a clear cell gutter.
-     g.DrawImage(s,new RectangleF(col*16+2+(12-w*scale)/2,row*16+2+(12-h*scale)/2,w*scale,h*scale),
+     g.DrawImage(s,new RectangleF(col*16+inset+(size-w*scale)/2,row*16+inset+(size-h*scale)/2,w*scale,h*scale),
                  new RectangleF(left,top,w,h),GraphicsUnit.Pixel);
     }
     using(var weight=new Bitmap(weightSource)) {
@@ -38,8 +46,8 @@ public static class VantageInventoryDetails {
      for(int y=0;y<weight.Height;y++)for(int x=0;x<weight.Width;x++)
       if(weight.GetPixel(x,y).A>=32){l=Math.Min(l,x);r=Math.Max(r,x);t=Math.Min(t,y);b=Math.Max(b,y);}
      if(r<=l||b<=t||weight.GetPixel(0,0).A!=0)throw new Exception("Expected transparent weight sprite");
-     float scale=11f/Math.Max(r-l+1,b-t+1),w=(r-l+1)*scale,h=(b-t+1)*scale;
-     g.DrawImage(weight,new RectangleF(2+(12-w)/2,50+(12-h)/2,w,h),new RectangleF(l,t,r-l+1,b-t+1),GraphicsUnit.Pixel);
+     float scale=(size-1f)/Math.Max(r-l+1,b-t+1),w=(r-l+1)*scale,h=(b-t+1)*scale;
+     g.DrawImage(weight,new RectangleF(inset+(size-w)/2,48+inset+(size-h)/2,w,h),new RectangleF(l,t,r-l+1,b-t+1),GraphicsUnit.Pixel);
     }
    }
    Save(atlas,target);if(!String.IsNullOrEmpty(preview))atlas.Save(preview,ImageFormat.Png);

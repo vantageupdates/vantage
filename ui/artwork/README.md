@@ -50,3 +50,10 @@ and a small muted bronze accent. Same tiny painted fantasy RPG style, clear
 12-pixel silhouette, no inscription or frame, no external shadow or glow;
 centered with generous margins and genuine transparent alpha. The packer adds
 it at (2,50) in the expanded 64x64 atlas without altering the first twelve cells.
+
+UI 1.44.70 adds `VantageCompactStatIcons.tga`: the same source artwork packed
+directly at 10x10 for the 11-pixel Actions/group stat rows, not cropped from the
+12-pixel sprites at runtime. Call `VantageInventoryDetails.CompactIcons` with
+the same two source PNGs. Its 64x64 atlas uses (3+16*column,3+16*row) cells and
+shared animations in `EQUI_Animations.xml`. The original inventory atlas and
+all resistance sprites remain unchanged.

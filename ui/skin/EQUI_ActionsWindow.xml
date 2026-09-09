@@ -7,7 +7,7 @@
     <ScreenID>AW_ResistMagicIcon</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>55</X>
+      <X>70</X>
       <Y>24</Y>
     </Location>
     <Size>
@@ -20,7 +20,7 @@
     <ScreenID>AW_ResistFireIcon</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>55</X>
+      <X>70</X>
       <Y>35</Y>
     </Location>
     <Size>
@@ -33,7 +33,7 @@
     <ScreenID>AW_ResistColdIcon</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>55</X>
+      <X>70</X>
       <Y>46</Y>
     </Location>
     <Size>
@@ -46,7 +46,7 @@
     <ScreenID>AW_ResistDiseaseIcon</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>55</X>
+      <X>70</X>
       <Y>57</Y>
     </Location>
     <Size>
@@ -59,7 +59,7 @@
     <ScreenID>AW_ResistPoisonIcon</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>55</X>
+      <X>70</X>
       <Y>68</Y>
     </Location>
     <Size>
@@ -848,27 +848,27 @@
     </ButtonDrawTemplate>
   </Button>
 	
-<Label item ="STRtxt">
+  <Label item="STRtxt">
     <ScreenID>STRLabel</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>2</X>
+      <X>15</X>
       <Y>0</Y>
     </Location>
     <Size>
-      <CX>40</CX>
+      <CX>22</CX>
       <CY>14</CY>
     </Size>
     <Text>STR</Text>
     <TextColor>
-        <R>57</R>
-        <G>169</G>
-        <B>255</B>
+      <R>57</R>
+      <G>169</G>
+      <B>255</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignLeft>true</AlignLeft>
     <AlignRight>false</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
 
   <Label item="STRnum">
@@ -877,11 +877,11 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>25</X>
+      <X>40</X>
       <Y>0</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>26</CX>
       <CY>14</CY>
     </Size>
     <Text>255</Text>
@@ -892,30 +892,30 @@
     </TextColor>
     <NoWrap>true</NoWrap>
     <AlignRight>true</AlignRight>
-    <AlignRight>false</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
 
-  <Label item ="STAtxt">
+  <Label item="STAtxt">
     <ScreenID>STALabel</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>2</X>
+      <X>15</X>
       <Y>11</Y>
     </Location>
     <Size>
-      <CX>40</CX>
+      <CX>22</CX>
       <CY>14</CY>
     </Size>
     <Text>STA</Text>
     <TextColor>
-        <R>57</R>
-        <G>169</G>
-        <B>255</B>
+      <R>57</R>
+      <G>169</G>
+      <B>255</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignLeft>true</AlignLeft>
     <AlignRight>false</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
 
   <Label item="STAnum">
@@ -924,11 +924,11 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>25</X>
+      <X>40</X>
       <Y>11</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>26</CX>
       <CY>14</CY>
     </Size>
     <Text>255</Text>
@@ -939,30 +939,30 @@
     </TextColor>
     <NoWrap>true</NoWrap>
     <AlignRight>true</AlignRight>
-    <AlignRight>false</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
 
-  <Label item ="AGItxt">
+  <Label item="AGItxt">
     <ScreenID>AGILabel</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>2</X>
+      <X>15</X>
       <Y>22</Y>
     </Location>
     <Size>
-      <CX>40</CX>
+      <CX>22</CX>
       <CY>14</CY>
     </Size>
     <Text>AGI</Text>
     <TextColor>
-        <R>57</R>
-        <G>169</G>
-        <B>255</B>
+      <R>57</R>
+      <G>169</G>
+      <B>255</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignLeft>true</AlignLeft>
     <AlignRight>false</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
   <Label item="AGInum">
     <ScreenID>AGINumberLabel</ScreenID>
@@ -970,11 +970,11 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>25</X>
+      <X>40</X>
       <Y>22</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>26</CX>
       <CY>14</CY>
     </Size>
     <Text>255</Text>
@@ -985,30 +985,30 @@
     </TextColor>
     <NoWrap>true</NoWrap>
     <AlignRight>true</AlignRight>
-    <AlignRight>false</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
 
-  <Label item ="DEXtxt">
+  <Label item="DEXtxt">
     <ScreenID>DEXLabel</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>2</X>
+      <X>15</X>
       <Y>33</Y>
     </Location>
     <Size>
-      <CX>40</CX>
+      <CX>22</CX>
       <CY>14</CY>
     </Size>
     <Text>DEX</Text>
     <TextColor>
-        <R>57</R>
-        <G>169</G>
-        <B>255</B>
+      <R>57</R>
+      <G>169</G>
+      <B>255</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignLeft>true</AlignLeft>
     <AlignRight>false</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
 
   <Label item="DEXnum">
@@ -1017,11 +1017,11 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>25</X>
+      <X>40</X>
       <Y>33</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>26</CX>
       <CY>14</CY>
     </Size>
     <Text>255</Text>
@@ -1032,30 +1032,30 @@
     </TextColor>
     <NoWrap>true</NoWrap>
     <AlignRight>true</AlignRight>
-    <AlignRight>false</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
 
-  <Label item ="WIStxt">
+  <Label item="WIStxt">
     <ScreenID>WISLabel</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>2</X>
+      <X>15</X>
       <Y>44</Y>
     </Location>
     <Size>
-      <CX>40</CX>
+      <CX>22</CX>
       <CY>14</CY>
     </Size>
     <Text>WIS</Text>
     <TextColor>
-        <R>57</R>
-        <G>169</G>
-        <B>255</B>
+      <R>57</R>
+      <G>169</G>
+      <B>255</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignLeft>true</AlignLeft>
     <AlignRight>false</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
 
   <Label item="WISnum">
@@ -1064,11 +1064,11 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>25</X>
+      <X>40</X>
       <Y>44</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>26</CX>
       <CY>14</CY>
     </Size>
     <Text>255</Text>
@@ -1079,30 +1079,30 @@
     </TextColor>
     <NoWrap>true</NoWrap>
     <AlignRight>true</AlignRight>
-    <AlignRight>false</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
 
-  <Label item ="CHAtxt">
+  <Label item="CHAtxt">
     <ScreenID>CHALabel</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>2</X>
+      <X>15</X>
       <Y>66</Y>
     </Location>
     <Size>
-      <CX>40</CX>
+      <CX>22</CX>
       <CY>14</CY>
     </Size>
     <Text>CHA</Text>
     <TextColor>
-        <R>57</R>
-        <G>169</G>
-        <B>255</B>
+      <R>57</R>
+      <G>169</G>
+      <B>255</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignLeft>true</AlignLeft>
     <AlignRight>false</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
 
   <Label item="CHAnum">
@@ -1111,11 +1111,11 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>25</X>
+      <X>40</X>
       <Y>66</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>26</CX>
       <CY>14</CY>
     </Size>
     <Text>255</Text>
@@ -1126,30 +1126,30 @@
     </TextColor>
     <NoWrap>true</NoWrap>
     <AlignRight>true</AlignRight>
-    <AlignRight>false</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
 
-  <Label item ="INTtxt">
+  <Label item="INTtxt">
     <ScreenID>INTLabel</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>2</X>
+      <X>15</X>
       <Y>55</Y>
     </Location>
     <Size>
-      <CX>40</CX>
+      <CX>22</CX>
       <CY>14</CY>
     </Size>
     <Text>INT</Text>
     <TextColor>
-        <R>57</R>
-        <G>169</G>
-        <B>255</B>
+      <R>57</R>
+      <G>169</G>
+      <B>255</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignLeft>true</AlignLeft>
     <AlignRight>false</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
 
   <Label item="INTnum">
@@ -1158,11 +1158,11 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>25</X>
+      <X>40</X>
       <Y>55</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>26</CX>
       <CY>14</CY>
     </Size>
     <Text>255</Text>
@@ -1173,244 +1173,260 @@
     </TextColor>
     <NoWrap>true</NoWrap>
     <AlignRight>true</AlignRight>
-    <AlignRight>false</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
   
-   <Label item ="SvPnum">
+  <Label item="SvPnum">
     <ScreenID>PR_Numb</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>105</X>
+      <X>108</X>
       <Y>66</Y>
     </Location>
     <Size>
-      <CX>30</CX>
-      <CY>15</CY>
+      <CX>26</CX>
+      <CY>14</CY>
     </Size>
     <EQType>12</EQType>
     <TextColor>
-        <R>200</R>
-        <G>200</G>
-        <B>200</B>
+      <R>200</R>
+      <G>200</G>
+      <B>200</B>
     </TextColor>
     <NoWrap>true</NoWrap>
     <AlignRight>true</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
 
-  <Label item ="SvPtxt">
+  <Label item="SvPtxt">
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>65</X>
+      <X>82</X>
       <Y>66</Y>
     </Location>
     <Size>
-      <CX>65</CX>
-      <CY>15</CY>
+      <CX>24</CX>
+      <CY>14</CY>
     </Size>
-    <Text>POISON</Text>
+    <Text>PR</Text>
     <TextColor>
-        <R>73</R>
-        <G>214</G>
-        <B>156</B>
+      <R>73</R>
+      <G>214</G>
+      <B>156</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignLeft>true</AlignLeft>
+    <TooltipReference>Poison resistance</TooltipReference>
+    <AlignRight>false</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
 
-  <Label item ="SvMnum">
+  <Label item="SvMnum">
     <ScreenID>MR_Numb</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>105</X>
+      <X>108</X>
       <Y>22</Y>
     </Location>
     <Size>
-      <CX>30</CX>
-      <CY>15</CY>
+      <CX>26</CX>
+      <CY>14</CY>
     </Size>
     <EQType>16</EQType>
     <TextColor>
-        <R>200</R>
-        <G>200</G>
-        <B>200</B>
+      <R>200</R>
+      <G>200</G>
+      <B>200</B>
     </TextColor>
     <NoWrap>true</NoWrap>
     <AlignRight>true</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
 
-  <Label item ="SvMtxt">
+  <Label item="SvMtxt">
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>65</X>
+      <X>82</X>
       <Y>22</Y>
     </Location>
     <Size>
-      <CX>65</CX>
-      <CY>15</CY>
+      <CX>24</CX>
+      <CY>14</CY>
     </Size>
-    <Text>MAGIC</Text>
+    <Text>MR</Text>
     <TextColor>
-        <R>232</R>
-        <G>139</G>
-        <B>221</B>
+      <R>232</R>
+      <G>139</G>
+      <B>221</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignLeft>true</AlignLeft>
+    <TooltipReference>Magic resistance</TooltipReference>
+    <AlignRight>false</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
 
-  <Label item ="SvDnum">
+  <Label item="SvDnum">
     <ScreenID>DR_Numb</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>105</X>
+      <X>108</X>
       <Y>55</Y>
     </Location>
     <Size>
-      <CX>30</CX>
-      <CY>15</CY>
+      <CX>26</CX>
+      <CY>14</CY>
     </Size>
     <EQType>13</EQType>
     <TextColor>
-        <R>200</R>
-        <G>200</G>
-        <B>200</B>
+      <R>200</R>
+      <G>200</G>
+      <B>200</B>
     </TextColor>
     <NoWrap>true</NoWrap>
     <AlignRight>true</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
 
-  <Label item ="SvDtxt">
+  <Label item="SvDtxt">
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>65</X>
+      <X>82</X>
       <Y>55</Y>
     </Location>
     <Size>
-      <CX>65</CX>
-      <CY>15</CY>
+      <CX>24</CX>
+      <CY>14</CY>
     </Size>
-    <Text>DISEASE</Text>
+    <Text>DR</Text>
     <TextColor>
-        <R>224</R>
-        <G>216</G>
-        <B>104</B>
+      <R>224</R>
+      <G>216</G>
+      <B>104</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignLeft>true</AlignLeft>
+    <TooltipReference>Disease resistance</TooltipReference>
+    <AlignRight>false</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
 
-  <Label item ="SvFnum">
+  <Label item="SvFnum">
     <ScreenID>FR_Numb</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>105</X>
+      <X>108</X>
       <Y>33</Y>
     </Location>
     <Size>
-      <CX>30</CX>
-      <CY>15</CY>
+      <CX>26</CX>
+      <CY>14</CY>
     </Size>
     <EQType>14</EQType>
     <TextColor>
-        <R>200</R>
-        <G>200</G>
-        <B>200</B>
+      <R>200</R>
+      <G>200</G>
+      <B>200</B>
     </TextColor>
     <NoWrap>true</NoWrap>
     <AlignRight>true</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
 
-  <Label item ="SvFtxt">
+  <Label item="SvFtxt">
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>65</X>
+      <X>82</X>
       <Y>33</Y>
     </Location>
     <Size>
-      <CX>65</CX>
-      <CY>15</CY>
+      <CX>24</CX>
+      <CY>14</CY>
     </Size>
-    <Text>FIRE</Text>
+    <Text>FR</Text>
     <TextColor>
-        <R>255</R>
-        <G>119</G>
-        <B>119</B>
+      <R>255</R>
+      <G>119</G>
+      <B>119</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignLeft>true</AlignLeft>
+    <TooltipReference>Fire resistance</TooltipReference>
+    <AlignRight>false</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
 
-  <Label item ="SvCnum">
+  <Label item="SvCnum">
     <ScreenID>CR_Numb</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>105</X>
+      <X>108</X>
       <Y>44</Y>
     </Location>
     <Size>
-      <CX>30</CX>
-      <CY>15</CY>
+      <CX>26</CX>
+      <CY>14</CY>
     </Size>
     <EQType>15</EQType>
     <TextColor>
-        <R>200</R>
-        <G>200</G>
-        <B>200</B>
+      <R>200</R>
+      <G>200</G>
+      <B>200</B>
     </TextColor>
     <NoWrap>true</NoWrap>
     <AlignRight>true</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
   
-  <Label item ="SvCtxt">
+  <Label item="SvCtxt">
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>65</X>
+      <X>82</X>
       <Y>44</Y>
     </Location>
     <Size>
-      <CX>95</CX>
-      <CY>15</CY>
+      <CX>24</CX>
+      <CY>14</CY>
     </Size>
-    <Text>COLD</Text>
+    <Text>CR</Text>
     <TextColor>
-        <R>91</R>
-        <G>166</G>
-        <B>255</B>
+      <R>91</R>
+      <G>166</G>
+      <B>255</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignLeft>true</AlignLeft>
+    <TooltipReference>Cold resistance</TooltipReference>
+    <AlignRight>false</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
 
-  <Label item ="ATKtxt">
+  <Label item="ATKtxt">
     <ScreenID>ATKLabel</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>65</X>
+      <X>82</X>
       <Y>11</Y>
     </Location>
     <Size>
-      <CX>40</CX>
+      <CX>24</CX>
       <CY>14</CY>
     </Size>
     <Text>ATK</Text>
     <TextColor>
-        <R>200</R>
-        <G>120</G>
-        <B>145</B>
+      <R>200</R>
+      <G>120</G>
+      <B>145</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignLeft>true</AlignLeft>
+    <AlignRight>false</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
 
   <Label item="ATKnum">
@@ -1419,11 +1435,11 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>105</X>
+      <X>108</X>
       <Y>11</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>26</CX>
       <CY>14</CY>
     </Size>
     <Text>255</Text>
@@ -1434,30 +1450,30 @@
     </TextColor>
     <NoWrap>true</NoWrap>
     <AlignRight>true</AlignRight>
-    <AlignRight>false</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
 
-   <Label item ="ACtxt">
+  <Label item="ACtxt">
     <ScreenID>ACLabel</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>65</X>
+      <X>82</X>
       <Y>0</Y>
     </Location>
     <Size>
-      <CX>40</CX>
+      <CX>24</CX>
       <CY>14</CY>
     </Size>
     <Text>AC</Text>
     <TextColor>
-        <R>200</R>
-        <G>120</G>
-        <B>145</B>
+      <R>200</R>
+      <G>120</G>
+      <B>145</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignLeft>true</AlignLeft>
     <AlignRight>false</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
 
   <Label item="ACnum">
@@ -1466,11 +1482,11 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>105</X>
+      <X>108</X>
       <Y>0</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>26</CX>
       <CY>14</CY>
     </Size>
     <Text>255</Text>
@@ -1481,65 +1497,73 @@
     </TextColor>
     <NoWrap>true</NoWrap>
     <AlignRight>true</AlignRight>
-    <AlignRight>false</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
-	<Page item = "ActionsMainPage">
-		<ScreenID>ActionsMainPage</ScreenID>
-		<!--<Font>3</Font>-->
-		<RelativePosition>true</RelativePosition>
-		<Style_VScroll>false</Style_VScroll>
-		<Style_HScroll>false</Style_HScroll>
-		<Style_Transparent>false</Style_Transparent>
-		<TooltipReference>Main Page</TooltipReference>
-		<DrawTemplate>WDT_Def</DrawTemplate>
-		<TabIcon>A_MainTabIcon</TabIcon>
-		<TabIconActive>A_MainTabActiveIcon</TabIconActive>
-			<Pieces>AMP_WhoButton</Pieces>
-			<Pieces>AMP_FindButton</Pieces>
-			<Pieces>AMP_EndFindButton</Pieces>
-			<Pieces>AMP_InviteButton</Pieces> 
-			<Pieces>AMP_FollowButton</Pieces> 
-			<Pieces>AMP_DisbandButton</Pieces> 
-			<Pieces>AMP_CampButton</Pieces>
-			<Pieces>AMP_SitButton</Pieces>
-			<Pieces>AMP_StandButton</Pieces>
-			<Pieces>AMP_RunButton</Pieces>
-			<Pieces>AMP_WalkButton</Pieces>
-			<Pieces>STRtxt</Pieces>
-            <Pieces>STRnum</Pieces>
-            <Pieces>STAtxt</Pieces>
-            <Pieces>STAnum</Pieces>
-            <Pieces>AGItxt</Pieces>
-            <Pieces>AGInum</Pieces>
-            <Pieces>DEXtxt</Pieces>
-            <Pieces>DEXnum</Pieces>
-            <Pieces>WIStxt</Pieces>
-            <Pieces>WISnum</Pieces>
-            <Pieces>INTtxt</Pieces>
-            <Pieces>INTnum</Pieces>
-            <Pieces>CHAtxt</Pieces>
-            <Pieces>CHAnum</Pieces>
-			<Pieces>AW_ResistMagicIcon</Pieces>
-			<Pieces>SvMtxt</Pieces>
-            <Pieces>SvMnum</Pieces>
-            <Pieces>AW_ResistColdIcon</Pieces>
-            <Pieces>SvCtxt</Pieces>
-            <Pieces>SvCnum</Pieces>
-            <Pieces>AW_ResistFireIcon</Pieces>
-            <Pieces>SvFtxt</Pieces>
-            <Pieces>SvFnum</Pieces>
-            <Pieces>AW_ResistPoisonIcon</Pieces>
-            <Pieces>SvPtxt</Pieces>
-            <Pieces>SvPnum</Pieces>
-            <Pieces>AW_ResistDiseaseIcon</Pieces>
-            <Pieces>SvDtxt</Pieces>
-            <Pieces>SvDnum</Pieces>
-			<Pieces>ACtxt</Pieces>
-            <Pieces>ACnum</Pieces>
-            <Pieces>ATKnum</Pieces>
-            <Pieces>ATKtxt</Pieces>  
-
-	</Page>
+  <Page item="ActionsMainPage">
+    <ScreenID>ActionsMainPage</ScreenID>
+    <!--<Font>3</Font>-->
+    <RelativePosition>true</RelativePosition>
+    <Style_VScroll>false</Style_VScroll>
+    <Style_HScroll>false</Style_HScroll>
+    <Style_Transparent>false</Style_Transparent>
+    <TooltipReference>Main Page</TooltipReference>
+    <DrawTemplate>WDT_Def</DrawTemplate>
+    <TabIcon>A_MainTabIcon</TabIcon>
+    <TabIconActive>A_MainTabActiveIcon</TabIconActive>
+    <Pieces>AMP_WhoButton</Pieces>
+    <Pieces>AMP_FindButton</Pieces>
+    <Pieces>AMP_EndFindButton</Pieces>
+    <Pieces>AMP_InviteButton</Pieces>
+    <Pieces>AMP_FollowButton</Pieces>
+    <Pieces>AMP_DisbandButton</Pieces>
+    <Pieces>AMP_CampButton</Pieces>
+    <Pieces>AMP_SitButton</Pieces>
+    <Pieces>AMP_StandButton</Pieces>
+    <Pieces>AMP_RunButton</Pieces>
+    <Pieces>AMP_WalkButton</Pieces>
+    <Pieces>STRtxt</Pieces>
+    <Pieces>STRnum</Pieces>
+    <Pieces>STAtxt</Pieces>
+    <Pieces>STAnum</Pieces>
+    <Pieces>AGItxt</Pieces>
+    <Pieces>AGInum</Pieces>
+    <Pieces>DEXtxt</Pieces>
+    <Pieces>DEXnum</Pieces>
+    <Pieces>WIStxt</Pieces>
+    <Pieces>WISnum</Pieces>
+    <Pieces>INTtxt</Pieces>
+    <Pieces>INTnum</Pieces>
+    <Pieces>CHAtxt</Pieces>
+    <Pieces>CHAnum</Pieces>
+    <Pieces>AW_ResistMagicIcon</Pieces>
+    <Pieces>SvMtxt</Pieces>
+    <Pieces>SvMnum</Pieces>
+    <Pieces>AW_ResistColdIcon</Pieces>
+    <Pieces>SvCtxt</Pieces>
+    <Pieces>SvCnum</Pieces>
+    <Pieces>AW_ResistFireIcon</Pieces>
+    <Pieces>SvFtxt</Pieces>
+    <Pieces>SvFnum</Pieces>
+    <Pieces>AW_ResistPoisonIcon</Pieces>
+    <Pieces>SvPtxt</Pieces>
+    <Pieces>SvPnum</Pieces>
+    <Pieces>AW_ResistDiseaseIcon</Pieces>
+    <Pieces>SvDtxt</Pieces>
+    <Pieces>SvDnum</Pieces>
+    <Pieces>ACtxt</Pieces>
+    <Pieces>ACnum</Pieces>
+    <Pieces>ATKnum</Pieces>
+    <Pieces>ATKtxt</Pieces>
+    <Pieces>AW_StatSTRIcon</Pieces>
+    <Pieces>AW_StatSTAIcon</Pieces>
+    <Pieces>AW_StatAGIIcon</Pieces>
+    <Pieces>AW_StatDEXIcon</Pieces>
+    <Pieces>AW_StatWISIcon</Pieces>
+    <Pieces>AW_StatINTIcon</Pieces>
+    <Pieces>AW_StatCHAIcon</Pieces>
+    <Pieces>AW_StatACIcon</Pieces>
+    <Pieces>AW_StatATKIcon</Pieces>
+  </Page>
 
 <!-- Actions Combat Page -->
 
@@ -1963,4 +1987,13 @@
     <Pieces>ACTW_ActionsSubwindows</Pieces>
   </Screen>
 
+  <StaticAnimation item="AW_StatSTRIcon"><ScreenID>AW_StatSTRIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>3</X><Y>2</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatSTR</Animation></StaticAnimation>
+  <StaticAnimation item="AW_StatSTAIcon"><ScreenID>AW_StatSTAIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>3</X><Y>13</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatSTA</Animation></StaticAnimation>
+  <StaticAnimation item="AW_StatAGIIcon"><ScreenID>AW_StatAGIIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>3</X><Y>24</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatAGI</Animation></StaticAnimation>
+  <StaticAnimation item="AW_StatDEXIcon"><ScreenID>AW_StatDEXIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>3</X><Y>35</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatDEX</Animation></StaticAnimation>
+  <StaticAnimation item="AW_StatWISIcon"><ScreenID>AW_StatWISIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>3</X><Y>46</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatWIS</Animation></StaticAnimation>
+  <StaticAnimation item="AW_StatINTIcon"><ScreenID>AW_StatINTIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>3</X><Y>57</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatINT</Animation></StaticAnimation>
+  <StaticAnimation item="AW_StatCHAIcon"><ScreenID>AW_StatCHAIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>3</X><Y>68</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatCHA</Animation></StaticAnimation>
+  <StaticAnimation item="AW_StatACIcon"><ScreenID>AW_StatACIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>70</X><Y>2</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatAC</Animation></StaticAnimation>
+  <StaticAnimation item="AW_StatATKIcon"><ScreenID>AW_StatATKIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>70</X><Y>13</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatATK</Animation></StaticAnimation>
 </XML>

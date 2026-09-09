@@ -14,6 +14,11 @@ Install folder: `VantageUI-v1.44.70`.
   Budget for `1,000/1,000` and `1,000` without changing the client's number format.
 - Align the character heading and XP gauge with the expanded stat area while
   preserving the native labels, values, fonts, animations and XP binding.
+- Add matching, native-size 10px stat icons to Actions and the group stats panel.
+  Align labels and right-aligned values into separate columns. Actions keeps
+  its 144x182 window, tabs and Camp/Sit/Walk buttons; resistance abbreviations
+  MR/FR/CR/DR/PR have full-name tooltips. Group gains 28px of width for the
+  personal stats and HP/MANA totals; member rows and native bindings stay fixed.
 
 Load manually with `/loadskin VantageUI-v1.44.70 1`. Automated layout/asset checks
 are not a substitute for reviewing the new dimensions inside EverQuest.

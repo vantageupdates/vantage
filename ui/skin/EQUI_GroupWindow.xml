@@ -2864,15 +2864,15 @@
   </Button>
   <Label item="Level">
     <ScreenID>Level</ScreenID>
-    <Font>3</Font>
+    <Font>2</Font>
     <EQType>2</EQType>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>133</X>
+      <X>129</X>
       <Y>18</Y>
     </Location>
     <Size>
-      <CX>18</CX>
+      <CX>20</CX>
       <CY>14</CY>
     </Size>
     <Text>60</Text>
@@ -2882,20 +2882,21 @@
       <B>247</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignRight>true</AlignRight>
+    <AlignRight>false</AlignRight>
     <Style_Tooltip>false</Style_Tooltip>
+    <AlignCenter>false</AlignCenter>
   </Label>
   <Label item="Class">
     <ScreenID>Class</ScreenID>
-    <Font>3</Font>
+    <Font>2</Font>
     <EQType>3</EQType>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>155</X>
+      <X>153</X>
       <Y>18</Y>
     </Location>
     <Size>
-      <CX>90</CX>
+      <CX>121</CX>
       <CY>14</CY>
     </Size>
     <Text>Shadow Knight</Text>
@@ -2907,17 +2908,19 @@
     <NoWrap>true</NoWrap>
     <AlignLeft>true</AlignLeft>
     <Style_Tooltip>false</Style_Tooltip>
+    <AlignCenter>false</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="Of">
     <ScreenID>Of</ScreenID>
-    <Font>3</Font>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>133</X>
+      <X>129</X>
       <Y>30</Y>
     </Location>
     <Size>
-      <CX>18</CX>
+      <CX>20</CX>
       <CY>14</CY>
     </Size>
     <Text>of</Text>
@@ -2927,20 +2930,21 @@
       <B>247</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignRight>true</AlignRight>
+    <AlignRight>false</AlignRight>
     <Style_Tooltip>false</Style_Tooltip>
+    <AlignCenter>false</AlignCenter>
   </Label>
   <Label item="Deity">
     <ScreenID>Deity</ScreenID>
-    <Font>3</Font>
+    <Font>2</Font>
     <EQType>4</EQType>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>155</X>
+      <X>153</X>
       <Y>30</Y>
     </Location>
     <Size>
-      <CX>90</CX>
+      <CX>121</CX>
       <CY>14</CY>
     </Size>
     <Text>Mithaniel Marr</Text>
@@ -2952,64 +2956,46 @@
     <NoWrap>true</NoWrap>
     <AlignLeft>true</AlignLeft>
     <Style_Tooltip>false</Style_Tooltip>
+    <AlignCenter>false</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="PlayerHPLabel">
     <ScreenID>PlayerHPLabel</ScreenID>
-    <Font>3</Font>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>131</X>
+      <X>141</X>
       <Y>45</Y>
     </Location>
     <Size>
-      <CX>46</CX>
+      <CX>31</CX>
       <CY>14</CY>
     </Size>
-    <Text>HP:</Text>
+    <Text>HP</Text>
     <TextColor>
       <R>240</R>
       <G>243</G>
       <B>247</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignRight>true</AlignRight>
+    <AlignRight>false</AlignRight>
     <Style_Tooltip>false</Style_Tooltip>
+    <AlignCenter>false</AlignCenter>
   </Label>
   <Label item="PlayerHP">
     <ScreenID>PlayerHP</ScreenID>
     <EQType>70</EQType>
-    <Font>3</Font>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>179</X>
+      <X>178</X>
       <Y>45</Y>
     </Location>
     <Size>
-      <CX>75</CX>
+      <CX>96</CX>
       <CY>14</CY>
     </Size>
     <Text>9999/9999</Text>
-    <TextColor>
-      <R>240</R>
-      <G>243</G>
-      <B>247</B>
-    </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignLeft>true</AlignLeft>
-  </Label>
-  <Label item="PlayerManaLabel">
-    <ScreenID>PlayerManaLabel</ScreenID>
-    <Font>3</Font>
-    <RelativePosition>true</RelativePosition>
-    <Location>
-      <X>131</X>
-      <Y>57</Y>
-    </Location>
-    <Size>
-      <CX>46</CX>
-      <CY>14</CY>
-    </Size>
-    <Text>MANA:</Text>
     <TextColor>
       <R>240</R>
       <G>243</G>
@@ -3017,19 +3003,42 @@
     </TextColor>
     <NoWrap>true</NoWrap>
     <AlignRight>true</AlignRight>
+    <AlignCenter>false</AlignCenter>
+  </Label>
+  <Label item="PlayerManaLabel">
+    <ScreenID>PlayerManaLabel</ScreenID>
+    <Font>2</Font>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>141</X>
+      <Y>57</Y>
+    </Location>
+    <Size>
+      <CX>31</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>MANA</Text>
+    <TextColor>
+      <R>240</R>
+      <G>243</G>
+      <B>247</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+    <AlignRight>false</AlignRight>
     <Style_Tooltip>false</Style_Tooltip>
+    <AlignCenter>false</AlignCenter>
   </Label>
   <Label item="PlayerMana">
     <ScreenID>PlayerHP</ScreenID>
     <EQType>128</EQType>
-    <Font>3</Font>
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>179</X>
+      <X>178</X>
       <Y>57</Y>
     </Location>
     <Size>
-      <CX>75</CX>
+      <CX>96</CX>
       <CY>14</CY>
     </Size>
     <Text>9999/9999</Text>
@@ -3039,21 +3048,22 @@
       <B>247</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignLeft>true</AlignLeft>
+    <AlignRight>true</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
   <Label item="ATKLabel">
     <ScreenID>ATKLabel</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>137</X>
+      <X>141</X>
       <Y>72</Y>
     </Location>
     <Size>
-      <CX>25</CX>
+      <CX>23</CX>
       <CY>14</CY>
     </Size>
-    <Text>ATK:</Text>
+    <Text>ATK</Text>
     <TextColor>
       <R>240</R>
       <G>243</G>
@@ -3062,6 +3072,8 @@
     <NoWrap>true</NoWrap>
     <AlignLeft>true</AlignLeft>
     <Style_Tooltip>false</Style_Tooltip>
+    <AlignCenter>false</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="ATK">
     <ScreenID>ATK</ScreenID>
@@ -3069,11 +3081,11 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>164</X>
+      <X>166</X>
       <Y>72</Y>
     </Location>
     <Size>
-      <CX>28</CX>
+      <CX>30</CX>
       <CY>14</CY>
     </Size>
     <TextColor>
@@ -3084,29 +3096,31 @@
     </TextColor>
     <NoWrap>true</NoWrap>
     <Text>9999</Text>
-    <AlignLeft>true</AlignLeft>
+    <AlignRight>true</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
   <Label item="ACLabel">
     <ScreenID>ACLabel</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>197</X>
+      <X>219</X>
       <Y>72</Y>
     </Location>
     <Size>
-      <CX>21</CX>
+      <CX>23</CX>
       <CY>14</CY>
     </Size>
-    <Text>AC:</Text>
+    <Text>AC</Text>
     <TextColor>
       <R>240</R>
       <G>243</G>
       <B>247</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignRight>true</AlignRight>
+    <AlignRight>false</AlignRight>
     <Style_Tooltip>false</Style_Tooltip>
+    <AlignCenter>false</AlignCenter>
   </Label>
   <Label item="AC">
     <ScreenID>AC</ScreenID>
@@ -3114,11 +3128,11 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>220</X>
+      <X>244</X>
       <Y>72</Y>
     </Location>
     <Size>
-      <CX>28</CX>
+      <CX>30</CX>
       <CY>14</CY>
     </Size>
     <TextColor>
@@ -3129,17 +3143,18 @@
     </TextColor>
     <NoWrap>true</NoWrap>
     <Text>9999</Text>
-    <AlignLeft>true</AlignLeft>
+    <AlignRight>true</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
   <Gauge item="PlayerXPGauge_BG">
     <ScreenID>PlayerXPGauge_BG</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>142</X>
+      <X>169</X>
       <Y>88</Y>
     </Location>
     <Size>
-      <CX>104</CX>
+      <CX>107</CX>
       <CY>20</CY>
     </Size>
     <GaugeOffsetY>0</GaugeOffsetY>
@@ -3169,11 +3184,11 @@
     <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>144</X>
+      <X>171</X>
       <Y>88</Y>
     </Location>
     <Size>
-      <CX>100</CX>
+      <CX>103</CX>
       <CY>20</CY>
     </Size>
     <GaugeOffsetY>0</GaugeOffsetY>
@@ -3203,11 +3218,11 @@
     <EQType>26</EQType>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>122</X>
+      <X>141</X>
       <Y>89</Y>
     </Location>
     <Size>
-      <CX>20</CX>
+      <CX>24</CX>
       <CY>12</CY>
     </Size>
     <Text>100</Text>
@@ -3217,18 +3232,18 @@
       <B>247</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
     <AlignRight>true</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
   <Gauge item="P_Fatigue">
     <ScreenID>P_Fatigue</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>142</X>
+      <X>169</X>
       <Y>105</Y>
     </Location>
     <Size>
-      <CX>104</CX>
+      <CX>107</CX>
       <CY>11</CY>
     </Size>
     <GaugeOffsetY>0</GaugeOffsetY>
@@ -3257,11 +3272,11 @@
     <ScreenID>P_Breath</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>142</X>
+      <X>169</X>
       <Y>112</Y>
     </Location>
     <Size>
-      <CX>104</CX>
+      <CX>107</CX>
       <CY>11</CY>
     </Size>
     <GaugeOffsetY>0</GaugeOffsetY>
@@ -3291,21 +3306,21 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>131</X>
+      <X>141</X>
       <Y>124</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>23</CX>
       <CY>14</CY>
     </Size>
-    <Text>STR:</Text>
+    <Text>STR</Text>
     <TextColor>
       <R>240</R>
       <G>243</G>
       <B>247</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignCenter>true</AlignCenter>
+    <AlignCenter>false</AlignCenter>
     <AlignRight>false</AlignRight>
     <AlignLeft>true</AlignLeft>
     <Style_Tooltip>false</Style_Tooltip>
@@ -3316,7 +3331,7 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>154</X>
+      <X>166</X>
       <Y>124</Y>
     </Location>
     <Size>
@@ -3330,31 +3345,30 @@
       <B>247</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignCenter>true</AlignCenter>
-    <AlignRight>false</AlignRight>
-    <AlignLeft>true</AlignLeft>
     <Style_Tooltip>false</Style_Tooltip>
+    <AlignRight>true</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
   <Label item="STALabel">
     <ScreenID>STRLabel</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>130</X>
+      <X>141</X>
       <Y>135</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>23</CX>
       <CY>14</CY>
     </Size>
-    <Text>STA:</Text>
+    <Text>STA</Text>
     <TextColor>
       <R>240</R>
       <G>243</G>
       <B>247</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignCenter>true</AlignCenter>
+    <AlignCenter>false</AlignCenter>
     <AlignRight>false</AlignRight>
     <AlignLeft>true</AlignLeft>
     <Style_Tooltip>false</Style_Tooltip>
@@ -3365,7 +3379,7 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>154</X>
+      <X>166</X>
       <Y>135</Y>
     </Location>
     <Size>
@@ -3379,31 +3393,30 @@
       <B>247</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignCenter>true</AlignCenter>
-    <AlignRight>false</AlignRight>
-    <AlignLeft>true</AlignLeft>
     <Style_Tooltip>false</Style_Tooltip>
+    <AlignRight>true</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
   <Label item="AGILabel">
     <ScreenID>AGILabel</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>132</X>
+      <X>141</X>
       <Y>146</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>23</CX>
       <CY>14</CY>
     </Size>
-    <Text>AGI:</Text>
+    <Text>AGI</Text>
     <TextColor>
       <R>240</R>
       <G>243</G>
       <B>247</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignCenter>true</AlignCenter>
+    <AlignCenter>false</AlignCenter>
     <AlignRight>false</AlignRight>
     <AlignLeft>true</AlignLeft>
     <Style_Tooltip>false</Style_Tooltip>
@@ -3414,7 +3427,7 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>154</X>
+      <X>166</X>
       <Y>146</Y>
     </Location>
     <Size>
@@ -3428,31 +3441,30 @@
       <B>247</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignCenter>true</AlignCenter>
-    <AlignRight>false</AlignRight>
-    <AlignLeft>true</AlignLeft>
     <Style_Tooltip>false</Style_Tooltip>
+    <AlignRight>true</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
   <Label item="DEXLabel">
     <ScreenID>DEXLabel</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>130</X>
+      <X>141</X>
       <Y>157</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>23</CX>
       <CY>14</CY>
     </Size>
-    <Text>DEX:</Text>
+    <Text>DEX</Text>
     <TextColor>
       <R>240</R>
       <G>243</G>
       <B>247</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignCenter>true</AlignCenter>
+    <AlignCenter>false</AlignCenter>
     <AlignRight>false</AlignRight>
     <AlignLeft>true</AlignLeft>
     <Style_Tooltip>false</Style_Tooltip>
@@ -3463,7 +3475,7 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>154</X>
+      <X>166</X>
       <Y>157</Y>
     </Location>
     <Size>
@@ -3477,31 +3489,30 @@
       <B>247</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignCenter>true</AlignCenter>
-    <AlignRight>false</AlignRight>
-    <AlignLeft>true</AlignLeft>
     <Style_Tooltip>false</Style_Tooltip>
+    <AlignRight>true</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
   <Label item="WISLabel">
     <ScreenID>WISLabel</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>192</X>
+      <X>219</X>
       <Y>124</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>23</CX>
       <CY>14</CY>
     </Size>
-    <Text>WIS:</Text>
+    <Text>WIS</Text>
     <TextColor>
       <R>240</R>
       <G>243</G>
       <B>247</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignCenter>true</AlignCenter>
+    <AlignCenter>false</AlignCenter>
     <AlignRight>false</AlignRight>
     <AlignLeft>true</AlignLeft>
     <Style_Tooltip>false</Style_Tooltip>
@@ -3512,7 +3523,7 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>213</X>
+      <X>244</X>
       <Y>124</Y>
     </Location>
     <Size>
@@ -3526,31 +3537,30 @@
       <B>247</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignCenter>true</AlignCenter>
-    <AlignRight>false</AlignRight>
-    <AlignLeft>true</AlignLeft>
     <Style_Tooltip>false</Style_Tooltip>
+    <AlignRight>true</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
   <Label item="INTLabel">
     <ScreenID>INTLabel</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>194</X>
+      <X>219</X>
       <Y>135</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>23</CX>
       <CY>14</CY>
     </Size>
-    <Text>INT:</Text>
+    <Text>INT</Text>
     <TextColor>
       <R>240</R>
       <G>243</G>
       <B>247</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignCenter>true</AlignCenter>
+    <AlignCenter>false</AlignCenter>
     <AlignRight>false</AlignRight>
     <AlignLeft>true</AlignLeft>
     <Style_Tooltip>false</Style_Tooltip>
@@ -3561,7 +3571,7 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>213</X>
+      <X>244</X>
       <Y>135</Y>
     </Location>
     <Size>
@@ -3575,31 +3585,30 @@
       <B>247</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignCenter>true</AlignCenter>
-    <AlignRight>false</AlignRight>
-    <AlignLeft>true</AlignLeft>
     <Style_Tooltip>false</Style_Tooltip>
+    <AlignRight>true</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
   <Label item="CHALabel">
     <ScreenID>CHALabel</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>191</X>
+      <X>219</X>
       <Y>146</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>23</CX>
       <CY>14</CY>
     </Size>
-    <Text>CHA:</Text>
+    <Text>CHA</Text>
     <TextColor>
       <R>240</R>
       <G>243</G>
       <B>247</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignCenter>true</AlignCenter>
+    <AlignCenter>false</AlignCenter>
     <AlignRight>false</AlignRight>
     <AlignLeft>true</AlignLeft>
     <Style_Tooltip>false</Style_Tooltip>
@@ -3610,7 +3619,7 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>213</X>
+      <X>244</X>
       <Y>146</Y>
     </Location>
     <Size>
@@ -3624,31 +3633,30 @@
       <B>247</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignCenter>true</AlignCenter>
-    <AlignRight>false</AlignRight>
-    <AlignLeft>true</AlignLeft>
     <Style_Tooltip>false</Style_Tooltip>
+    <AlignRight>true</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
   <Label item="WGTLabel">
     <ScreenID>WGTLabel</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>189</X>
+      <X>219</X>
       <Y>157</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>23</CX>
       <CY>14</CY>
     </Size>
-    <Text>WGT:</Text>
+    <Text>WGT</Text>
     <TextColor>
       <R>240</R>
       <G>243</G>
       <B>247</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignCenter>true</AlignCenter>
+    <AlignCenter>false</AlignCenter>
     <AlignRight>false</AlignRight>
     <AlignLeft>true</AlignLeft>
     <Style_Tooltip>false</Style_Tooltip>
@@ -3659,7 +3667,7 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>213</X>
+      <X>244</X>
       <Y>157</Y>
     </Location>
     <Size>
@@ -3673,15 +3681,14 @@
       <B>247</B>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignCenter>true</AlignCenter>
-    <AlignRight>false</AlignRight>
-    <AlignLeft>true</AlignLeft>
     <Style_Tooltip>false</Style_Tooltip>
+    <AlignRight>true</AlignRight>
+    <AlignCenter>false</AlignCenter>
   </Label>
   <StaticAnimation item="FRIcon">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>128</X>
+      <X>131</X>
       <Y>172</Y>
     </Location>
     <Size>
@@ -3693,7 +3700,7 @@
   <StaticAnimation item="CRIcon">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>152</X>
+      <X>161</X>
       <Y>172</Y>
     </Location>
     <Size>
@@ -3705,7 +3712,7 @@
   <StaticAnimation item="MRIcon">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>176</X>
+      <X>191</X>
       <Y>172</Y>
     </Location>
     <Size>
@@ -3717,7 +3724,7 @@
   <StaticAnimation item="PRIcon">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>200</X>
+      <X>221</X>
       <Y>172</Y>
     </Location>
     <Size>
@@ -3729,7 +3736,7 @@
   <StaticAnimation item="DRIcon">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>224</X>
+      <X>251</X>
       <Y>172</Y>
     </Location>
     <Size>
@@ -3743,12 +3750,12 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>125</X>
+      <X>126</X>
       <Y>192</Y>
     </Location>
     <Size>
-      <CX>26</CX>
-      <CY>15</CY>
+      <CX>28</CX>
+      <CY>14</CY>
     </Size>
     <EQType>14</EQType>
     <TextColor>
@@ -3758,21 +3765,21 @@
       <Alpha>255</Alpha>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignCenter>true</AlignCenter>
-    <AlignRight>false</AlignRight>
     <Text>255</Text>
+    <AlignRight>false</AlignRight>
+    <AlignCenter>true</AlignCenter>
   </Label>
   <Label item="CR">
     <ScreenID>CR</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>149</X>
+      <X>156</X>
       <Y>192</Y>
     </Location>
     <Size>
-      <CX>26</CX>
-      <CY>15</CY>
+      <CX>28</CX>
+      <CY>14</CY>
     </Size>
     <EQType>15</EQType>
     <TextColor>
@@ -3782,21 +3789,21 @@
       <Alpha>255</Alpha>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignCenter>true</AlignCenter>
-    <AlignRight>false</AlignRight>
     <Text>255</Text>
+    <AlignRight>false</AlignRight>
+    <AlignCenter>true</AlignCenter>
   </Label>
   <Label item="MR">
     <ScreenID>MR</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>173</X>
+      <X>186</X>
       <Y>192</Y>
     </Location>
     <Size>
-      <CX>26</CX>
-      <CY>15</CY>
+      <CX>28</CX>
+      <CY>14</CY>
     </Size>
     <EQType>16</EQType>
     <TextColor>
@@ -3806,21 +3813,21 @@
       <Alpha>255</Alpha>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignCenter>true</AlignCenter>
-    <AlignRight>false</AlignRight>
     <Text>255</Text>
+    <AlignRight>false</AlignRight>
+    <AlignCenter>true</AlignCenter>
   </Label>
   <Label item="PR">
     <ScreenID>PR</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>197</X>
+      <X>216</X>
       <Y>192</Y>
     </Location>
     <Size>
-      <CX>26</CX>
-      <CY>15</CY>
+      <CX>28</CX>
+      <CY>14</CY>
     </Size>
     <EQType>12</EQType>
     <TextColor>
@@ -3830,21 +3837,21 @@
       <Alpha>255</Alpha>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignCenter>true</AlignCenter>
-    <AlignRight>false</AlignRight>
     <Text>255</Text>
+    <AlignRight>false</AlignRight>
+    <AlignCenter>true</AlignCenter>
   </Label>
   <Label item="DR">
     <ScreenID>DR</ScreenID>
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>221</X>
+      <X>246</X>
       <Y>192</Y>
     </Location>
     <Size>
-      <CX>26</CX>
-      <CY>15</CY>
+      <CX>28</CX>
+      <CY>14</CY>
     </Size>
     <EQType>13</EQType>
     <TextColor>
@@ -3854,9 +3861,9 @@
       <Alpha>255</Alpha>
     </TextColor>
     <NoWrap>true</NoWrap>
-    <AlignCenter>true</AlignCenter>
-    <AlignRight>false</AlignRight>
     <Text>255</Text>
+    <AlignRight>false</AlignRight>
+    <AlignCenter>true</AlignCenter>
   </Label>
   <Gauge item="Party1_HealthDetail">
     <RelativePosition>true</RelativePosition>
@@ -12741,7 +12748,7 @@
       <Y>78</Y>
     </Location>
     <Size>
-      <CX>256</CX>
+      <CX>284</CX>
       <CY>215</CY>
     </Size>
     <Text>Group</Text>
@@ -13063,6 +13070,19 @@
     <Pieces>F4</Pieces>
     <Pieces>F5</Pieces>
     <Pieces>F6</Pieces>
+    <Pieces>GW_StatHPIcon</Pieces>
+    <Pieces>GW_StatMANAIcon</Pieces>
+    <Pieces>GW_StatACIcon</Pieces>
+    <Pieces>GW_StatATKIcon</Pieces>
+    <Pieces>GW_StatEXPIcon</Pieces>
+    <Pieces>GW_StatSTRIcon</Pieces>
+    <Pieces>GW_StatSTAIcon</Pieces>
+    <Pieces>GW_StatAGIIcon</Pieces>
+    <Pieces>GW_StatDEXIcon</Pieces>
+    <Pieces>GW_StatWISIcon</Pieces>
+    <Pieces>GW_StatINTIcon</Pieces>
+    <Pieces>GW_StatCHAIcon</Pieces>
+    <Pieces>GW_StatWEIGHTIcon</Pieces>
   </Screen>
   <StaticAnimation item="Party1_HP_VantageTicks">
     <RelativePosition>true</RelativePosition>
@@ -13129,4 +13149,17 @@
     <AutoDraw>true</AutoDraw>
     <Animation>A_VantageHP100Lines</Animation>
   </StaticAnimation>
+  <StaticAnimation item="GW_StatATKIcon"><ScreenID>GW_StatATKIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>129</X><Y>74</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatATK</Animation></StaticAnimation>
+  <StaticAnimation item="GW_StatACIcon"><ScreenID>GW_StatACIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>207</X><Y>74</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatAC</Animation></StaticAnimation>
+  <StaticAnimation item="GW_StatSTRIcon"><ScreenID>GW_StatSTRIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>129</X><Y>126</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatSTR</Animation></StaticAnimation>
+  <StaticAnimation item="GW_StatWISIcon"><ScreenID>GW_StatWISIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>207</X><Y>126</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatWIS</Animation></StaticAnimation>
+  <StaticAnimation item="GW_StatSTAIcon"><ScreenID>GW_StatSTAIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>129</X><Y>137</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatSTA</Animation></StaticAnimation>
+  <StaticAnimation item="GW_StatINTIcon"><ScreenID>GW_StatINTIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>207</X><Y>137</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatINT</Animation></StaticAnimation>
+  <StaticAnimation item="GW_StatAGIIcon"><ScreenID>GW_StatAGIIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>129</X><Y>148</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatAGI</Animation></StaticAnimation>
+  <StaticAnimation item="GW_StatCHAIcon"><ScreenID>GW_StatCHAIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>207</X><Y>148</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatCHA</Animation></StaticAnimation>
+  <StaticAnimation item="GW_StatDEXIcon"><ScreenID>GW_StatDEXIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>129</X><Y>159</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatDEX</Animation></StaticAnimation>
+  <StaticAnimation item="GW_StatWEIGHTIcon"><ScreenID>GW_StatWEIGHTIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>207</X><Y>159</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatWEIGHT</Animation></StaticAnimation>
+  <StaticAnimation item="GW_StatHPIcon"><ScreenID>GW_StatHPIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>129</X><Y>47</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatHP</Animation></StaticAnimation>
+  <StaticAnimation item="GW_StatMANAIcon"><ScreenID>GW_StatMANAIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>129</X><Y>59</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatMANA</Animation></StaticAnimation>
+  <StaticAnimation item="GW_StatEXPIcon"><ScreenID>GW_StatEXPIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>129</X><Y>90</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatEXP</Animation></StaticAnimation>
 </XML>
