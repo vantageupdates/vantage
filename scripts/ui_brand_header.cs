@@ -1,5 +1,5 @@
-// Pack the approved Image Gen wordmark into an EQ-native, final-size texture.
-// No font substitution: the logo comes from the approved artwork. The version
+// Pack the Image Gen diamond/wordmark into an EQ-native, final-size texture.
+// No font substitution: the logo comes from the generated artwork. The version
 // remains an ordinary XML label so future releases never bake stale digits.
 using System;
 using System.Drawing;
@@ -24,22 +24,25 @@ public static class VantageBrandHeader {
         if(Path.GetFileName(destination)!="VantageBrandHeader.tga")
             throw new ArgumentException("Only the dedicated brand header texture is supported.");
         using(var source=new Bitmap(artwork))
-        using(var logo=new Bitmap(94,20,PixelFormat.Format32bppArgb))
+        using(var logo=new Bitmap(110,20,PixelFormat.Format32bppArgb))
         using(var atlas=new Bitmap(256,32,PixelFormat.Format32bppArgb)) {
-            if(source.Width!=2167 || source.Height!=725)
-                throw new ArgumentException("Expected the approved 2167x725 logo artwork.");
+            if(source.Width!=2172 || source.Height!=724)
+                throw new ArgumentException("Expected the 2172x724 diamond logo artwork.");
             using(var g=Graphics.FromImage(logo)) {
                 g.Clear(Color.FromArgb(16,16,16));
                 g.InterpolationMode=InterpolationMode.HighQualityBicubic;
                 g.PixelOffsetMode=PixelOffsetMode.HighQuality;
-                // The approved wordmark only. Excludes the example v1.44.67 badge.
-                g.DrawImage(source,new Rectangle(0,0,94,20),52,218,1420,308,GraphicsUnit.Pixel);
+                // Whole diamond + wordmark, with aspect ratio preserved and a
+                // six-source-pixel edge gutter. This source contains no digits.
+                float scale=20f/386f,width=1856f*scale;
+                g.DrawImage(source,new RectangleF((110-width)/2,0,width,20),
+                    new RectangleF(150,156,1856,386),GraphicsUnit.Pixel);
             }
             for(int y=0;y<20;y++) for(int x=0;x<202;x++) {
                 int alpha=Coverage(x,y,202,20,5,.25);
                 if(alpha==0) continue;
                 Color c=Color.FromArgb(16,16,16);
-                if(x>=18 && x<112) c=logo.GetPixel(x-18,y);
+                if(x>=6 && x<116) c=logo.GetPixel(x-6,y);
                 // An understated single-line rounded version frame at native size.
                 if(x>=124 && x<188 && y>=1 && y<19) {
                     int bx=x-124, by=y-1;

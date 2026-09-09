@@ -1,5 +1,27 @@
 # Vantage UI identity
 
+## Current diamond logo (UI 1.44.70)
+
+`vantage-ui-diamond.png` is the 2172x724 source made with the built-in Image Gen
+tool for the user's diamond-logo request. It replaces the header wordmark
+source, not the native version label. `scripts/ui_brand_header.cs` crops the
+whole emblem/wordmark at (150,156,1856,386), preserving aspect ratio within a
+110x20 region. The existing version frame and 202x20 header stay unchanged.
+The high-resolution PNG is source-only; the client receives the flat TGA.
+
+Final design prompt: redesign Vantage UI into one cohesive horizontal fantasy
+logo, with a small faceted diamond/rhombus immediately to the left. Integrate
+V-like facets in the emblem; share clean angular cuts, optical weight and
+restrained satin antique gold with the serif wordmark. Exact text: "Vantage UI".
+Use simple readable shapes for an approximately 110x20 game header, no extra
+ornaments, tagline, digits, badge, shadow or glow. The first transparent request
+returned an opaque checkerboard and was rejected as a production asset.
+Final cleanup prompt: preserve the emblem, lettering, spacing, gold and
+proportions exactly; replace only the simulated checkerboard/cloudy background
+with uniform opaque charcoal RGB(16,16,16), with no vignette or texture.
+
+## Previous wordmark reference
+
 `vantage-ui-approved.png` is the user-approved logo concept, generated with the
 built-in Image Gen tool. It is a source asset, not an extra skin folder or a
 client dependency. Do not ship this full-resolution reference inside `ui/skin`.

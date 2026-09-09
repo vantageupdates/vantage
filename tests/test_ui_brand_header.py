@@ -33,6 +33,28 @@ def test_wordmark_keeps_gold_shapes_and_a_clear_gutter_before_badge():
                for x in range(114, 124) for y in range(2, 18))
 
 
+def test_diamond_is_visible_to_the_left_at_native_size_with_a_tapered_silhouette():
+    def gold(x,y):
+        return pixel(x,y)[2] - pixel(x,y)[0] > 20
+    # Previously this space was blank; the diamond is real artwork, not a label.
+    assert sum(gold(x,y) for x in range(12,18) for y in range(20)) >= 20
+    rows = [sum(gold(x,y) for x in range(12,25)) for y in range(20)]
+    assert rows[8] >= 10
+    assert rows[8] > rows[2] > rows[0]
+    assert rows[8] > rows[14] > rows[17]
+    assert rows[18] == rows[19] == 0
+    assert len({pixel(x,y) for x in range(12,25) for y in range(18) if gold(x,y)}) > 50
+
+
+def test_diamond_source_is_kept_outside_the_client_payload():
+    source=SKIN.parent/'artwork'/'vantage-ui-diamond.png'
+    assert source.is_file()
+    assert not (SKIN/source.name).exists()
+    data=source.read_bytes()
+    assert data[:8] == b'\x89PNG\r\n\x1a\n'
+    assert (int.from_bytes(data[16:20],'big'),int.from_bytes(data[20:24],'big')) == (2172,724)
+
+
 def test_version_frame_is_single_subtle_rounded_line():
     # Corners are background; center of the long edges has a fine, soft rim.
     assert pixel(124, 1) == pixel(187, 1) == (16, 16, 16, 255)

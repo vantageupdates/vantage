@@ -4,6 +4,10 @@
 
 Install folder: `VantageUI-v1.44.70`.
 
+- Give the gold Vantage UI identity a faceted diamond/V emblem to the left
+  of the wordmark. Preserve the separate native version frame and the header,
+  hotbar and inventory slot dimensions. No version digits are baked into art.
+
 - Give the inventory stat/resistance icon rail a ten-pixel gap from the actual
   equipment edge and sixteen from bags. The prior rail overlapped the wider
   equipment column by two pixels, although it cleared bags by four.
