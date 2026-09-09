@@ -88,4 +88,4 @@ def test_heading_xp_and_window_match_the_expanded_right_hand_area():
         assert x + w == 372
     assert item(xml, 'Gauge', 'IW_ExpGauge').findtext('EQType') == '4'
     assert item(xml, 'Gauge', 'IW_ExpGauge').findtext('DrawLinesFill') == 'true'
-    assert item(xml, 'Gauge', 'IW_ExpGauge').findtext('GaugeDrawTemplate/Fill') == 'A_GaugeFill'
+    assert item(xml, 'Gauge', 'IW_ExpGauge').findtext('GaugeDrawTemplate/Fill') == 'A_VantageInventoryExpFill'

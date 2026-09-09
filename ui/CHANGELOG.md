@@ -1,5 +1,20 @@
 # VantageUI releases
 
+## 1.44.72
+
+Install folder: `VantageUI-v1.44.72`.
+
+- Fix the inventory EXP bar stopping 18 pixels before the stats' right edge.
+  Give all four gauge layers native 118x8 sprites instead of the shared 100x8
+  sprites; preserve the existing fill colors, shading, dividers and native data.
+- Keep inventory geometry, labels, icons, other gauges and shared artwork unchanged.
+- Reduce spell-gem row gaps from 4px to 2px, retaining the 28px buttons, icons,
+  font and two-line label room. Move the cast footer up with the rows and shorten
+  the window by 14px; preserve all native spell and casting bindings.
+
+Load with `/loadskin VantageUI-v1.44.72 1`. Native rendering still requires
+review in EverQuest; automated checks cover the full-width layers and payload.
+
 ## 1.44.71
 
 Install folder: `VantageUI-v1.44.71`.

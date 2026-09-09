@@ -112,8 +112,8 @@ def test_spell_gems_have_room_for_names_inset_icons_and_row_gaps(index):
     gem = item(xml, 'SpellGem', f'CSPW_Spell{index}')
     label = item(xml, 'Label', f'CSPW_Spell{index}_Name')
     window = item(xml, 'Screen', 'CastSpellWnd')
-    assert rect(gem) == (1, 18 + 32 * index, 120, 28)
-    assert rect(label) == (32, 22 + 32 * index, 85, 26)
+    assert rect(gem) == (1, 18 + 30 * index, 120, 28)
+    assert rect(label) == (32, 22 + 30 * index, 85, 26)
     assert_two_line_spell_name_room(gem, label)
     assert label.findtext('Font') == '1'
     assert label.findtext('NoWrap') == 'false'
@@ -136,12 +136,12 @@ def test_spell_gems_have_room_for_names_inset_icons_and_row_gaps(index):
     assert gem.find('SpellIconSizeY') is None
     if index < 7:
         following = item(xml, 'SpellGem', f'CSPW_Spell{index + 1}')
-        assert rect(following)[1] - (gy + gh) == 4
-        assert ly + lh <= rect(following)[1] - 2
+        assert rect(following)[1] - (gy + gh) == 2
+        assert ly + lh <= rect(following)[1]
     header = item(xml, 'Button', 'CSPW_SpellBook')
     assert rect(header) == (1, 1, 120, 14)
     assert window.findtext('Size/CX') == '130'
-    assert window.findtext('Size/CY') == '300'
+    assert window.findtext('Size/CY') == '286'
 
 
 @pytest.mark.parametrize('index', range(8))

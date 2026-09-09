@@ -153,9 +153,9 @@ def test_spell_footer_is_a_native_countdown_below_unchanged_gems():
     parent = cast.item(root, 'Screen', 'CastSpellWnd')
     footer = cast.item(root, 'StaticAnimation', 'CSPW_CastFooter')
     base = cast.item(root, 'Gauge', cast.FOOTER_BASE)
-    assert rect(parent)[2:] == (130, 300)
-    assert rect(footer) == (1, 274, 120, 15)
-    assert rect(base) == (3, 277, 116, 9)
+    assert rect(parent)[2:] == (130, 286)
+    assert rect(footer) == (1, 260, 120, 15)
+    assert rect(base) == (3, 263, 116, 9)
     assert base.findtext('EQType') == '7'
     assert base.find('ScreenID') is None
     assert base.findtext('TextOffsetX') == '8000'
@@ -166,9 +166,9 @@ def test_spell_footer_is_a_native_countdown_below_unchanged_gems():
     assert footer.findtext('Animation') == 'A_CSPW_CastFooter'
     for i in range(8):
         gem = cast.item(root, 'SpellGem', f'CSPW_Spell{i}')
-        assert rect(gem) == (1, 18 + i * 32, 120, 28)
+        assert rect(gem) == (1, 18 + i * 30, 120, 28)
         label = cast.item(root, 'Label', f'CSPW_Spell{i}_Name')
-        assert rect(label) == (32, 22 + i * 32, 85, 26)
+        assert rect(label) == (32, 22 + i * 30, 85, 26)
         assert rect(label)[1] + rect(label)[3] <= rect(footer)[1] - 2
     pieces = [p.text for p in parent.findall('Pieces')]
     order = {n.get('item'): i for i, n in enumerate(root)}
@@ -180,8 +180,8 @@ def test_spell_footer_is_a_native_countdown_below_unchanged_gems():
         clip = cast.item(root, 'Screen', name + 'A_X')
         animation = cast.item(root, 'Ui2DAnimation', name + 'Fill')
         assert rect(a) == (0, 0, 10000 - 100 * threshold, 9)
-        assert rect(b) == (3 + cut, 277, 116 - cut, 9)
-        assert rect(clip) == (3, 277, cut, 9)
+        assert rect(b) == (3 + cut, 263, 116 - cut, 9)
+        assert rect(clip) == (3, 263, cut, 9)
         assert a.findtext('GaugeOffsetX') == str(-100 * threshold)
         assert b.findtext('GaugeOffsetX') == str(-cut)
         assert clip.findtext('Pieces') == name + 'A'
@@ -199,7 +199,7 @@ def test_spell_footer_is_a_native_countdown_below_unchanged_gems():
         sequence.extend((name + 'A_X', name + 'B'))
     assert pieces[-len(sequence):] == sequence
     assert all(pieces.count(p) == 1 for p in sequence)
-    assert 274 + 15 <= 300 - 8 - 3
+    assert 260 + 15 <= 286 - 8 - 3
 
 
 def test_spell_footer_cells_have_rounded_corners_and_clear_atlas_gutters():

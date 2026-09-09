@@ -122,7 +122,7 @@ Distribuido bajo GNU GPL v3; consulta `LICENSE` y `SOURCE-NOTICE.md` para los av
 
 Companion incluye un panel independiente **VantageUI** para instalar y mantener
 la skin opcional incluida en este repositorio. Cada lanzamiento UI se instala en
-una carpeta propia como `EverQuest\uifiles\VantageUI-v1.44.71`; la carpeta
+una carpeta propia como `EverQuest\uifiles\VantageUI-v1.44.72`; la carpeta
 legada `VantageUI` permanece intacta. El actualizador verifica los archivos,
 conserva la selección activa y dos versiones anteriores de respaldo, y
 solo elimina versiones administradas más antiguas que sigan intactas. La activa
@@ -133,7 +133,7 @@ para instalar una carpeta nueva con el juego abierto siempre difiere la limpieza
 Vantage nunca termina el proceso ni modifica otras skins, enlaces, archivos INI,
 binarios del juego o la instalación de Companion. “Activa” es la selección del
 actualizador, no la skin cargada por EverQuest: después de instalar, copia el
-comando mostrado, por ejemplo `/loadskin VantageUI-v1.44.71 1`, y verifica la
+comando mostrado, por ejemplo `/loadskin VantageUI-v1.44.72 1`, y verifica la
 interfaz dentro del juego. Restaurar solo selecciona una versión anterior que
 siga íntegra; nunca sobrescribe sus archivos. Consulta [la documentación de
 VantageUI](ui/README.md) para detalles técnicos y avisos.

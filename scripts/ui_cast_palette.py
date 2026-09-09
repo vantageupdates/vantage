@@ -181,7 +181,11 @@ def add_spell_footer(text):
     <GaugeDrawTemplate><Fill>A_CSPW_CastFill</Fill></GaugeDrawTemplate>
   </Gauge>
 </XML>""")
-    set_value(parent, 'Size/CY', 300)
+    last = item(root, 'SpellGem', 'CSPW_Spell7')
+    footer_y = int(last.findtext('Location/Y')) + int(last.findtext('Size/CY')) + 4
+    set_value(item(definitions, 'StaticAnimation', 'CSPW_CastFooter'), 'Location/Y', footer_y)
+    set_value(item(definitions, 'Gauge', FOOTER_BASE), 'Location/Y', footer_y + 3)
+    set_value(parent, 'Size/CY', footer_y + 26)
     for name in ('CSPW_CastFooter', FOOTER_BASE):
         ET.SubElement(parent, 'Pieces').text = name
     text = replace_block(text, 'Screen', 'CastSpellWnd',

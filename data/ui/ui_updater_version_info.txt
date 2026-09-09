@@ -1,12 +1,12 @@
 VSVersionInfo(
-  ffi=FixedFileInfo(filevers=(1, 44, 71, 0), prodvers=(1, 44, 71, 0),
+  ffi=FixedFileInfo(filevers=(1, 44, 72, 0), prodvers=(1, 44, 72, 0),
     mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
   kids=[StringFileInfo([StringTable('040904B0', [
     StringStruct('CompanyName', 'Vantage Project'),
     StringStruct('FileDescription', 'VantageUI - EverQuest skin updater'),
-    StringStruct('FileVersion', '1.44.71'),
+    StringStruct('FileVersion', '1.44.72'),
     StringStruct('InternalName', 'VantageUI-Updater'),
     StringStruct('OriginalFilename', 'VantageUI-Updater.exe'),
     StringStruct('ProductName', 'VantageUI'),
-    StringStruct('ProductVersion', '1.44.71')])]),
+    StringStruct('ProductVersion', '1.44.72')])]),
     VarFileInfo([VarStruct('Translation', [1033, 1200])])])
