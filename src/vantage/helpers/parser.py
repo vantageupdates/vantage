@@ -36,6 +36,7 @@ DESIGN_SIZES = {
     # saved window and then resizing it back to 900x580.
     "quests": QSize(900, 580),
     "items_notes": QSize(900, 570),
+    "log_searcher": QSize(960, 560),
     "vantage_ui": QSize(700, 540),
 }
 

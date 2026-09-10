@@ -11,8 +11,9 @@ from pathlib import Path
 import subprocess
 import sys
 import threading
+import time
 
-from PySide6.QtCore import QObject, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
@@ -131,6 +132,21 @@ class _WorkerSignals(QObject):
     failed = Signal(int, str, object)
     log = Signal(int, str)
     progress = Signal(int, str, int, int, int)
+
+
+class _OperationLogInteractionFilter(QObject):
+    """Distinguish a user's log interaction from Qt's disabled-focus fallback."""
+
+    def __init__(self, owner):
+        super().__init__(owner)
+        self.owner = owner
+
+    def eventFilter(self, watched, event):
+        if (self.owner._busy and event.type() in (
+                QEvent.Type.KeyPress, QEvent.Type.MouseButtonPress,
+                QEvent.Type.Wheel)):
+            self.owner._operation_fallback_touched = True
+        return False
 
 
 class CharacterUIManagerDialog(QDialog):
@@ -637,19 +653,35 @@ class VantageUI(ParserWindow):
         self._operation_announcements = True
         self._progress_updates_enabled = True
         self._initiating_control = None
+        self._operation_fallback_control = None
+        self._operation_fallback_touched = False
         self._last_warnings = ()
         self._shared_update_controller = None
         self._profile_manager = None
+        self._pending_profile_elevation = None
         self._automatic_timer = QTimer(self)
         self._automatic_timer.setInterval(AUTO_CHECK_MS)
         self._automatic_timer.timeout.connect(self._automatic_check)
         self._build_ui()
+        self._profile_sync_timer = QTimer(self)
+        self._profile_sync_timer.setInterval(1500)
+        self._profile_sync_timer.timeout.connect(self._try_pending_profile_sync)
+        self._profile_elevation_timer = QTimer(self)
+        self._profile_elevation_timer.setInterval(250)
+        self._profile_elevation_timer.timeout.connect(
+            self._poll_profile_sync_elevation)
+        if config.data["vantage_ui"].get("pending_profile_sync"):
+            self._profile_sync_timer.start()
         if self.auto_update.isChecked():
             self._automatic_timer.start()
 
     @property
     def state_directory(self):
         return data_dir("ui-updater", "backups")
+
+    @property
+    def profile_state_directory(self):
+        return data_dir("ui-profile-backups")
 
     def _build_ui(self):
         body = QFrame()
@@ -778,6 +810,23 @@ class VantageUI(ParserWindow):
         self.auto_update.toggled.connect(self._auto_update_changed)
         layout.addWidget(self.auto_update)
 
+        self.auto_apply_profiles = QCheckBox(
+            "Keep every character on the installed VantageUI version")
+        self.auto_apply_profiles.setChecked(bool(
+            config.data["vantage_ui"].get("auto_apply_profiles", True)))
+        self.auto_apply_profiles.setAccessibleName(
+            "Keep all character accounts on the installed VantageUI version")
+        self.auto_apply_profiles.setToolTip(
+            "After install, update only UISkin in every detected P99 UI INI and "
+            "eqclient.ini; each changed file is backed up first")
+        self.auto_apply_profiles.setAccessibleDescription(
+            "After a verified install, Vantage backs up the affected INI files "
+            "and changes only UISkin. If EverQuest is open, the change waits "
+            "until the game closes so EverQuest cannot overwrite it.")
+        self.auto_apply_profiles.toggled.connect(
+            self._auto_apply_profiles_changed)
+        layout.addWidget(self.auto_apply_profiles)
+
         self.elevation_button = QPushButton("Retry with Windows permission…")
         self.elevation_button.setAccessibleName(
             "Open the VantageUI updater with Windows administrator permission")
@@ -786,6 +835,17 @@ class VantageUI(ParserWindow):
         self.elevation_button.clicked.connect(self._request_elevation)
         self.elevation_button.hide()
         layout.addWidget(self.elevation_button)
+
+        self.profile_elevation_button = QPushButton(
+            "Apply account INIs with Windows permission…")
+        self.profile_elevation_button.setAccessibleName(
+            "Apply VantageUI to all character accounts with Windows permission")
+        self.profile_elevation_button.setToolTip(
+            "Open the normal Windows UAC prompt for the pending, backed-up INI update")
+        self.profile_elevation_button.clicked.connect(
+            self._request_profile_sync_elevation)
+        self.profile_elevation_button.hide()
+        layout.addWidget(self.profile_elevation_button)
 
         self.status = QLabel(
             "Ready. Choose the EverQuest folder, then Install VantageUI.")
@@ -812,6 +872,9 @@ class VantageUI(ParserWindow):
         self.log.setMaximumBlockCount(80)
         self.log.setAccessibleName("VantageUI operation details")
         self.log.setToolTip("Recent verified update and recovery details")
+        self._log_interaction_filter = _OperationLogInteractionFilter(self)
+        self.log.installEventFilter(self._log_interaction_filter)
+        self.log.viewport().installEventFilter(self._log_interaction_filter)
         layout.addWidget(self.log, 1)
 
         self.instruction = QLabel(
@@ -827,10 +890,11 @@ class VantageUI(ParserWindow):
         layout.addWidget(self.instruction)
         scope = QLabel(
             "Only verified uifiles\\VantageUI-vX.Y.Z folders are managed. The "
-            "legacy VantageUI folder and other skins are never changed. Character "
-            "UI_*.ini files change only through Character UI & layouts, with a "
-            "restore point first. Character settings INIs, game binaries, running "
-            "processes, and Companion are never replaced.")
+            "legacy VantageUI folder and other skins are never changed. After a "
+            "verified install, Vantage can back up every detected UI_*.ini and "
+            "eqclient.ini, then change only UISkin so all accounts use the same "
+            "version. Character settings INIs, game binaries, running processes, "
+            "and Companion are never replaced.")
         scope.setObjectName("VantageUIScope")
         scope.setWordWrap(True)
         layout.addWidget(scope)
@@ -839,6 +903,9 @@ class VantageUI(ParserWindow):
         self._refresh_target()
         self._refresh_versions()
         self._refresh_controls()
+
+        QWidget.setTabOrder(self.character_ui_button, self.auto_update)
+        QWidget.setTabOrder(self.auto_update, self.auto_apply_profiles)
 
     def parse(self, _timestamp, _text):
         """VantageUI is independent of EverQuest log parsing."""
@@ -998,9 +1065,11 @@ class VantageUI(ParserWindow):
         self._update_check_error = ""
         self._refresh_versions()
         self._refresh_controls()
-        if (self.auto_update.isChecked() and
-                version_is_newer(installed, release.version)):
+        update_available = version_is_newer(installed, release.version)
+        if self.auto_update.isChecked() and update_available:
             return self.update_skin(confirm=False, background=True)
+        if folder and self.auto_apply_profiles.isChecked():
+            self._schedule_profile_sync(folder)
         return True
 
     def shared_release_history_failed(self, message):
@@ -1045,7 +1114,8 @@ class VantageUI(ParserWindow):
         for control in (
                 self.path_edit, self.browse_button, self.check_button,
                 self.restore_button, self.copy_command_button,
-                self.character_ui_button, self.auto_update):
+                self.character_ui_button, self.auto_update,
+                self.auto_apply_profiles):
             control.setEnabled(not self._busy)
         self.copy_command_button.setEnabled(
             not self._busy and bool(self._installed_folder))
@@ -1056,7 +1126,156 @@ class VantageUI(ParserWindow):
         config.data["vantage_ui"]["eq_dir"] = normalize_eq_root(
             self.path_edit.text())
         config.data["vantage_ui"]["auto_update"] = self.auto_update.isChecked()
+        config.data["vantage_ui"]["auto_apply_profiles"] = \
+            self.auto_apply_profiles.isChecked()
         config.save()
+
+    def _auto_apply_profiles_changed(self, enabled):
+        self._save_settings()
+        if enabled and self._installed_folder:
+            self._schedule_profile_sync(
+                self._installed_folder, restore_focus=True)
+        elif not enabled:
+            config.data["vantage_ui"]["pending_profile_sync"] = {}
+            config.save()
+            self._profile_sync_timer.stop()
+            self.profile_elevation_button.hide()
+            self._set_status(
+                "Automatic character account updates are off. VantageUI files "
+                "remain installed and Character UI & layouts is still available.")
+
+    def _profile_sync_request(self):
+        value = config.data.get("vantage_ui", {}).get(
+            "pending_profile_sync", {})
+        return value if isinstance(value, dict) else {}
+
+    def _clear_profile_sync_request(self):
+        config.data["vantage_ui"]["pending_profile_sync"] = {}
+        config.save()
+        self._profile_sync_timer.stop()
+        self.profile_elevation_button.hide()
+
+    def _schedule_profile_sync(
+            self, skin_folder, *, restore_focus=False, focus_control=None):
+        """Persist a safe post-install INI update until it completes."""
+        if not self.auto_apply_profiles.isChecked():
+            return False
+        eq_root = normalize_eq_root(self.path_edit.text())
+        root = Path(eq_root)
+        if not (root.is_dir() and (root / "eqgame.exe").is_file()):
+            return False
+        if not (root / "uifiles" / str(skin_folder)).is_dir():
+            return False
+        request = {"eq_root": eq_root, "skin_folder": str(skin_folder)}
+        config.data["vantage_ui"]["pending_profile_sync"] = request
+        config.save()
+        self._profile_sync_timer.start()
+        return self._try_pending_profile_sync(
+            restore_focus=restore_focus, focus_control=focus_control)
+
+    def _try_pending_profile_sync(
+            self, *, restore_focus=False, focus_control=None):
+        request = self._profile_sync_request()
+        if (self._busy or self._pending_profile_elevation or
+                not request or not self.auto_apply_profiles.isChecked()):
+            return False
+        eq_root = normalize_eq_root(request.get("eq_root", ""))
+        skin = str(request.get("skin_folder") or "")
+        if eq_root != normalize_eq_root(self.path_edit.text()):
+            return False
+        try:
+            selected = ui_skin_updater.installed_folder(eq_root)
+            running = ui_skin_updater.game_running()
+        except (OSError, UIProfileError,
+                ui_skin_updater.SkinUpdateError) as error:
+            self._set_status(
+                f"Could not verify the pending character account update: {error}")
+            return False
+        if selected != skin:
+            self._clear_profile_sync_request()
+            self._set_status(
+                "The selected VantageUI version changed before account INIs "
+                "were updated. Refresh VantageUI and try again.")
+            return False
+        if running:
+            self._set_status(
+                f"VantageUI {self._installed or skin} is installed. All character "
+                "accounts will switch to it automatically when EverQuest closes; "
+                "Vantage will never stop the game.", announce=False)
+            return False
+
+        self._profile_sync_timer.stop()
+
+        def synchronize(log, progress):
+            progress("Backing up character UI settings", 20, 0, 0)
+            result = apply_skin_to_all(
+                eq_root, skin, self.profile_state_directory,
+                include_eqclient=True, allow_no_changes=True)
+            log(
+                f"Character UI sync: {result.changed} INI file"
+                f"{'s' if result.changed != 1 else ''} changed.")
+            progress("Character accounts use the selected VantageUI", 100, 0, 0)
+            return skin, result
+
+        started = self._start(
+            "profile-sync", synchronize,
+            "Backing up and applying the selected VantageUI to every character…",
+            restore_focus=restore_focus, announce=False)
+        if started and focus_control is not None:
+            self._initiating_control = focus_control
+        return started
+
+    def _request_profile_sync_elevation(self):
+        request = self._profile_sync_request()
+        if not request or self._pending_profile_elevation:
+            return False
+        try:
+            pending = request_elevated_profile_action(
+                "skin", request["eq_root"],
+                skin_folder=request["skin_folder"], include_eqclient=True)
+        except (OSError, UIProfileError, KeyError) as error:
+            pending = None
+            self._append_log(self._operation_token, str(error))
+        if pending is None:
+            self._set_status(
+                "Windows permission was not granted. Account INIs remain "
+                "unchanged and the automatic update is still pending.")
+            return False
+        self._pending_profile_elevation = pending
+        self.profile_elevation_button.setEnabled(False)
+        self._profile_elevation_timer.start()
+        self._set_status(
+            "Windows UAC opened for the backed-up character account update…")
+        return True
+
+    def _poll_profile_sync_elevation(self):
+        pending = self._pending_profile_elevation
+        if pending is None:
+            self._profile_elevation_timer.stop()
+            return
+        try:
+            result = read_elevated_profile_result(pending)
+        except (OSError, UIProfileError, ValueError) as error:
+            result = {"ok": False, "error": str(error)}
+        if result is None:
+            if (time.monotonic() - pending.started_at) < 120:
+                return
+            result = {"ok": False, "error": "Windows permission request timed out"}
+        self._profile_elevation_timer.stop()
+        self._pending_profile_elevation = None
+        self.profile_elevation_button.setEnabled(True)
+        if result.get("ok"):
+            changed = int(result.get("changed") or 0)
+            self._clear_profile_sync_request()
+            self._set_status(
+                f"All character accounts now use {self._installed_folder}. "
+                f"{changed} INI file{'s' if changed != 1 else ''} updated with "
+                "a restore point.")
+        else:
+            self.profile_elevation_button.show()
+            self._set_status(
+                "Windows could not apply the pending account INIs: "
+                f"{result.get('error') or 'unknown error'}. Nothing unsafe was changed.")
 
     def _path_edited(self):
         normalized = normalize_eq_root(self.path_edit.text())
@@ -1125,6 +1344,8 @@ class VantageUI(ParserWindow):
             focused is not None and
             (focused is self._surface or self._surface.isAncestorOf(focused))
             else None)
+        self._operation_fallback_control = None
+        self._operation_fallback_touched = False
         self._busy = True
         self._active_action = action
         self._operation_announcements = bool(announce)
@@ -1144,6 +1365,8 @@ class VantageUI(ParserWindow):
         self.elevation_button.hide()
         self._set_status(status)
         self._refresh_controls()
+        if self._initiating_control is not None:
+            self._operation_fallback_control = self._surface.focusWidget()
 
         def run():
             try:
@@ -1194,10 +1417,16 @@ class VantageUI(ParserWindow):
 
     def _consume_initiating_control(self):
         initiating = self._initiating_control
+        fallback = self._operation_fallback_control
+        touched = self._operation_fallback_touched
         self._initiating_control = None
-        return initiating
+        self._operation_fallback_control = None
+        self._operation_fallback_touched = False
+        return initiating, fallback, touched
 
-    def _focus_after_operation(self, preferred=None, *, initiating=None):
+    def _focus_after_operation(
+            self, preferred=None, *, initiating=None, fallback=None,
+            fallback_touched=False, restore_automatic_fallback=False):
         """Return keyboard focus after an asynchronous panel operation."""
         if initiating is None or not self._panel_owns_active_focus():
             return False
@@ -1205,12 +1434,14 @@ class VantageUI(ParserWindow):
         if (focused is not None and focused is not initiating and
                 focused.isEnabled() and
                 (focused is self._surface or
-                 self._surface.isAncestorOf(focused))):
+                 self._surface.isAncestorOf(focused)) and
+                (not restore_automatic_fallback or focused is not fallback or
+                 fallback_touched)):
             # The user deliberately moved to another usable control while the
             # operation ran (commonly the log). Preserve that reading context.
             return False
         candidates = (
-            preferred, self.update_button, self.check_button,
+            initiating, preferred, self.update_button, self.check_button,
             self.restore_button, self.path_edit)
 
         def restore():
@@ -1327,7 +1558,11 @@ class VantageUI(ParserWindow):
                 "Modified, unmanaged, and legacy VantageUI folders are preserved. "
                 "Vantage never closes or signals EverQuest. If EverQuest is open, "
                 "do not reload the UI during installation; after success, run "
-                f"/loadskin {next_folder} 1 to apply the new files."):
+                f"/loadskin {next_folder} 1 to apply the new files. "
+                + ("Vantage will also back up and switch every detected character "
+                   "INI to this version; that step waits for EverQuest to close."
+                   if self.auto_apply_profiles.isChecked() else
+                   "Automatic character INI updates are currently off.")):
             self._set_status(f"VantageUI {action} cancelled. Nothing changed.")
             self._install_action = ""
             return False
@@ -1357,8 +1592,10 @@ class VantageUI(ParserWindow):
         if not self._confirm(
                 "Restore VantageUI",
                 "Select the previous verified VantageUI folder?\n\n"
-                "No UI files or character INIs will be overwritten. After restore, "
-                "use the command shown by Vantage to load that version.\n\n"
+                "No UI files are overwritten. After restore, use the command shown "
+                "by Vantage to load that version. If automatic character updates "
+                "are enabled, every detected character INI is backed up and changed "
+                "to the restored version.\n\n"
                 "EverQuest must be closed for this selection change."):
             self._set_status("Restore cancelled. Nothing changed.")
             return False
@@ -1382,15 +1619,18 @@ class VantageUI(ParserWindow):
     def _operation_completed(self, token, action, result):
         if token != self._operation_token:
             return
-        initiating = self._consume_initiating_control()
+        initiating, fallback, fallback_touched = \
+            self._consume_initiating_control()
         self._busy = False
         if action == "check":
             self._update_check_error = ""
         self._progress_value = 100
         if self._progress_updates_enabled:
             self.progress.setValue(100)
+        sync_after = ""
         if action == "local":
             self._installed, self._installed_folder = result
+            sync_after = self._installed_folder
             next_action = (
                 "Install VantageUI" if not self._installed else
                 "Update VantageUI")
@@ -1422,6 +1662,7 @@ class VantageUI(ParserWindow):
                 f"{command}, then verify the UI in game."
                 + (" Some folders were preserved; review the operation details."
                    if self._last_warnings else ""))
+            sync_after = result.folder
             self._install_action = ""
         elif action == "restore":
             self._installed = result.version
@@ -1432,6 +1673,19 @@ class VantageUI(ParserWindow):
             self._set_status(
                 "Previous verified VantageUI selected. Verify it in game with "
                 f"{self._loadskin_command()}.")
+            sync_after = result.folder
+        elif action == "profile-sync":
+            skin, profile_result = result
+            self._clear_profile_sync_request()
+            changed = int(profile_result.changed)
+            if changed:
+                self._set_status(
+                    f"All character accounts now use {skin}. {changed} INI "
+                    f"file{'s' if changed != 1 else ''} updated with one "
+                    "restorable backup.")
+            else:
+                self._set_status(
+                    f"All detected character accounts already use {skin}.")
         final_text = self.status.text()
         if self._progress_updates_enabled:
             self.progress.setFormat("Complete · 100%")
@@ -1457,10 +1711,18 @@ class VantageUI(ParserWindow):
                 self.update_skin(confirm=False, background=True)
             else:
                 self._focus_after_operation(
-                    self.update_button, initiating=initiating)
+                    self.update_button, initiating=initiating,
+                    fallback=fallback, fallback_touched=fallback_touched)
         else:
             self._focus_after_operation(
-                self.update_button, initiating=initiating)
+                self.update_button, initiating=initiating,
+                fallback=fallback, fallback_touched=fallback_touched,
+                restore_automatic_fallback=(action == "profile-sync"))
+        if sync_after and self.auto_apply_profiles.isChecked():
+            self._schedule_profile_sync(
+                sync_after, restore_focus=self._operation_announcements,
+                focus_control=(
+                    initiating if self._operation_announcements else None))
         if not self._busy:
             self._active_action = ""
             self._operation_announcements = True
@@ -1469,7 +1731,8 @@ class VantageUI(ParserWindow):
     def _operation_failed(self, token, action, error):
         if token != self._operation_token:
             return
-        initiating = self._consume_initiating_control()
+        initiating, fallback, fallback_touched = \
+            self._consume_initiating_control()
         self._busy = False
         if action == "check":
             self._install_after_check = False
@@ -1493,11 +1756,19 @@ class VantageUI(ParserWindow):
                 f"{message} Close any tool using that file and try again. "
                 "Do not reload the UI; installation did not complete.")
         elif permission:
-            self.elevation_button.show()
-            self._set_status(
-                "Windows denied write access. Nothing unsafe was changed. "
-                "Use the normal UAC button below or choose another valid installation; "
-                "Vantage will not change folder permissions.")
+            if action == "profile-sync":
+                self.profile_elevation_button.show()
+                self._profile_sync_timer.stop()
+                self._set_status(
+                    "VantageUI is installed, but Windows denied access to the "
+                    "character INIs. Use the normal UAC button below; every file "
+                    "will be backed up and Vantage will not change folder permissions.")
+            else:
+                self.elevation_button.show()
+                self._set_status(
+                    "Windows denied write access. Nothing unsafe was changed. "
+                    "Use the normal UAC button below or choose another valid installation; "
+                    "Vantage will not change folder permissions.")
         else:
             failed_action = self._install_action or action
             self._install_action = ""
@@ -1511,13 +1782,20 @@ class VantageUI(ParserWindow):
                 f"VantageUI operation failed at {self._progress_value} percent. "
                 f"{self.status.text()}")
         self._refresh_controls()
-        if permission:
+        if permission and action != "profile-sync":
             self._focus_after_operation(
-                self.elevation_button, initiating=initiating)
+                self.elevation_button, initiating=initiating,
+                fallback=fallback, fallback_touched=fallback_touched)
+        elif permission:
+            self._focus_after_operation(
+                self.profile_elevation_button, initiating=initiating,
+                fallback=fallback, fallback_touched=fallback_touched,
+                restore_automatic_fallback=(action == "profile-sync"))
         else:
             self._focus_after_operation(
-                self._retry_control(action, initiating),
-                initiating=initiating)
+                self._retry_control(action, initiating), initiating=initiating,
+                fallback=fallback, fallback_touched=fallback_touched,
+                restore_automatic_fallback=(action == "profile-sync"))
         self._active_action = ""
         self._operation_announcements = True
         self._progress_updates_enabled = True

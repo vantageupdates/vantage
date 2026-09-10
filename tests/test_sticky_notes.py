@@ -35,6 +35,24 @@ created = {
     "sticky": panel._journal.note(note_id)["sticky"],
     "button": panel.sticky_note_button.text(),
     "minimum": [window.minimumWidth(), window.minimumHeight()],
+    "borderless": bool(window.windowFlags() & Qt.FramelessWindowHint),
+    "drag_handle": window.drag_handle.accessibleName(),
+    "close": window.close_button.accessibleName(),
+    "resize": window.resize_grip.accessibleName(),
+}
+start_x = window.x()
+start_height = window.height()
+window.title.setFocus()
+QTest.keyClick(
+    window.title, Qt.Key.Key_Right, Qt.KeyboardModifier.AltModifier)
+QTest.keyClick(
+    window.title, Qt.Key.Key_Down,
+    Qt.KeyboardModifier.ControlModifier |
+    Qt.KeyboardModifier.AltModifier)
+app.processEvents()
+keyboard_geometry = {
+    "moved": window.x() == start_x + 10,
+    "resized": window.height() == start_height + 10,
 }
 
 window.title.setText("Raid list from sticky")
@@ -117,6 +135,7 @@ returned = {
 
 print(json.dumps({
     "created": created,
+    "keyboard_geometry": keyboard_geometry,
     "sticky_to_notes": sticky_to_notes,
     "notes_to_sticky": notes_to_sticky,
     "synced": synced,
@@ -181,7 +200,13 @@ def test_notes_convert_to_small_interconnected_synced_stickies(tmp_path):
         "sticky": True,
         "button": "Hide sticky",
         "minimum": [240, 160],
+        "borderless": True,
+        "drag_handle": "Sticky note move handle",
+        "close": "Hide this sticky note",
+        "resize": "Resize sticky note",
     }
+    assert result["keyboard_geometry"] == {
+        "moved": True, "resized": True}
     assert result["sticky_to_notes"] == {
         "title": "Raid list from sticky",
         "text": "Bring cold and magic resist gear",

@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.75 design QA
+# Vantage Companion 1.44.76 design QA
 
 final result: passed
 
@@ -54,6 +54,12 @@ final result: passed
   the 240x160 minimum; moving, resizing, closing, reopening and restarting do
   not lose content or geometry. Device Sync replacement refreshes the open
   editor and floating view as one record.
+- Borderless Sticky Notes retain an explicit drag handle, hide button and
+  resize grip without relying on the Windows frame.
+- Log Searcher exposes one labelled filter row, an incremental-cache status,
+  adjustable result columns and multi-row copy without modifying EQ logs.
+- VantageUI account synchronization reports its pending state while EverQuest
+  is open and exposes normal Windows-permission recovery without changing ACLs.
 - The new Quick Bar backpack action uses the existing 24 px control lane and
   the reset geometry was widened to include it without compressing neighbors.
 - Market's Discord copy actions use the established compact button treatment;
@@ -78,6 +84,8 @@ final result: passed
 - Sticky Notes use native keyboard focus order, visible focus borders and
   explicit accessible names. Escape hides without deleting; Open returns focus
   to the same note, while Unpin removes only the floating presentation.
+- Log Searcher labels every filter and action, announces completed searches,
+  and supports keyboard row selection and copying.
 - Market effect links expose only the effect name as the action while casting
   requirements remain readable plain text.
 - Decorative logos use empty alternative text where adjacent Vantage text already names the product; the README logo has a meaningful alternative.

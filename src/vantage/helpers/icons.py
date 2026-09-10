@@ -21,6 +21,7 @@ WINDOW_ICONS = {
     "zones": "ph-compass",
     "quests": "ph-quest-scroll",
     "items_notes": "ph-backpack",
+    "log_searcher": "ph-log-search",
     "vantage_ui": "ph-layout",
 }
 

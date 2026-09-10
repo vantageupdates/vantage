@@ -80,7 +80,10 @@ def test_portable_profile_excludes_paths_connections_and_secrets():
         "market": {"live_watch_items": ["Manastone"], "api_token": "no"},
         "sharing": {"url": "https://private.invalid", "group_key": "no"},
         "mobile": {"eq_executable": r"C:\EQ\eqgame.exe"},
-        "vantage_ui": {"eq_dir": r"D:\EQ", "auto_update": True},
+        "vantage_ui": {
+            "eq_dir": r"D:\EQ", "auto_update": True,
+            "pending_profile_sync": {
+                "eq_root": r"D:\EQ", "skin_folder": "VantageUI-v1.2.3"}},
         "device_sync": {"group_secret": "no"},
     }
 
@@ -107,6 +110,24 @@ def test_layout_can_be_disabled_without_losing_settings():
         "quickbar": {"show_server_tick": False},
         "zones": {"last_zone": "velks"},
     }
+
+
+def test_smart_timers_are_an_explicit_portable_sync_category():
+    source = {
+        "timers": {
+            "items": [{"id": "frenzy", "zone": "gukbottom",
+                       "phase": "respawn", "ends_at": 12345.0}],
+            "view_zone": "gukbottom",
+        },
+        "market": {"live_watch_items": ["Manastone"]},
+    }
+
+    assert export_sync_settings(source)["timers"] == source["timers"]
+    assert "timers" not in export_sync_settings(
+        source, include_timers=False)
+    current = {"timers": {"items": [{"id": "local"}]}, "market": {}}
+    apply_sync_settings(current, source, include_timers=False)
+    assert current["timers"] == {"items": [{"id": "local"}]}
 
 
 def test_apply_preserves_machine_local_values():

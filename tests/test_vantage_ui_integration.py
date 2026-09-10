@@ -37,6 +37,7 @@ def panel(tmp_path, monkeypatch):
         "clickthrough": False, "auto_hide_menu": False,
         "always_on_top": False, "frameless": True, "opacity": 100,
         "eq_dir": DEFAULT_EQ_ROOT, "auto_update": False,
+        "auto_apply_profiles": True, "pending_profile_sync": {},
     }
     config._filename = str(tmp_path / "profile.json")
     monkeypatch.setattr(config, "save", lambda: None)
@@ -642,6 +643,49 @@ def test_install_result_shows_real_folder_and_preservation_warnings(panel):
     assert "preserved" in panel.status.text().casefold()
     assert "VantageUI-v1.44.50" in panel.log.toPlainText()
     assert panel.update_snapshot()["warnings"] == result.warnings
+
+
+def test_install_queues_all_character_profiles_until_everquest_closes(
+        panel, tmp_path, monkeypatch):
+    root = tmp_path / "EverQuest"
+    (root / "uifiles" / "VantageUI-v1.44.52").mkdir(parents=True)
+    (root / "eqgame.exe").write_bytes(b"game")
+    (root / "UI_Alpha_P1999Green.ini").write_text(
+        "[Main]\nUISkin=velious\n", encoding="cp1252")
+    (root / "eqclient.ini").write_text(
+        "[Main]\nUISkin=velious\n", encoding="cp1252")
+    panel.path_edit.setText(str(root))
+    monkeypatch.setattr(
+        ui_skin_updater, "installed_folder",
+        lambda _root: "VantageUI-v1.44.52")
+    running = {"value": True}
+    monkeypatch.setattr(
+        ui_skin_updater, "game_running", lambda: running["value"])
+
+    panel._operation_token = 7
+    panel._busy = True
+    result = ui_skin_updater.InstallResult(
+        "1.44.52", 12, "installed", "VantageUI-v1.44.52")
+    panel._operation_completed(7, "update", result)
+
+    assert config.data["vantage_ui"]["pending_profile_sync"] == {
+        "eq_root": str(root), "skin_folder": "VantageUI-v1.44.52"}
+    assert "when EverQuest closes" in panel.status.text()
+    assert "UISkin=velious" in (
+        root / "UI_Alpha_P1999Green.ini").read_text(encoding="cp1252")
+
+    running["value"] = False
+    assert panel._try_pending_profile_sync()
+    for _ in range(100):
+        QApplication.processEvents()
+        if not panel._busy:
+            break
+        QTest.qWait(10)
+    assert "UISkin=VantageUI-v1.44.52" in (
+        root / "UI_Alpha_P1999Green.ini").read_text(encoding="cp1252")
+    assert "UISkin=VantageUI-v1.44.52" in (
+        root / "eqclient.ini").read_text(encoding="cp1252")
+    assert config.data["vantage_ui"]["pending_profile_sync"] == {}
 
 
 def test_restore_result_selects_previous_folder_and_exact_command(panel):

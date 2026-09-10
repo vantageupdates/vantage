@@ -26,7 +26,7 @@ QUEST_CHECKLIST_MAX_TOTAL_BYTES = 384 * 1024
 UI_PRESENTATION_DEFAULTS = {
     ('general', 'startup_window_state'): 'rolled',
     ('general', 'table_column_widths'): {},
-    ('quickbar', 'geometry'): [10, 10, 729, 67],
+    ('quickbar', 'geometry'): [10, 10, 754, 67],
     ('quickbar', 'toggled'): True,
     ('quickbar', 'auto_hide_menu'): False,
     ('quickbar', 'always_on_top'): True,
@@ -131,6 +131,14 @@ UI_PRESENTATION_DEFAULTS = {
     ('items_notes', 'always_on_top'): False,
     ('items_notes', 'frameless'): True,
     ('items_notes', 'collapsed'): False,
+    ('log_searcher', 'geometry'): [220, 120, 960, 560],
+    ('log_searcher', 'toggled'): False,
+    ('log_searcher', 'opacity'): 100,
+    ('log_searcher', 'clickthrough'): False,
+    ('log_searcher', 'auto_hide_menu'): False,
+    ('log_searcher', 'always_on_top'): False,
+    ('log_searcher', 'frameless'): True,
+    ('log_searcher', 'collapsed'): False,
     ('vantage_ui', 'geometry'): [250, 150, 700, 540],
     ('vantage_ui', 'toggled'): False,
     ('vantage_ui', 'opacity'): 100,
@@ -603,8 +611,8 @@ def verify_settings():
     # interactive and never creates another normal Windows taskbar entry.
     data['quickbar'] = data.get('quickbar', {})
     data['quickbar']['geometry'] = get_setting(
-        data['quickbar'].get('geometry', [10, 10, 729, 67]),
-        [10, 10, 729, 67],
+        data['quickbar'].get('geometry', [10, 10, 754, 67]),
+        [10, 10, 754, 67],
         lambda value: isinstance(value, list) and len(value) == 4)
     for key, default in (
             ('toggled', True), ('auto_hide_menu', False),
@@ -1446,6 +1454,28 @@ def verify_settings():
         data['items_notes'].get('opacity', 100), 100,
         lambda value: 40 <= value <= 100)
 
+    # Local cached search across every linked EQ log. The SQLite cache itself
+    # is machine-local; only this window's presentation can enter Device Sync.
+    data['log_searcher'] = data.get('log_searcher', {})
+    if not isinstance(data['log_searcher'], dict):
+        data['log_searcher'] = {}
+    data['log_searcher']['geometry'] = get_setting(
+        data['log_searcher'].get('geometry', [220, 120, 960, 560]),
+        [220, 120, 960, 560],
+        lambda value: (isinstance(value, list) and len(value) == 4 and
+                       all(isinstance(item, int) for item in value) and
+                       value[2] > 0 and value[3] > 0))
+    for key, default in (
+            ('toggled', False), ('clickthrough', False),
+            ('auto_hide_menu', False), ('always_on_top', False),
+            ('frameless', True)):
+        data['log_searcher'][key] = get_setting(
+            data['log_searcher'].get(key, default), default)
+    data['log_searcher']['clickthrough'] = False
+    data['log_searcher']['opacity'] = get_setting(
+        data['log_searcher'].get('opacity', 100), 100,
+        lambda value: 40 <= value <= 100)
+
     # Optional VantageUI management. The user-selected EQ root and opt-in
     # automatic update preference are content, not presentation reset state.
     data['vantage_ui'] = data.get('vantage_ui', {})
@@ -1473,6 +1503,20 @@ def verify_settings():
         r'C:\Program Files (x86)\Sony\EverQuest')
     data['vantage_ui']['auto_update'] = get_setting(
         data['vantage_ui'].get('auto_update', False), False)
+    data['vantage_ui']['auto_apply_profiles'] = get_setting(
+        data['vantage_ui'].get('auto_apply_profiles', True), True)
+    pending_profile_sync = data['vantage_ui'].get('pending_profile_sync', {})
+    if not isinstance(pending_profile_sync, dict):
+        pending_profile_sync = {}
+    pending_root = str(pending_profile_sync.get('eq_root') or '')
+    pending_skin = str(pending_profile_sync.get('skin_folder') or '')
+    if (not pending_root or
+            not re.fullmatch(r'VantageUI-v\d+\.\d+\.\d+', pending_skin)):
+        pending_profile_sync = {}
+    else:
+        pending_profile_sync = {
+            'eq_root': pending_root, 'skin_folder': pending_skin}
+    data['vantage_ui']['pending_profile_sync'] = pending_profile_sync
 
     # Local, read-only EverQuest view. Enabling is intentionally per-session.
     data['mobile'] = data.get('mobile', {})
@@ -1492,7 +1536,8 @@ def verify_settings():
         data['device_sync'] = {}
     for key, default in (
             ('enabled', False), ('sync_settings', True),
-            ('sync_layout', True), ('sync_items_notes', True),
+            ('sync_layout', True), ('sync_timers', True),
+            ('sync_items_notes', True),
             ('sync_hotbuttons', True)):
         data['device_sync'][key] = get_setting(
             data['device_sync'].get(key, default), default)

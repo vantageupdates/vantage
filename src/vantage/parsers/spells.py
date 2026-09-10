@@ -1619,6 +1619,44 @@ class Spells(ParserWindow):
             restored += 1
         return restored
 
+    @staticmethod
+    def _runtime_sync_signature(rows):
+        signature = []
+        for item in rows if isinstance(rows, list) else ():
+            if not isinstance(item, dict):
+                continue
+            spell = item.get('spell') if isinstance(item.get('spell'), dict) \
+                else {}
+            try:
+                deadline = int(float(item.get('deadline') or 0))
+            except (TypeError, ValueError, OverflowError):
+                deadline = 0
+            signature.append((
+                str(item.get('target') or '').casefold(),
+                str(item.get('character') or '').casefold(),
+                str(item.get('server') or '').casefold(),
+                str(spell.get('runtime_key') or spell.get('name') or '').casefold(),
+                deadline))
+        return tuple(sorted(signature))
+
+    def refresh_synced_content(self):
+        """Refresh active buff/countdown rows after a newer device snapshot."""
+        saved = config.data.get('spells', {}).get('active_timer_state', [])
+        current = self._spell_container.snapshot_runtime_state()
+        if self._runtime_sync_signature(saved) == \
+                self._runtime_sync_signature(current):
+            return 0
+        self._runtime_state_save_timer.stop()
+        for target in list(self._spell_container.spell_targets()):
+            target.setParent(None)
+            target.deleteLater()
+        restored = self._spell_container.restore_runtime_state(
+            saved, self.spell_book)
+        cleaned = self._spell_container.snapshot_runtime_state()
+        config.data['spells']['active_timer_state'] = cleaned
+        self._spell_container._sync_empty_state()
+        return restored
+
     def mobile_snapshot(self):
         """Return active spell timers for the private mobile companion."""
         now_epoch = time.time()
@@ -1988,7 +2026,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.75')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.76')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:

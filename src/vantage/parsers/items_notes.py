@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 import re
 
-from PySide6.QtCore import QSignalBlocker, QStringListModel, Qt, QTimer, QUrl, QUrlQuery
+from PySide6.QtCore import QPoint, QSignalBlocker, QStringListModel, Qt, QTimer, QUrl, QUrlQuery
 from PySide6.QtGui import (
     QAccessible, QAccessibleAnnouncementEvent, QKeyEvent, QKeySequence,
     QShortcut, QTextCursor)
@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QComboBox, QCompleter, QFrame,
     QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton, QSplitter,
-    QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QToolButton,
+    QSizeGrip, QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QToolButton,
     QVBoxLayout, QWidget)
 
 from vantage.helpers import config
@@ -91,29 +91,87 @@ class ReferenceEditor(QPlainTextEdit):
         self.completer.complete(rectangle)
 
 
+class _StickyDragHandle(QLabel):
+    """Keyboard-neutral drag surface for a frameless sticky note."""
+
+    def __init__(self, window):
+        super().__init__("STICKY NOTE", window)
+        self._host_window = window
+        self._origin = None
+        self.setObjectName("StickyNoteDragHandle")
+        self.setAccessibleName("Sticky note move handle")
+        self.setToolTip(
+            "Drag to move · Alt+Arrow moves with the keyboard")
+        self.setCursor(Qt.CursorShape.SizeAllCursor)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._origin = (
+                event.globalPosition().toPoint() - self._host_window.pos())
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if (self._origin is not None and
+                event.buttons() & Qt.MouseButton.LeftButton):
+            self._host_window.move(
+                event.globalPosition().toPoint() - self._origin)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._origin = None
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+
 class StickyNoteWindow(QWidget):
     """Small always-on-top editor backed by one Items & Notes record."""
 
     def __init__(self, owner, note):
         super().__init__(None, Qt.WindowType.Tool |
                         Qt.WindowType.WindowStaysOnTopHint |
-                        Qt.WindowType.WindowCloseButtonHint)
+                        Qt.WindowType.FramelessWindowHint)
         self.owner = owner
         self.note_id = str(note.get("id") or "")
         self._loading = False
         self._quitting = False
         self.setObjectName("StickyNoteWindow")
+        self.setAccessibleName("Floating sticky note")
+        self.setAccessibleDescription(
+            "Borderless note. Alt plus Arrow moves it; Control plus Alt plus "
+            "Arrow resizes it; add Shift for one-pixel adjustments.")
         self.setWindowIcon(game_icon("ph-backpack"))
         self.setMinimumSize(240, 160)
         self.resize(320, 250)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setContentsMargins(7, 5, 7, 7)
         layout.setSpacing(5)
+        chrome = QHBoxLayout()
+        chrome.setContentsMargins(0, 0, 0, 0)
+        chrome.setSpacing(4)
+        self.drag_handle = _StickyDragHandle(self)
+        chrome.addWidget(self.drag_handle, 1)
+        self.close_button = QToolButton()
+        self.close_button.setObjectName("StickyNoteClose")
+        self.close_button.setText("×")
+        self.close_button.setAccessibleName("Hide this sticky note")
+        self.close_button.setToolTip(
+            "Hide this floating note; it remains saved in Items & Notes")
+        self.close_button.clicked.connect(self.close)
+        chrome.addWidget(self.close_button)
+        layout.addLayout(chrome)
         self.title = QLineEdit()
         self.title.setObjectName("StickyNoteTitle")
         self.title.setPlaceholderText("Note title")
         self.title.setAccessibleName("Sticky note title")
+        self.title.setAccessibleDescription(
+            "Alt plus Arrow moves this note; Control plus Alt plus Arrow resizes it")
         self.title.textChanged.connect(self._changed)
         layout.addWidget(self.title)
 
@@ -152,7 +210,30 @@ class StickyNoteWindow(QWidget):
             "Remove the floating sticky window but keep the note saved")
         self.unpin_button.clicked.connect(self._return_to_notes)
         footer.addWidget(self.unpin_button)
+        self.resize_grip = QSizeGrip(self)
+        self.resize_grip.setAccessibleName("Resize sticky note")
+        self.resize_grip.setToolTip(
+            "Drag to resize · Ctrl+Alt+Arrow resizes with the keyboard")
+        footer.addWidget(self.resize_grip)
         layout.addLayout(footer)
+
+        self._keyboard_geometry_shortcuts = []
+        directions = {
+            "Left": (-1, 0), "Right": (1, 0),
+            "Up": (0, -1), "Down": (0, 1),
+        }
+        for key, (dx, dy) in directions.items():
+            for prefix, resize, step in (
+                    ("Alt", False, 10), ("Alt+Shift", False, 1),
+                    ("Ctrl+Alt", True, 10),
+                    ("Ctrl+Alt+Shift", True, 1)):
+                shortcut = QShortcut(QKeySequence(f"{prefix}+{key}"), self)
+                shortcut.setContext(
+                    Qt.ShortcutContext.WidgetWithChildrenShortcut)
+                shortcut.activated.connect(
+                    lambda x=dx, y=dy, amount=step, sizing=resize:
+                    self._keyboard_geometry_change(x, y, amount, sizing))
+                self._keyboard_geometry_shortcuts.append(shortcut)
 
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
@@ -165,6 +246,36 @@ class StickyNoteWindow(QWidget):
         QApplication.instance().aboutToQuit.connect(self._prepare_to_quit)
         self.apply_note(note)
         self._restore_geometry(note.get("geometry"))
+
+    def _keyboard_geometry_change(self, dx, dy, step, resize):
+        """Move or resize the frameless note without requiring a pointer."""
+        if resize:
+            self.resize(
+                max(self.minimumWidth(), self.width() + dx * step),
+                max(self.minimumHeight(), self.height() + dy * step))
+            message = f"Sticky note size {self.width()} by {self.height()}"
+        else:
+            screen = QApplication.screenAt(self.frameGeometry().center()) \
+                or QApplication.primaryScreen()
+            target = self.pos() + QPoint(dx * step, dy * step)
+            if screen is not None:
+                area = screen.availableGeometry()
+                target.setX(max(
+                    area.left(), min(
+                        target.x(), area.right() - self.width() + 1)))
+                target.setY(max(
+                    area.top(), min(
+                        target.y(), area.bottom() - self.height() + 1)))
+            self.move(target)
+            message = f"Sticky note position {self.x()}, {self.y()}"
+        self.status.setText(message)
+        self.status.setAccessibleDescription(message)
+        try:
+            QAccessible.updateAccessibility(
+                QAccessibleAnnouncementEvent(self.status, message))
+        except (AttributeError, RuntimeError, TypeError):
+            pass
+        self._geometry_timer.start()
 
     def _restore_geometry(self, geometry):
         if (isinstance(geometry, list) and len(geometry) == 4 and

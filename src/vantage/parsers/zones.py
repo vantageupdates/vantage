@@ -510,7 +510,7 @@ class Zones(ParserWindow):
         request.setTransferTimeout(ZONE_NETWORK_TIMEOUT_MS)
         request.setHeader(
             QNetworkRequest.KnownHeaders.UserAgentHeader,
-            "Vantage/1.44.75 (vantagecompanion@gmail.com)")
+            "Vantage/1.44.76 (vantagecompanion@gmail.com)")
         reply = self._network.get(request)
         self._zone_request_id += 1
         reply.setProperty("zoneRequestId", self._zone_request_id)
@@ -757,7 +757,7 @@ class Zones(ParserWindow):
         self._zone_drop_requests.add(key)
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(target.replace(" ", "_"), safe=""))))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.75")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.76")
         reply = self._network.get(request)
         self._drop_reply_contexts[reply] = (mob, target, key, cache_path)
         reply.finished.connect(self._drops_finished)

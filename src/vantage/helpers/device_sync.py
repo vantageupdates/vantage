@@ -162,25 +162,31 @@ def _filtered_copy(value, *, include_layout=True, depth=0):
     return None
 
 
-def export_sync_settings(settings, include_layout=True):
+def export_sync_settings(settings, include_layout=True, include_timers=True):
     """Return the portable profile subset; machine paths and secrets stay local."""
     source = settings if isinstance(settings, dict) else {}
     result = {}
     for section, value in source.items():
         if str(section).casefold() in LOCAL_TOP_LEVEL:
             continue
+        if str(section).casefold() == "timers" and not include_timers:
+            continue
         if section == "vantage_ui":
             value = {
                 key: child for key, child in value.items()
-                if str(key).casefold() not in {"eq_dir", "installed_path"}}
+                if str(key).casefold() not in {
+                    "eq_dir", "installed_path", "pending_profile_sync"}}
         result[str(section)] = _filtered_copy(
             value, include_layout=include_layout)
     return result
 
 
-def apply_sync_settings(current, incoming, include_layout=True):
+def apply_sync_settings(
+        current, incoming, include_layout=True, include_timers=True):
     """Merge a validated portable profile without replacing local-only values."""
-    portable = export_sync_settings(incoming, include_layout=include_layout)
+    portable = export_sync_settings(
+        incoming, include_layout=include_layout,
+        include_timers=include_timers)
     for section, value in portable.items():
         if isinstance(value, dict) and isinstance(current.get(section), dict):
             _merge_dict(current[section], value)
@@ -249,7 +255,7 @@ def _official_release_asset():
     request = Request(
         SYNCTHING_RELEASE_API,
         headers={"Accept": "application/vnd.github+json",
-                 "User-Agent": "Vantage/1.44.75"})
+                 "User-Agent": "Vantage/1.44.76"})
     with urlopen(request, timeout=15) as response:
         raw = response.read(MAX_RELEASE_BYTES + 1)
     if len(raw) > MAX_RELEASE_BYTES:
@@ -274,7 +280,7 @@ def _official_release_asset():
 def install_syncthing(progress=None):
     """Download one verified portable transport binary from the official release."""
     url, expected = _official_release_asset()
-    request = Request(url, headers={"User-Agent": "Vantage/1.44.75"})
+    request = Request(url, headers={"User-Agent": "Vantage/1.44.76"})
     with urlopen(request, timeout=45) as response:
         length = int(response.headers.get("Content-Length") or 0)
         if length > MAX_ARCHIVE_BYTES:
@@ -791,7 +797,8 @@ class DeviceSyncController(QObject):
             "group": settings["group_id"],
             "generated_at": time.time(),
             "settings": export_sync_settings(
-                config.data, settings.get("sync_layout", True))
+                config.data, settings.get("sync_layout", True),
+                settings.get("sync_timers", True))
                 if settings.get("sync_settings", True) else {},
         }
         if settings.get("sync_items_notes", True):
@@ -855,7 +862,8 @@ class DeviceSyncController(QObject):
             if settings.get("sync_settings", True):
                 apply_sync_settings(
                     config.data, payload.get("settings", {}),
-                    settings.get("sync_layout", True))
+                    settings.get("sync_layout", True),
+                    settings.get("sync_timers", True))
             config.data["device_sync"] = before
             if settings.get("sync_items_notes", True) and isinstance(
                     payload.get("items_notes"), dict):
@@ -864,7 +872,8 @@ class DeviceSyncController(QObject):
             config.save()
             digest_source = {
                 "settings": export_sync_settings(
-                    config.data, settings.get("sync_layout", True)),
+                    config.data, settings.get("sync_layout", True),
+                    settings.get("sync_timers", True)),
                 "items_notes": _safe_read_json(
                     data_dir("items-notes.json", create=False)) or {},
                 "hotbuttons": payload.get("hotbuttons", []),
@@ -874,6 +883,13 @@ class DeviceSyncController(QObject):
             app = self.parent()
             if app is not None and hasattr(app, "_signals"):
                 app._signals["settings"].config_updated.emit()
+                parsers = getattr(app, "_parsers_dict", {})
+                for parser_name in ("timers", "spells"):
+                    parser = parsers.get(parser_name) if isinstance(
+                        parsers, dict) else None
+                    refresh = getattr(parser, "refresh_synced_content", None)
+                    if callable(refresh):
+                        refresh()
             applied += 1
             self._save_state()
         return applied
@@ -929,7 +945,7 @@ class DeviceSyncDialog(UniformScaleDialog):
         title.setObjectName("SettingsSectionTitle")
         layout.addWidget(title)
         intro = QLabel(
-            "Keep Vantage settings, window layout, watched items and notes on "
+            "Keep Smart Timers, Vantage settings, WTS/WTB, watched items and notes on "
             "2, 3 or more PCs. No account: your data moves encrypted between "
             "approved devices and is not stored in a Vantage cloud.")
         intro.setWordWrap(True)
@@ -960,16 +976,23 @@ class DeviceSyncDialog(UniformScaleDialog):
             "Includes automatic-update opt-ins, but never passwords, tokens, "
             "credentials, or local paths")
         self.sync_layout = QCheckBox("Window sizes and layout")
+        self.sync_timers = QCheckBox(
+            "Smart Timers, zones and active countdowns")
+        self.sync_timers.setAccessibleName(
+            "Sync Smart Timers, zones, and active countdowns between paired PCs")
+        self.sync_timers.setToolTip(
+            "Sync timer definitions, selected zones, phases and current countdown state")
         self.sync_items = QCheckBox("Item tracker and notes")
         self.sync_hotbuttons = QCheckBox("WTS/WTB buttons for matching characters")
         options.addRow("Sync", self.sync_settings)
         options.addRow("Also", self.sync_layout)
+        options.addRow("Also", self.sync_timers)
         options.addRow("Also", self.sync_items)
         options.addRow("Also", self.sync_hotbuttons)
         layout.addLayout(options)
         for checkbox in (
                 self.sync_settings, self.sync_layout, self.sync_items,
-                self.sync_hotbuttons):
+                self.sync_timers, self.sync_hotbuttons):
             checkbox.toggled.connect(self._save_options)
 
         code_row = QHBoxLayout()
@@ -1063,6 +1086,7 @@ class DeviceSyncDialog(UniformScaleDialog):
         settings = config.data["device_sync"]
         settings["sync_settings"] = self.sync_settings.isChecked()
         settings["sync_layout"] = self.sync_layout.isChecked()
+        settings["sync_timers"] = self.sync_timers.isChecked()
         settings["sync_items_notes"] = self.sync_items.isChecked()
         settings["sync_hotbuttons"] = self.sync_hotbuttons.isChecked()
         settings["enabled"] = True
@@ -1130,6 +1154,7 @@ class DeviceSyncDialog(UniformScaleDialog):
         for checkbox, key, default in (
                 (self.sync_settings, "sync_settings", True),
                 (self.sync_layout, "sync_layout", True),
+                (self.sync_timers, "sync_timers", True),
                 (self.sync_items, "sync_items_notes", True),
                 (self.sync_hotbuttons, "sync_hotbuttons", True)):
             checkbox.blockSignals(True)

@@ -262,7 +262,8 @@ def _backup_and_apply(root, state_dir, action, label, updates):
 
 
 def apply_skin_to_all(
-        eq_root, skin_folder, state_dir, *, include_eqclient=True):
+        eq_root, skin_folder, state_dir, *, include_eqclient=True,
+        allow_no_changes=False):
     """Set only UISkin for every P99 character UI profile, with one backup."""
     if ui_skin_updater.game_running():
         raise UIProfileError("Close EverQuest before changing character UI files")
@@ -282,6 +283,8 @@ def apply_skin_to_all(
             updated = _set_skin(original, skin_folder)
             if updated != original:
                 updates.append((eqclient, updated))
+    if not updates and allow_no_changes:
+        return ProfileOperationResult("skin", 0, "", ())
     if not updates:
         raise UIProfileError("Every detected character already uses this VantageUI")
     return _backup_and_apply(

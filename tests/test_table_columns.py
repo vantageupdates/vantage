@@ -130,6 +130,7 @@ def test_every_column_is_interactive_keyboard_resizable_and_persistent(tmp_path)
     assert result["sorting"] is True
     assert result["menu_actions"] == [
         "Widen Seller", "Narrow Seller", "Auto-fit Seller",
+        "Sort Seller ascending", "Sort Seller descending",
         "Reset this table's columns"]
     assert result["keyboard_delta"] == 32
     assert result["persisted"] == [111, 209, 333]

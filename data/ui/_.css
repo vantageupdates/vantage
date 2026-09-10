@@ -1188,7 +1188,28 @@ QWidget[ResponsiveViewport="true"], QWidget[ResponsivePage="true"] {
 #StickyNoteWindow {
     background-color: #18160F;
     color: #F1E7C7;
+    border: none;
 }
+#StickyNoteDragHandle {
+    color: #C9BC95;
+    background: transparent;
+    border: none;
+    font-size: 9px;
+    font-weight: bold;
+    letter-spacing: 1px;
+}
+#StickyNoteClose {
+    color: #E8DDBE;
+    background: transparent;
+    border: none;
+    min-width: 24px;
+    max-width: 24px;
+    min-height: 24px;
+    max-height: 24px;
+    font-size: 18px;
+}
+#StickyNoteClose:hover { background-color: #3A3020; color: #FFFFFF; }
+#StickyNoteClose:focus { border: 2px solid #E2C568; }
 #QuickBarNotificationChannel {
     color: #F2C96D;
     background-color: #11181D;

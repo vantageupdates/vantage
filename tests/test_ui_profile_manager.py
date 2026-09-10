@@ -66,6 +66,18 @@ def test_apply_skin_changes_only_uiskin_and_creates_restore_point(eq_install):
     assert backups[0].file_count == 3
 
 
+def test_automatic_skin_sync_can_report_already_current_without_empty_backup(
+        eq_install):
+    root, skin, state = eq_install
+    first = profiles.apply_skin_to_all(root, skin, state)
+    second = profiles.apply_skin_to_all(
+        root, skin, state, allow_no_changes=True)
+
+    assert first.changed == 3
+    assert second == profiles.ProfileOperationResult("skin", 0, "", ())
+    assert len(profiles.list_backups(state, root)) == 1
+
+
 def test_copy_layout_copies_only_ui_file_and_restore_is_reversible(eq_install):
     root, skin, state = eq_install
     beta = root / "UI_Beta_P1999Blue.ini"

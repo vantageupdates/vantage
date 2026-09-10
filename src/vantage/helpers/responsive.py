@@ -131,7 +131,7 @@ class TableColumnManager(QObject):
     WIDTH_STEP = 32
     INSTRUCTIONS = (
         "Drag heading dividers to resize columns. Press Shift+F10 from a cell "
-        "for keyboard column width controls.")
+        "for keyboard resize and sort controls.")
 
     def __init__(self, application=None):
         application = application or QApplication.instance()
@@ -396,7 +396,7 @@ class TableColumnManager(QObject):
         except RuntimeError:
             return
         menu = QMenu(view)
-        menu.setAccessibleName(f"{heading} column width controls")
+        menu.setAccessibleName(f"{heading} column controls")
         menu.setToolTipsVisible(True)
         wider = menu.addAction(f"Widen {heading}")
         wider.setToolTip(f"Increase the {heading} column by {self.WIDTH_STEP} pixels")
@@ -409,6 +409,18 @@ class TableColumnManager(QObject):
         auto_fit = menu.addAction(f"Auto-fit {heading}")
         auto_fit.setToolTip(f"Fit the {heading} column to its visible content")
         auto_fit.triggered.connect(lambda: self._auto_fit(view, column))
+        if view.isSortingEnabled():
+            menu.addSeparator()
+            ascending = menu.addAction(f"Sort {heading} ascending")
+            ascending.setToolTip(
+                f"Sort all rows by {heading} in ascending order")
+            ascending.triggered.connect(
+                lambda: self._sort(view, column, Qt.SortOrder.AscendingOrder))
+            descending = menu.addAction(f"Sort {heading} descending")
+            descending.setToolTip(
+                f"Sort all rows by {heading} in descending order")
+            descending.triggered.connect(
+                lambda: self._sort(view, column, Qt.SortOrder.DescendingOrder))
         menu.addSeparator()
         reset = menu.addAction("Reset this table's columns")
         reset.setToolTip("Restore the authored column widths for this table")
@@ -433,6 +445,18 @@ class TableColumnManager(QObject):
 
         menu.aboutToHide.connect(close_menu)
         menu.popup(global_point)
+
+    def _sort(self, view, column, order):
+        view.sortByColumn(column, order)
+        direction = (
+            "ascending" if order == Qt.SortOrder.AscendingOrder else
+            "descending")
+        message = f"Sorted by {self._heading(view, column)}, {direction}"
+        try:
+            QAccessible.updateAccessibility(
+                QAccessibleAnnouncementEvent(view, message))
+        except RuntimeError:
+            pass
 
     def _change_width(self, view, column, delta):
         width = max(self.MIN_WIDTH, min(

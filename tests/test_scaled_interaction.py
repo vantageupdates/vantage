@@ -265,7 +265,7 @@ def test_scaled_panels_keep_keyboard_pointer_and_tooltips(tmp_path):
     assert result["missing_timer_tooltips"] == []
     assert result["map_manual_pan"] is True
     assert result["minimum_sizes"] == {
-            "quickbar": [273, 25],
+            "quickbar": [283, 25],
         "maps": [100, 100], "spells": [65, 100],
         "tick": [65, 36],
         "timers": [130, min(
@@ -276,7 +276,8 @@ def test_scaled_panels_keep_keyboard_pointer_and_tooltips(tmp_path):
         "opendkp": [245, 155],
             "zones": [225, 140], "quests": [225, 145],
             "items_notes": [225, 142],
-            "vantage_ui": [175, 135]}
+            "vantage_ui": [175, 135],
+            "log_searcher": [240, 140]}
     assert result["minimum_sizes"]["timers"] == [
         130, min(
             result["timer_required_physical_height"],
@@ -287,6 +288,7 @@ def test_scaled_panels_keep_keyboard_pointer_and_tooltips(tmp_path):
         "heals": [], "market": [], "opendkp": [], "zones": [], "quests": [],
         "items_notes": [],
         "vantage_ui": [],
+        "log_searcher": [],
         "overlay_editor": []}
     assert all(
         replica['logical_before'][:3] == replica['logical_after'][:3]

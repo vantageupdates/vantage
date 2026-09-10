@@ -1058,6 +1058,38 @@ class SpawnTimers(ParserWindow):
         # timestamp and resetting them by mistake.
         self._save()
 
+    def refresh_synced_content(self):
+        """Replace the live rows after Device Sync applies a newer snapshot."""
+        incoming = config.data.get('timers', {}).get('items', [])
+        if not isinstance(incoming, list):
+            incoming = []
+        current = [timer.to_dict() for timer in self._states.values()]
+        if incoming == current:
+            return 0
+        for timer_id in list(self._states):
+            self._remove_timer(timer_id)
+        restored = 0
+        cleaned = []
+        for values in incoming:
+            try:
+                timer = SpawnTimerState.from_dict(values)
+            except (TypeError, ValueError):
+                continue
+            self._states[timer.timer_id] = timer
+            self._add_row(timer)
+            cleaned.append(timer.to_dict())
+            restored += 1
+        config.data['timers']['items'] = cleaned
+        self._selected_zone = str(
+            config.data['timers'].get('view_zone') or '').strip()
+        self._refresh_zone_filter(self._selected_zone)
+        self.compact.setChecked(bool(config.data['timers']['compact']))
+        self._schedule_timer_canvas()
+        self.status.setText(
+            f"DEVICE SYNC · {restored} Smart Timer"
+            f"{'s' if restored != 1 else ''} loaded")
+        return restored
+
     def record_session_closed(self):
         """Anchor the next startup's offline-age check to a clean exit."""
         config.data['timers']['last_session_closed_at'] = time.time()

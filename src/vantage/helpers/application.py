@@ -39,6 +39,7 @@ from vantage.parsers.opendkp import OpenDKP
 from vantage.parsers.zones import Zones
 from vantage.parsers.quests import Quests
 from vantage.parsers.items_notes import ItemsNotes
+from vantage.parsers.log_searcher import LogSearcher
 from vantage.parsers.vantage_ui import VantageUI, version_is_newer
 from vantage.parsers.quickbar import QuickBar
 from vantage.parsers.spells import Spells
@@ -53,7 +54,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=75,
+    patch=76,
     build=""
 )
 
@@ -286,6 +287,7 @@ class VantageApp(QApplication):
         zones = Zones()
         quests = Quests()
         items_notes = ItemsNotes(market, quests)
+        log_searcher = LogSearcher()
         self._signals["settings"].config_updated.connect(
             items_notes.refresh_synced_content)
         vantage_ui = VantageUI()
@@ -301,6 +303,7 @@ class VantageApp(QApplication):
             "zones": zones,
             "quests": quests,
             "items_notes": items_notes,
+            "log_searcher": log_searcher,
             "vantage_ui": vantage_ui,
         }
         quickbar = QuickBar(self, self._parsers_dict)
@@ -318,6 +321,7 @@ class VantageApp(QApplication):
             self._parsers_dict["zones"],
             self._parsers_dict["quests"],
             self._parsers_dict["items_notes"],
+            self._parsers_dict["log_searcher"],
             self._parsers_dict["vantage_ui"],
         ]
         # Launcher-first startup: build every parser once, but expose only the
@@ -1163,6 +1167,7 @@ class VantageApp(QApplication):
                 "zones": "Zones",
                 "quests": "Quests",
                 "items_notes": "Items & Notes",
+                "log_searcher": "Log Searcher",
                 "vantage_ui": "VantageUI",
             }.get(parser.name, parser.name.title())
             toggle = menu.addAction(label)
