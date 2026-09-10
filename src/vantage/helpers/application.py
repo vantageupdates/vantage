@@ -8,7 +8,7 @@ from PySide6.QtGui import (
     QColor, QCursor, QFont, QFontDatabase, QIcon, QPainter, QPalette,
     QPen, QPixmap)
 from PySide6.QtWidgets import (
-    QApplication, QFileDialog, QMenu, QMessageBox, QSystemTrayIcon)
+    QApplication, QDialog, QMenu, QMessageBox, QSystemTrayIcon)
 import semver
 
 from vantage.helpers import config, logreader, resource_path
@@ -54,7 +54,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=76,
+    patch=77,
     build=""
 )
 
@@ -890,8 +890,9 @@ class VantageApp(QApplication):
         box.setText(
             "<b>1.</b> Type <code>/log on</code> in EverQuest.<br>"
             "<b>2.</b> Open Vantage from the system tray icon.<br>"
-            "<b>3.</b> Choose <b>Select Logs Folder</b>.<br>"
-            "<b>4.</b> Select <code>EverQuest\\Logs</code>.<br><br>"
+            "<b>3.</b> Choose <b>Connect Logs</b>.<br>"
+            "<b>4.</b> Use the newest folder Vantage detects in Program Files "
+            "or AppData, or choose <code>EverQuest\\Logs</code> manually.<br><br>"
             "The status changes to <b>ONLINE</b> when the folder is valid."
         )
         box.exec()
@@ -899,11 +900,15 @@ class VantageApp(QApplication):
     def show_log_help(self):
         self._show_log_help()
 
-    def select_logs_folder(self):
-        dir_path = str(QFileDialog.getExistingDirectory(
-            None, 'Select Everquest Logs Directory'))
-        if not dir_path:
+    def select_logs_folder(self, parent=None):
+        from vantage.helpers.log_folder_setup import LogFolderDialog
+        dialog = LogFolderDialog(
+            config.data['general'].get('eq_log_dir', ''),
+            config.data.get('vantage_ui', {}).get('eq_dir', ''),
+            parent or self._parsers_dict.get('quickbar'))
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return False
+        dir_path = dialog.selected_path
         if self._toggled:
             self._toggle()
         config.data['general']['eq_log_dir'] = dir_path
@@ -1122,10 +1127,10 @@ class VantageApp(QApplication):
         log_status_action.setEnabled(False)
         log_status_action.setToolTip(
             "Type /log on in EverQuest and link the EverQuest\\Logs folder")
-        get_eq_dir_action = menu.addAction('Select Logs Folder')
+        get_eq_dir_action = menu.addAction('Connect Logs…')
         get_eq_dir_action.setIcon(game_icon('ph-folder-open'))
         get_eq_dir_action.setToolTip(
-            "First type /log on in EverQuest, then select the EverQuest\\Logs folder")
+            "Automatically find the newest EverQuest logs or choose a folder manually")
         log_help_action = menu.addAction('How Do I Link Logs?')
         log_help_action.setIcon(game_icon('ph-file-search'))
         log_help_action.setToolTip(

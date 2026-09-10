@@ -1186,14 +1186,22 @@ QWidget[ResponsiveViewport="true"], QWidget[ResponsivePage="true"] {
 /* Sticky notes remain recognizably Vantage: a warm paper-like surface without
    sacrificing the contrast and focus treatment shared by the dark UI. */
 #StickyNoteWindow {
-    background-color: #18160F;
+    background: transparent;
     color: #F1E7C7;
     border: none;
 }
+#StickyNoteSurface {
+    background-color: #18160F;
+    color: #F1E7C7;
+    border: 1px solid #6F5C2D;
+    border-radius: 11px;
+}
 #StickyNoteDragHandle {
     color: #C9BC95;
-    background: transparent;
-    border: none;
+    background-color: #211E14;
+    border: 1px solid #4E4328;
+    border-radius: 7px;
+    padding: 2px 6px;
     font-size: 9px;
     font-weight: bold;
     letter-spacing: 1px;
@@ -1210,6 +1218,17 @@ QWidget[ResponsiveViewport="true"], QWidget[ResponsivePage="true"] {
 }
 #StickyNoteClose:hover { background-color: #3A3020; color: #FFFFFF; }
 #StickyNoteClose:focus { border: 2px solid #E2C568; }
+#StickyNoteResizeGrip {
+    background: transparent;
+    border: none;
+}
+#LogFolderSetupSurface QPushButton:enabled,
+#LogFolderSetupSurface QComboBox:enabled {
+    border-color: #667783;
+}
+#LogFolderSetupSurface QPushButton#PrimaryAction:enabled {
+    border-color: #A88B57;
+}
 #QuickBarNotificationChannel {
     color: #F2C96D;
     background-color: #11181D;

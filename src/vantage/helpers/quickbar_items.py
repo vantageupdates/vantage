@@ -19,7 +19,7 @@ QUICKBAR_ITEMS = (
     ("spell_library", "Spells & Skills", "ph-spellbook", "tools"),
     ("mobile", "Vantage on Your Phone", "ph-mobile", "tools"),
     ("device_sync", "Sync My PCs", "ph-devices", "tools"),
-    ("link_logs", "Select Logs Folder", "ph-folder-open", "logs"),
+    ("link_logs", "Connect Logs: Auto or Manual", "ph-folder-open", "logs"),
     ("log_help", "How to Link Logs", "ph-file-search", "logs"),
     ("log_profiles", "Log Profiles", "ph-stack", "logs"),
     ("mute", "Mute All Sounds", "ph-mute", "audio"),

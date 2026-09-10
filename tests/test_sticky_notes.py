@@ -12,7 +12,8 @@ SCRIPT = r'''
 import json
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QPointF, Qt
+from PySide6.QtGui import QMouseEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
@@ -36,12 +37,47 @@ created = {
     "button": panel.sticky_note_button.text(),
     "minimum": [window.minimumWidth(), window.minimumHeight()],
     "borderless": bool(window.windowFlags() & Qt.FramelessWindowHint),
+    "rounded_surface": (
+        window.testAttribute(Qt.WA_TranslucentBackground) and
+        window.surface.objectName() == "StickyNoteSurface"),
     "drag_handle": window.drag_handle.accessibleName(),
+    "drag_label": window.drag_handle.text(),
     "close": window.close_button.accessibleName(),
     "resize": window.resize_grip.accessibleName(),
+    "grip_inset": [
+        window.surface.width() -
+        (window.resize_grip.x() + window.resize_grip.width()),
+        window.surface.height() -
+        (window.resize_grip.y() + window.resize_grip.height()),
+    ],
 }
 start_x = window.x()
 start_height = window.height()
+press_global = window.drag_handle.mapToGlobal(window.drag_handle.rect().center())
+drag_delta = QPointF(17, 11)
+press = QMouseEvent(
+    QEvent.Type.MouseButtonPress,
+    QPointF(window.drag_handle.rect().center()), QPointF(press_global),
+    Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+    Qt.KeyboardModifier.NoModifier)
+QApplication.sendEvent(window.drag_handle, press)
+move = QMouseEvent(
+    QEvent.Type.MouseMove,
+    QPointF(window.drag_handle.rect().center()) + drag_delta,
+    QPointF(press_global) + drag_delta,
+    Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton,
+    Qt.KeyboardModifier.NoModifier)
+QApplication.sendEvent(window.drag_handle, move)
+release = QMouseEvent(
+    QEvent.Type.MouseButtonRelease,
+    QPointF(window.drag_handle.rect().center()) + drag_delta,
+    QPointF(press_global) + drag_delta,
+    Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton,
+    Qt.KeyboardModifier.NoModifier)
+QApplication.sendEvent(window.drag_handle, release)
+app.processEvents()
+mouse_dragged = window.x() == start_x + 17
+start_x = window.x()
 window.title.setFocus()
 QTest.keyClick(
     window.title, Qt.Key.Key_Right, Qt.KeyboardModifier.AltModifier)
@@ -135,6 +171,7 @@ returned = {
 
 print(json.dumps({
     "created": created,
+    "mouse_dragged": mouse_dragged,
     "keyboard_geometry": keyboard_geometry,
     "sticky_to_notes": sticky_to_notes,
     "notes_to_sticky": notes_to_sticky,
@@ -201,10 +238,14 @@ def test_notes_convert_to_small_interconnected_synced_stickies(tmp_path):
         "button": "Hide sticky",
         "minimum": [240, 160],
         "borderless": True,
+        "rounded_surface": True,
         "drag_handle": "Sticky note move handle",
+        "drag_label": "•••  STICKY NOTE",
         "close": "Hide this sticky note",
         "resize": "Resize sticky note",
+        "grip_inset": [2, 2],
     }
+    assert result["mouse_dragged"] is True
     assert result["keyboard_geometry"] == {
         "moved": True, "resized": True}
     assert result["sticky_to_notes"] == {

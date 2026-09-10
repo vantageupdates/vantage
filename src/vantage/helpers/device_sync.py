@@ -255,7 +255,7 @@ def _official_release_asset():
     request = Request(
         SYNCTHING_RELEASE_API,
         headers={"Accept": "application/vnd.github+json",
-                 "User-Agent": "Vantage/1.44.76"})
+                 "User-Agent": "Vantage/1.44.77"})
     with urlopen(request, timeout=15) as response:
         raw = response.read(MAX_RELEASE_BYTES + 1)
     if len(raw) > MAX_RELEASE_BYTES:
@@ -280,7 +280,7 @@ def _official_release_asset():
 def install_syncthing(progress=None):
     """Download one verified portable transport binary from the official release."""
     url, expected = _official_release_asset()
-    request = Request(url, headers={"User-Agent": "Vantage/1.44.76"})
+    request = Request(url, headers={"User-Agent": "Vantage/1.44.77"})
     with urlopen(request, timeout=45) as response:
         length = int(response.headers.get("Content-Length") or 0)
         if length > MAX_ARCHIVE_BYTES:

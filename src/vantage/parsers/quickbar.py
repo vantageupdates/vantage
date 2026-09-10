@@ -1165,7 +1165,7 @@ class QuickBar(ParserWindow):
             self._application.reset_ui_layout(
                 parent=self, launcher=self._buttons.get(key))
         elif key == "link_logs":
-            self._application.select_logs_folder()
+            self._application.select_logs_folder(parent=self)
         elif key == "log_help":
             self._application.show_log_help()
         elif key == "mute":

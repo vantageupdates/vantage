@@ -9,8 +9,8 @@ import re
 
 from PySide6.QtCore import QPoint, QSignalBlocker, QStringListModel, Qt, QTimer, QUrl, QUrlQuery
 from PySide6.QtGui import (
-    QAccessible, QAccessibleAnnouncementEvent, QKeyEvent, QKeySequence,
-    QShortcut, QTextCursor)
+    QAccessible, QAccessibleAnnouncementEvent, QColor, QKeyEvent,
+    QKeySequence, QPainter, QPen, QShortcut, QTextCursor)
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QComboBox, QCompleter, QFrame,
     QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget,
@@ -95,7 +95,7 @@ class _StickyDragHandle(QLabel):
     """Keyboard-neutral drag surface for a frameless sticky note."""
 
     def __init__(self, window):
-        super().__init__("STICKY NOTE", window)
+        super().__init__("•••  STICKY NOTE", window)
         self._host_window = window
         self._origin = None
         self.setObjectName("StickyNoteDragHandle")
@@ -129,6 +129,28 @@ class _StickyDragHandle(QLabel):
         super().mouseReleaseEvent(event)
 
 
+class _StickyResizeGrip(QSizeGrip):
+    """A visible corner grip that keeps QSizeGrip's native behavior."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setObjectName("StickyNoteResizeGrip")
+        self.setFixedSize(18, 18)
+        self.setCursor(Qt.CursorShape.SizeFDiagCursor)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        pen = QPen(QColor("#C9BC95"), 1.4)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        for offset in (5, 9, 13):
+            painter.drawLine(
+                self.width() - offset, self.height() - 3,
+                self.width() - 3, self.height() - offset)
+        painter.end()
+        event.accept()
+
 class StickyNoteWindow(QWidget):
     """Small always-on-top editor backed by one Items & Notes record."""
 
@@ -145,12 +167,19 @@ class StickyNoteWindow(QWidget):
         self.setAccessibleDescription(
             "Borderless note. Alt plus Arrow moves it; Control plus Alt plus "
             "Arrow resizes it; add Shift for one-pixel adjustments.")
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setWindowIcon(game_icon("ph-backpack"))
         self.setMinimumSize(240, 160)
         self.resize(320, 250)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(7, 5, 7, 7)
+        window_layout = QVBoxLayout(self)
+        window_layout.setContentsMargins(0, 0, 0, 0)
+        self.surface = QFrame(self)
+        self.surface.setObjectName("StickyNoteSurface")
+        window_layout.addWidget(self.surface)
+
+        layout = QVBoxLayout(self.surface)
+        layout.setContentsMargins(7, 3, 7, 7)
         layout.setSpacing(5)
         chrome = QHBoxLayout()
         chrome.setContentsMargins(0, 0, 0, 0)
@@ -210,11 +239,11 @@ class StickyNoteWindow(QWidget):
             "Remove the floating sticky window but keep the note saved")
         self.unpin_button.clicked.connect(self._return_to_notes)
         footer.addWidget(self.unpin_button)
-        self.resize_grip = QSizeGrip(self)
+        self.resize_grip = _StickyResizeGrip(self.surface)
         self.resize_grip.setAccessibleName("Resize sticky note")
         self.resize_grip.setToolTip(
             "Drag to resize · Ctrl+Alt+Arrow resizes with the keyboard")
-        footer.addWidget(self.resize_grip)
+        footer.addSpacing(14)
         layout.addLayout(footer)
 
         self._keyboard_geometry_shortcuts = []
@@ -399,6 +428,11 @@ class StickyNoteWindow(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        if hasattr(self, "resize_grip"):
+            self.resize_grip.move(
+                max(0, self.surface.width() - self.resize_grip.width() - 2),
+                max(0, self.surface.height() - self.resize_grip.height() - 2))
+            self.resize_grip.raise_()
         if hasattr(self, "_geometry_timer"):
             self._geometry_timer.start()
 

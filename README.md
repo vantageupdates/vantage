@@ -105,7 +105,7 @@ La sección pública de [P99 Rulings](https://wiki.project1999.com/Rulings#Log_P
 
 1. Ejecuta `Vantage.exe` desde cualquier carpeta.
 2. En EverQuest activa el logging con `/log on`.
-3. En el icono de la bandeja, elige `Select Logs Folder…` y apunta a `EverQuest\Logs`. Vantage mostrará `WAITING` mientras escucha y cambiará a `ONLINE` cuando reciba actividad real. Abre `Log Profiles…` para ver el estado de cada personaje.
+3. En la barra rápida o el icono de la bandeja, elige `Connect Logs…`. Vantage busca automáticamente en Program Files y AppData, ordena las carpetas por su log más reciente y también permite escoger manualmente `EverQuest\Logs`. Mostrará `WAITING` mientras escucha y cambiará a `ONLINE` cuando reciba actividad real. Abre `Log Profiles…` para ver el estado de cada personaje.
 4. Abre `Timers`: por defecto, cada muerte de un named reconocido en la zona activa crea o reinicia su timer. Usa el selector del encabezado para alternar entre listas guardadas por zona o ver `All zones`.
 5. Para entregar un camp, deja seleccionada su zona, pulsa **Share visible timers** o `Ctrl+Shift+S` y pega en el chat cada línea copiada. El Vantage del receptor la detecta automáticamente en el log, descuenta el tiempo desde la hora de creación y guarda cada timer en su zona; no cambia la ventana ni roba el foco. Los códigos repetidos y el eco del propio mensaje se ignoran, los nombres ya existentes se actualizan y los códigos caducan tras 24 horas. Sólo contienen nombres, zonas y estado temporal; los sonidos, colores y volúmenes locales del receptor se conservan.
 6. Si prefieres sólo timers manuales, desactiva **Timers automáticos al morir mobs** en Ajustes → Smart Timers. También puedes crear un mob y definir respawn + kill estimado propio.

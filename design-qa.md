@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.76 design QA
+# Vantage Companion 1.44.77 design QA
 
 final result: passed
 
@@ -54,8 +54,13 @@ final result: passed
   the 240x160 minimum; moving, resizing, closing, reopening and restarting do
   not lose content or geometry. Device Sync replacement refreshes the open
   editor and floating view as one record.
-- Borderless Sticky Notes retain an explicit drag handle, hide button and
-  resize grip without relying on the Windows frame.
+- Borderless Sticky Notes use a real rounded translucent surface, a distinct
+  full-width move affordance and a visible resize grip anchored two pixels
+  from the lower-right corner. The grip does not overlap Open or Unpin at the
+  minimum size, and pointer plus keyboard geometry controls remain equivalent.
+- Connect Logs checks common Program Files and AppData locations immediately,
+  selects the folder with the newest EQ activity, and offers a bounded wider
+  scan plus an always-available manual folder picker without blocking the UI.
 - Log Searcher exposes one labelled filter row, an incremental-cache status,
   adjustable result columns and multi-row copy without modifying EQ logs.
 - VantageUI account synchronization reports its pending state while EverQuest
