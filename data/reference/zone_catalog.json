@@ -1,0 +1,616 @@
+{
+  "version": 1,
+  "source": "Vantage bundled P99 map index",
+  "zones": [
+    {
+      "name": "Ak'Anon",
+      "value": "ak'anon",
+      "map": "akanon"
+    },
+    {
+      "name": "Arena",
+      "value": "arena",
+      "map": "arena"
+    },
+    {
+      "name": "Befallen",
+      "value": "befallen",
+      "map": "befallen"
+    },
+    {
+      "name": "Blackburrow",
+      "value": "blackburrow",
+      "map": "blackburrow"
+    },
+    {
+      "name": "Butcherblock Mountains",
+      "value": "butcherblock mountains",
+      "map": "butcher"
+    },
+    {
+      "name": "Cabilis East",
+      "value": "cabilis east",
+      "map": "cabeast"
+    },
+    {
+      "name": "Cabilis West",
+      "value": "cabilis west",
+      "map": "cabwest"
+    },
+    {
+      "name": "Castle Mistmoore",
+      "value": "castle mistmoore",
+      "map": "mistmoore"
+    },
+    {
+      "name": "Chardok",
+      "value": "chardok",
+      "map": "chardok"
+    },
+    {
+      "name": "City Of Thurgadin",
+      "value": "city of thurgadin",
+      "map": "thurgadina"
+    },
+    {
+      "name": "Cobalt Scar",
+      "value": "cobalt scar",
+      "map": "cobaltscar"
+    },
+    {
+      "name": "Crushbone",
+      "value": "crushbone",
+      "map": "crushbone"
+    },
+    {
+      "name": "Crystal Caverns",
+      "value": "crystal caverns",
+      "map": "crystal"
+    },
+    {
+      "name": "Dagnor'S Cauldron",
+      "value": "dagnor's cauldron",
+      "map": "cauldron"
+    },
+    {
+      "name": "Dalnir",
+      "value": "dalnir",
+      "map": "dalnir"
+    },
+    {
+      "name": "Dragon Necropolis",
+      "value": "dragon necropolis",
+      "map": "necropolis"
+    },
+    {
+      "name": "Dreadlands",
+      "value": "dreadlands",
+      "map": "dreadlands"
+    },
+    {
+      "name": "East Commonlands",
+      "value": "east commonlands",
+      "map": "ecommons"
+    },
+    {
+      "name": "East Freeport",
+      "value": "east freeport",
+      "map": "freporte"
+    },
+    {
+      "name": "Eastern Plains Of Karana",
+      "value": "eastern plains of karana",
+      "map": "eastkarana"
+    },
+    {
+      "name": "Eastern Wastelands",
+      "value": "eastern wastelands",
+      "map": "eastwastes"
+    },
+    {
+      "name": "Erud'S Crossing",
+      "value": "erud's crossing",
+      "map": "erudsxing"
+    },
+    {
+      "name": "Erudin",
+      "value": "erudin",
+      "map": "erudnext"
+    },
+    {
+      "name": "Erudin Palace",
+      "value": "erudin palace",
+      "map": "erudnint"
+    },
+    {
+      "name": "Estate Of Unrest",
+      "value": "estate of unrest",
+      "map": "unrest"
+    },
+    {
+      "name": "Everfrost",
+      "value": "everfrost",
+      "map": "everfrost"
+    },
+    {
+      "name": "Field Of Bone",
+      "value": "field of bone",
+      "map": "fieldofbone"
+    },
+    {
+      "name": "Firiona Vie",
+      "value": "firiona vie",
+      "map": "firiona"
+    },
+    {
+      "name": "Frontier Mountains",
+      "value": "frontier mountains",
+      "map": "frontiermtns"
+    },
+    {
+      "name": "Gorge Of King Xorbb",
+      "value": "gorge of king xorbb",
+      "map": "beholder"
+    },
+    {
+      "name": "Great Divide",
+      "value": "great divide",
+      "map": "greatdivide"
+    },
+    {
+      "name": "Greater Faydark",
+      "value": "greater faydark",
+      "map": "gfaydark"
+    },
+    {
+      "name": "Grobb",
+      "value": "grobb",
+      "map": "grobb"
+    },
+    {
+      "name": "Guk",
+      "value": "guk",
+      "map": "guktop"
+    },
+    {
+      "name": "Halas",
+      "value": "halas",
+      "map": "halas"
+    },
+    {
+      "name": "High Keep",
+      "value": "high keep",
+      "map": "highkeep"
+    },
+    {
+      "name": "Highpass Hold",
+      "value": "highpass hold",
+      "map": "highpass"
+    },
+    {
+      "name": "Howling Stones",
+      "value": "howling stones",
+      "map": "charasis"
+    },
+    {
+      "name": "Iceclad Ocean",
+      "value": "iceclad ocean",
+      "map": "iceclad"
+    },
+    {
+      "name": "Icewell Keep",
+      "value": "icewell keep",
+      "map": "thurgadinb"
+    },
+    {
+      "name": "Infected Paw",
+      "value": "infected paw",
+      "map": "paw"
+    },
+    {
+      "name": "Innothule Swamp",
+      "value": "innothule swamp",
+      "map": "innothule"
+    },
+    {
+      "name": "Kael Drakkel",
+      "value": "kael drakkel",
+      "map": "kael"
+    },
+    {
+      "name": "Kaesora",
+      "value": "kaesora",
+      "map": "kaesora"
+    },
+    {
+      "name": "Karnor'S Castle",
+      "value": "karnor's castle",
+      "map": "karnor"
+    },
+    {
+      "name": "Kedge Keep",
+      "value": "kedge keep",
+      "map": "kedge"
+    },
+    {
+      "name": "Kerra Isle",
+      "value": "kerra isle",
+      "map": "kerraridge"
+    },
+    {
+      "name": "Kithicor Woods",
+      "value": "kithicor woods",
+      "map": "kithicor"
+    },
+    {
+      "name": "Kurn'S Tower",
+      "value": "kurn's tower",
+      "map": "kurn"
+    },
+    {
+      "name": "Lake Of Ill Omen",
+      "value": "lake of ill omen",
+      "map": "lakeofillomen"
+    },
+    {
+      "name": "Lake Rathetear",
+      "value": "lake rathetear",
+      "map": "lakerathe"
+    },
+    {
+      "name": "Lavastorm Mountains",
+      "value": "lavastorm mountains",
+      "map": "lavastorm"
+    },
+    {
+      "name": "Lesser Faydark",
+      "value": "lesser faydark",
+      "map": "lfaydark"
+    },
+    {
+      "name": "Lost Temple Of Cazic-Thule",
+      "value": "lost temple of cazic-thule",
+      "map": "cazicthule"
+    },
+    {
+      "name": "Mines Of Nurga",
+      "value": "mines of nurga",
+      "map": "nurga"
+    },
+    {
+      "name": "Misty Thicket",
+      "value": "misty thicket",
+      "map": "misty"
+    },
+    {
+      "name": "Nagafen'S Lair",
+      "value": "nagafen's lair",
+      "map": "soldungb"
+    },
+    {
+      "name": "Najena",
+      "value": "najena",
+      "map": "najena"
+    },
+    {
+      "name": "Neriak Commons",
+      "value": "neriak commons",
+      "map": "neriakb"
+    },
+    {
+      "name": "Neriak Foreign Quarter",
+      "value": "neriak foreign quarter",
+      "map": "neriaka"
+    },
+    {
+      "name": "Neriak Third Gate",
+      "value": "neriak third gate",
+      "map": "neriakc"
+    },
+    {
+      "name": "North Freeport",
+      "value": "north freeport",
+      "map": "freportn"
+    },
+    {
+      "name": "North Kaladim",
+      "value": "north kaladim",
+      "map": "kaladimb"
+    },
+    {
+      "name": "North Qeynos",
+      "value": "north qeynos",
+      "map": "qeynos2"
+    },
+    {
+      "name": "Northern Desert Of Ro",
+      "value": "northern desert of ro",
+      "map": "nro"
+    },
+    {
+      "name": "Northern Felwithe",
+      "value": "northern felwithe",
+      "map": "felwithea"
+    },
+    {
+      "name": "Northern Plains Of Karana",
+      "value": "northern plains of karana",
+      "map": "northkarana"
+    },
+    {
+      "name": "Oasis Of Marr",
+      "value": "oasis of marr",
+      "map": "oasis"
+    },
+    {
+      "name": "Ocean Of Tears",
+      "value": "ocean of tears",
+      "map": "oot"
+    },
+    {
+      "name": "Oggok",
+      "value": "oggok",
+      "map": "oggok"
+    },
+    {
+      "name": "Old Sebilis",
+      "value": "old sebilis",
+      "map": "sebilis"
+    },
+    {
+      "name": "Paineel",
+      "value": "paineel",
+      "map": "paineel"
+    },
+    {
+      "name": "Permafrost Caverns",
+      "value": "permafrost caverns",
+      "map": "permafrost"
+    },
+    {
+      "name": "Plane Of Air",
+      "value": "plane of air",
+      "map": "airplane"
+    },
+    {
+      "name": "Plane Of Fear",
+      "value": "plane of fear",
+      "map": "fearplane"
+    },
+    {
+      "name": "Plane Of Growth",
+      "value": "plane of growth",
+      "map": "growthplane"
+    },
+    {
+      "name": "Plane Of Hate",
+      "value": "plane of hate",
+      "map": "hateplane"
+    },
+    {
+      "name": "Plane Of Mischief",
+      "value": "plane of mischief",
+      "map": "mischiefplane"
+    },
+    {
+      "name": "Qeynos Aqueduct System",
+      "value": "qeynos aqueduct system",
+      "map": "qcat"
+    },
+    {
+      "name": "Qeynos Hills",
+      "value": "qeynos hills",
+      "map": "qeytoqrg"
+    },
+    {
+      "name": "Rathe Mountains",
+      "value": "rathe mountains",
+      "map": "rathemtn"
+    },
+    {
+      "name": "Rivervale",
+      "value": "rivervale",
+      "map": "rivervale"
+    },
+    {
+      "name": "Ruins Of Old Guk",
+      "value": "ruins of old guk",
+      "map": "gukbottom"
+    },
+    {
+      "name": "Ruins Of Sebilis",
+      "value": "ruins of sebilis",
+      "map": "sebilis"
+    },
+    {
+      "name": "Runnyeye Citadel",
+      "value": "runnyeye citadel",
+      "map": "runnyeye"
+    },
+    {
+      "name": "Sirens Grotto",
+      "value": "sirens grotto",
+      "map": "sirens"
+    },
+    {
+      "name": "Skyfire Mountains",
+      "value": "skyfire mountains",
+      "map": "skyfire"
+    },
+    {
+      "name": "Skyshrine",
+      "value": "skyshrine",
+      "map": "skyshrine"
+    },
+    {
+      "name": "Sleepers Tomb",
+      "value": "sleepers tomb",
+      "map": "sleeper"
+    },
+    {
+      "name": "Solusek'S Eye",
+      "value": "solusek's eye",
+      "map": "soldunga"
+    },
+    {
+      "name": "South Kaladim",
+      "value": "south kaladim",
+      "map": "kaladima"
+    },
+    {
+      "name": "South Qeynos",
+      "value": "south qeynos",
+      "map": "qeynos"
+    },
+    {
+      "name": "Southern Desert Of Ro",
+      "value": "southern desert of ro",
+      "map": "sro"
+    },
+    {
+      "name": "Southern Felwithe",
+      "value": "southern felwithe",
+      "map": "felwitheb"
+    },
+    {
+      "name": "Southern Plains Of Karana",
+      "value": "southern plains of karana",
+      "map": "southkarana"
+    },
+    {
+      "name": "Steamfont Mountains",
+      "value": "steamfont mountains",
+      "map": "steamfont"
+    },
+    {
+      "name": "Stonebrunt Mountains",
+      "value": "stonebrunt mountains",
+      "map": "stonebrunt"
+    },
+    {
+      "name": "Surefall Glade",
+      "value": "surefall glade",
+      "map": "qrg"
+    },
+    {
+      "name": "Swamp Of No Hope",
+      "value": "swamp of no hope",
+      "map": "swampofnohope"
+    },
+    {
+      "name": "Temple Of Droga",
+      "value": "temple of droga",
+      "map": "droga"
+    },
+    {
+      "name": "Temple Of Solusek Ro",
+      "value": "temple of solusek ro",
+      "map": "soltemple"
+    },
+    {
+      "name": "Temple Of Veeshan",
+      "value": "temple of veeshan",
+      "map": "templeveeshan"
+    },
+    {
+      "name": "The Burning Wood",
+      "value": "the burning wood",
+      "map": "burningwood"
+    },
+    {
+      "name": "The City Of Mist",
+      "value": "the city of mist",
+      "map": "citymist"
+    },
+    {
+      "name": "The Emerald Jungle",
+      "value": "the emerald jungle",
+      "map": "emeraldjungle"
+    },
+    {
+      "name": "The Feerrott",
+      "value": "the feerrott",
+      "map": "feerrott"
+    },
+    {
+      "name": "The Hole",
+      "value": "the hole",
+      "map": "hole"
+    },
+    {
+      "name": "The Nektulos Forest",
+      "value": "the nektulos forest",
+      "map": "nektulos"
+    },
+    {
+      "name": "The Overthere",
+      "value": "the overthere",
+      "map": "overthere"
+    },
+    {
+      "name": "The Wakening Lands",
+      "value": "the wakening lands",
+      "map": "wakening"
+    },
+    {
+      "name": "Timorous Deep",
+      "value": "timorous deep",
+      "map": "timorous"
+    },
+    {
+      "name": "Tower Of Frozen Shadow",
+      "value": "tower of frozen shadow",
+      "map": "frozenshadow"
+    },
+    {
+      "name": "Toxxulia Forest",
+      "value": "toxxulia forest",
+      "map": "tox"
+    },
+    {
+      "name": "Trakanon'S Teeth",
+      "value": "trakanon's teeth",
+      "map": "trakanon"
+    },
+    {
+      "name": "Veeshan'S Peak",
+      "value": "veeshan's peak",
+      "map": "veeshan"
+    },
+    {
+      "name": "Velketor'S Labyrinth",
+      "value": "velketor's labyrinth",
+      "map": "velketor"
+    },
+    {
+      "name": "Warrens",
+      "value": "warrens",
+      "map": "warrens"
+    },
+    {
+      "name": "Warsliks Woods",
+      "value": "warsliks woods",
+      "map": "warslikswood"
+    },
+    {
+      "name": "West Commonlands",
+      "value": "west commonlands",
+      "map": "commons"
+    },
+    {
+      "name": "West Freeport",
+      "value": "west freeport",
+      "map": "freportw"
+    },
+    {
+      "name": "Western Plains Of Karana",
+      "value": "western plains of karana",
+      "map": "qey2hh1"
+    },
+    {
+      "name": "Western Wastes",
+      "value": "western wastes",
+      "map": "westwastes"
+    }
+  ]
+}

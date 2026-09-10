@@ -53,7 +53,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=74,
+    patch=75,
     build=""
 )
 
@@ -112,6 +112,7 @@ class VantageApp(QApplication):
         self._last_audio_blocked = "None yet"
         self._quickbar_notice_id = 0
         self._quickbar_notice = ""
+        self._quickbar_notice_channel = "system"
         self._quickbar_notice_at = 0.0
         self._last_update_success = ""
         self._tell_audio_cooldown = TellAudioCooldown()
@@ -486,7 +487,7 @@ class VantageApp(QApplication):
             self, title, message, msecs=None, position=None,
             overlay_id="alerts", countdown_seconds=0, timer_key=None,
             character="", color="", timer_mode="countdown",
-            text_color="", register=True):
+            text_color="", register=True, quickbar_channel="system"):
         """Show an independent, click-through notice over the active screen."""
         shown = self._notification_overlay.notify(
             title, message, msecs=msecs, position=position,
@@ -497,7 +498,27 @@ class VantageApp(QApplication):
         # Show the actionable message and omit window/module titles such as
         # “Vantage · Market” that do not tell the player what happened.
         if register:
-            self._queue_quickbar_notice(message or title)
+            if str(quickbar_channel).casefold() == "system":
+                context = f"{title} {timer_key or ''}".casefold()
+                if any(word in context for word in ("spell", "buff")):
+                    quickbar_channel = "spells"
+                elif any(word in context for word in ("market", "sale")):
+                    quickbar_channel = "market"
+                elif any(word in context for word in ("guild", "dkp")):
+                    quickbar_channel = "opendkp"
+                elif any(word in context for word in (
+                        "timer", "respawn", "raid")):
+                    quickbar_channel = "timers"
+                elif any(word in context for word in (
+                        "combat", "damage", "dps", "tanking")):
+                    quickbar_channel = "combat"
+                elif "heal" in context:
+                    quickbar_channel = "heals"
+                elif any(word in context for word in (
+                        "chat", "tell", "hail")):
+                    quickbar_channel = "chat"
+            self._queue_quickbar_notice(
+                message or title, channel=quickbar_channel)
         return shown
 
     def notify_event(
@@ -523,9 +544,11 @@ class VantageApp(QApplication):
             if overlay:
                 self.show_overlay_notification(
                     title, semantic_text, msecs=msecs, overlay_id=overlay_id,
-                    color=color, text_color=text_color)
+                    color=color, text_color=text_color,
+                    quickbar_channel=route.channel)
             else:
-                self._queue_quickbar_notice(semantic_text)
+                self._queue_quickbar_notice(
+                    semantic_text, channel=route.channel)
 
         sounds = config.data.get("sounds")
         route_settings = sounds.get("routes", {}) if isinstance(sounds, dict) else {}
@@ -607,12 +630,13 @@ class VantageApp(QApplication):
             f"{source} · {sound_display_name(sound_path)} · {volume}%")
         self._refresh_quickbar()
 
-    def _queue_quickbar_notice(self, *parts):
+    def _queue_quickbar_notice(self, *parts, channel="system"):
         """Send one compact event description to the Quick Bar rail."""
         cleaned = [" ".join(str(part).split()) for part in parts if part]
         self._quickbar_notice_id = int(getattr(
             self, "_quickbar_notice_id", 0)) + 1
         self._quickbar_notice = " · ".join(cleaned)
+        self._quickbar_notice_channel = str(channel or "system")
         self._quickbar_notice_at = time.monotonic()
         self._refresh_quickbar()
 
@@ -1518,14 +1542,15 @@ class VantageApp(QApplication):
         snapshot["buffs"] = self._parsers_dict["spells"].mobile_snapshot()
         snapshot["guild"] = self._parsers_dict["opendkp"].mobile_snapshot()
         quests = self._parsers_dict["quests"]
-        if not quests._catalog and not quests._catalog_loading:
-            quests._fetch_catalog()
+        quests.ensure_catalog_refresh()
         snapshot["quests"] = quests.mobile_snapshot()
         snapshot["zones"] = self._parsers_dict["zones"].mobile_snapshot()
         return snapshot
 
     def _mobile_browse_action(self, action, target):
         """Apply a private, read-only catalog navigation request."""
+        if action == "guild":
+            return self._parsers_dict["opendkp"].mobile_select(target)
         if action == "zone":
             return self._parsers_dict["zones"].mobile_select(target)
         if action == "quest":

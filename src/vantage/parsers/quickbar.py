@@ -30,6 +30,13 @@ class QuickBarNotificationRail(QFrame):
         self.setAccessibleDescription(
             "Shows the newest attributable Vantage event once")
 
+        self._channel = QLabel("SYSTEM", self)
+        self._channel.setObjectName("QuickBarNotificationChannel")
+        self._channel.setFixedWidth(82)
+        self._channel.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._channel.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._channel.hide()
         self._label = QLabel(self)
         self._label.setObjectName("QuickBarNotificationText")
         self._label.setAlignment(
@@ -39,6 +46,7 @@ class QuickBarNotificationRail(QFrame):
         self._label.hide()
         self._notice_id = 0
         self._pending = deque(maxlen=20)
+        self._pending_channels = deque(maxlen=20)
         self._moving = False
         self._reduce_motion = False
 
@@ -51,7 +59,21 @@ class QuickBarNotificationRail(QFrame):
         self._clear_timer.setInterval(5000)
         self._clear_timer.timeout.connect(self._clear)
 
-    def present(self, notice_id, text, reduce_motion=False, available=True):
+    @staticmethod
+    def _channel_label(channel):
+        return {
+            "spells": "BUFFS / SPELLS",
+            "timers": "COMBAT / TIMERS",
+            "market": "MARKET",
+            "opendkp": "GUILD DKP",
+            "quickbar": "CHAT",
+            "chat": "CHAT",
+            "combat": "COMBAT",
+            "heals": "HEAL CHAIN",
+        }.get(str(channel or "").casefold(), "SYSTEM")
+
+    def present(self, notice_id, text, reduce_motion=False, available=True,
+                channel="system"):
         """Queue a notice for one complete marquee pass in arrival order."""
         try:
             notice_id = int(notice_id)
@@ -67,6 +89,7 @@ class QuickBarNotificationRail(QFrame):
         if not available or not self.isVisible():
             return
         self._pending.append(clean)
+        self._pending_channels.append(self._channel_label(channel))
         if self._label.isVisible():
             self.setAccessibleDescription(
                 f"{len(self._pending)} more notification" +
@@ -79,17 +102,25 @@ class QuickBarNotificationRail(QFrame):
             self._clear_current()
             return
         clean = self._pending.popleft()
+        channel = (self._pending_channels.popleft()
+                   if self._pending_channels else "SYSTEM")
         self._scroll_timer.stop()
         self._clear_timer.stop()
         self._label.setText(clean)
+        self._channel.setText(channel)
+        self._channel.setGeometry(1, 1, 82, self.height() - 2)
+        self._channel.show()
+        self._channel.raise_()
         self._label.adjustSize()
         self._label.setFixedHeight(self.height() - 2)
         self._label.show()
+        self._channel.raise_()
         self.setToolTip(clean)
-        self.setAccessibleName(f"Latest Vantage notification: {clean}")
+        spoken = f"{channel}: {clean}"
+        self.setAccessibleName(f"Latest Vantage notification: {spoken}")
         self.setAccessibleDescription(
             f"Marquee notification; {len(self._pending)} more queued")
-        self._announce_accessibly(clean)
+        self._announce_accessibly(spoken)
         if self._reduce_motion:
             self._moving = False
             # Preserve the meaningful type + source without moving or
@@ -97,8 +128,8 @@ class QuickBarNotificationRail(QFrame):
             # surface. The complete notice remains in the accessible name.
             summary = " · ".join(clean.split(" · ")[:2])
             self._label.setText(summary)
-            self._label.setFixedWidth(max(1, self.width() - 14))
-            self._label.setGeometry(7, 1, self._label.width(), self.height() - 2)
+            self._label.setFixedWidth(max(1, self.width() - 90))
+            self._label.setGeometry(87, 1, self._label.width(), self.height() - 2)
             self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._clear_timer.start()
         else:
@@ -127,8 +158,8 @@ class QuickBarNotificationRail(QFrame):
             self._moving = False
             clean = self._label.text()
             self._label.setText(" · ".join(clean.split(" · ")[:2]))
-            self._label.setFixedWidth(max(1, self.width() - 14))
-            self._label.setGeometry(7, 1, self._label.width(), self.height() - 2)
+            self._label.setFixedWidth(max(1, self.width() - 90))
+            self._label.setGeometry(87, 1, self._label.width(), self.height() - 2)
             self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._clear_timer.start()
 
@@ -137,7 +168,7 @@ class QuickBarNotificationRail(QFrame):
             self._scroll_timer.stop()
             return
         self._label.move(self._label.x() - 2, 1)
-        if self._label.x() + self._label.width() < 5:
+        if self._label.x() + self._label.width() < 87:
             self._clear()
 
     def _clear(self):
@@ -151,6 +182,7 @@ class QuickBarNotificationRail(QFrame):
         self._moving = False
         self._label.clear()
         self._label.hide()
+        self._channel.hide()
         self.setToolTip(
             "The next attributable Vantage event appears here")
         self.setAccessibleName("Quick Bar notification rail; no active notice")
@@ -176,6 +208,7 @@ class QuickBar(ParserWindow):
     _DIALOG_ACTIONS = {
         "spell_library": ("_spell_library_dialog", "show_spell_library"),
         "mobile": ("_mobile_dialog_instance", "show_mobile_share"),
+        "device_sync": ("_device_sync_dialog_instance", "show_device_sync"),
         "settings": ("_settings_instance", "show_settings"),
         "about": ("_about_dialog_instance", "show_about"),
         "updates": ("_update_dialog_instance", "show_update_dialog"),
@@ -312,6 +345,12 @@ class QuickBar(ParserWindow):
             "Reset presentation: hide other windows, expand rolled panels, disable compact timers, and reset window and table layouts; gameplay data is preserved")
         reset_layout.setAccessibleDescription(
             "Opens a confirmation before resetting presentation settings only")
+        sync_button = self._buttons["device_sync"]
+        sync_button.setToolTip(
+            "Sync My PCs · pair 2, 3 or more Vantage computers without an account")
+        sync_button.setAccessibleDescription(
+            "Opens the permanent Device Sync pairing window for settings, "
+            "layouts, notes, and managed WTS or WTB buttons")
         self._support_motion_marker = QFrame(support)
         self._support_motion_marker.setObjectName("QuickBarSupportSpark")
         self._support_motion_marker.setFixedSize(5, 5)
@@ -957,7 +996,9 @@ class QuickBar(ParserWindow):
         self.notification_rail.present(
             notice_id, notice,
             config.data["general"].get("reduce_motion", False),
-            available=self.isVisible() and self.notification_rail.isVisible())
+            available=self.isVisible() and self.notification_rail.isVisible(),
+            channel=getattr(
+                self._application, "_quickbar_notice_channel", "system"))
 
     def _sync_support_animation(self):
         support = self._buttons.get("support")

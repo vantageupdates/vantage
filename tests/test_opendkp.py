@@ -81,6 +81,32 @@ def test_quickbar_catalog_exposes_one_generic_opendkp_window():
         ("opendkp", "Guild DKP & More", "ph-gavel", "windows")]
 
 
+def test_mobile_guild_selector_accepts_only_saved_guild_profiles():
+    class Harness:
+        def __init__(self):
+            self.filled = []
+            self.loaded = []
+
+        def _profiles(self):
+            return [
+                {"slug": "castle", "name": "Castle"},
+                {"slug": "azure-guard", "name": "Azure Guard"},
+            ]
+
+        def _fill_guild_profiles(self, slug):
+            self.filled.append(slug)
+
+        def _load_guild(self, slug):
+            self.loaded.append(slug)
+            return True
+
+    harness = Harness()
+    assert OpenDKP.mobile_select(harness, "Azure-Guard.OpenDKP.com") is True
+    assert harness.filled == ["azure-guard"]
+    assert harness.loaded == ["azure-guard"]
+    assert OpenDKP.mobile_select(harness, "not-saved") is False
+
+
 def test_history_dates_sort_chronologically_and_support_date_event_search():
     app = QApplication.instance() or QApplication([])
     class FilterHarness:

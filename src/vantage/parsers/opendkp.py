@@ -878,7 +878,7 @@ class OpenDKP(ParserWindow):
             return False
         request = QNetworkRequest(QUrl(csv_url))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.74")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.75")
         request.setAttribute(
             QNetworkRequest.Attribute.RedirectPolicyAttribute,
             QNetworkRequest.RedirectPolicy.NoLessSafeRedirectPolicy)
@@ -1469,7 +1469,10 @@ class OpenDKP(ParserWindow):
 
     def mobile_snapshot(self):
         """Return bounded, display-ready public guild data for mobile."""
-        profile = self._profile() or {}
+        selected_slug = str(
+            self.client.slug or
+            config.data.get("opendkp", {}).get("active_guild", "") or "")
+        profile = self._profile(selected_slug) or {}
         guild = self._guild_details if isinstance(self._guild_details, dict) else {}
         standings = sorted(
             self._datasets.get("dkp", ()),
@@ -1481,14 +1484,23 @@ class OpenDKP(ParserWindow):
             self._datasets.get("raids", ()),
             key=lambda row: str(row.get("Timestamp") or ""), reverse=True)
         auctions = self._datasets.get("active_auctions", ())
+        status = str(
+            self.guild_status.text() or self.result_status.text() or
+            "Public guild data")
         return {
             "guild": _clean(
                 guild.get("Name") or profile.get("name") or
                 profile.get("slug"), "No guild selected"),
-            "slug": str(profile.get("slug") or ""),
+            "slug": selected_slug,
+            "profiles": [{
+                "slug": str(saved.get("slug") or ""),
+                "name": _clean(
+                    saved.get("name") or saved.get("slug"), "Saved guild"),
+            } for saved in self._profiles() if saved.get("slug")][:12],
             "connected": bool(self.client.slug),
             "authenticated": bool(self.client.authenticated),
-            "status": self.result_status.text(),
+            "loading": self.guild_status.property("state") == "loading",
+            "status": status,
             "standings": [{
                 "name": _clean(row.get("CharacterName")),
                 "class": _clean(row.get("CharacterClass")),
@@ -1524,6 +1536,16 @@ class OpenDKP(ParserWindow):
                 "url": str(row.get("url") or ""),
             } for row in config.data.get("opendkp", {}).get("sheets", [])[:32]],
         }
+
+    def mobile_select(self, value):
+        """Switch to one already-saved guild from the private mobile view."""
+        slug = normalize_guild_slug(value)
+        if not slug or not any(
+                str(profile.get("slug") or "") == slug
+                for profile in self._profiles()):
+            return False
+        self._fill_guild_profiles(slug)
+        return self._load_guild(slug)
 
     def _populate_raids(self):
         raids = sorted(self._datasets["raids"],

@@ -1189,6 +1189,16 @@ QWidget[ResponsiveViewport="true"], QWidget[ResponsivePage="true"] {
     background-color: #18160F;
     color: #F1E7C7;
 }
+#QuickBarNotificationChannel {
+    color: #F2C96D;
+    background-color: #11181D;
+    border: none;
+    border-right: 1px solid #60727E;
+    border-top-left-radius: 8px;
+    border-bottom-left-radius: 8px;
+    font-size: 8px;
+    font-weight: 800;
+}
 #StickyNoteTitle {
     color: #FFF1B8;
     background-color: #211E14;

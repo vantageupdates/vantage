@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.74 design QA
+# Vantage Companion 1.44.75 design QA
 
 final result: passed
 
@@ -11,6 +11,21 @@ final result: passed
 
 ## Visual checks
 
+- Mobile Guild exposes the saved-guild selector before its DKP views; Zones
+  keeps its selector stable across polling and provides an explicit reload.
+  Save to Home gives short platform-specific instructions and states the
+  session-link limitation before the user creates a shortcut.
+- Zones and Quests render their bundled local references before starting live
+  Wiki work. All 122 selectable zone aliases and 906 quest titles were
+  cross-checked against the packaged catalogs; a network failure preserves a
+  useful card instead of replacing it with an empty/not-found screen.
+- The Quick Bar exposes Sync My PCs as a first-class action. Notification
+  messages retain their semantic text and add a compact channel label for
+  Buffs/Spells, Combat/Timers, Market, Guild DKP, Chat, or System.
+- New Combat tables fit the nine primary metrics to the visible viewport so
+  the right edge ends on a complete heading; additional detail columns remain
+  full-width behind horizontal scrolling. Every section remains manually
+  resizable and any saved user widths continue to win.
 - Device Sync uses the same scaled-dialog surface as the rest of Vantage, so
   resize presets and compact scaling manage every control instead of leaving a
   second unmanaged layout. Pairing, approval, online/offline state and install

@@ -480,12 +480,26 @@ class Zones(ParserWindow):
         if announce:
             _announce_accessible(self, self.zone_summary.text())
         cache_path = _wiki_zone_cache_path(requested)
+        loaded_cache = False
         try:
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
-            if isinstance(cached, dict) and cached.get("mobs"):
+            if isinstance(cached, dict) and cached.get("name"):
                 self._set_zone_data(cached, cached=True, announce=announce)
+                loaded_cache = True
         except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
             pass
+        if not loaded_cache:
+            self._set_zone_data({
+                "name": self._selected_zone_name() or requested.title(),
+                "summary": (
+                    "Bundled Vantage zone reference. The map and Wiki link "
+                    "are ready while mobs, nameds, and drops update."),
+                "mobs": [], "unique_items": [], "local_reference": True,
+            }, cached=True, announce=False)
+            self.zone_summary.setText(
+                f"{self._selected_zone_name() or requested.title()} · "
+                "local reference ready · updating Wiki details…")
+            self.zone_summary.setAccessibleName(self.zone_summary.text())
         self._start_zone_request(requested, cache_path, announce, 0)
         return True
 
@@ -496,7 +510,7 @@ class Zones(ParserWindow):
         request.setTransferTimeout(ZONE_NETWORK_TIMEOUT_MS)
         request.setHeader(
             QNetworkRequest.KnownHeaders.UserAgentHeader,
-            "Vantage/1.44.74 (vantagecompanion@gmail.com)")
+            "Vantage/1.44.75 (vantagecompanion@gmail.com)")
         reply = self._network.get(request)
         self._zone_request_id += 1
         reply.setProperty("zoneRequestId", self._zone_request_id)
@@ -528,7 +542,7 @@ class Zones(ParserWindow):
             payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
             parsed = payload.get("parse")
             if not isinstance(parsed, dict):
-                raise ValueError("zone not found on Project 1999 Wiki")
+                raise ValueError("Wiki page unavailable")
             wikitext = parsed.get("wikitext", {})
             rendered = parsed.get("text", {})
             if isinstance(wikitext, dict):
@@ -537,8 +551,8 @@ class Zones(ParserWindow):
                 rendered = rendered.get("*", "")
             data = parse_wiki_zone_payload(
                 wikitext, rendered, parsed.get("title") or requested)
-            if not data.get("mobs"):
-                raise ValueError("the Wiki page has no recognized zone mob table")
+            if not data.get("name"):
+                raise ValueError("Wiki returned no readable zone details")
             self._set_zone_data(data, announce=announce)
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             cache_path.write_text(json.dumps(data), encoding="utf-8")
@@ -554,12 +568,15 @@ class Zones(ParserWindow):
                     250, lambda name=requested, path=cache_path,
                     say=announce, next_attempt=attempt + 1:
                     self._start_zone_request(name, path, say, next_attempt))
-            elif current and not self._zone_mobs:
-                self.zone_summary.setText(f"Could not load {requested.title()} · {error}")
+            elif current:
+                name = str(self._zone_data.get("name") or requested.title())
+                self.zone_summary.setText(
+                    f"{name} · local/cached reference · live Wiki details "
+                    "temporarily unavailable · Reload zone to retry")
                 self.zone_summary.setAccessibleName(self.zone_summary.text())
                 if announce:
                     _announce_accessible(
-                        self, self.zone_summary.text(), assertive=True)
+                        self, self.zone_summary.text())
         finally:
             if current and not retrying:
                 self._zone_reply = None
@@ -740,7 +757,7 @@ class Zones(ParserWindow):
         self._zone_drop_requests.add(key)
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(target.replace(" ", "_"), safe=""))))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.74")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.75")
         reply = self._network.get(request)
         self._drop_reply_contexts[reply] = (mob, target, key, cache_path)
         reply.finished.connect(self._drops_finished)

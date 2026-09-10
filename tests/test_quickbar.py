@@ -542,6 +542,7 @@ def test_quickbar_uses_one_distinct_icon_per_action():
 def test_quickbar_keeps_timers_beside_spells_and_recovery_beside_quit():
     keys = [key for key, _label, _icon, _group in QUICKBAR_ITEMS]
     assert keys.index("timers") == keys.index("spells") + 1
+    assert keys.index("device_sync") == keys.index("mobile") + 1
     assert keys[keys.index("quit") - 4:keys.index("quit")] == [
         "log_status", "reload_ui", "updates", "settings"]
     assert keys.index("settings") == keys.index("quit") - 1

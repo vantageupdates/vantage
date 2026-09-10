@@ -59,7 +59,11 @@ def _snapshot():
             }],
         },
         "guild": {
-            "guild": "Castle", "connected": True, "authenticated": False,
+            "guild": "Castle", "slug": "castle", "connected": True,
+            "authenticated": False, "loading": False,
+            "profiles": [
+                {"name": "Castle", "slug": "castle"},
+                {"name": "Azure Guard", "slug": "azure-guard"}],
             "status": "Public data ready",
             "standings": [{"name": "Mindflux", "class": "Enchanter",
                             "level": "60", "rank": "Raider", "dkp": "125.0"}],
@@ -120,8 +124,20 @@ def test_mobile_page_accessibility_updates_preserve_the_session_fragment():
     assert 'id="tabSpells"' in _MOBILE_PAGE
     assert 'id="tabBuffs"' in _MOBILE_PAGE
     assert 'id="tabGuild"' in _MOBILE_PAGE
+    assert 'id="guildSelect"' in _MOBILE_PAGE
     assert 'id="tabZones"' in _MOBILE_PAGE
+    assert 'id="zoneReload"' in _MOBILE_PAGE
     assert 'id="tabQuests"' in _MOBILE_PAGE
+    assert 'id="installApp"' in _MOBILE_PAGE
+    assert "Save Vantage to your Home Screen" in _MOBILE_PAGE
+    assert "this shortcut belongs to the current private session" in _MOBILE_PAGE
+    assert "syncGuildOptions(guildData)" in _MOBILE_PAGE
+    assert "pendingZone||data.selected" in _MOBILE_PAGE
+    assert "function stableReplace" in _MOBILE_PAGE
+    assert "contains(document.activeElement)" in _MOBILE_PAGE
+    assert "Search included and cached P99 quests" in _MOBILE_PAGE
+    assert "live Wiki mobs, drops, and nameds are temporarily unavailable" in _MOBILE_PAGE
+    assert "RELOAD SELECTED ZONE" in _MOBILE_PAGE
     assert 'id="zoomLock"' in _MOBILE_PAGE
     assert "vantageZoomLock" in _MOBILE_PAGE
     assert "maximum-scale=5,user-scalable=yes" in _MOBILE_PAGE
@@ -300,7 +316,10 @@ def test_mobile_buffs_guild_zones_and_quests_are_private_and_browseable():
         assert json.loads(payload)["timers"][0]["name"] == "Clarity II"
 
         _, payload, _ = _request(base, "/api/guild", "secret")
-        assert json.loads(payload)["loot"][0]["item"] == "Crown of Rile"
+        guild = json.loads(payload)
+        assert guild["loot"][0]["item"] == "Crown of Rile"
+        assert [row["slug"] for row in guild["profiles"]] == [
+            "castle", "azure-guard"]
 
         _, payload, _ = _request(base, "/api/zones", "secret")
         assert json.loads(payload)["data"]["mobs"][0]["name"] == "Kizdean Gix"
@@ -311,12 +330,16 @@ def test_mobile_buffs_guild_zones_and_quests_are_private_and_browseable():
         assert quests["current"]["steps"][0]["text"].startswith("Hail")
 
         status, response = _post(base, "/api/browser/action", "secret", {
+            "action": "guild", "target": "azure-guard"})
+        assert status == 202 and response == {"accepted": True}
+        status, response = _post(base, "/api/browser/action", "secret", {
             "action": "zone", "target": "west commonlands"})
         assert status == 202 and response == {"accepted": True}
         status, _ = _post(base, "/api/browser/action", "secret", {
             "action": "quest", "target": "Jboots"})
         assert status == 202
         assert actions == [
+            ("guild", "azure-guard"),
             ("zone", "west commonlands"), ("quest", "Jboots")]
     finally:
         server.shutdown()

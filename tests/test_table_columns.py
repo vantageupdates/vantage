@@ -186,3 +186,44 @@ def test_all_live_vantage_tables_receive_interactive_columns(tmp_path):
     result = json.loads(completed.stdout.strip().splitlines()[-1])
     assert result["count"] >= 35
     assert result["bad"] == []
+
+
+COMBAT_FIT_SCRIPT = r"""
+import json
+from PySide6.QtTest import QTest
+from vantage.helpers.application import VantageApp
+
+app = VantageApp([])
+combat = app._parsers_dict['combat']
+combat.resize(520, 390)
+combat.show()
+QTest.qWait(120)
+table = combat.tables['Overview']
+app._column_widths._configure(table)
+widths = [table.columnWidth(column) for column in range(table.columnCount())]
+print(json.dumps({
+    'sum': sum(widths),
+    'leading_sum': sum(widths[:9]),
+    'viewport': table.viewport().width(),
+    'minimum': min(widths),
+    'interactive': all(
+        table.horizontalHeader().sectionResizeMode(column).name == 'Interactive'
+        for column in range(table.columnCount())),
+}))
+app.quit()
+"""
+
+
+def test_compact_combat_columns_begin_inside_the_visible_right_edge(tmp_path):
+    env = os.environ.copy()
+    env["QT_QPA_PLATFORM"] = "offscreen"
+    env["PYTHONPATH"] = str(ROOT / "src")
+    env["VANTAGE_DATA_DIR"] = str(tmp_path / "profile")
+    completed = subprocess.run(
+        [sys.executable, "-c", COMBAT_FIT_SCRIPT], cwd=ROOT, env=env,
+        check=True, capture_output=True, text=True, timeout=35)
+    result = json.loads(completed.stdout.strip().splitlines()[-1])
+    assert result["leading_sum"] <= result["viewport"]
+    assert result["sum"] > result["viewport"]
+    assert result["minimum"] >= 28
+    assert result["interactive"] is True

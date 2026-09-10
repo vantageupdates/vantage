@@ -6,10 +6,21 @@ import subprocess
 import sys
 
 from vantage.helpers import config
+from vantage.parsers.maps.mapdata import MapData
 from vantage.parsers.market import parse_wiki_zone_payload
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_bundled_zone_reference_covers_every_selectable_map_alias():
+    payload = json.loads((
+        ROOT / "data" / "reference" / "zone_catalog.json"
+    ).read_text(encoding="utf-8"))
+    bundled = {row["value"] for row in payload["zones"]}
+    assert bundled == set(MapData.get_zone_dict())
+    assert len(bundled) >= 120
+    assert all(row["name"] and row["map"] for row in payload["zones"])
 
 
 def test_zone_column_width_config_clamps_each_table_independently():

@@ -26,7 +26,7 @@ QUEST_CHECKLIST_MAX_TOTAL_BYTES = 384 * 1024
 UI_PRESENTATION_DEFAULTS = {
     ('general', 'startup_window_state'): 'rolled',
     ('general', 'table_column_widths'): {},
-    ('quickbar', 'geometry'): [10, 10, 704, 67],
+    ('quickbar', 'geometry'): [10, 10, 729, 67],
     ('quickbar', 'toggled'): True,
     ('quickbar', 'auto_hide_menu'): False,
     ('quickbar', 'always_on_top'): True,
@@ -603,8 +603,8 @@ def verify_settings():
     # interactive and never creates another normal Windows taskbar entry.
     data['quickbar'] = data.get('quickbar', {})
     data['quickbar']['geometry'] = get_setting(
-        data['quickbar'].get('geometry', [10, 10, 704, 67]),
-        [10, 10, 704, 67],
+        data['quickbar'].get('geometry', [10, 10, 729, 67]),
+        [10, 10, 729, 67],
         lambda value: isinstance(value, list) and len(value) == 4)
     for key, default in (
             ('toggled', True), ('auto_hide_menu', False),
@@ -637,6 +637,13 @@ def verify_settings():
     if support_visibility_version < 1:
         data['quickbar']['show_support'] = True
     data['quickbar']['support_visibility_version'] = 1
+    # Repair profiles created while the independent Zones button could remain
+    # hidden. This is one-time; later user visibility choices are preserved.
+    zones_visibility_version = _bounded_int(
+        data['quickbar'].get('zones_visibility_version', 0), 0, 0, 1)
+    if zones_visibility_version < 1:
+        data['quickbar']['show_zones'] = True
+    data['quickbar']['zones_visibility_version'] = 1
     if 'notification_overlays' in data['general']:
         data['general']['notification_overlays'] = \
             normalize_notification_overlays(

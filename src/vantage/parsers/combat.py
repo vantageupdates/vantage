@@ -1005,6 +1005,10 @@ class Combat(ParserWindow):
 
     def _make_table(self, headers, extended=False):
         table = QTableWidget(0, len(headers))
+        # Keep the nine primary metrics wholly visible at compact width. Less
+        # common detail columns remain full-width just beyond the scrollbar,
+        # instead of showing half of the next heading at the right frame.
+        table.setProperty("vantageFitLeadingColumns", 9)
         table.setHorizontalHeaderLabels(headers)
         ensure_table_header_tooltips(table, "the combat")
         table.verticalHeader().setVisible(False)

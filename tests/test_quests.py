@@ -13,6 +13,16 @@ from vantage.parsers.quests import (
 ROOT = Path(__file__).parents[1]
 
 
+def test_bundled_quest_catalog_is_large_and_never_network_empty():
+    payload = json.loads((
+        ROOT / "data" / "reference" / "quest_catalog.json"
+    ).read_text(encoding="utf-8"))
+    titles = payload["titles"]
+    assert payload["version"] == 1
+    assert len(titles) >= 900
+    assert titles == sorted(set(titles), key=str.casefold)
+
+
 ACCESSIBILITY_SCRIPT = r"""
 import json
 from PySide6.QtCore import Qt
@@ -252,7 +262,8 @@ window._quest_timed_out(missing_first, missing_generation)
 missing_second = network.replies[-1]
 window._quest_timed_out(missing_second, missing_generation)
 detail_settled = (
-    'could not be loaded' in window.summary.toPlainText()
+    'offline catalog' in window.summary.toPlainText()
+    and 'temporarily unavailable' in window.summary.toPlainText()
     and window.retry_quest_button.isVisible())
 
 print(json.dumps({

@@ -153,7 +153,8 @@ def test_quickbar_notification_rail_shows_one_event_then_clears(tmp_path):
     assert result['sound']['scrolling'] is True
     assert result['sound']['notice_id'] > 0
     assert result['sound']['text'] in result['sound']['accessible']
-    assert result['sound']['announcements'] == ['Clarity faded']
+    assert result['sound']['announcements'] == [
+        'BUFFS / SPELLS: Clarity faded']
     assert result['duplicate_announcement_count'] == 1
     assert result['queued'] == {
         'current': 'Clarity faded',

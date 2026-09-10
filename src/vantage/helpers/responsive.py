@@ -270,7 +270,31 @@ class TableColumnManager(QObject):
                 header.setSectionResizeMode(
                     column, QHeaderView.ResizeMode.Interactive)
             saved = self._storage().get(key)
-            widths = saved if isinstance(saved, list) and len(saved) == count else current
+            has_saved = isinstance(saved, list) and len(saved) == count
+            widths = saved if has_saved else current
+            fit_count = min(count, max(0, int(
+                view.property("vantageFitLeadingColumns") or 0)))
+            if not has_saved and fit_count:
+                usable = max(
+                    fit_count * self.MIN_WIDTH,
+                    int(view.viewport().width()) - 2)
+                total = sum(widths[:fit_count])
+                if total > usable:
+                    flexible = max(
+                        1, total - fit_count * self.MIN_WIDTH)
+                    remaining = max(
+                        0, usable - fit_count * self.MIN_WIDTH)
+                    fitted = [
+                        self.MIN_WIDTH + round(
+                            max(0, width - self.MIN_WIDTH) * remaining /
+                            flexible)
+                        for width in widths[:fit_count]]
+                    fitted[-1] += usable - sum(fitted)
+                    widths = fitted + widths[fit_count:]
+                elif total < usable:
+                    fitted = list(widths[:fit_count])
+                    fitted[-1] += usable - total
+                    widths = fitted + widths[fit_count:]
             for column, width in enumerate(widths):
                 view.setColumnWidth(column, max(
                     self.MIN_WIDTH, min(self.MAX_WIDTH, int(width))))

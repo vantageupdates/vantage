@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+from pathlib import Path
 import re
 import webbrowser
 from urllib.parse import quote
@@ -17,7 +18,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QSizePolicy,
     QSplitter, QTabWidget, QTextBrowser, QToolButton, QVBoxLayout, QWidget)
 
-from vantage.helpers import config
+from vantage.helpers import config, resource_path
 from vantage.helpers.icons import game_icon
 from vantage.helpers.parser import ParserWindow
 from vantage.helpers.portable import data_dir
@@ -730,6 +731,7 @@ class Quests(ParserWindow):
         self._network = QNetworkAccessManager(self)
         self._catalog = []
         self._catalog_loading = False
+        self._catalog_refresh_started = False
         self._catalog_seen = set()
         self._catalog_pages = 0
         self._catalog_reply = None
@@ -872,11 +874,22 @@ class Quests(ParserWindow):
     def _catalog_cache_path(self):
         return data_dir("cache", "wiki-quests") / "catalog.json"
 
+    @property
+    def _bundled_catalog_path(self):
+        return Path(resource_path("data/reference/quest_catalog.json"))
+
     def _quest_cache_path(self, title):
         digest = hashlib.sha256(title.casefold().encode("utf-8")).hexdigest()[:20]
         return data_dir("cache", "wiki-quests") / f"{digest}.json"
 
     def _load_cached_catalog(self):
+        # A clean install starts useful, even before the Wiki responds.
+        try:
+            payload = json.loads(self._bundled_catalog_path.read_text("utf-8"))
+            if payload.get("version") == QUEST_CATALOG_CACHE_VERSION:
+                self._set_catalog(payload.get("titles", []), "included offline")
+        except (OSError, ValueError, TypeError):
+            pass
         try:
             payload = json.loads(self._catalog_cache_path.read_text("utf-8"))
             if payload.get("version") == QUEST_CATALOG_CACHE_VERSION:
@@ -932,7 +945,7 @@ class Quests(ParserWindow):
         request = QNetworkRequest(url)
         request.setTransferTimeout(NETWORK_TIMEOUT_MS)
         request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader,
-                          "Vantage/1.44.74 (vantagecompanion@gmail.com)")
+                          "Vantage/1.44.75 (vantagecompanion@gmail.com)")
         return self._network.get(request)
 
     @staticmethod
@@ -973,6 +986,7 @@ class Quests(ParserWindow):
         if self._catalog and not force:
             return
         self._catalog_generation += 1
+        self._catalog_refresh_started = True
         self._cancel_catalog_request()
         self._catalog_loading = True
         self._catalog_seen = set()
@@ -1093,6 +1107,16 @@ class Quests(ParserWindow):
                 return
         except (OSError, ValueError, TypeError):
             pass
+        self._show_quest({
+            "title": title,
+            "summary": (
+                "This quest is available in Vantage's offline catalog. "
+                "The detailed summary and checklist are updating from the "
+                "Project 1999 Wiki."),
+            "steps": [],
+            "wiki_url": P99_WIKI_PAGE_ROOT + quote(
+                title.replace(" ", "_"), safe="()'"),
+        }, announce=False)
         self.quest_title.setText(title)
         self.summary.setText("Loading this quest from Project 1999 Wiki…")
         _announce_accessible(
@@ -1141,12 +1165,16 @@ class Quests(ParserWindow):
             self._start_quest_request(title, self._quest_attempt, generation)
             return
         self.summary.setText(
-            f"{title} could not be loaded. Check the connection, then choose Retry quest.")
+            f"{title} is available from the offline catalog. Detailed Wiki "
+            "steps are temporarily unavailable; choose Retry quest to try again.")
+        if self._current_quest and self._current_quest.get("title") == title:
+            self._current_quest["summary"] = self.summary.toPlainText()
         self.retry_quest_button.show()
         self.retry_quest_button.setEnabled(True)
         _announce_accessible(
-            self.summary, f"Could not load {title}. Retry quest is available.",
-            assertive=True)
+            self.summary,
+            f"{title} remains available in the offline catalog. Detailed "
+            "Wiki steps are temporarily unavailable; Retry quest is available.")
 
     def _retry_pending_quest(self):
         if self._pending_quest_title:
@@ -1192,7 +1220,7 @@ class Quests(ParserWindow):
             return
         self._dispose_reply(reply)
 
-    def _show_quest(self, quest):
+    def _show_quest(self, quest, announce=True):
         self._current_quest = quest
         self.quest_title.setText(quest["title"])
         self.quest_title.setAccessibleName(f"Selected quest: {quest['title']}")
@@ -1217,9 +1245,10 @@ class Quests(ParserWindow):
         self.wiki_button.setEnabled(True)
         self.checklist_button.setEnabled(bool(quest["steps"]))
         self.retry_quest_button.hide()
-        _announce_accessible(
-            self.quest_title,
-            f"Loaded {quest['title']}; {len(quest['steps'])} checklist steps")
+        if announce:
+            _announce_accessible(
+                self.quest_title,
+                f"Loaded {quest['title']}; {len(quest['steps'])} checklist steps")
 
     def _open_wiki(self):
         if self._current_quest:
@@ -1254,6 +1283,11 @@ class Quests(ParserWindow):
             },
         }
 
+    def ensure_catalog_refresh(self):
+        """Start one non-blocking live refresh over the included catalog."""
+        if not self._catalog_refresh_started and not self._catalog_loading:
+            self._fetch_catalog(force=True)
+
     def mobile_select(self, title):
         """Select one catalog entry requested by the private mobile view."""
         wanted = str(title or "").strip().casefold()
@@ -1273,8 +1307,7 @@ class Quests(ParserWindow):
         super().showEvent(event)
         QTimer.singleShot(
             0, lambda: self.search.setFocus(Qt.FocusReason.OtherFocusReason))
-        if not self._catalog:
-            self._fetch_catalog()
+        self.ensure_catalog_refresh()
 
     def parse(self, _timestamp, _text):
         """Quests is reference-only and does not inspect EverQuest logs."""
