@@ -7,7 +7,7 @@ using System.IO;
 public static class VantageGroupControls {
     static double Distance(double x,double y,double inset) {
         double radius=4-inset;
-        double qx=Math.Abs(x-35)-(35-inset-radius);
+        double qx=Math.Abs(x-32)-(32-inset-radius);
         double qy=Math.Abs(y-8)-(8-inset-radius);
         return Math.Sqrt(Math.Pow(Math.Max(qx,0),2)+Math.Pow(Math.Max(qy,0),2))
             +Math.Min(Math.Max(qx,qy),0)-radius;
@@ -23,7 +23,7 @@ public static class VantageGroupControls {
             throw new ArgumentException("Only the dedicated Group control atlas is supported.");
         using(var atlas=new Bitmap(128,128,PixelFormat.Format32bppArgb)) {
             // Normal, flyby, pressed, pressed-flyby, disabled.
-            for(int state=0;state<5;state++)for(int y=0;y<16;y++)for(int x=0;x<70;x++) {
+            for(int state=0;state<5;state++)for(int y=0;y<16;y++)for(int x=0;x<64;x++) {
                 double a=Coverage(x,y,.25);if(a==0)continue;
                 double edge=(a-Coverage(x,y,1))/a,t=(y+.5)/16;
                 bool down=state==2||state==3,hover=state==1||state==3;

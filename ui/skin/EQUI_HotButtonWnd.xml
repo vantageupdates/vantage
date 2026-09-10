@@ -1553,7 +1553,7 @@
     <RelativePosition>true</RelativePosition>
     <Location><X>129</X><Y>5</Y></Location>
     <Size><CX>56</CX><CY>14</CY></Size>
-    <Text>v1.44.72</Text>
+    <Text>v1.44.73</Text>
     <TextColor><R>218</R><G>195</G><B>147</B></TextColor>
     <NoWrap>true</NoWrap>
     <AlignCenter>true</AlignCenter>

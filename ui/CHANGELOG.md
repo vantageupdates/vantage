@@ -1,5 +1,19 @@
 # VantageUI releases
 
+## 1.44.73
+
+Install folder: `VantageUI-v1.44.73`.
+
+- Give Group EXP, fatigue and breath gauges the full 145px stats-column width
+  with native-size artwork, preserving original shading, caps and data bindings.
+- Separate the three gauge bounds by 3px. Place EXP percentage above the bars,
+  shift lower stats/resists down 28px and extend window height to 243px so
+  everything remains visible. Window width and party-member rows stay unchanged.
+- Center Invite/Disband (and Follow/Decline aliases) in the stats column with
+  matching 64x16 rounded faces, a 9px gap and four-pixel outer margins.
+
+Load with `/loadskin VantageUI-v1.44.73 1`. Native appearance requires game review.
+
 ## 1.44.72
 
 Install folder: `VantageUI-v1.44.72`.

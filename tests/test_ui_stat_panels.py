@@ -73,10 +73,10 @@ def test_actions_resists_have_nonoverlapping_abbreviations_and_full_tooltips(i,k
 
 @pytest.mark.parametrize('stat,label,value,x,y,eq', [
     ('ATK','ATKLabel','ATK',129,72,'23'), ('AC','ACLabel','AC',207,72,'22'),
-    ('STR','STRLabel','STR',129,124,'5'), ('STA','STALabel','STA',129,135,'6'),
-    ('AGI','AGILabel','AGI',129,146,'8'), ('DEX','DEXLabel','DEX',129,157,'7'),
-    ('WIS','WISLabel','WIS',207,124,'9'), ('INT','INTLabel','INT',207,135,'10'),
-    ('CHA','CHALabel','CHA',207,146,'11'), ('WEIGHT','WGTLabel','WGT',207,157,'24'),
+    ('STR','STRLabel','STR',129,152,'5'), ('STA','STALabel','STA',129,163,'6'),
+    ('AGI','AGILabel','AGI',129,174,'8'), ('DEX','DEXLabel','DEX',129,185,'7'),
+    ('WIS','WISLabel','WIS',207,152,'9'), ('INT','INTLabel','INT',207,163,'10'),
+    ('CHA','CHALabel','CHA',207,174,'11'), ('WEIGHT','WGTLabel','WGT',207,185,'24'),
     ('HP','PlayerHPLabel','PlayerHP',129,45,'70'), ('MANA','PlayerManaLabel','PlayerMana',129,57,'128'),
 ])
 def test_group_personal_stat_rows(stat,label,value,x,y,eq):
@@ -89,12 +89,12 @@ def test_group_personal_stat_rows(stat,label,value,x,y,eq):
 
 def test_window_bounds_and_native_xp_fatigue_breath_remain_distinct():
     assert rect(node('ActionsWindow','Screen','ActionsWindow')) == (516,292,144,182)
-    assert rect(node('GroupWindow','Screen','GroupWindow')) == (516,78,284,215)
+    assert rect(node('GroupWindow','Screen','GroupWindow')) == (516,78,284,243)
     for name,eq in (('PlayerXPGauge','4'),('PlayerXPGauge_BG','4'),('P_Fatigue','3'),('P_Breath','8')):
         g=node('GroupWindow','Gauge',name)
         assert g.findtext('EQType') == eq
         x,y,w,h=rect(g)
-        assert x+w == (274 if name=='PlayerXPGauge' else 276)
+        assert x+w == (272 if name=='PlayerXPGauge' else 274)
     assert rect(node('GroupWindow','StaticAnimation','GW_StatEXPIcon')) == (129,90,10,10)
     assert node('GroupWindow','Label','PlayerXPPerc').findtext('EQType') == '26'
     assert rect(node('ActionsWindow','Label','CHAnum'))[1]+14 == 80
