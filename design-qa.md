@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.73 design QA
+# Vantage Companion 1.44.74 design QA
 
 final result: passed
 
@@ -34,6 +34,11 @@ final result: passed
 - Items & Notes was checked at its 900x570 design size in both tabs. The item
   filters, inventory table, action row, note list, editor, and linked preview
   stay inside the window without clipping or overlapping.
+- A saved note can be converted in place to a 320x250 always-on-top Sticky
+  Note. Its title, editor, save state, Open and Unpin actions remain usable at
+  the 240x160 minimum; moving, resizing, closing, reopening and restarting do
+  not lose content or geometry. Device Sync replacement refreshes the open
+  editor and floating view as one record.
 - The new Quick Bar backpack action uses the existing 24 px control lane and
   the reset geometry was widened to include it without compressing neighbors.
 - Market's Discord copy actions use the established compact button treatment;
@@ -55,6 +60,9 @@ final result: passed
 - Items & Notes controls have descriptive accessible names, descriptions, and
   tooltips; item rows open by keyboard or double-click, and internal note links
   remain keyboard-selectable.
+- Sticky Notes use native keyboard focus order, visible focus borders and
+  explicit accessible names. Escape hides without deleting; Open returns focus
+  to the same note, while Unpin removes only the floating presentation.
 - Market effect links expose only the effect name as the action while casting
   requirements remain readable plain text.
 - Decorative logos use empty alternative text where adjacent Vantage text already names the product; the README logo has a meaningful alternative.

@@ -8,9 +8,11 @@ from pathlib import Path
 import re
 
 from PySide6.QtCore import QSignalBlocker, QStringListModel, Qt, QTimer, QUrl, QUrlQuery
-from PySide6.QtGui import QKeyEvent, QKeySequence, QShortcut, QTextCursor
+from PySide6.QtGui import (
+    QAccessible, QAccessibleAnnouncementEvent, QKeyEvent, QKeySequence,
+    QShortcut, QTextCursor)
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QCompleter, QFrame,
+    QAbstractItemView, QApplication, QComboBox, QCompleter, QFrame,
     QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton, QSplitter,
     QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QToolButton,
@@ -89,6 +91,234 @@ class ReferenceEditor(QPlainTextEdit):
         self.completer.complete(rectangle)
 
 
+class StickyNoteWindow(QWidget):
+    """Small always-on-top editor backed by one Items & Notes record."""
+
+    def __init__(self, owner, note):
+        super().__init__(None, Qt.WindowType.Tool |
+                        Qt.WindowType.WindowStaysOnTopHint |
+                        Qt.WindowType.WindowCloseButtonHint)
+        self.owner = owner
+        self.note_id = str(note.get("id") or "")
+        self._loading = False
+        self._quitting = False
+        self.setObjectName("StickyNoteWindow")
+        self.setWindowIcon(game_icon("ph-backpack"))
+        self.setMinimumSize(240, 160)
+        self.resize(320, 250)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(5)
+        self.title = QLineEdit()
+        self.title.setObjectName("StickyNoteTitle")
+        self.title.setPlaceholderText("Note title")
+        self.title.setAccessibleName("Sticky note title")
+        self.title.textChanged.connect(self._changed)
+        layout.addWidget(self.title)
+
+        self.editor = ReferenceEditor()
+        self.editor.setObjectName("StickyNoteEditor")
+        self.editor.setPlaceholderText(
+            "Write a note. Type @ to link an item, quest, or zone…")
+        self.editor.setAccessibleName("Sticky note text")
+        self.editor.setTabChangesFocus(True)
+        self.editor.setToolTip(
+            "This is the same note shown in Items & Notes · changes save automatically")
+        self.editor.textChanged.connect(self._changed)
+        layout.addWidget(self.editor, 1)
+
+        footer = QHBoxLayout()
+        footer.setContentsMargins(0, 0, 0, 0)
+        footer.setSpacing(5)
+        self.status = QLabel("Saved")
+        self.status.setObjectName("StickyNoteStatus")
+        self.status.setAccessibleName("Sticky note save status")
+        self.status.setAccessibleDescription(
+            "Saved locally and ready for Device Sync when paired PCs are online")
+        footer.addWidget(self.status, 1)
+        self.open_button = QPushButton("Open")
+        self.open_button.setIcon(game_icon("ph-backpack"))
+        self.open_button.setAccessibleName("Open this sticky note in Items and Notes")
+        self.open_button.setToolTip(
+            "Open the full Notes workspace and select this same note")
+        self.open_button.clicked.connect(self._open_in_notes)
+        footer.addWidget(self.open_button)
+        self.unpin_button = QPushButton("Unpin")
+        self.unpin_button.setIcon(game_icon("minimize"))
+        self.unpin_button.setAccessibleName(
+            "Stop showing this note as a floating sticky note")
+        self.unpin_button.setToolTip(
+            "Remove the floating sticky window but keep the note saved")
+        self.unpin_button.clicked.connect(self._return_to_notes)
+        footer.addWidget(self.unpin_button)
+        layout.addLayout(footer)
+
+        self._save_timer = QTimer(self)
+        self._save_timer.setSingleShot(True)
+        self._save_timer.setInterval(350)
+        self._save_timer.timeout.connect(self._save)
+        self._geometry_timer = QTimer(self)
+        self._geometry_timer.setSingleShot(True)
+        self._geometry_timer.setInterval(250)
+        self._geometry_timer.timeout.connect(self._save_geometry)
+        QApplication.instance().aboutToQuit.connect(self._prepare_to_quit)
+        self.apply_note(note)
+        self._restore_geometry(note.get("geometry"))
+
+    def _restore_geometry(self, geometry):
+        if (isinstance(geometry, list) and len(geometry) == 4 and
+                all(isinstance(value, int) for value in geometry)):
+            self.setGeometry(*geometry)
+        else:
+            offset = 28 * (len(self.owner._sticky_windows) % 6)
+            self.move(self.owner.x() + 40 + offset, self.owner.y() + 55 + offset)
+        screen = QApplication.screenAt(self.frameGeometry().center()) \
+            or QApplication.primaryScreen()
+        if not screen:
+            return
+        area = screen.availableGeometry()
+        width = min(self.width(), area.width())
+        height = min(self.height(), area.height())
+        x = max(area.left(), min(self.x(), area.right() - width + 1))
+        y = max(area.top(), min(self.y(), area.bottom() - height + 1))
+        self.setGeometry(x, y, width, height)
+
+    def apply_note(self, note):
+        """Refresh from Notes or Device Sync without moving the text cursor."""
+        title = str(note.get("title") or "Untitled note")
+        text = str(note.get("text") or "")
+        self._loading = True
+        try:
+            if self.title.text() != title:
+                with QSignalBlocker(self.title):
+                    self.title.setText(title)
+            if self.editor.toPlainText() != text:
+                with QSignalBlocker(self.editor):
+                    self.editor.setPlainText(text)
+            self.setWindowTitle(f"{title} · Sticky Note · Vantage")
+            self.editor.set_reference_entries(self.owner.note_editor._entries)
+        finally:
+            self._loading = False
+
+    def _changed(self):
+        if self._loading:
+            return
+        self.status.setText("Saving…")
+        self.status.setAccessibleDescription("Sticky note changes are saving")
+        self._save_timer.start()
+
+    def _save(self):
+        if self._loading or not self.note_id:
+            return
+        error = self.owner._save_from_sticky(
+            self.note_id, self.title.text(), self.editor.toPlainText())
+        message = error or "Saved"
+        self.status.setText(message)
+        self.status.setAccessibleDescription(message)
+        if error:
+            event = QAccessibleAnnouncementEvent(self.status, message)
+            event.setPoliteness(QAccessible.AnnouncementPoliteness.Assertive)
+            QAccessible.updateAccessibility(event)
+        if not error:
+            self.setWindowTitle(
+                f"{self.title.text().strip() or 'Untitled note'} · Sticky Note · Vantage")
+
+    def _open_in_notes(self):
+        self._save_timer.stop()
+        self._save()
+        self.owner._open_note_from_sticky(self.note_id)
+
+    def _return_to_notes(self):
+        self._save_timer.stop()
+        self._save()
+        self.owner._set_note_sticky(self.note_id, False)
+        self._return_focus_to_owner()
+
+    def _return_focus_to_owner(self):
+        if not self.owner.isVisible():
+            return
+        owner = self.owner
+
+        def restore_focus():
+            if not owner.isVisible():
+                return
+            owner.raise_()
+            owner.activateWindow()
+            QApplication.setActiveWindow(owner)
+            owner._surface.setFocusProxy(owner.sticky_note_button)
+            owner._scale_view.setFocus(Qt.FocusReason.OtherFocusReason)
+            owner._scale_scene.setFocus(Qt.FocusReason.OtherFocusReason)
+            owner._scale_proxy.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            owner._scale_scene.setActivePanel(owner._scale_proxy)
+            owner._scale_scene.setFocusItem(
+                owner._scale_proxy, Qt.FocusReason.OtherFocusReason)
+            owner._scale_proxy.setFocus(Qt.FocusReason.OtherFocusReason)
+            owner._surface.setFocus(Qt.FocusReason.OtherFocusReason)
+            owner.sticky_note_button.setFocus(Qt.FocusReason.OtherFocusReason)
+
+        # The native close event clears focus after its handler returns, so the
+        # hand-off must run on the following event-loop turn.
+        QTimer.singleShot(10, owner, restore_focus)
+
+    def _geometry(self):
+        return [self.x(), self.y(), self.width(), self.height()]
+
+    def _save_geometry(self):
+        if not self._quitting and self.note_id:
+            self.owner._save_sticky_geometry(self.note_id, self._geometry())
+
+    def _prepare_to_quit(self):
+        self._quitting = True
+        self._save_timer.stop()
+        self._save()
+        if self.note_id:
+            self.owner._save_sticky_geometry(self.note_id, self._geometry())
+
+    def dismiss(self):
+        self._quitting = True
+        self._save_timer.stop()
+        self.hide()
+        self.deleteLater()
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        if hasattr(self, "_geometry_timer"):
+            self._geometry_timer.start()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "_geometry_timer"):
+            self._geometry_timer.start()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.owner._update_sticky_action()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self.owner._update_sticky_action()
+
+    def closeEvent(self, event):
+        self._save_timer.stop()
+        self._save()
+        if self._quitting:
+            event.accept()
+            return
+        self._save_geometry()
+        self.hide()
+        self.owner._update_sticky_action()
+        self._return_focus_to_owner()
+        event.ignore()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self.close()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
 class ItemsNotes(ParserWindow):
     """Track imported P99 possessions and keep durable linked notes."""
 
@@ -102,6 +332,8 @@ class ItemsNotes(ParserWindow):
         self._journal = journal or ItemJournal()
         self._current_note_id = ""
         self._loading_note = False
+        self._sticky_windows = {}
+        self._journal_stamp = self._journal_file_stamp()
         self._visible_rows = []
         self.setWindowTitle("Items & Notes · Vantage")
         self._title.setText("Items & Notes")
@@ -118,6 +350,7 @@ class ItemsNotes(ParserWindow):
         self._save_note_shortcut = QShortcut(QKeySequence.StandardKey.Save, self)
         self._save_note_shortcut.activated.connect(self._save_current_note)
         self._refresh_everything()
+        QTimer.singleShot(0, self._sync_sticky_windows)
 
     def _build_ui(self):
         self.tabs = QTabWidget()
@@ -262,12 +495,21 @@ class ItemsNotes(ParserWindow):
         self.new_note_button.setIcon(game_icon("add"))
         self.new_note_button.clicked.connect(self._new_note)
         toolbar_layout.addWidget(self.new_note_button)
+        self.sticky_note_button = QPushButton("Make sticky")
+        self.sticky_note_button.setIcon(game_icon("ph-backpack"))
+        self.sticky_note_button.setAccessibleName(
+            "Show the selected note as a floating sticky note")
+        self.sticky_note_button.setToolTip(
+            "Turn this saved note into a small always-on-top window; it remains "
+            "the same synced note")
+        self.sticky_note_button.clicked.connect(self._toggle_sticky_note)
+        toolbar_layout.addWidget(self.sticky_note_button)
         self.delete_note_button = QPushButton("Delete note")
         self.delete_note_button.setIcon(game_icon("delete"))
         self.delete_note_button.clicked.connect(self._delete_note)
         toolbar_layout.addWidget(self.delete_note_button)
         self.note_status = QLabel(
-            "Type @ to link an Item, Quest, or Zone · notes save automatically")
+            "Type @ to link content · Make sticky opens the same synced note")
         self.note_status.setObjectName("ItemsNotesStatus")
         self.note_status.setAccessibleName("Note save status")
         toolbar_layout.addWidget(self.note_status, 1)
@@ -339,6 +581,8 @@ class ItemsNotes(ParserWindow):
         entries.extend(f"Zone · {name.title()}" for name in MapData.get_zone_dict())
         entries.extend(f"Quest · {name}" for name in self._quests._catalog)
         self.note_editor.set_reference_entries(entries)
+        for window in self._sticky_windows.values():
+            window.editor.set_reference_entries(self.note_editor._entries)
 
     def set_quest_catalog(self, names):
         existing = list(self.note_editor._entries)
@@ -429,6 +673,7 @@ class ItemsNotes(ParserWindow):
                 QMessageBox.StandardButton.Yes:
             return
         self._journal.import_snapshot(snapshot)
+        self._remember_journal_stamp()
         self._refresh_everything()
         index = self.character_selector.findData(snapshot["character"])
         self.character_selector.setCurrentIndex(max(0, index))
@@ -503,6 +748,7 @@ class ItemsNotes(ParserWindow):
             1, 2_000_000_000, 1)
         if accepted and self._journal.set_quantity(
                 row["character"], row["key"], quantity):
+            self._remember_journal_stamp()
             self._refresh_items()
 
     def _remove_item(self):
@@ -516,27 +762,79 @@ class ItemsNotes(ParserWindow):
                 QMessageBox.StandardButton.Yes:
             return
         if self._journal.remove_item(row["character"], row["key"]):
+            self._remember_journal_stamp()
             self._refresh_items()
 
     def _restore_previous(self):
         character = self.character_selector.currentData() or ""
         if character and self._journal.restore_previous_import(character):
+            self._remember_journal_stamp()
             self._refresh_everything()
             self.item_status.setText(f"Restored the prior import for {character}")
 
     def _undo(self):
         if self._journal.undo():
+            self._remember_journal_stamp()
             self._refresh_everything()
+            self._sync_sticky_windows()
             self.item_status.setText("Last local change undone")
+
+    def _journal_file_stamp(self):
+        try:
+            details = self._journal.path.stat()
+            return details.st_mtime_ns, details.st_size
+        except OSError:
+            return 0, 0
+
+    def _remember_journal_stamp(self):
+        self._journal_stamp = self._journal_file_stamp()
+
+    def refresh_synced_content(self):
+        """Reload an atomically received Device Sync journal without stale UI."""
+        stamp = self._journal_file_stamp()
+        if not stamp[0] or stamp == self._journal_stamp:
+            return False
+        if self._note_save_timer.isActive():
+            QTimer.singleShot(700, self.refresh_synced_content)
+            return False
+        selected = self._current_note_id
+        self._journal.load()
+        self._journal_stamp = stamp
+        self._refresh_everything()
+        self._load_note_fields(selected)
+        self._sync_sticky_windows()
+        self.note_status.setText("Notes synced from another PC")
+        self.note_status.setAccessibleDescription(
+            "The saved notes were refreshed from Device Sync")
+        return True
+
+    def _load_note_fields(self, note_id):
+        note = self._journal.note(note_id)
+        self._loading_note = True
+        try:
+            self._current_note_id = str(note_id or "") if note else ""
+            self.note_title.setText(note.get("title", "") if note else "")
+            self.note_editor.setPlainText(note.get("text", "") if note else "")
+            self._render_preview()
+        finally:
+            self._loading_note = False
+        self.delete_note_button.setEnabled(bool(note))
+        self._update_sticky_action()
+
+    def _sticky_list_text(self, note):
+        title = note.get("title") or "Untitled note"
+        return f"Sticky · {title}" if note.get("sticky", False) else title
 
     def _refresh_notes(self):
         selected = self._current_note_id
         with QSignalBlocker(self.note_list):
             self.note_list.clear()
             for note in self._journal.data["notes"]:
-                item = QListWidgetItem(note.get("title") or "Untitled note")
+                item = QListWidgetItem(self._sticky_list_text(note))
                 item.setData(Qt.ItemDataRole.UserRole, note.get("id"))
-                item.setToolTip(f"Last saved {note.get('updated_at', '')}")
+                state = "Floating sticky · " if note.get("sticky", False) else ""
+                item.setToolTip(
+                    f"{state}Last saved {note.get('updated_at', '')}")
                 self.note_list.addItem(item)
             match = next((index for index in range(self.note_list.count())
                           if self.note_list.item(index).data(
@@ -544,6 +842,7 @@ class ItemsNotes(ParserWindow):
             if match >= 0:
                 self.note_list.setCurrentRow(match)
         self.delete_note_button.setEnabled(bool(self._current_note_id))
+        self._update_sticky_action()
 
     def _new_note(self):
         self._save_current_note()
@@ -562,6 +861,8 @@ class ItemsNotes(ParserWindow):
         self._loading_note = False
         self.note_title.selectAll()
         self.note_title.setFocus(Qt.FocusReason.ShortcutFocusReason)
+        self._remember_journal_stamp()
+        self._update_sticky_action()
 
     def _select_note_id(self, note_id):
         for index in range(self.note_list.count()):
@@ -575,17 +876,7 @@ class ItemsNotes(ParserWindow):
             return
         self._save_current_note()
         note_id = current.data(Qt.ItemDataRole.UserRole) if current else ""
-        note = next((value for value in self._journal.data["notes"]
-                     if value.get("id") == note_id), None)
-        self._loading_note = True
-        try:
-            self._current_note_id = note_id or ""
-            self.note_title.setText(note.get("title", "") if note else "")
-            self.note_editor.setPlainText(note.get("text", "") if note else "")
-            self._render_preview()
-        finally:
-            self._loading_note = False
-        self.delete_note_button.setEnabled(bool(note))
+        self._load_note_fields(note_id)
 
     def _note_changed(self):
         if self._loading_note:
@@ -599,6 +890,7 @@ class ItemsNotes(ParserWindow):
                 return
             self._refresh_notes()
             self._select_note_id(self._current_note_id)
+            self._remember_journal_stamp()
             self.note_status.setText("Saving…")
             self._note_save_timer.start()
             return
@@ -608,6 +900,7 @@ class ItemsNotes(ParserWindow):
     def _save_current_note(self):
         if not self._current_note_id or self._loading_note:
             return
+        self._note_save_timer.stop()
         try:
             self._journal.upsert_note(
                 self._current_note_id, self.note_title.text(),
@@ -616,10 +909,13 @@ class ItemsNotes(ParserWindow):
             self.note_status.setText(str(error))
             return
         self.note_status.setText("Saved locally")
+        self._remember_journal_stamp()
         current = self.note_list.currentItem()
         if current:
-            current.setText(self.note_title.text().strip() or "Untitled note")
+            note = self._journal.note(self._current_note_id) or {}
+            current.setText(self._sticky_list_text(note))
         self._render_preview()
+        self._sync_one_sticky(self._current_note_id)
 
     def _delete_note(self):
         if not self._current_note_id:
@@ -630,7 +926,10 @@ class ItemsNotes(ParserWindow):
                 QMessageBox.StandardButton.Yes:
             return
         self._note_save_timer.stop()
-        self._journal.delete_note(self._current_note_id)
+        deleted_id = self._current_note_id
+        self._journal.delete_note(deleted_id)
+        self._remember_journal_stamp()
+        self._remove_sticky_window(deleted_id)
         self._current_note_id = ""
         self._refresh_notes()
         self._loading_note = True
@@ -638,6 +937,148 @@ class ItemsNotes(ParserWindow):
         self.note_editor.clear()
         self.note_preview.clear()
         self._loading_note = False
+        self._update_sticky_action()
+
+    def _update_sticky_action(self):
+        if not hasattr(self, "sticky_note_button"):
+            return
+        note = self._journal.note(self._current_note_id)
+        self.sticky_note_button.setEnabled(bool(note))
+        if not note:
+            text = "Make sticky"
+            accessible = "Select a note before making a floating sticky note"
+        elif not note.get("sticky", False):
+            text = "Make sticky"
+            accessible = "Show the selected note as a floating sticky note"
+        else:
+            window = self._sticky_windows.get(self._current_note_id)
+            visible = bool(window and window.isVisible())
+            text = "Hide sticky" if visible else "Show sticky"
+            accessible = (
+                "Temporarily hide the selected floating sticky note"
+                if visible else "Show the selected floating sticky note")
+        self.sticky_note_button.setText(text)
+        self.sticky_note_button.setAccessibleName(accessible)
+
+    def _toggle_sticky_note(self):
+        self._save_current_note()
+        note = self._journal.note(self._current_note_id)
+        if not note:
+            return
+        if not note.get("sticky", False):
+            self._set_note_sticky(self._current_note_id, True)
+            window = self._sticky_windows.get(self._current_note_id)
+            if window:
+                window.show()
+                window.raise_()
+                window.activateWindow()
+                window.editor.setFocus(Qt.FocusReason.OtherFocusReason)
+            return
+        window = self._sticky_windows.get(self._current_note_id)
+        if window is None:
+            self._sync_sticky_windows()
+            window = self._sticky_windows.get(self._current_note_id)
+        if not window:
+            return
+        if window.isVisible():
+            window.close()
+        else:
+            window.show()
+            window.raise_()
+            window.activateWindow()
+            window.editor.setFocus(Qt.FocusReason.OtherFocusReason)
+        self._update_sticky_action()
+
+    def _set_note_sticky(self, note_id, sticky):
+        window = self._sticky_windows.get(note_id)
+        geometry = window._geometry() if window else None
+        if not self._journal.set_note_sticky(note_id, sticky, geometry):
+            return False
+        self._remember_journal_stamp()
+        if not sticky:
+            self._remove_sticky_window(note_id)
+            self.note_status.setText("Returned to Notes · content kept")
+        else:
+            self._sync_sticky_windows()
+            self.note_status.setText("Floating sticky created")
+        self._refresh_notes()
+        self._select_note_id(note_id)
+        self._update_sticky_action()
+        return True
+
+    def _sync_sticky_windows(self):
+        sticky_notes = {
+            note.get("id"): note for note in self._journal.data["notes"]
+            if note.get("id") and note.get("sticky", False)}
+        for note_id in list(self._sticky_windows):
+            if note_id not in sticky_notes:
+                self._remove_sticky_window(note_id)
+        for note_id, note in sticky_notes.items():
+            window = self._sticky_windows.get(note_id)
+            if window is None:
+                window = StickyNoteWindow(self, note)
+                self._sticky_windows[note_id] = window
+                window.show()
+            else:
+                window.apply_note(note)
+            window.editor.set_reference_entries(self.note_editor._entries)
+        self._update_sticky_action()
+
+    def _sync_one_sticky(self, note_id):
+        note = self._journal.note(note_id)
+        window = self._sticky_windows.get(note_id)
+        if note and note.get("sticky", False):
+            if window is None:
+                self._sync_sticky_windows()
+            else:
+                window.apply_note(note)
+        elif window is not None:
+            self._remove_sticky_window(note_id)
+        self._update_sticky_action()
+
+    def _remove_sticky_window(self, note_id):
+        window = self._sticky_windows.pop(str(note_id or ""), None)
+        if window:
+            window.dismiss()
+
+    def _save_from_sticky(self, note_id, title, text):
+        try:
+            self._journal.upsert_note(note_id, title, text)
+        except ValueError as error:
+            return str(error)
+        self._remember_journal_stamp()
+        note = self._journal.note(note_id) or {}
+        if self._current_note_id == note_id:
+            self._loading_note = True
+            try:
+                if self.note_title.text() != title:
+                    self.note_title.setText(title)
+                if self.note_editor.toPlainText() != text:
+                    self.note_editor.setPlainText(text)
+                self._render_preview()
+            finally:
+                self._loading_note = False
+        for index in range(self.note_list.count()):
+            item = self.note_list.item(index)
+            if item.data(Qt.ItemDataRole.UserRole) == note_id:
+                item.setText(self._sticky_list_text(note))
+                break
+        self.note_status.setText("Saved from floating sticky")
+        return ""
+
+    def _save_sticky_geometry(self, note_id, geometry):
+        if self._journal.set_note_geometry(note_id, geometry):
+            self._remember_journal_stamp()
+
+    def _open_note_from_sticky(self, note_id):
+        if not self.isVisible():
+            self.toggle()
+        self.raise_()
+        self.activateWindow()
+        self.tabs.setCurrentIndex(1)
+        self._select_note_id(note_id)
+        self._load_note_fields(note_id)
+        self.note_title.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _note_tab_changed(self, index):
         if self.note_tabs.tabText(index) == "Preview links":

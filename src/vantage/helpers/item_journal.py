@@ -220,6 +220,40 @@ def references_in(text):
                  for match in REFERENCE_RE.finditer(str(text or "")))
 
 
+def _note_geometry(value):
+    if (not isinstance(value, list) or len(value) != 4 or
+            not all(isinstance(item, int) for item in value)):
+        return None
+    x, y, width, height = value
+    if (not -100_000 <= x <= 100_000 or not -100_000 <= y <= 100_000 or
+            not 240 <= width <= 2_000 or not 160 <= height <= 1_600):
+        return None
+    return [x, y, width, height]
+
+
+def _normalized_note(value):
+    if not isinstance(value, dict):
+        return None
+    note_id = str(value.get("id") or "").strip()[:80]
+    if not note_id:
+        return None
+    text = str(value.get("text") or "")
+    if len(text.encode("utf-8")) > MAX_NOTE_BYTES:
+        return None
+    note = {
+        "id": note_id,
+        "title": (str(value.get("title") or "Untitled note").strip()
+                  or "Untitled note")[:160],
+        "text": text,
+        "updated_at": str(value.get("updated_at") or "")[:80],
+        "sticky": bool(value.get("sticky", False)),
+    }
+    geometry = _note_geometry(value.get("geometry"))
+    if geometry:
+        note["geometry"] = geometry
+    return note
+
+
 class ItemJournal:
     """Atomic, bounded per-user storage with one-level edit undo."""
 
@@ -236,6 +270,7 @@ class ItemJournal:
             return
         if not isinstance(loaded, dict):
             return
+        self._undo = None
         characters = loaded.get("characters", {})
         history = loaded.get("history", {})
         notes = loaded.get("notes", [])
@@ -244,7 +279,8 @@ class ItemJournal:
         if isinstance(history, dict):
             self.data["history"] = history
         if isinstance(notes, list):
-            self.data["notes"] = notes[:MAX_NOTES]
+            self.data["notes"] = [note for note in (
+                _normalized_note(value) for value in notes[:MAX_NOTES]) if note]
 
     def save(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -345,12 +381,19 @@ class ItemJournal:
         if len(encoded) > MAX_NOTE_BYTES:
             raise ValueError("Note is larger than 256 KB")
         note_id = str(note_id or uuid.uuid4().hex)
+        existing_note = next((
+            value for value in self.data["notes"]
+            if value.get("id") == note_id), None)
         note = {
             "id": note_id,
             "title": (str(title or "Untitled note").strip() or "Untitled note")[:160],
             "text": str(text or ""),
             "updated_at": _now(),
+            "sticky": bool((existing_note or {}).get("sticky", False)),
         }
+        geometry = _note_geometry((existing_note or {}).get("geometry"))
+        if geometry:
+            note["geometry"] = geometry
         notes = self.data["notes"]
         for index, existing in enumerate(notes):
             if existing.get("id") == note_id:
@@ -362,6 +405,39 @@ class ItemJournal:
             notes.insert(0, note)
         self.save()
         return note_id
+
+    def note(self, note_id):
+        return next((value for value in self.data["notes"]
+                     if value.get("id") == str(note_id or "")), None)
+
+    def set_note_sticky(self, note_id, sticky, geometry=None):
+        note = self.note(note_id)
+        if note is None:
+            return False
+        normalized_geometry = _note_geometry(geometry)
+        changed = note.get("sticky", False) != bool(sticky)
+        if normalized_geometry and note.get("geometry") != normalized_geometry:
+            changed = True
+        if not changed:
+            return True
+        self._undo = deepcopy(self.data)
+        note["sticky"] = bool(sticky)
+        if normalized_geometry:
+            note["geometry"] = normalized_geometry
+        note["updated_at"] = _now()
+        self.save()
+        return True
+
+    def set_note_geometry(self, note_id, geometry):
+        note = self.note(note_id)
+        normalized = _note_geometry(geometry)
+        if note is None or normalized is None:
+            return False
+        if note.get("geometry") == normalized:
+            return True
+        note["geometry"] = normalized
+        self.save()
+        return True
 
     def delete_note(self, note_id):
         notes = self.data["notes"]

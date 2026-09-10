@@ -108,6 +108,30 @@ def test_notes_and_portable_internal_reference_tokens_persist(tmp_path):
         ("Zone", "South Ro"))
 
 
+def test_sticky_note_state_geometry_and_edits_share_one_record(tmp_path):
+    path = tmp_path / "items-notes.json"
+    journal = ItemJournal(path)
+    note_id = journal.upsert_note("", "Raid list", "Bring resist gear")
+
+    assert journal.set_note_sticky(note_id, True, [120, 90, 340, 260])
+    journal.upsert_note(note_id, "Raid list updated", "Bring cold resist gear")
+    assert journal.set_note_geometry(note_id, [160, 110, 360, 280])
+
+    reloaded = ItemJournal(path)
+    note = reloaded.note(note_id)
+    assert note == {
+        "id": note_id,
+        "title": "Raid list updated",
+        "text": "Bring cold resist gear",
+        "updated_at": note["updated_at"],
+        "sticky": True,
+        "geometry": [160, 110, 360, 280],
+    }
+    assert reloaded.set_note_sticky(note_id, False)
+    assert reloaded.note(note_id)["sticky"] is False
+    assert reloaded.note(note_id)["geometry"] == [160, 110, 360, 280]
+
+
 def test_filename_and_location_helpers_are_defensive():
     assert character_from_filename(Path("Thora_inventory.txt")) == "Thora"
     assert classify_location("Bank42-Slot3") == "Bank"

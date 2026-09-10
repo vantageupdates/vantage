@@ -53,7 +53,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=73,
+    patch=74,
     build=""
 )
 
@@ -285,6 +285,8 @@ class VantageApp(QApplication):
         zones = Zones()
         quests = Quests()
         items_notes = ItemsNotes(market, quests)
+        self._signals["settings"].config_updated.connect(
+            items_notes.refresh_synced_content)
         vantage_ui = VantageUI()
         self._parsers_dict = {
             "maps": maps,
