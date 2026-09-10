@@ -807,6 +807,7 @@ class OpenDKP(ParserWindow):
             panel_layout.addWidget(status)
             table = self._table(
                 ("Waiting for data",), f"{source['name']} spreadsheet")
+            table.setProperty("vantageColumnKey", f"guild-sheet-{source_id}")
             panel_layout.addWidget(table, 1)
             self._sheet_views[source_id] = {
                 "panel": panel, "search": search, "status": status,
@@ -877,7 +878,7 @@ class OpenDKP(ParserWindow):
             return False
         request = QNetworkRequest(QUrl(csv_url))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.70")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.71")
         request.setAttribute(
             QNetworkRequest.Attribute.RedirectPolicyAttribute,
             QNetworkRequest.RedirectPolicy.NoLessSafeRedirectPolicy)

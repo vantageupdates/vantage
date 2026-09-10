@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.70 design QA
+# Vantage Companion 1.44.71 design QA
 
 final result: passed
 
@@ -11,6 +11,12 @@ final result: passed
 
 ## Visual checks
 
+- Every Vantage data table now keeps authored initial widths while exposing
+  each horizontal divider for direct resizing. Stretch, fixed, and automatic
+  modes no longer trap clipped text such as long auction seller names.
+- Column widths persist per surface and exact ordered header schema, so
+  dynamic comparison and guild spreadsheet tables never restore widths onto
+  unrelated data.
 - Items & Notes was checked at its 900x570 design size in both tabs. The item
   filters, inventory table, action row, note list, editor, and linked preview
   stay inside the window without clipping or overlapping.
@@ -29,6 +35,9 @@ final result: passed
 
 ## Accessibility checks
 
+- Every table exposes Shift+F10 column controls for the focused column:
+  wider, narrower, auto-fit, and reset. Width changes are announced and focus
+  returns to the table after the menu closes.
 - Items & Notes controls have descriptive accessible names, descriptions, and
   tooltips; item rows open by keyboard or double-click, and internal note links
   remain keyboard-selectable.

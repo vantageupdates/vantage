@@ -26,6 +26,7 @@ from vantage.helpers.notification_routes import (
     NOTIFICATION_ROUTES, NotificationDeliveryResult, TellAudioCooldown,
     classify_chat_notification, normalized_route_settings)
 from vantage.helpers.portable import data_dir
+from vantage.helpers.responsive import TableColumnManager
 from vantage.helpers.splash import StartupSplash
 from vantage.helpers.updater import UpdateController
 from vantage.helpers.update_toast import QuickUpdateToast
@@ -52,7 +53,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=70,
+    patch=71,
     build=""
 )
 
@@ -81,6 +82,7 @@ class VantageApp(QApplication):
 
         self._button_polish = ButtonPolishFilter(self)
         self.installEventFilter(self._button_polish)
+        self._column_widths = TableColumnManager(self)
 
         # Theme and bundled fonts must exist before any parser window is built.
         QFontDatabase.addApplicationFont(resource_path('data/fonts/NotoSans-Regular.ttf'))
@@ -674,7 +676,9 @@ class VantageApp(QApplication):
         return {surface: surface.isVisible()
                 for surface in self._secondary_ui_surfaces()}
 
-    def _apply_ui_presentation(self, values, secondary_visibility=None):
+    def _apply_ui_presentation(
+            self, values, secondary_visibility=None,
+            refresh_legacy_column_defaults=False):
         """Apply an allowlisted presentation snapshot to every live surface."""
         config.apply_ui_presentation(values)
         self._apply_theme()
@@ -710,6 +714,13 @@ class VantageApp(QApplication):
                 table_key, zones.COLUMN_DEFAULTS[table_key])
             for column, width in enumerate(widths):
                 table.setColumnWidth(column, width)
+
+        if refresh_legacy_column_defaults:
+            legacy_tables = list(zones._zone_tables.values())
+            if hasattr(market, "gear_table"):
+                legacy_tables.append(market.gear_table)
+            self._column_widths.capture_current_as_defaults(legacy_tables)
+        self._column_widths.apply_saved()
 
         checklist_geometry = values.get(
             ("quests", "checklist", "geometry"), [80, 80, 380, 480])
@@ -758,7 +769,7 @@ class VantageApp(QApplication):
                 "opacity, frame, always-on-top setting, and Quick Bar layout?\n\n"
                 "This hides every window except the Quick Bar, expands rolled "
                 "windows, turns off Smart Timers compact mode, and resets "
-                "Market and Zones column widths.\n\n"
+                "all table column widths.\n\n"
                 "Buffs, active spell and spawn timers, profiles, combat history, "
                 "Market watches and alerts, zone content, and quest checklist "
                 "progress will not be deleted. Items and notes are also preserved.",
@@ -772,7 +783,9 @@ class VantageApp(QApplication):
         snapshot = config.ui_presentation_snapshot()
         secondary_visibility = self._secondary_visibility()
         try:
-            self._apply_ui_presentation(config.UI_PRESENTATION_DEFAULTS)
+            self._apply_ui_presentation(
+                config.UI_PRESENTATION_DEFAULTS,
+                refresh_legacy_column_defaults=True)
             config.save()
             if not config.verify_saved_ui_presentation():
                 raise OSError("Vantage could not verify the saved default layout")

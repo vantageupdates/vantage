@@ -13,6 +13,8 @@ Las ventanas son independientes. En la barra superior puedes fijarlas encima, ca
 
 Haz clic derecho sobre el fondo o la cabecera de cualquier panel para moverlo a nueve posiciones de la pantalla, traerlo al frente, dejarlo en capa normal, enviarlo detrás, cambiar su opacidad, enrollarlo, cambiar el marco, restaurar su tamaño o enviarlo a la bandeja. **Panel Size** aplica de verdad las réplicas Tiny 25 %, Mini 35 %, Compact 50 %, Comfortable 75 % y Original 100 %; la opción activa queda marcada. Al enrollar, minimizar a la bandeja o volver a abrir, se conserva exactamente el último tamaño escogido. Los campos de una o varias líneas muestran el menú normal de Windows/Qt con deshacer, cortar, copiar, pegar, borrar y seleccionar todo; buffs y mapa conservan sus acciones especiales.
 
+En cualquier tabla puedes arrastrar los separadores del encabezado o hacer doble clic sobre uno para ajustar esa columna al contenido. Desde una celda, `Shift+F10` abre opciones para ensanchar, estrechar, autoajustar o restaurar la tabla. Los anchos se guardan automáticamente y **Reset UI Layout** los devuelve al diseño original.
+
 ## Smart Timers
 
 - Por defecto, una línea `You have slain…` o `…has been slain by…` crea automáticamente el mob con el respawn de la zona detectada por zoning o `/who`.

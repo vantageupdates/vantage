@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, Qt, QTimer
+import hashlib
+import re
+import weakref
+
+from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer
+from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtWidgets import (
-    QFormLayout, QGridLayout, QLayout, QScrollArea, QSizePolicy,
-    QTableWidget, QTabWidget, QToolButton, QWidget)
+    QApplication, QFileDialog, QFormLayout, QGridLayout, QHeaderView, QLayout,
+    QMenu, QScrollArea, QSizePolicy, QTableView, QTableWidget, QTabWidget,
+    QToolButton, QTreeView, QWidget)
+
+from vantage.helpers import config
 
 
 TABLE_HEADER_TOOLTIPS = {
@@ -101,6 +109,406 @@ def ensure_tab_tooltips(tabs: QTabWidget, descriptions):
 
     QTimer.singleShot(0, polish_scrollers)
     return tabs
+
+
+def _safe_column_key(value):
+    value = re.sub(r"[^a-z0-9_.-]+", "-", str(value or "").casefold())
+    return value.strip("-")[:96]
+
+
+class TableColumnManager(QObject):
+    """Make every native data column manually resizable and persistent.
+
+    Qt's Stretch, Fixed, and ResizeToContents modes can look reasonable on a
+    fresh screen while making a clipped column impossible to correct.  This
+    application filter freezes each table's authored layout into Interactive
+    sections on first show, then remembers the user's exact widths.
+    """
+
+    MIN_WIDTH = 28
+    MAX_WIDTH = 2400
+    MAX_TABLES = 256
+    WIDTH_STEP = 32
+    INSTRUCTIONS = (
+        "Drag heading dividers to resize columns. Press Shift+F10 from a cell "
+        "for keyboard column width controls.")
+
+    def __init__(self, application=None):
+        application = application or QApplication.instance()
+        super().__init__(application)
+        self.setObjectName("TableColumnManager")
+        self._application = application
+        self._views = {}
+        self._defaults = {}
+        self._sources = {}
+        self._models = set()
+        self._applying = set()
+        self._open_menus = []
+        self._save_timer = QTimer(self)
+        self._save_timer.setSingleShot(True)
+        self._save_timer.setInterval(350)
+        self._save_timer.timeout.connect(self._save)
+        if application is not None:
+            application.installEventFilter(self)
+            application.aboutToQuit.connect(self.flush)
+
+    @staticmethod
+    def _view_ref(view):
+        return weakref.ref(view)
+
+    def eventFilter(self, watched, event):
+        view = watched if isinstance(watched, (QTableView, QTreeView)) else None
+        if view is not None:
+            if event.type() == QEvent.Type.Show:
+                self._schedule_configure(view)
+            elif event.type() == QEvent.Type.LayoutRequest:
+                header = view.horizontalHeader()
+                if (header is not None and header.count() and
+                        (header.stretchLastSection() or any(
+                            header.sectionResizeMode(column) !=
+                            QHeaderView.ResizeMode.Interactive
+                            for column in range(header.count())))):
+                    self._schedule_configure(view)
+
+        source_ref = self._sources.get(id(watched))
+        source_view = source_ref() if source_ref is not None else view
+        if (source_view is not None and
+                event.type() == QEvent.Type.KeyPress and
+                event.key() == Qt.Key.Key_F10 and
+                event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
+            self._show_column_menu(source_view, watched, QPoint(-1, -1))
+            event.accept()
+            return True
+        return False
+
+    def _schedule_configure(self, view):
+        reference = self._view_ref(view)
+
+        def configure():
+            candidate = reference()
+            if candidate is None:
+                return
+            try:
+                self._configure(candidate)
+            except RuntimeError:
+                return
+
+        QTimer.singleShot(0, configure)
+
+    def _owner_key(self, view):
+        application = self._application or QApplication.instance()
+        for name, parser in getattr(application, "_parsers_dict", {}).items():
+            surface = getattr(parser, "_surface", None)
+            try:
+                if surface is not None and (
+                        view is surface or surface.isAncestorOf(view)):
+                    return _safe_column_key(name)
+            except RuntimeError:
+                continue
+        window = view.window()
+        return _safe_column_key(
+            window.objectName() or window.windowTitle() or
+            window.metaObject().className()) or "vantage"
+
+    def _column_key(self, view):
+        explicit = _safe_column_key(view.property("vantageColumnKey"))
+        identity = explicit or _safe_column_key(view.objectName())
+        if not identity:
+            identity = _safe_column_key(view.accessibleName())
+        model = view.model()
+        headings = []
+        if model is not None:
+            for column in range(min(64, model.columnCount())):
+                headings.append(str(model.headerData(
+                    column, Qt.Orientation.Horizontal,
+                    Qt.ItemDataRole.DisplayRole) or ""))
+        digest = hashlib.sha1(
+            "\x1f".join(headings).encode("utf-8")).hexdigest()[:12]
+        if not identity:
+            identity = view.metaObject().className().casefold()
+        return f"{self._owner_key(view)}/{identity}-{digest}"
+
+    @staticmethod
+    def _widths(view):
+        return [view.columnWidth(column)
+                for column in range(view.model().columnCount())]
+
+    @staticmethod
+    def _storage():
+        general = config.data.setdefault("general", {})
+        storage = general.setdefault("table_column_widths", {})
+        if not isinstance(storage, dict):
+            storage = {}
+            general["table_column_widths"] = storage
+        return storage
+
+    def _configure(self, view):
+        if isinstance(view.window(), QFileDialog):
+            return
+        model = view.model()
+        header = view.horizontalHeader()
+        count = model.columnCount() if model is not None else 0
+        if count <= 0 or header is None:
+            return
+        key = self._column_key(view)
+        previous_key = str(
+            view.property("vantageColumnKeyResolved") or "")
+        if previous_key and previous_key != key:
+            self._views.pop(previous_key, None)
+        view.setProperty("vantageColumnKeyResolved", key)
+        self._views[key] = self._view_ref(view)
+        current = [max(self.MIN_WIDTH, int(view.columnWidth(column)))
+                   for column in range(count)]
+        if key not in self._defaults or len(self._defaults[key]) != count:
+            self._defaults[key] = list(current)
+
+        applying_key = id(header)
+        self._applying.add(applying_key)
+        try:
+            header.setStretchLastSection(False)
+            for column in range(count):
+                header.setSectionResizeMode(
+                    column, QHeaderView.ResizeMode.Interactive)
+            saved = self._storage().get(key)
+            widths = saved if isinstance(saved, list) and len(saved) == count else current
+            for column, width in enumerate(widths):
+                view.setColumnWidth(column, max(
+                    self.MIN_WIDTH, min(self.MAX_WIDTH, int(width))))
+        finally:
+            self._applying.discard(applying_key)
+
+        if not view.property("vantageColumnManagerConnected"):
+            view.setProperty("vantageColumnManagerConnected", True)
+            reference = self._view_ref(view)
+            header.sectionResized.connect(
+                lambda *_args, ref=reference: self._column_resized(ref))
+            header.sectionCountChanged.connect(
+                lambda *_args, ref=reference: self._reconfigure_ref(ref))
+            self._install_context_source(view, view)
+            self._install_context_source(view.viewport(), view)
+            self._install_context_source(header, view)
+        model_id = id(model)
+        if model_id not in self._models:
+            self._models.add(model_id)
+            reference = self._view_ref(view)
+            model.headerDataChanged.connect(
+                lambda orientation, *_args, ref=reference:
+                self._header_data_changed(ref, orientation))
+            model.modelReset.connect(
+                lambda ref=reference: self._reconfigure_ref(ref))
+            model.destroyed.connect(
+                lambda *_args, current_id=model_id:
+                self._models.discard(current_id))
+        self._describe(view)
+
+    def _header_data_changed(self, reference, orientation):
+        if orientation == Qt.Orientation.Horizontal:
+            self._reconfigure_ref(reference)
+
+    def _reconfigure_ref(self, reference):
+        view = reference()
+        if view is not None:
+            self._schedule_configure(view)
+
+    def _install_context_source(self, source, view):
+        if source.property("vantageColumnMenuConnected"):
+            return
+        source.setProperty("vantageColumnMenuConnected", True)
+        source.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        source_ref = weakref.ref(source)
+        view_ref = self._view_ref(view)
+        self._sources[id(source)] = view_ref
+        source.customContextMenuRequested.connect(
+            lambda point, sref=source_ref, vref=view_ref:
+            self._show_menu_refs(vref, sref, point))
+        source.destroyed.connect(
+            lambda *_args, source_id=id(source): self._sources.pop(
+                source_id, None))
+
+    def _show_menu_refs(self, view_ref, source_ref, point):
+        view = view_ref()
+        source = source_ref()
+        if view is not None and source is not None:
+            self._show_column_menu(view, source, point)
+
+    def _describe(self, view):
+        description = view.accessibleDescription().strip()
+        if self.INSTRUCTIONS not in description:
+            view.setAccessibleDescription(
+                f"{description} {self.INSTRUCTIONS}".strip())
+        header = view.horizontalHeader()
+        name = view.accessibleName().strip() or "this table"
+        if not header.accessibleName().strip():
+            header.setAccessibleName(f"Resizable columns for {name}")
+        header.setAccessibleDescription(self.INSTRUCTIONS)
+        header.setToolTip(
+            "Drag a divider to resize · double-click to auto-fit · "
+            "Shift+F10 for keyboard controls")
+
+    def _menu_column(self, view, source, point):
+        header = view.horizontalHeader()
+        column = -1
+        if source is header and point.x() >= 0:
+            column = header.logicalIndexAt(point)
+        elif source is view.viewport() and point.x() >= 0:
+            column = view.columnAt(point.x())
+        index = view.currentIndex()
+        if column < 0 and index.isValid():
+            column = index.column()
+        return max(0, min(header.count() - 1, column if column >= 0 else 0))
+
+    @staticmethod
+    def _heading(view, column):
+        model = view.model()
+        heading = model.headerData(
+            column, Qt.Orientation.Horizontal,
+            Qt.ItemDataRole.DisplayRole) if model is not None else ""
+        return str(heading or f"Column {column + 1}")
+
+    def _show_column_menu(self, view, source, point):
+        try:
+            column = self._menu_column(view, source, point)
+            heading = self._heading(view, column)
+        except RuntimeError:
+            return
+        menu = QMenu(view)
+        menu.setAccessibleName(f"{heading} column width controls")
+        menu.setToolTipsVisible(True)
+        wider = menu.addAction(f"Widen {heading}")
+        wider.setToolTip(f"Increase the {heading} column by {self.WIDTH_STEP} pixels")
+        wider.triggered.connect(
+            lambda: self._change_width(view, column, self.WIDTH_STEP))
+        narrower = menu.addAction(f"Narrow {heading}")
+        narrower.setToolTip(f"Decrease the {heading} column by {self.WIDTH_STEP} pixels")
+        narrower.triggered.connect(
+            lambda: self._change_width(view, column, -self.WIDTH_STEP))
+        auto_fit = menu.addAction(f"Auto-fit {heading}")
+        auto_fit.setToolTip(f"Fit the {heading} column to its visible content")
+        auto_fit.triggered.connect(lambda: self._auto_fit(view, column))
+        menu.addSeparator()
+        reset = menu.addAction("Reset this table's columns")
+        reset.setToolTip("Restore the authored column widths for this table")
+        reset.triggered.connect(lambda: self.reset_view(view))
+
+        index = view.currentIndex()
+        if point.x() < 0 or point.y() < 0:
+            cell = view.visualRect(index) if index.isValid() else view.rect()
+            global_point = view.viewport().mapToGlobal(cell.bottomLeft())
+        else:
+            global_point = source.mapToGlobal(point)
+        self._open_menus.append(menu)
+
+        def close_menu():
+            try:
+                view.setFocus(Qt.FocusReason.OtherFocusReason)
+            except RuntimeError:
+                pass
+            if menu in self._open_menus:
+                self._open_menus.remove(menu)
+            menu.deleteLater()
+
+        menu.aboutToHide.connect(close_menu)
+        menu.popup(global_point)
+
+    def _change_width(self, view, column, delta):
+        width = max(self.MIN_WIDTH, min(
+            self.MAX_WIDTH, view.columnWidth(column) + int(delta)))
+        view.setColumnWidth(column, width)
+        self._announce_width(view, column)
+
+    def _auto_fit(self, view, column):
+        view.resizeColumnToContents(column)
+        width = max(self.MIN_WIDTH, min(
+            self.MAX_WIDTH, view.columnWidth(column)))
+        view.setColumnWidth(column, width)
+        view.horizontalHeader().setSectionResizeMode(
+            column, QHeaderView.ResizeMode.Interactive)
+        self._announce_width(view, column)
+
+    def _announce_width(self, view, column):
+        message = (
+            f"{self._heading(view, column)} column width "
+            f"{view.columnWidth(column)} pixels")
+        view.setAccessibleDescription(f"{self.INSTRUCTIONS} {message}.")
+        try:
+            QAccessible.updateAccessibility(
+                QAccessibleAnnouncementEvent(view, message))
+        except RuntimeError:
+            pass
+
+    def _column_resized(self, reference):
+        view = reference()
+        if view is None:
+            return
+        try:
+            header = view.horizontalHeader()
+            if id(header) in self._applying:
+                return
+            key = self._column_key(view)
+            widths = [max(self.MIN_WIDTH, min(
+                self.MAX_WIDTH, int(width))) for width in self._widths(view)]
+        except RuntimeError:
+            return
+        storage = self._storage()
+        storage[key] = widths
+        if len(storage) > self.MAX_TABLES:
+            for stale in list(storage)[:-self.MAX_TABLES]:
+                storage.pop(stale, None)
+        self._save_timer.start()
+
+    def _save(self):
+        if getattr(config, "_filename", ""):
+            config.save()
+
+    def flush(self):
+        """Commit a pending width change before an update or normal exit."""
+        if self._save_timer.isActive():
+            self._save_timer.stop()
+            self._save()
+
+    def reset_view(self, view):
+        key = self._column_key(view)
+        defaults = self._defaults.get(key)
+        if not defaults or len(defaults) != view.model().columnCount():
+            return False
+        self._storage().pop(key, None)
+        header = view.horizontalHeader()
+        self._applying.add(id(header))
+        try:
+            for column, width in enumerate(defaults):
+                view.setColumnWidth(column, width)
+        finally:
+            self._applying.discard(id(header))
+        self._save_timer.start()
+        self._announce_width(view, max(0, view.currentIndex().column()))
+        return True
+
+    def capture_current_as_defaults(self, views):
+        """Replace migrated custom defaults after legacy reset code runs."""
+        for view in views:
+            try:
+                self._defaults[self._column_key(view)] = self._widths(view)
+            except RuntimeError:
+                continue
+
+    def apply_saved(self):
+        """Apply a reset/rollback snapshot to every currently live table."""
+        storage = self._storage()
+        for key, reference in list(self._views.items()):
+            view = reference()
+            if view is None:
+                self._views.pop(key, None)
+                continue
+            widths = storage.get(key, self._defaults.get(key, []))
+            if len(widths) != view.model().columnCount():
+                continue
+            header = view.horizontalHeader()
+            self._applying.add(id(header))
+            try:
+                for column, width in enumerate(widths):
+                    view.setColumnWidth(column, int(width))
+            finally:
+                self._applying.discard(id(header))
 
 
 def polish_form(layout: QFormLayout) -> QFormLayout:

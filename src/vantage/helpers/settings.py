@@ -144,6 +144,10 @@ class GinaImportPreviewDialog(UniformScaleDialog):
             'replaced with safe gallery sounds.')
         root.addWidget(intro)
         self.table = QTableWidget(0, 5)
+        self.table.setObjectName('TriggerImportReviewTable')
+        self.table.setAccessibleName('Imported trigger review')
+        self.table.setAccessibleDescription(
+            'Review imported triggers and choose which rows to include.')
         self.table.setHorizontalHeaderLabels(
             ('Import', 'Name', 'Search text', 'Timer', 'Actions'))
         header_tips = (
@@ -2019,6 +2023,11 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_end_text.setPlaceholderText(
             'Optional log text that ends this timer early')
         self._trigger_enders = QTableWidget(0, 2)
+        self._trigger_enders.setObjectName('TriggerEarlyEndersTable')
+        self._trigger_enders.setAccessibleName(
+            'Independent trigger ending patterns')
+        self._trigger_enders.setAccessibleDescription(
+            'Each row is a separate log pattern that can end this timer early.')
         self._trigger_enders.setHorizontalHeaderLabels(('Log text', 'Regex'))
         self._trigger_enders.horizontalHeaderItem(0).setToolTip(
             'Independent log pattern that immediately ends the running timer')

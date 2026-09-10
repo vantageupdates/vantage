@@ -25,6 +25,7 @@ QUEST_CHECKLIST_MAX_TOTAL_BYTES = 384 * 1024
 # content, and checklist progress must never be inferred as "UI" and erased.
 UI_PRESENTATION_DEFAULTS = {
     ('general', 'startup_window_state'): 'rolled',
+    ('general', 'table_column_widths'): {},
     ('quickbar', 'geometry'): [10, 10, 704, 67],
     ('quickbar', 'toggled'): True,
     ('quickbar', 'auto_hide_menu'): False,
@@ -544,6 +545,21 @@ def verify_settings():
             'top_left', 'top_center', 'top_right',
             'bottom_left', 'bottom_center', 'bottom_right')
     )
+    raw_table_widths = data['general'].get('table_column_widths', {})
+    raw_table_widths = (
+        raw_table_widths if isinstance(raw_table_widths, dict) else {})
+    table_widths = {}
+    for raw_key, raw_widths in raw_table_widths.items():
+        key = str(raw_key or '').strip()[:192]
+        if (not key or not isinstance(raw_widths, list) or
+                not 1 <= len(raw_widths) <= 64):
+            continue
+        table_widths[key] = [
+            _bounded_int(width, 80, 28, 2400)
+            for width in raw_widths]
+        if len(table_widths) >= 256:
+            break
+    data['general']['table_column_widths'] = table_widths
 
     # Central notification routes. The immutable catalog is shared by the
     # dispatcher, settings UI, and tests so a sound can never lose its text
