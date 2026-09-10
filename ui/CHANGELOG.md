@@ -1,5 +1,17 @@
 # VantageUI releases
 
+## 1.44.77
+
+Install folder: `VantageUI-v1.44.77`.
+
+- Replaced neutral/black Group-bar separators with darker tones from each bar's
+  own hue: deep gold for Experience, deep orange for Fatigue and deep cyan for
+  Breath. Separator transparency, geometry and five-section rhythm remain.
+- Preserved the Experience gradient, rounded ends, native bindings, centered
+  slim bags and all unrelated UI elements.
+
+Load with `/loadskin VantageUI-v1.44.77 1`. Native appearance requires game review.
+
 ## 1.44.76
 
 Install folder: `VantageUI-v1.44.76`.

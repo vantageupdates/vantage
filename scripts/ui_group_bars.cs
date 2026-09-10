@@ -13,18 +13,35 @@ public static class VantageGroupBars {
             atlas.SetPixel(2+x,dy+y,source.GetPixel(sx+ox,sy+y));
         }
     }
-    static void Separators(Bitmap atlas,int dy,int width) {
+    static void ExpSeparators(Bitmap atlas,int dy,int width,bool background) {
         // Five restrained sections: a dark core plus a softer adjacent falloff.
         // Keep the rounded end caps and top/bottom highlights untouched.
         for(int section=1;section<5;section++) {
             int center=2+(int)Math.Round(width*section/5.0);
             for(int y=dy+3;y<dy+17;y++)for(int offset=-1;offset<=1;offset++) {
                 var color=atlas.GetPixel(center+offset,y);
-                double factor=offset==0?.55:.82;
-                atlas.SetPixel(center+offset,y,Color.FromArgb(color.A,
-                    (int)Math.Round(color.R*factor),(int)Math.Round(color.G*factor),
-                    (int)Math.Round(color.B*factor)));
+                if(background) {
+                    var target=Color.FromArgb(110,76,25); // Deep EXP gold.
+                    double mix=offset==0?.92:.55;
+                    atlas.SetPixel(center+offset,y,Color.FromArgb(color.A,
+                        (int)Math.Round(color.R*(1-mix)+target.R*mix),
+                        (int)Math.Round(color.G*(1-mix)+target.G*mix),
+                        (int)Math.Round(color.B*(1-mix)+target.B*mix)));
+                } else {
+                    // This grayscale frame receives the native gold FillTint.
+                    double factor=offset==0?.55:.82;
+                    atlas.SetPixel(center+offset,y,Color.FromArgb(color.A,
+                        (int)Math.Round(color.R*factor),(int)Math.Round(color.G*factor),
+                        (int)Math.Round(color.B*factor)));
+                }
             }
+        }
+    }
+    static void ColorizeLines(Bitmap atlas,int sourceY,int destinationY,int width,Color tone) {
+        for(int y=0;y<10;y++)for(int x=0;x<width;x++) {
+            var source=atlas.GetPixel(2+x,sourceY+y);
+            atlas.SetPixel(2+x,destinationY+y,source.A==0?Color.Transparent:
+                Color.FromArgb(source.A,tone.R,tone.G,tone.B));
         }
     }
     public static void Render(string sourcePath,string destination,string preview) {
@@ -34,11 +51,13 @@ public static class VantageGroupBars {
         using(var atlas=new Bitmap(256,128,PixelFormat.Format32bppArgb)) {
             Part(source,atlas,0,20,104,20,2,145);  // EXP background.
             Part(source,atlas,2,0,100,20,26,141);  // EXP fill, inset 2px.
-            Separators(atlas,2,145);
-            Separators(atlas,26,141);
+            ExpSeparators(atlas,2,145,true);
+            ExpSeparators(atlas,26,141,false);
             Part(source,atlas,0,90,104,10,50,145); // Thin background.
             Part(source,atlas,0,80,104,10,64,145); // Thin fill.
             Part(source,atlas,0,110,104,10,78,145);// Thin separators.
+            ColorizeLines(atlas,78,92,145,Color.FromArgb(20,104,126)); // Breath.
+            ColorizeLines(atlas,78,78,145,Color.FromArgb(127,76,8));   // Fatigue.
             using(var writer=new BinaryWriter(File.Create(destination))) {
                 var header=new byte[18];header[2]=2;header[13]=1;header[14]=128;
                 header[16]=32;header[17]=40;writer.Write(header);

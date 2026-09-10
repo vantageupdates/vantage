@@ -68,7 +68,8 @@ def test_new_bar_atlas_has_native_frames_and_transparent_gutters():
     data = (SKIN/'VantageGroupBars.tga').read_bytes()
     assert len(data) == 18+256*128*4
     assert data[2] == 2 and data[12:18] == bytes((0,1,128,0,32,40))
-    cells = [(2,145,20),(26,141,20),(50,145,10),(64,145,10),(78,145,10)]
+    cells = [(2,145,20),(26,141,20),(50,145,10),(64,145,10),
+             (78,145,10),(92,145,10)]
     for y in range(128):
         for x in range(256):
             used = any(2<=x<2+w and top<=y<top+h for top,w,h in cells)
@@ -83,13 +84,37 @@ def test_experience_dividers_are_subtle_but_clearly_darker_than_falloff():
         b,g,r,a=data[18+4*(y*256+x):22+4*(y*256+x)]
         assert a > 0
         return r+g+b
-    for top,width in ((2,145),(26,141)):
-        for section in range(1,5):
-            x=2+round(width*section/5)
-            core=luma(x,top+10)
-            sides=(luma(x-1,top+10),luma(x+1,top+10))
-            assert core < min(sides)
-            assert core*100 <= max(sides)*78
+    top,width=26,141
+    for section in range(1,5):
+        x=2+round(width*section/5)
+        core=luma(x,top+10)
+        sides=(luma(x-1,top+10),luma(x+1,top+10))
+        assert core < min(sides)
+        assert core*100 <= max(sides)*78
+
+
+def test_each_bar_uses_darker_dividers_from_its_own_hue_family():
+    data=(SKIN/'VantageGroupBars.tga').read_bytes()
+    def rgba(x,y):
+        b,g,r,a=data[18+4*(y*256+x):22+4*(y*256+x)]
+        return r,g,b,a
+    # Empty EXP track uses a deep raw gold; filled EXP remains grayscale so the
+    # game's unchanged FillTint produces a darker version of the same gold.
+    exp=rgba(2+29,2+10)
+    assert exp[0] > exp[1] > exp[2] > 0 and exp[3] > 0
+    fill=rgba(2+28,26+10)
+    assert fill[0] == fill[1] == fill[2] and fill[3] > 0
+    tint=node('Gauge','PlayerXPGauge').find('FillTint')
+    tinted=tuple(fill[i]*int(tint.findtext(c))//255 for i,c in enumerate(('R','G','B')))
+    assert tinted[0] > tinted[1] > tinted[2] > 0
+    # Thin separator masks share geometry/alpha, but each owns its bar hue.
+    fatigue=rgba(2+28,78+5)
+    breath=rgba(2+28,92+5)
+    assert fatigue[:3] == (127,76,8)
+    assert breath[:3] == (20,104,126)
+    assert fatigue[3] == breath[3] > 0
+    assert node('Gauge','P_Fatigue').findtext('GaugeDrawTemplate/Lines') == 'A_VantageGroupFatigueLines'
+    assert node('Gauge','P_Breath').findtext('GaugeDrawTemplate/Lines') == 'A_VantageGroupBreathLines'
 
 
 def test_shared_legacy_gauges_and_inventory_exp_remain_independent():
