@@ -78,7 +78,7 @@ def test_new_bar_atlas_has_native_frames_and_transparent_gutters():
     assert hashlib.sha256((SKIN/'dzbars.png').read_bytes()).hexdigest() == 'bef112ebdbf569836577422467c771d87dfd348dfb5f88d64753baa650439342'
 
 
-def test_experience_dividers_are_subtle_but_clearly_darker_than_falloff():
+def test_experience_dividers_are_crisp_single_pixel_and_clearly_darker():
     data=(SKIN/'VantageGroupBars.tga').read_bytes()
     def luma(x,y):
         b,g,r,a=data[18+4*(y*256+x):22+4*(y*256+x)]
@@ -90,7 +90,18 @@ def test_experience_dividers_are_subtle_but_clearly_darker_than_falloff():
         core=luma(x,top+10)
         sides=(luma(x-1,top+10),luma(x+1,top+10))
         assert core < min(sides)
-        assert core*100 <= max(sides)*78
+        assert core*100 <= max(sides)*82
+        # Adjacent pixels remain the original gradient instead of forming a
+        # three-pixel divider/falloff around the core.
+        assert sides == (luma(x-2,top+10),luma(x+2,top+10))
+
+    # The empty track uses the same one-pixel geometry, with its visible
+    # darker-gold marker leaving both neighboring pixels untouched.
+    top,width=2,145
+    for section in range(1,5):
+        x=2+round(width*section/5)
+        assert luma(x-1,top+10) == luma(x-2,top+10)
+        assert luma(x+1,top+10) == luma(x+2,top+10)
 
 
 def test_each_bar_uses_darker_dividers_from_its_own_hue_family():

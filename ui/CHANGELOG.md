@@ -1,5 +1,19 @@
 # VantageUI releases
 
+## 1.44.80
+
+Install folder: `VantageUI-v1.44.80`.
+
+- Removed the unused `Face` inventory action for Project 1999 and redistributed
+  `Done`, `Skills` and `Destroy` as three equal 125-by-20-pixel footer buttons.
+- Inset the inventory actions by 4 pixels on both outer edges and retained
+  consistent 3-pixel gaps so the right action clears the rounded window frame.
+- Reduced Group EXP dividers from the previous 3-pixel core-and-falloff appearance
+  to crisp 1-pixel separators in the same dark-gold hue, while leaving Fatigue
+  and Breath dividers unchanged.
+
+Load with `/loadskin VantageUI-v1.44.80 1`. Native appearance requires game review.
+
 ## 1.44.79
 
 Install folder: `VantageUI-v1.44.79`.

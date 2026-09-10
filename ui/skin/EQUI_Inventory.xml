@@ -2459,11 +2459,11 @@
 		<!--<Font>3</Font>-->
 		<RelativePosition>true</RelativePosition>
 		<Location>
-			<X>196</X>
+			<X>132</X>
 			<Y>325</Y>
 		</Location>
 		<Size>
-			<CX>94</CX>
+			<CX>125</CX>
 			<CY>20</CY>
 		</Size>
 		<Style_Transparent>false</Style_Transparent>
@@ -2489,11 +2489,11 @@
 		<!--<Font>3</Font>-->
 		<RelativePosition>true</RelativePosition>
 		<Location>
-			<X>293</X>
+			<X>260</X>
 			<Y>325</Y>
 		</Location>
 		<Size>
-			<CX>94</CX>
+			<CX>125</CX>
 			<CY>20</CY>
 		</Size>
 		<Style_Transparent>false</Style_Transparent>
@@ -2566,11 +2566,11 @@
 		<!--<Font>3</Font>-->
 		<RelativePosition>true</RelativePosition>
 		<Location>
-			<X>2</X>
+			<X>4</X>
 			<Y>325</Y>
 		</Location>
 		<Size>
-			<CX>94</CX>
+			<CX>125</CX>
 			<CY>20</CY>
 		</Size>
 		<Style_Transparent>false</Style_Transparent>
@@ -2591,39 +2591,6 @@
 			<PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
 		</ButtonDrawTemplate>
 	</Button>
-
-<!-- Patch 02/25/03 -->
-
-	<Button item = "IW_FacePick">
-		<ScreenID>IW_FacePick</ScreenID>
-		<!--<Font>3</Font>-->
-		<RelativePosition>true</RelativePosition>
-		<Location>
-			<X>99</X>
-			<Y>325</Y>
-		</Location>
-		<Size>
-			<CX>94</CX>
-			<CY>20</CY>
-		</Size>
-		<Style_Transparent>false</Style_Transparent>
-		<!--<TooltipReference/>-->
-		<Style_Checkbox>false</Style_Checkbox>
-		<!--<RadioGroup/>-->
-		<Text>Face</Text>
-		<TextColor>
-			<R>240</R>
-			<G>243</G>
-			<B>247</B>
-		</TextColor>
-		<ButtonDrawTemplate>
-			<Normal>A_BtnNormal</Normal>
-			<Pressed>A_BtnPressed</Pressed>
-			<Flyby>A_BtnFlyby</Flyby>
-			<Disabled>A_BtnDisabled</Disabled>
-			<PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
-		</ButtonDrawTemplate>
-		</Button>
 
 	<Button item = "IW_Tinting">
 		<ScreenID>IW_Tinting</ScreenID>
@@ -3101,7 +3068,6 @@
     <Pieces>Screen:IW_CharacterView</Pieces>
     <Pieces>IW_CharacterView</Pieces>
     <Pieces>IW_DoneButton</Pieces>
-    <Pieces>IW_FacePick</Pieces>
     <Pieces>IW_Tinting</Pieces>
     <Pieces>IW_AltAdvBtn</Pieces>
     <Pieces>IW_ReclaimButton</Pieces>

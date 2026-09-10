@@ -14,23 +14,23 @@ public static class VantageGroupBars {
         }
     }
     static void ExpSeparators(Bitmap atlas,int dy,int width,bool background) {
-        // Five restrained sections: a dark core plus a softer adjacent falloff.
-        // Keep the rounded end caps and top/bottom highlights untouched.
+        // Five restrained sections with a crisp one-pixel divider. Keep the
+        // rounded end caps, surrounding fill gradient, and highlights untouched.
         for(int section=1;section<5;section++) {
             int center=2+(int)Math.Round(width*section/5.0);
-            for(int y=dy+3;y<dy+17;y++)for(int offset=-1;offset<=1;offset++) {
-                var color=atlas.GetPixel(center+offset,y);
+            for(int y=dy+3;y<dy+17;y++) {
+                var color=atlas.GetPixel(center,y);
                 if(background) {
                     var target=Color.FromArgb(110,76,25); // Deep EXP gold.
-                    double mix=offset==0?.92:.55;
-                    atlas.SetPixel(center+offset,y,Color.FromArgb(color.A,
+                    const double mix=.82;
+                    atlas.SetPixel(center,y,Color.FromArgb(color.A,
                         (int)Math.Round(color.R*(1-mix)+target.R*mix),
                         (int)Math.Round(color.G*(1-mix)+target.G*mix),
                         (int)Math.Round(color.B*(1-mix)+target.B*mix)));
                 } else {
                     // This grayscale frame receives the native gold FillTint.
-                    double factor=offset==0?.55:.82;
-                    atlas.SetPixel(center+offset,y,Color.FromArgb(color.A,
+                    const double factor=.64;
+                    atlas.SetPixel(center,y,Color.FromArgb(color.A,
                         (int)Math.Round(color.R*factor),(int)Math.Round(color.G*factor),
                         (int)Math.Round(color.B*factor)));
                 }
