@@ -25,7 +25,7 @@ QUEST_CHECKLIST_MAX_TOTAL_BYTES = 384 * 1024
 # content, and checklist progress must never be inferred as "UI" and erased.
 UI_PRESENTATION_DEFAULTS = {
     ('general', 'startup_window_state'): 'rolled',
-    ('quickbar', 'geometry'): [10, 10, 679, 67],
+    ('quickbar', 'geometry'): [10, 10, 704, 67],
     ('quickbar', 'toggled'): True,
     ('quickbar', 'auto_hide_menu'): False,
     ('quickbar', 'always_on_top'): True,
@@ -122,6 +122,14 @@ UI_PRESENTATION_DEFAULTS = {
     ('quests', 'frameless'): True,
     ('quests', 'collapsed'): False,
     ('quests', 'checklist', 'geometry'): [80, 80, 380, 480],
+    ('items_notes', 'geometry'): [240, 140, 900, 570],
+    ('items_notes', 'toggled'): False,
+    ('items_notes', 'opacity'): 100,
+    ('items_notes', 'clickthrough'): False,
+    ('items_notes', 'auto_hide_menu'): False,
+    ('items_notes', 'always_on_top'): False,
+    ('items_notes', 'frameless'): True,
+    ('items_notes', 'collapsed'): False,
     ('vantage_ui', 'geometry'): [250, 150, 700, 540],
     ('vantage_ui', 'toggled'): False,
     ('vantage_ui', 'opacity'): 100,
@@ -577,8 +585,8 @@ def verify_settings():
     # interactive and never creates another normal Windows taskbar entry.
     data['quickbar'] = data.get('quickbar', {})
     data['quickbar']['geometry'] = get_setting(
-        data['quickbar'].get('geometry', [10, 10, 679, 67]),
-        [10, 10, 679, 67],
+        data['quickbar'].get('geometry', [10, 10, 704, 67]),
+        [10, 10, 704, 67],
         lambda value: isinstance(value, list) and len(value) == 4)
     for key, default in (
             ('toggled', True), ('auto_hide_menu', False),
@@ -1390,6 +1398,28 @@ def verify_settings():
                        all(isinstance(item, int) for item in value) and
                        value[2] > 0 and value[3] > 0))
     data['quests']['checklist'] = checklist
+
+    # Item snapshots and notes live in their own atomic profile file. Only
+    # presentation belongs in the shared settings document.
+    data['items_notes'] = data.get('items_notes', {})
+    if not isinstance(data['items_notes'], dict):
+        data['items_notes'] = {}
+    data['items_notes']['geometry'] = get_setting(
+        data['items_notes'].get('geometry', [240, 140, 900, 570]),
+        [240, 140, 900, 570],
+        lambda value: (isinstance(value, list) and len(value) == 4 and
+                       all(isinstance(item, int) for item in value) and
+                       value[2] > 0 and value[3] > 0))
+    for key, default in (
+            ('toggled', False), ('clickthrough', False),
+            ('auto_hide_menu', False), ('always_on_top', False),
+            ('frameless', True)):
+        data['items_notes'][key] = get_setting(
+            data['items_notes'].get(key, default), default)
+    data['items_notes']['clickthrough'] = False
+    data['items_notes']['opacity'] = get_setting(
+        data['items_notes'].get('opacity', 100), 100,
+        lambda value: 40 <= value <= 100)
 
     # Optional VantageUI management. The user-selected EQ root and opt-in
     # automatic update preference are content, not presentation reset state.

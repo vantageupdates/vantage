@@ -10,7 +10,7 @@ from vantage.parsers.market import (
     bundled_effect_entity_data, combined_market_price,
     parse_wiki_entity_wikitext,
     parse_wiki_auction_html, parse_wiki_green_auction_html,
-    parse_wiki_item_wikitext)
+    parse_wiki_item_wikitext, wiki_item_stats_html)
 
 
 WIKI_ITEM = """
@@ -66,6 +66,37 @@ def test_wiki_itembox_is_converted_to_native_card_data():
         "zone_url": "https://wiki.project1999.com/Old_Sebilis",
         "zone_target": "Old Sebilis",
     }]
+    assert item["effects"] == [{
+        "name": "Fungal Regrowth", "target": "Fungal Regrowth"}]
+
+
+def test_plain_item_effect_name_becomes_internal_link_not_its_requirements():
+    item = parse_wiki_item_wikitext("""{{Itembox
+|itemname = Grim Aura item
+|statsblock =
+Slot: EAR<br>
+Effect: Grim Aura (Must Equip, Casting Time: 10.0)<br>
+Class: ALL
+}}""")
+    rendered = wiki_item_stats_html(item["stats"], item["effects"])
+
+    assert item["effects"] == [{"name": "Grim Aura", "target": "Grim Aura"}]
+    assert 'vantage://wiki/effect/Grim%20Aura' in rendered
+    assert '>Grim Aura</a> (Must Equip, Casting Time: 10.0)' in rendered
+
+    app = QApplication.instance() or QApplication([])
+    card = WikiItemCard({"n": "Grim Aura item"})
+    requests = []
+    card.wiki_entity_requested.connect(
+        lambda target, label, kind: requests.append((target, label, kind)))
+    card.set_item_data(item)
+    assert "vantage://wiki/effect/Grim%20Aura" in card.stats.text()
+    assert card.stats.textInteractionFlags() & (
+        Qt.TextInteractionFlag.LinksAccessibleByKeyboard)
+    card.stats.linkActivated.emit("vantage://wiki/effect/Grim%20Aura")
+    app.processEvents()
+    assert requests == [("Grim Aura", "Grim Aura", "effect")]
+    card.close()
 
 
 def test_wiki_drop_parser_keeps_multiple_zone_relationships():

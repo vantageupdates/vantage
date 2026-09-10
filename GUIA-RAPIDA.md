@@ -66,6 +66,15 @@ Market usa controles Qt nativos sin una superficie gráfica escalada: un clic re
 
 Pulsa el nombre dorado de un item para abrir su ficha clásica dentro de Vantage. La ficha muestra icono, estadísticas, **Lo dropea** y **Dónde**. Pulsa el NPC o la zona para abrir otra ficha interna con sus datos; no necesitas salir al navegador.
 
+En **WTS / WTB Builder**, añade items y escoge venta o compra. **Copy Discord WTS/WTB** crea un bloque vertical con un item por línea y un enlace P99 Wiki clicable; precio y cantidad se conservan. Pégalo en el canal que quieras. Vantage no inicia sesión en Discord ni envía el mensaje por ti.
+
+## Items & Notes
+
+1. En EverQuest ejecuta `/outputfile inventory Nombre-Inventory.txt`. En P99 ese archivo ya incluye inventario y banco.
+2. Abre **Items & Notes** en Quick Bar y pulsa **Import dump**. Cada personaje conserva su propio snapshot; un nuevo import reemplaza sólo ese personaje y deja hasta cinco versiones restaurables.
+3. Busca o filtra por Equipped, Inventory, Bags, Bank o Shared Bank. Doble clic abre la ficha interna del item. **Set quantity**, **Remove**, **Undo** y **Restore prior** cambian únicamente la copia local de Vantage.
+4. En **Notes**, pulsa **New note** y escribe `@`. Escoge Item, Quest o Zone; **Preview links** convierte la referencia en un enlace interno clicable. Las notas se guardan automáticamente y también aceptan `Ctrl+S` y `Ctrl+N`.
+
 ## Mapas
 
 - Vantage detecta la zona al leer mensajes de zoning, resultados de `/who` y otros estados válidos escritos en el log.

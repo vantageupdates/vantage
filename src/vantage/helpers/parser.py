@@ -35,6 +35,7 @@ DESIGN_SIZES = {
     # size. Doing so enlarged/cropped its contents after reopening a small
     # saved window and then resizing it back to 900x580.
     "quests": QSize(900, 580),
+    "items_notes": QSize(900, 570),
     "vantage_ui": QSize(700, 540),
 }
 

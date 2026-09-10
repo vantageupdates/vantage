@@ -5,7 +5,8 @@ from PySide6.QtWidgets import QApplication, QSpinBox
 import vantage.parsers.market as market_module
 from vantage.parsers.market import (
     AuctionComposer, AuctionEntry, AuctionQuantity, GearItem, P99_CHAT_LIMIT,
-    P99_ITEM_LINK_DELIMITER, compose_auction_lines, normalize_auction_price,
+    P99_ITEM_LINK_DELIMITER, compose_auction_lines, compose_discord_auction,
+    normalize_auction_price,
     install_auction_hotbuttons, p99_item_link)
 from vantage.helpers import config
 from vantage.helpers.eq_clipboard import clipboard_payloads
@@ -76,6 +77,35 @@ def test_wtb_messages_are_plain_text_even_with_valid_item_ids():
     assert P99_ITEM_LINK_DELIMITER not in lines[0]
 
 
+def test_discord_wts_and_wtb_are_vertical_linked_markdown():
+    entries = [
+        AuctionEntry(1, "Tolan's Darkwood Breastplate", "25k"),
+        AuctionEntry(2, "Robe of the Grove", "10,000 pp", 2),
+    ]
+
+    wts = compose_discord_auction(entries, "WTS")
+    wtb = compose_discord_auction(entries, "WTB")
+
+    assert wts == [
+        "WTS\n"
+        "[Tolan's Darkwood Breastplate](https://wiki.project1999.com/"
+        "Tolan%27s_Darkwood_Breastplate) — 25k\n"
+        "[Robe of the Grove](https://wiki.project1999.com/Robe_of_the_Grove)"
+        " — 2x · 10000p"]
+    assert wtb[0].startswith("WTB\n")
+    assert "https://wiki.project1999.com/" in wtb[0]
+
+
+def test_discord_messages_pack_into_numbered_copy_sized_blocks():
+    entries = [AuctionEntry(index, f"Long Auction Item {index}", "12345p")
+               for index in range(20)]
+    messages = compose_discord_auction(entries, max_length=350)
+
+    assert len(messages) > 1
+    assert all(message.startswith("WTS\n") for message in messages)
+    assert all(len(message) <= 350 for message in messages)
+
+
 def test_composer_copies_plain_wts_and_builds_linked_hotbutton_without_inventory():
     app = _app()
     composer = AuctionComposer(lambda name: 80000 if name == "Manastone" else 0)
@@ -96,11 +126,16 @@ def test_composer_copies_plain_wts_and_builds_linked_hotbutton_without_inventory
     assert copied == "WTS Manastone 80000p PST"
     assert P99_ITEM_LINK_DELIMITER not in copied
 
+    assert composer.copy_discord_next()
+    assert app.clipboard().text().startswith(
+        "WTS\n[Manastone](https://wiki.project1999.com/Manastone)")
+
     composer.trade_type.setCurrentIndex(1)
     assert composer.copy_next()
     copied = app.clipboard().text()
     assert copied == "WTB Manastone 80000p PST"
     assert P99_ITEM_LINK_DELIMITER not in copied
+    assert composer.discord_copy_button.text().startswith("Copy Discord WTB")
     composer.close()
 
 

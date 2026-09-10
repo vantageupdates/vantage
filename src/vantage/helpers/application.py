@@ -37,6 +37,7 @@ from vantage.parsers.market import GEAR_COLUMN_DEFAULT_WIDTHS, GreenMarket
 from vantage.parsers.opendkp import OpenDKP
 from vantage.parsers.zones import Zones
 from vantage.parsers.quests import Quests
+from vantage.parsers.items_notes import ItemsNotes
 from vantage.parsers.vantage_ui import VantageUI, version_is_newer
 from vantage.parsers.quickbar import QuickBar
 from vantage.parsers.spells import Spells
@@ -51,7 +52,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=69,
+    patch=70,
     build=""
 )
 
@@ -275,6 +276,7 @@ class VantageApp(QApplication):
         opendkp = OpenDKP()
         zones = Zones()
         quests = Quests()
+        items_notes = ItemsNotes(market, quests)
         vantage_ui = VantageUI()
         self._parsers_dict = {
             "maps": maps,
@@ -287,6 +289,7 @@ class VantageApp(QApplication):
             "opendkp": opendkp,
             "zones": zones,
             "quests": quests,
+            "items_notes": items_notes,
             "vantage_ui": vantage_ui,
         }
         quickbar = QuickBar(self, self._parsers_dict)
@@ -303,6 +306,7 @@ class VantageApp(QApplication):
             self._parsers_dict["opendkp"],
             self._parsers_dict["zones"],
             self._parsers_dict["quests"],
+            self._parsers_dict["items_notes"],
             self._parsers_dict["vantage_ui"],
         ]
         # Launcher-first startup: build every parser once, but expose only the
@@ -757,7 +761,7 @@ class VantageApp(QApplication):
                 "Market and Zones column widths.\n\n"
                 "Buffs, active spell and spawn timers, profiles, combat history, "
                 "Market watches and alerts, zone content, and quest checklist "
-                "progress will not be deleted.",
+                "progress will not be deleted. Items and notes are also preserved.",
                 QMessageBox.StandardButton.Yes |
                 QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No)
@@ -1099,6 +1103,7 @@ class VantageApp(QApplication):
                 "opendkp": "Guild DKP & More",
                 "zones": "Zones",
                 "quests": "Quests",
+                "items_notes": "Items & Notes",
                 "vantage_ui": "VantageUI",
             }.get(parser.name, parser.name.title())
             toggle = menu.addAction(label)

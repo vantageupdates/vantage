@@ -13,6 +13,7 @@ QUICKBAR_ITEMS = (
     ("opendkp", "Guild DKP & More", "ph-gavel", "windows"),
     ("zones", "Zones", "ph-compass", "windows"),
     ("quests", "Quests", "ph-quest-scroll", "windows"),
+    ("items_notes", "Items & Notes", "ph-backpack", "windows"),
     ("vantage_ui", "VantageUI", "ph-layout", "windows"),
     ("spell_library", "Spells & Skills", "ph-spellbook", "tools"),
     ("mobile", "Vantage on Your Phone", "ph-mobile", "tools"),

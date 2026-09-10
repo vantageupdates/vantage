@@ -96,7 +96,7 @@ def test_every_window_size_preset_rollup_and_tray_restore_are_effective(
         'Original · 100%']
     assert set(result) == {
         'maps', 'spells', 'tick', 'timers', 'combat', 'heals', 'market',
-        'opendkp', 'zones', 'quests', 'vantage_ui'}
+        'opendkp', 'zones', 'quests', 'items_notes', 'vantage_ui'}
     for state in result.values():
         assert all(case['size'] == case['expected'] for case in state['cases'])
         assert len({tuple(case['size']) for case in state['cases']}) == 4

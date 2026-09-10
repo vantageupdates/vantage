@@ -20,6 +20,7 @@ WINDOW_ICONS = {
     "opendkp": "ph-gavel",
     "zones": "ph-compass",
     "quests": "ph-quest-scroll",
+    "items_notes": "ph-backpack",
     "vantage_ui": "ph-layout",
 }
 
