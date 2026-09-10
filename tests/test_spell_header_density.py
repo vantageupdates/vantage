@@ -125,17 +125,15 @@ def test_narrow_spell_header_collapses_low_priority_tools_without_overlap(
 
     assert result['title'] == 'Spells'
     assert result['title_width'] >= 34
-    assert result['boat_visible'] is False
-    assert result['library_visible'] is False
-    assert result['overflow_visible'] is True
+    assert result['boat_visible'] is True
+    assert result['library_visible'] is True
+    assert result['overflow_visible'] is False
     assert result['overflow_name'] == 'More window actions'
     assert result['overflow_tooltip']
     assert result['overlaps'] == []
     assert result['focus_started_on_library'] is True
-    assert result['focus_moved_to_overflow'] is True
-    assert len(result['overflow_actions']) == 2
-    assert all(action['text'] and action['tooltip']
-               for action in result['overflow_actions'])
+    assert result['focus_moved_to_overflow'] is False
+    assert result['overflow_actions'] == []
     level = result['level']
     assert level['object_name'] == 'SpellLevelRocker'
     assert level['display'] == 'Lv 60'

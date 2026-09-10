@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 from dataclasses import dataclass
+import functools
 import gzip
 import hashlib
 import hmac
@@ -67,6 +68,8 @@ ZAM_TIMEOUT_MS = 6500
 ZAM_MAX_RETRIES = 1
 P99_ITEM_TIMEOUT_MS = 6500
 P99_ITEM_MAX_RETRIES = 1
+P99_ENTITY_TIMEOUT_MS = 8000
+P99_ENTITY_MAX_RETRIES = 1
 PIGPARSE_URL = "https://pigparse.azurewebsites.net/ServerIndex/Green"
 P99_PLANNER_URL = "https://p99planner.com/items"
 GEAR_META_URL = "https://p99planner.com/data/meta.json"
@@ -1288,6 +1291,68 @@ def parse_wiki_entity_wikitext(wikitext, fallback_name="", kind="npc"):
         "facts": facts,
         "summary": summary or "The Wiki does not include a short introduction.",
     }
+
+
+@functools.lru_cache(maxsize=512)
+def bundled_effect_entity_data(effect_name):
+    """Return an always-available effect card from bundled classic data.
+
+    The Wiki remains authoritative for slot mechanics and item-specific
+    duration. This local record keeps an item Effect link useful during a
+    transient network failure and gives the online refresh something honest
+    to improve instead of replacing the card with an error.
+    """
+    wanted = str(effect_name or "").strip().casefold()
+    if not wanted:
+        return {}
+    matches = []
+    try:
+        source = open(
+            resource_path("data/spells/spells_us.txt"), encoding="utf-8",
+            errors="replace")
+    except OSError:
+        return {}
+    with source:
+        for line in source:
+            values = line.rstrip("\r\n").split("^")
+            if len(values) <= 144 or values[1].strip().casefold() != wanted:
+                continue
+            matches.append(values)
+    if not matches:
+        return {}
+    # Duplicate classic rows exist. Prefer the oldest stable spell id; the
+    # live Wiki refresh supplies the exact current P99 item mechanics.
+    values = min(
+        matches, key=lambda row: int(row[0]) if row[0].isdigit() else 999999)
+    name = values[1].strip() or str(effect_name).replace("_", " ")
+    facts = [("Local source", "Bundled classic spell record")]
+    if values[0].strip():
+        facts.append(("Spell ID", values[0].strip()))
+    try:
+        cast_ms = int(values[13])
+    except (TypeError, ValueError):
+        cast_ms = 0
+    if cast_ms:
+        facts.append(("Casting", f"{cast_ms / 1000:g} seconds"))
+    try:
+        spell_type = int(values[83])
+    except (TypeError, ValueError, IndexError):
+        spell_type = -1
+    if spell_type in {0, 1}:
+        facts.append((
+            "Type", "Beneficial" if spell_type == 1 else "Detrimental"))
+    messages = []
+    for label, index in (("Cast on you", 6), ("Cast on other", 7),
+                         ("Wears off", 8)):
+        value = " ".join(values[index].split())
+        if value:
+            messages.append(f"{label}: {value}")
+    summary = (
+        "LOCAL EFFECT RECORD\n" + "\n".join(messages) +
+        "\n\nExact effect slots and item-specific duration refresh from "
+        "Project 1999 Wiki when the connection is available.")
+    return {"name": name, "kind": "EFFECT", "facts": facts,
+            "summary": summary}
 
 
 def _quality(item):
@@ -2633,12 +2698,15 @@ class WikiItemCard(UniformScaleDialog):
 class WikiEntityCard(UniformScaleDialog):
     """In-app P99 Wiki summary for a drop NPC, zone, or item effect."""
 
+    source_retry_requested = Signal()
+
     def __init__(self, name, kind, parent=None):
         super().__init__(
             QSize(430, 310), parent, minimum_size=QSize(151, 109),
             initial_size=QSize(387, 279))
         self.target_name = name
         self.entity_kind = kind
+        self._has_entity_data = False
         self.wiki_url = _wiki_target_url(name)
         self.setObjectName("WikiEntityDialog")
         self.setWindowTitle(f"Vantage · {name}")
@@ -2676,30 +2744,51 @@ class WikiEntityCard(UniformScaleDialog):
         open_wiki.setToolTip(
             "Open the full Project 1999 Wiki page in your browser")
         open_wiki.clicked.connect(lambda: webbrowser.open(self.wiki_url))
+        retry = QPushButton("Retry")
+        retry.setIcon(game_icon("ph-reload"))
+        retry.setAccessibleName(f"Retry loading {name}")
+        retry.setToolTip(
+            "Refresh this card from Project 1999 Wiki; local cached data "
+            "remains visible if the connection fails")
+        retry.clicked.connect(self.source_retry_requested.emit)
+        self.retry_button = retry
         close = QPushButton("Close")
         close.setToolTip("Close this card")
         close.clicked.connect(self.close)
         actions = QHBoxLayout()
         actions.addStretch(1)
+        actions.addWidget(retry)
         actions.addWidget(open_wiki)
         actions.addWidget(close)
         outer.addLayout(actions)
 
-    def set_entity_data(self, data, cached=False):
+    def set_entity_data(self, data, cached=False, local=False):
+        self._has_entity_data = True
         self.name_label.setText(data.get("name") or self.target_name)
         facts = data.get("facts") or []
         self.facts.setText(" · ".join(
             f"{label}: {value}" for label, value in facts) or
             "No additional structured details.")
         self.summary.setText(data.get("summary") or "No description available.")
-        self.source.setText(
-            f"PROJECT 1999 WIKI · {data.get('kind', '').upper()} · " +
-            ("LOCAL CACHE" if cached else "UPDATED"))
+        if local:
+            self.source.setText(
+                f"LOCAL CLASSIC DATA · {data.get('kind', '').upper()} · "
+                "WIKI REFRESH PENDING")
+        else:
+            self.source.setText(
+                f"PROJECT 1999 WIKI · {data.get('kind', '').upper()} · " +
+                ("LOCAL CACHE" if cached else "UPDATED"))
 
     def set_error(self, message):
+        if self._has_entity_data:
+            self.source.setText("LOCAL DATA · WIKI REFRESH UNAVAILABLE")
+            self.source.setToolTip(
+                f"The local card remains usable. Refresh detail: {message}")
+            return
         self.source.setText("PROJECT 1999 WIKI · OFFLINE")
-        self.facts.setText("This card could not be loaded right now.")
-        self.summary.setText(str(message))
+        self.facts.setText("No local record is available for this page.")
+        self.summary.setText(
+            f"The online details could not be refreshed. {message}")
 
 
 class AuctionQuantity(QFrame):
@@ -3609,7 +3698,6 @@ class GreenMarket(ParserWindow):
     # Market contains search, filters and tables; click-through would make its
     # primary workflow impossible. Keep that overlay-only option out of here.
     _allow_clickthrough = False
-    _minimum_scale = 0.80
     def __init__(self):
         self.name = "market"
         super().__init__()
@@ -3636,6 +3724,7 @@ class GreenMarket(ParserWindow):
         self._network = QNetworkAccessManager(self)
         self._zam_inflight = {}
         self._p99_item_inflight = {}
+        self._p99_entity_inflight = {}
         self._model = MarketModel()
         self._proxy = MarketFilter()
         self._proxy.setSourceModel(self._model)
@@ -4266,7 +4355,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(requested.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.69")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_finished(
             reply, requested, cached_path))
@@ -4406,7 +4495,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(target.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.69")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_npc_drops_finished(
             reply, mob, target, key, cache_path))
@@ -4726,7 +4815,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.69")
         reply = self._network.get(request)
         timer = QTimer(self)
         timer.setSingleShot(True)
@@ -4811,7 +4900,7 @@ class GreenMarket(ParserWindow):
             return None
         request = QNetworkRequest(QUrl(safe_url))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.69")
         reply = self._network.get(request)
         timer = QTimer(self)
         timer.setSingleShot(True)
@@ -4908,20 +4997,50 @@ class GreenMarket(ParserWindow):
         card.show()
         card.raise_()
         cache_path = _wiki_entity_cache_path(target, kind)
+        loaded = False
         try:
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
             card.set_entity_data(cached, cached=True)
+            loaded = True
         except (OSError, ValueError, json.JSONDecodeError):
             pass
+        if not loaded and kind == "effect":
+            local = bundled_effect_entity_data(target)
+            if local:
+                card.set_entity_data(local, local=True)
+        card.source_retry_requested.connect(
+            lambda: self._request_wiki_entity(
+                card, cache_path, target, kind))
+        self._request_wiki_entity(card, cache_path, target, kind)
+        return card
 
+    def _request_wiki_entity(self, card, cache_path, target, kind):
+        token = int(getattr(card, "_entity_request_token", 0)) + 1
+        card._entity_request_token = token
+        for reply, context in tuple(self._p99_entity_inflight.items()):
+            if context.get("card") is card:
+                try:
+                    reply.abort()
+                except RuntimeError:
+                    self._p99_entity_inflight.pop(reply, None)
+        card.retry_button.setEnabled(False)
+        self._wiki_entity_request(
+            card, cache_path, target, kind, token, attempt=0)
+
+    def _wiki_entity_request(
+            self, card, cache_path, target, kind, token, attempt):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.69")
+        request.setTransferTimeout(P99_ENTITY_TIMEOUT_MS)
         reply = self._network.get(request)
-        reply.finished.connect(lambda: self._wiki_entity_finished(
-            reply, card, cache_path, target, kind))
-        return card
+        context = {
+            "card": card, "cache_path": cache_path, "target": target,
+            "kind": kind, "token": token, "attempt": attempt}
+        self._p99_entity_inflight[reply] = context
+        reply.finished.connect(lambda: self._wiki_entity_finished(reply))
+        return reply
 
     def _considered_entity(self, name):
         context = getattr(self, '_character_context', None)
@@ -4949,9 +5068,15 @@ class GreenMarket(ParserWindow):
         self._last_consider_name = name
         self._consider_card = self._show_wiki_entity(name, name, 'npc')
 
-    @staticmethod
-    def _wiki_entity_finished(reply, card, cache_path, target, kind):
+    def _wiki_entity_finished(self, reply):
+        context = self._p99_entity_inflight.pop(reply, None)
+        if context is None:
+            reply.deleteLater()
+            return
+        card = context["card"]
         try:
+            if int(getattr(card, "_entity_request_token", -1)) != context["token"]:
+                return
             if reply.error() != QNetworkReply.NetworkError.NoError:
                 raise ValueError(reply.errorString())
             payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
@@ -4962,16 +5087,31 @@ class GreenMarket(ParserWindow):
             if isinstance(wikitext, dict):
                 wikitext = wikitext.get("*", "")
             data = parse_wiki_entity_wikitext(
-                wikitext, fallback_name=target, kind=kind)
+                wikitext, fallback_name=context["target"],
+                kind=context["kind"])
             card.set_entity_data(data)
-            cache_path.write_text(json.dumps(data), encoding="utf-8")
+            context["cache_path"].write_text(
+                json.dumps(data), encoding="utf-8")
         except (OSError, RuntimeError, UnicodeError, ValueError,
                 json.JSONDecodeError) as error:
             try:
-                card.set_error(str(error))
+                if context["attempt"] < P99_ENTITY_MAX_RETRIES:
+                    QTimer.singleShot(
+                        0, lambda values=context: self._wiki_entity_request(
+                            values["card"], values["cache_path"],
+                            values["target"], values["kind"],
+                            values["token"], values["attempt"] + 1))
+                else:
+                    card.set_error(str(error))
             except RuntimeError:
                 pass
         finally:
+            try:
+                if (context["attempt"] >= P99_ENTITY_MAX_RETRIES or
+                        reply.error() == QNetworkReply.NetworkError.NoError):
+                    card.retry_button.setEnabled(True)
+            except RuntimeError:
+                pass
             reply.deleteLater()
 
     def _wiki_item_finished(
@@ -5006,7 +5146,7 @@ class GreenMarket(ParserWindow):
                     filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.68")
+                    "Vantage/1.44.69")
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
                     lambda: self._wiki_icon_finished(
@@ -5259,7 +5399,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.69")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -5282,7 +5422,7 @@ class GreenMarket(ParserWindow):
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
                 QNetworkRequest.KnownHeaders.UserAgentHeader,
-                "Vantage/1.44.68")
+                "Vantage/1.44.69")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -5643,7 +5783,7 @@ class GreenMarket(ParserWindow):
         self.status.setText(f"Refreshing PigParse {server}…")
         request = QNetworkRequest(QUrl(market_endpoint(server)))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.69")
         reply = self._network.get(request)
         reply.setProperty("market_server", server)
         reply.finished.connect(lambda: self._finished(reply))
@@ -5771,7 +5911,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(market_detail_api(server).format(
             item_name=quote(name, safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.69")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.setProperty("market_server", server)

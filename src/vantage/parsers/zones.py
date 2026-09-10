@@ -26,12 +26,15 @@ from vantage.parsers.market import (
     parse_wiki_zone_payload)
 
 
+ZONE_NETWORK_TIMEOUT_MS = 15000
+ZONE_NETWORK_RETRIES = 1
+
+
 class Zones(ParserWindow):
     """Search P99 zone content without coupling the workflow to Market."""
 
     name = "zones"
     _allow_clickthrough = False
-    _minimum_scale = 0.80
     COLUMN_DEFAULTS = {
         "items": (320, 240),
         "mobs": (220, 65, 90, 105, 280, 180),
@@ -483,19 +486,26 @@ class Zones(ParserWindow):
                 self._set_zone_data(cached, cached=True, announce=announce)
         except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
             pass
+        self._start_zone_request(requested, cache_path, announce, 0)
+        return True
+
+    def _start_zone_request(self, requested, cache_path, announce, attempt):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(requested.replace(" ", "_"), safe="")) +
             "&redirects=1"))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
+        request.setTransferTimeout(ZONE_NETWORK_TIMEOUT_MS)
+        request.setHeader(
+            QNetworkRequest.KnownHeaders.UserAgentHeader,
+            "Vantage/1.44.69 (vantagecompanion@gmail.com)")
         reply = self._network.get(request)
         self._zone_request_id += 1
         reply.setProperty("zoneRequestId", self._zone_request_id)
         reply.setProperty("zoneRequested", requested)
         reply.setProperty("zoneCachePath", str(cache_path))
         reply.setProperty("zoneAnnounce", bool(announce))
+        reply.setProperty("zoneAttempt", int(attempt))
         self._zone_reply = reply
         reply.finished.connect(self._zone_finished)
-        return True
 
     def _zone_finished(self):
         reply = self.sender()
@@ -504,10 +514,12 @@ class Zones(ParserWindow):
         requested = str(reply.property("zoneRequested") or "")
         cache_path = _wiki_zone_cache_path(requested)
         announce = bool(reply.property("zoneAnnounce"))
+        attempt = int(reply.property("zoneAttempt") or 0)
         current = bool(
             reply is self._zone_reply and
             int(reply.property("zoneRequestId") or -1) ==
             self._zone_request_id)
+        retrying = False
         try:
             if not current:
                 return
@@ -528,17 +540,28 @@ class Zones(ParserWindow):
             if not data.get("mobs"):
                 raise ValueError("the Wiki page has no recognized zone mob table")
             self._set_zone_data(data, announce=announce)
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
             cache_path.write_text(json.dumps(data), encoding="utf-8")
         except (OSError, RuntimeError, UnicodeError, ValueError,
                 json.JSONDecodeError) as error:
-            if current and not self._zone_mobs:
+            if current and attempt < ZONE_NETWORK_RETRIES:
+                retrying = True
+                self._zone_reply = None
+                self.zone_summary.setText(
+                    f"{requested.title()} did not load · retrying automatically…")
+                self.zone_summary.setAccessibleName(self.zone_summary.text())
+                QTimer.singleShot(
+                    250, lambda name=requested, path=cache_path,
+                    say=announce, next_attempt=attempt + 1:
+                    self._start_zone_request(name, path, say, next_attempt))
+            elif current and not self._zone_mobs:
                 self.zone_summary.setText(f"Could not load {requested.title()} · {error}")
                 self.zone_summary.setAccessibleName(self.zone_summary.text())
                 if announce:
                     _announce_accessible(
                         self, self.zone_summary.text(), assertive=True)
         finally:
-            if current:
+            if current and not retrying:
                 self._zone_reply = None
                 self.zone_load_button.setEnabled(True)
                 self.zone_load_button.setText("Reload zone")
@@ -717,7 +740,7 @@ class Zones(ParserWindow):
         self._zone_drop_requests.add(key)
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(target.replace(" ", "_"), safe=""))))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.69")
         reply = self._network.get(request)
         self._drop_reply_contexts[reply] = (mob, target, key, cache_path)
         reply.finished.connect(self._drops_finished)
@@ -743,6 +766,7 @@ class Zones(ParserWindow):
             if isinstance(wikitext, dict):
                 wikitext = wikitext.get("*", "")
             entity = parse_wiki_entity_wikitext(wikitext, fallback_name=target, kind="npc")
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
             cache_path.write_text(json.dumps(entity), encoding="utf-8")
             self._apply_drops(mob, entity.get("drops") or [])
         except (OSError, RuntimeError, UnicodeError, ValueError, json.JSONDecodeError):
@@ -813,6 +837,26 @@ class Zones(ParserWindow):
     def _open_zone_wiki(self):
         name = str(self._zone_data.get("name") or self._selected_zone_name()).strip()
         return bool(name and webbrowser.open(_wiki_target_url(name)))
+
+    def mobile_snapshot(self):
+        """Return the selected zone and its parsed, cached Wiki content."""
+        return {
+            "selected": self._selected_zone_name(),
+            "zones": tuple(
+                {"name": self.zone_selector.itemText(index),
+                 "value": str(self.zone_selector.itemData(index) or "")}
+                for index in range(1, self.zone_selector.count())),
+            "loading": self._zone_reply is not None,
+            "status": self.zone_summary.text(),
+            "data": dict(self._zone_data),
+        }
+
+    def mobile_select(self, name):
+        """Load a zone selected from the private mobile companion."""
+        if not self._select_zone(name):
+            return False
+        self._clear_zone_results()
+        return self._load_zone(announce=False)
 
     def parse(self, _timestamp, text):
         prefix = "You have entered "

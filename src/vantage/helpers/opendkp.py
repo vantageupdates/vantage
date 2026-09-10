@@ -27,7 +27,7 @@ API_ROOT = "https://api.opendkp.com"
 COGNITO_ROOT = "https://cognito-idp.us-east-2.amazonaws.com/"
 COGNITO_TARGET = "AWSCognitoIdentityProviderService.InitiateAuth"
 LIVE_ROOT = "wss://a2d3ggob45.execute-api.us-east-2.amazonaws.com/production"
-USER_AGENT = "Vantage/1.44.68 (vantagecompanion@gmail.com)"
+USER_AGENT = "Vantage/1.44.69 (vantagecompanion@gmail.com)"
 
 _GUILD_SLUG = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
@@ -238,6 +238,10 @@ class OpenDkpClient(QObject):
         self._reconnect_timer = QTimer(self)
         self._reconnect_timer.setSingleShot(True)
         self._reconnect_timer.timeout.connect(self._open_socket)
+        self._session_retry_timer = QTimer(self)
+        self._session_retry_timer.setSingleShot(True)
+        self._session_retry_timer.setInterval(30 * 1000)
+        self._session_retry_timer.timeout.connect(self.restore_session)
 
     @property
     def authenticated(self):
@@ -251,6 +255,7 @@ class OpenDkpClient(QObject):
         if slug == self.slug:
             return slug
         self.stop_live()
+        self._session_retry_timer.stop()
         self.slug = slug
         self.client_details = {}
         self._id_token = ""
@@ -322,6 +327,7 @@ class OpenDkpClient(QObject):
     def logout(self):
         slug = self.slug
         self.stop_live()
+        self._session_retry_timer.stop()
         self._id_token = ""
         self._refresh_token = ""
         self._token_expires_at = 0.0
@@ -400,6 +406,7 @@ class OpenDkpClient(QObject):
 
     def close(self):
         self.stop_live()
+        self._session_retry_timer.stop()
         for reply in tuple(self._replies):
             try:
                 reply.abort()
@@ -540,6 +547,7 @@ class OpenDkpClient(QObject):
 
     def _auth_succeeded(self, operation, payload):
         self._refreshing = False
+        self._session_retry_timer.stop()
         result = payload.get("AuthenticationResult", {}) \
             if isinstance(payload, dict) else {}
         token = str(result.get("IdToken") or "")
@@ -573,13 +581,25 @@ class OpenDkpClient(QObject):
         self._token_expires_at = 0.0
         self._pending_auth.clear()
         if operation == "refresh":
-            self._refresh_token = ""
-            try:
-                delete_refresh_token(self.slug)
-            except OSError:
-                pass
-        self.auth_changed.emit("expired" if operation == "refresh" else "error",
-                               self.username)
+            # A timeout, offline startup, rate limit, or server error does not
+            # invalidate a renewable session. Keep the Windows credential and
+            # retry so a temporary network failure never signs the user out.
+            rejected = int(status or 0) in (400, 401, 403)
+            if rejected:
+                self._refresh_token = ""
+                try:
+                    delete_refresh_token(self.slug)
+                except OSError:
+                    pass
+                self.auth_changed.emit("expired", self.username)
+                self.failed.emit("login", message, status)
+            else:
+                self.auth_changed.emit("saved", self.username)
+                if self._refresh_token and self.client_details.get("WebClientId"):
+                    self._session_retry_timer.start()
+                self.failed.emit("session", message, status)
+            return
+        self.auth_changed.emit("error", self.username)
         self.failed.emit("login", message, status)
 
     def _begin_busy(self, label):

@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import asdict, dataclass, field
+import math
 import re
+import time
 
 from vantage.helpers.spell_catalog import p99_unique_spell_profiles
 
@@ -155,8 +157,24 @@ class CharacterContextTracker:
             seconds = max(0, min(
                 7 * 24 * 60 * 60,
                 cls._safe_int(item.get("seconds"), 0)))
-            if name and seconds:
-                normalized.append({"name": name, "seconds": seconds})
+            try:
+                deadline = float(item.get("deadline", 0) or 0)
+            except (TypeError, ValueError, OverflowError):
+                deadline = 0
+            if deadline <= 0 and seconds:
+                # Upgrade a legacy remaining-time snapshot once. New snapshots
+                # always persist an absolute deadline so time keeps passing
+                # while the character is camped or Vantage is closed.
+                deadline = time.time() + seconds
+            remaining = max(0, min(
+                7 * 24 * 60 * 60,
+                int(math.ceil(deadline - time.time()))))
+            if name and remaining:
+                normalized.append({
+                    "name": name,
+                    "seconds": remaining,
+                    "deadline": deadline,
+                })
         return normalized
 
     @staticmethod
@@ -193,13 +211,15 @@ class CharacterContextTracker:
         level = max(1, min(65, int(level)))
         return context, self._change(context, level=level)
 
-    def store_you_spells_if_empty(self, character, server, spells):
-        """Mirror EQTool: preserve a camp snapshot only when none is pending."""
+    def store_you_spells(self, character, server, spells):
+        """Replace this character's camp snapshot with its newest buff state."""
         context = self.context(character, server)
-        if context.saved_you_spells:
-            return context, False
         saved = self._normalize_saved_you_spells(spells)
         return context, self._change(context, saved_you_spells=saved)
+
+    def store_you_spells_if_empty(self, character, server, spells):
+        """Backward-compatible alias; newest logout state is authoritative."""
+        return self.store_you_spells(character, server, spells)
 
     def take_saved_you_spells(self, character, server):
         """Return and clear the one-shot camp snapshot restored at welcome."""

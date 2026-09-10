@@ -722,13 +722,6 @@ class Quests(ParserWindow):
 
     name = "quests"
     _allow_clickthrough = False
-    _minimum_scale = 0.80
-
-    def _set_scaled_minimum_size(self):
-        """Keep enough vertical room for details, actions, and Wiki notice."""
-        super()._set_scaled_minimum_size()
-        if not self._collapsed:
-            self.setMinimumHeight(580)
 
     def __init__(self):
         super().__init__()
@@ -939,7 +932,7 @@ class Quests(ParserWindow):
         request = QNetworkRequest(url)
         request.setTransferTimeout(NETWORK_TIMEOUT_MS)
         request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader,
-                          "Vantage/1.44.68 (vantagecompanion@gmail.com)")
+                          "Vantage/1.44.69 (vantagecompanion@gmail.com)")
         return self._network.get(request)
 
     @staticmethod
@@ -1244,6 +1237,37 @@ class Quests(ParserWindow):
         self._checklist.raise_()
         self._checklist.activateWindow()
         QTimer.singleShot(0, self._checklist.focus_first_unchecked)
+
+    def mobile_snapshot(self):
+        """Expose the cached quest catalog and current detail to mobile."""
+        checklist = config.data.get("quests", {}).get("checklist", {})
+        current = dict(self._current_quest or {})
+        return {
+            "loading": bool(self._catalog_loading or self._quest_reply),
+            "status": self.catalog_status.text(),
+            "catalog": tuple(self._catalog),
+            "current": current,
+            "pending": self._pending_quest_title,
+            "checklist": {
+                "title": str(checklist.get("title") or ""),
+                "checked": list(checklist.get("checked") or []),
+            },
+        }
+
+    def mobile_select(self, title):
+        """Select one catalog entry requested by the private mobile view."""
+        wanted = str(title or "").strip().casefold()
+        resolved = next((value for value in self._catalog
+                         if value.casefold() == wanted), "")
+        if not resolved:
+            return False
+        matches = self.quest_list.findItems(
+            resolved, Qt.MatchFlag.MatchExactly)
+        if matches:
+            self.quest_list.setCurrentItem(matches[0])
+        else:
+            self._load_quest(resolved)
+        return True
 
     def showEvent(self, event):
         super().showEvent(event)

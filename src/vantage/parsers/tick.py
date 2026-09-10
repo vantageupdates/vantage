@@ -97,7 +97,6 @@ class ServerTick(ParserWindow):
     """Standalone tick overlay synchronized only from allowed EQ log data."""
 
     tray_state_changed = Signal(object, bool)
-    _minimum_scale = 0.80
 
     def __init__(self):
         self.name = "tick"
@@ -228,7 +227,7 @@ class ServerTick(ParserWindow):
         if (self._collapsed or self.maximumHeight() <= 30 or
                 not hasattr(self, '_design_size')):
             return
-        base_minimum = max(48, round(
+        base_minimum = max(24, round(
             self._design_size.height() * self._effective_minimum_scale()))
         # Keep the stored minimum independent from the previous width. This
         # lets a later horizontal drag shrink the complete replica instead of
@@ -238,7 +237,7 @@ class ServerTick(ParserWindow):
         scale = max(
             self._effective_minimum_scale(),
             self.width() / max(1, self._design_size.width()))
-        required = max(48, round(self._design_size.height() * scale))
+        required = max(24, round(self._design_size.height() * scale))
         if self.height() < required:
             QTimer.singleShot(0, lambda: self._enforce_complete_height(required))
 

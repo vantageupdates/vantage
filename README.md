@@ -1,5 +1,9 @@
 # Vantage · P99 Companion
 
+<p align="center">
+  <img src="data/ui/icon-master.png" width="168" alt="Vantage Companion — gold diamond emblem inside a dark circular medallion">
+</p>
+
 Created by Mindflux / Harmflux on P99 Green Server · Discord: `mindflux99` ·
 Official contact: [vantagecompanion@gmail.com](mailto:vantagecompanion@gmail.com)
 
@@ -9,7 +13,7 @@ Aplicación comunitaria gratuita, nativa, ligera y de un solo ejecutable para Wi
 
 - Splash compacto con progreso real mientras carga el núcleo. Settings, Mobile, Spell Library y sus dependencias pesadas se crean sólo al abrirlas; las actualizaciones de red empiezan después de que la bandeja y los paneles están listos.
 - Ventanas sin marco, redimensionables, always-on-top, opacidad de 25–100 %, click-through opcional en overlays y acceso desde la bandeja del sistema. Mercado permanece siempre interactivo para que búsqueda y filtros reciban teclado.
-- Clic derecho sobre el fondo o cabecera de cualquier panel abre posición en nueve anclajes, capa normal/siempre encima/enviar detrás, opacidad, enrollado, marco, tamaño recomendado, bandeja y presets Tiny 25 %, Mini 35 %, Compact 50 %, 75 % y 100 %. Los menús propios de buffs, mapas y campos de texto se conservan.
+- Clic derecho sobre el fondo o cabecera de cualquier panel abre posición en nueve anclajes, capa normal/siempre encima/enviar detrás, opacidad, enrollado, marco, tamaño recomendado, bandeja y presets Tiny 25 %, Mini 35 %, Compact 50 %, 75 % y 100 %. Cada preset aplica su porcentaje exacto y queda marcado; enrollar, esconder en la bandeja y volver a abrir restaura ese mismo tamaño, no una geometría histórica mayor. Los menús propios de buffs, mapas y campos de texto se conservan.
 - Todos los paneles conservan una superficie lógica Qt inmutable: al redimensionar desde derecha, abajo o cualquier esquina, Windows recibe un rectángulo proporcional antes de que Qt distribuya el contenido; texto, iconos, barras, filas y áreas de clic escalan juntos. No hay breakpoints ni correcciones tardías que hagan rebotar la ventana. Spawn Timers no contiene `QScrollArea`: su lienzo lógico crece para incluir cada fila y luego se reduce como una sola réplica, con tarjetas y bordes nítidos incluso en escalas compactas o fraccionarias y sin scrollbar horizontal ni vertical. El encabezado auto-oculto mantiene reservado su espacio.
 - Las cabeceras reservan el título y los controles esenciales; antes de que un ancho estrecho pueda solaparlos, las acciones secundarias pasan a un menú accesible. En Ajustes, la navegación lateral usa filas compactas, foco visible y un indicador dorado discreto para la sección activa.
 - Inicio configurable en **Ajustes → General**: ventanas enrolladas (predeterminado), minimizadas a la bandeja o normales. Cada panel recuerda posición y tamaño.
@@ -35,7 +39,7 @@ Aplicación comunitaria gratuita, nativa, ligera y de un solo ejecutable para Wi
 - Filtros de equipo por clase, raza y slot usando el índice comunitario de P99 Wiki. PigParse sigue siendo la fuente principal; la ficha interna añade el Auction Tracker del Wiki para el servidor seleccionado y calcula un promedio 50/50 sólo cuando ambas referencias recientes difieren 30% o menos.
 - Clic en el nombre del item abre una ficha nativa compacta con icono y estadísticas clásicas. También muestra quién lo dropea y dónde; NPC y zona abren fichas internas adicionales sin enviarte al navegador.
 - Feed `/auction` local en tiempo real cuando el cliente de EverQuest recibe esos mensajes. **Sale Alerts** tiene búsqueda propia sobre lo escuchado durante la sesión y deja explícito que el personaje debe estar en EC Tunnel con `/log on`; la búsqueda principal del catálogo no lo filtra. Cambiar Green/Blue no borra ni transforma este historial local. Desde cualquier fila de precios o stats, **Watch sale** crea una alerta persistente; **Test alert** comprueba de inmediato el overlay. Cada match muestra artículo, vendedor y mensaje en el riel del Quick Bar aunque el usuario haya eliminado todos los overlays.
-- **OpenDKP** genérico desde la Quick Bar: acepta el subdominio o la dirección `guild.opendkp.com` de cualquier guild y conserva perfiles separados. Sin login permite consultar standings, personajes, asistencia, raids, loot, ajustes e historial de subastas. Las tablas ordenan correctamente fechas, DKP, niveles y cantidades; los historiales se pueden buscar por fecha, item, personaje y raid/evento. El login opcional habilita subastas activas, watchlist con notificaciones y pujas manuales confirmadas; la contraseña nunca se guarda y el token renovable queda protegido por Windows Credential Manager. Vantage no ofrece auto-bid ni actúa dentro de EverQuest.
+- **OpenDKP** genérico desde la Quick Bar: acepta el subdominio o la dirección `guild.opendkp.com` de cualquier guild y conserva perfiles separados. Sin login permite consultar standings, personajes, asistencia, raids, loot, ajustes e historial de subastas. Las tablas ordenan correctamente fechas, DKP, niveles y cantidades; los historiales se pueden buscar por fecha, item, personaje y raid/evento. El login opcional habilita subastas activas, watchlist con notificaciones y pujas manuales confirmadas; la contraseña nunca se guarda y el token renovable queda protegido por Windows Credential Manager. La sesión se restaura al reiniciar y un fallo temporal de red no borra el token: Vantage vuelve a intentar la conexión. Sólo un rechazo definitivo del proveedor o **Disconnect** elimina esa credencial. Vantage no ofrece auto-bid ni actúa dentro de EverQuest.
 - Evaluación prudente de precios mediante mediana robusta: conserva todos los valores de PigParse, reduce el peso del spam repetido y solo marca outliers.
 - Vista móvil personal de solo lectura con Smart Timers, Market y **EverQuest Live**. Market sigue automáticamente el servidor Green/Blue seleccionado en la PC. Una ventana de configuración separada detecta `eqgame.exe` con una búsqueda local acotada o acepta cualquier ruta elegida por el usuario; transmite a 2/5/10 FPS sólo mientras la pestaña está abierta y nunca ofrece controles.
 - Todos los controles interactivos, pestañas y encabezados de tablas tienen tooltip semántico; los controles también conservan nombre accesible, foco visible y navegación por teclado. **Reducir movimiento y flashes** mantiene las señales por texto/color/sonido sin parpadeo.
@@ -130,13 +134,23 @@ y el destino de restauración siempre se conservan, incluso con cambios locales.
 carpetas modificadas se conservan con aviso y las no administradas no se adoptan
 ni se inspeccionan. Por defecto EverQuest debe estar cerrado; el modo opcional
 para instalar una carpeta nueva con el juego abierto siempre difiere la limpieza.
-Vantage nunca termina el proceso ni modifica otras skins, enlaces, archivos INI,
-binarios del juego o la instalación de Companion. “Activa” es la selección del
+Vantage nunca termina el proceso ni modifica otras skins, enlaces, los INI de
+personaje sin prefijo `UI_`, binarios del juego o la instalación de
+Companion. “Activa” es la selección del
 actualizador, no la skin cargada por EverQuest: después de instalar, copia el
 comando mostrado, por ejemplo `/loadskin VantageUI-v1.44.70 1`, y verifica la
 interfaz dentro del juego. Restaurar solo selecciona una versión anterior que
 siga íntegra; nunca sobrescribe sus archivos. Consulta [la documentación de
 VantageUI](ui/README.md) para detalles técnicos y avisos.
+
+**Character UI & layouts** es una acción separada y explícita. Puede cambiar
+únicamente `UISkin` en todos los archivos `UI_<personaje>_<servidor>.ini` y en
+`eqclient.ini`, o copiar el layout completo de ventanas/chat de un personaje a
+otros seleccionados. Nunca copia los INI de macros, socials, friends o hotkeys.
+Cada lote crea primero un restore point verificado; una restauración también
+respalda el estado que reemplaza. Si EverQuest está abierto, el lote queda en
+cola hasta que el juego se cierre, sin intentar cerrar procesos. En carpetas
+protegidas usa la solicitud normal de permiso de Windows y no altera ACLs.
 
 La skin visual actual está sincronizada byte por byte con `ui/skin`. Cada
 entrega se publica en el canal independiente de VantageUI; la instalación local

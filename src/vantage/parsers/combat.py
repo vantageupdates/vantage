@@ -351,7 +351,6 @@ class CombatExportOptionsDialog(UniformScaleDialog):
 
 
 class Combat(ParserWindow):
-    _minimum_scale = 0.80
     TABS = (
         "Overview", "Player DPS", "Damage Breakdown", "Tanking",
         "Tanking Details", "Hit Distribution", "Charts", "Threat", "Spells", "Direct Damage",
@@ -418,6 +417,7 @@ class Combat(ParserWindow):
         self._chat_visible_events = []
         self._spell_signature = None
         self._context_revision = None
+        self._combat_profile = ("", "")
 
         self.mode = QComboBox()
         for label, value in (
@@ -2095,6 +2095,18 @@ class Combat(ParserWindow):
             context.revision)
         if identity == self._context_revision:
             return
+        profile = (str(context.character or ""), str(context.server or ""))
+        previous = self._combat_profile
+        if (previous != profile and any(previous) and self._tracker.active):
+            # Multiple tailed character logs are interleaved by Windows. End
+            # the former profile's open mobs before accepting the new one so
+            # no fight is merged across characters or archived under the
+            # character whose line happened to arrive next.
+            for encounter in self._tracker.finalize_active():
+                encounter.archive_character = previous[0]
+                encounter.archive_server = previous[1]
+            self._sync_combat_archive()
+        self._combat_profile = profile
         self._context_revision = identity
         player = context.character or "Current character"
         profile = player
@@ -2416,8 +2428,12 @@ class Combat(ParserWindow):
         changed = False
         for encounter in candidates:
             if getattr(encounter, "archive_id", None) is None:
+                encounter_character = str(getattr(
+                    encounter, "archive_character", "") or character)
+                encounter_server = str(getattr(
+                    encounter, "archive_server", "") or server)
                 archive_id = self._combat_archive.append(
-                    encounter, character, server)
+                    encounter, encounter_character, encounter_server)
                 if archive_id is not None:
                     self._session_archive_ids.add(archive_id)
                     changed = True

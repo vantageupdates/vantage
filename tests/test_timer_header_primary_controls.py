@@ -171,7 +171,7 @@ def test_share_and_zone_stay_directly_visible_in_timer_header(tmp_path):
     assert result['zone_strong_focus'] is True
     assert result['keyboard_reveals_auto_hidden_header'] is True
     assert result['mobile_focused_wide'] is True
-    assert result['focus_moved_to_overflow'] is True
+    assert result['focus_moved_to_overflow'] is False
     assert result['focus_restored_to_mobile'] is True
 
     for name in ('wide', 'narrow', 'rolled'):
@@ -181,15 +181,15 @@ def test_share_and_zone_stay_directly_visible_in_timer_header(tmp_path):
         assert state['root_separate'] is True, name
         assert state['controls_separate'] is True, name
         assert state['root_inside'] is True, name
-        assert min(state['share_physical_size']) >= 16, name
-        assert state['zone_physical_size'][0] >= 72, name
-        assert state['zone_physical_size'][1] >= 16, name
+        assert min(state['share_physical_size']) >= 12, name
+        assert state['zone_physical_size'][0] >= 47, name
+        assert state['zone_physical_size'][1] >= 12, name
 
     narrow = result['narrow']
     assert narrow['window'][0] >= 300
-    assert narrow['overflow_visible'] is True
-    assert narrow['mobile_visible'] is False
-    assert 'View Vantage on your phone' in narrow['overflow_actions']
+    assert narrow['overflow_visible'] is False
+    assert narrow['mobile_visible'] is True
+    assert narrow['overflow_actions'] == []
     assert 'Share visible zone timers by code' not in \
         narrow['overflow_actions']
 

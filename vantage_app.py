@@ -26,6 +26,14 @@ def _enable_crisp_windows_rendering():
             pass
 
 if __name__ == "__main__":
+    if "--manage-ui-profiles" in sys.argv:
+        from vantage.helpers.ui_profile_manager import (
+            process_elevated_profile_request)
+        index = sys.argv.index("--manage-ui-profiles")
+        arguments = sys.argv[index + 1:index + 3]
+        if len(arguments) != 2:
+            raise SystemExit(2)
+        raise SystemExit(process_elevated_profile_request(*arguments))
     if "--install-auction-hotbuttons" in sys.argv:
         from vantage.helpers.auction_hotbutton import (
             process_elevated_hotbutton_request)

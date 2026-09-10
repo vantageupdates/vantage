@@ -83,7 +83,6 @@ class Maps(ParserWindow):
     # MapCanvas is itself a QGraphicsView. Keep it native so its paths and
     # labels render once, at the correct resolution, without nested transforms.
     _native_surface = True
-    _minimum_scale = 0.80
 
     def __init__(self):
         self.name = "maps"

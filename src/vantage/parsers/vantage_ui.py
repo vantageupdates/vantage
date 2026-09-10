@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import ctypes
+from datetime import datetime
 import html
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -13,9 +15,10 @@ import threading
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QFileDialog, QFrame, QGridLayout, QLabel,
-    QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
-    QVBoxLayout, QWidget)
+    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+    QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+    QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QProgressBar,
+    QPushButton, QVBoxLayout, QWidget)
 
 from vantage.helpers import config
 from vantage.helpers.icons import game_icon
@@ -23,6 +26,10 @@ from vantage.helpers.parser import ParserWindow
 from vantage.helpers.portable import data_dir
 from vantage.helpers.responsive import ResponsiveActionBar
 from vantage.helpers import ui_skin_updater
+from vantage.helpers.ui_profile_manager import (
+    UIProfileError, apply_skin_to_all, copy_layout,
+    discover_character_profiles, list_backups, read_elevated_profile_result,
+    request_elevated_profile_action, restore_backup)
 
 
 DEFAULT_EQ_ROOT = r"C:\Program Files (x86)\Sony\EverQuest"
@@ -126,13 +133,483 @@ class _WorkerSignals(QObject):
     progress = Signal(int, str, int, int, int)
 
 
+class CharacterUIManagerDialog(QDialog):
+    """Reversible multi-character VantageUI and layout manager."""
+
+    def __init__(self, panel):
+        super().__init__(panel)
+        self.panel = panel
+        self._profiles = ()
+        self._skin = ""
+        self._queued_action = None
+        self._pending_elevation = None
+        self._poll_attempts = 0
+        self.setWindowTitle("Character UI & layouts · VantageUI")
+        self.setModal(False)
+        self.resize(760, 590)
+        self.setMinimumSize(620, 500)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(10, 9, 10, 10)
+        root.setSpacing(7)
+        intro = QLabel(
+            "Update every character to the selected VantageUI version, or "
+            "copy one character's complete window and chat layout to others. "
+            "Macros, socials, friends, and hotkeys are never copied.")
+        intro.setWordWrap(True)
+        intro.setObjectName("VantageUIIntro")
+        root.addWidget(intro)
+
+        skin_card = QFrame()
+        skin_card.setObjectName("VantageUICard")
+        skin_layout = QGridLayout(skin_card)
+        skin_layout.setContentsMargins(8, 7, 8, 7)
+        skin_title = QLabel("1 · Update every character")
+        skin_title.setObjectName("OpenDkpPanelTitle")
+        skin_layout.addWidget(skin_title, 0, 0, 1, 2)
+        self.skin_value = QLabel("No verified VantageUI selected")
+        self.skin_value.setAccessibleName("VantageUI version for all characters")
+        skin_layout.addWidget(self.skin_value, 1, 0, 1, 2)
+        self.include_default = QCheckBox(
+            "Also use this skin for new characters (eqclient.ini)")
+        self.include_default.setChecked(True)
+        self.include_default.setToolTip(
+            "Updates only UISkin in eqclient.ini; all other game settings stay unchanged")
+        skin_layout.addWidget(self.include_default, 2, 0)
+        self.apply_all_button = QPushButton("Apply to all characters…")
+        self.apply_all_button.setIcon(game_icon("ph-wand"))
+        self.apply_all_button.setAccessibleName(
+            "Apply selected VantageUI to every character")
+        self.apply_all_button.setToolTip(
+            "Back up every affected INI, then change only its UISkin value")
+        self.apply_all_button.clicked.connect(self.apply_skin)
+        skin_layout.addWidget(self.apply_all_button, 2, 1)
+        skin_layout.setColumnStretch(0, 1)
+        root.addWidget(skin_card)
+
+        layout_card = QFrame()
+        layout_card.setObjectName("VantageUICard")
+        layout_grid = QGridLayout(layout_card)
+        layout_grid.setContentsMargins(8, 7, 8, 7)
+        layout_grid.setHorizontalSpacing(6)
+        layout_grid.setVerticalSpacing(5)
+        layout_title = QLabel("2 · Copy a character layout")
+        layout_title.setObjectName("OpenDkpPanelTitle")
+        layout_grid.addWidget(layout_title, 0, 0, 1, 3)
+        source_label = QLabel("Copy from")
+        self.source_combo = QComboBox()
+        self.source_combo.setAccessibleName("Source character UI layout")
+        self.source_combo.setToolTip(
+            "Choose the character whose complete UI window layout is correct")
+        self.source_combo.currentIndexChanged.connect(self._source_changed)
+        source_label.setBuddy(self.source_combo)
+        layout_grid.addWidget(source_label, 1, 0)
+        layout_grid.addWidget(self.source_combo, 1, 1, 1, 2)
+        target_label = QLabel("Apply to")
+        self.target_list = QListWidget()
+        self.target_list.setAccessibleName("Characters receiving the copied layout")
+        self.target_list.setToolTip(
+            "Check every character that should receive the source window layout")
+        target_label.setBuddy(self.target_list)
+        layout_grid.addWidget(target_label, 2, 0, Qt.AlignmentFlag.AlignTop)
+        layout_grid.addWidget(self.target_list, 2, 1, 1, 2)
+        target_actions = QHBoxLayout()
+        self.select_all_button = QPushButton("Select all others")
+        self.select_all_button.setToolTip(
+            "Select every character except the source")
+        self.select_all_button.clicked.connect(self._select_all_targets)
+        target_actions.addWidget(self.select_all_button)
+        self.clear_targets_button = QPushButton("Clear")
+        self.clear_targets_button.setToolTip("Clear all target characters")
+        self.clear_targets_button.clicked.connect(self._clear_targets)
+        target_actions.addWidget(self.clear_targets_button)
+        target_actions.addStretch(1)
+        self.copy_layout_button = QPushButton("Copy layout…")
+        self.copy_layout_button.setIcon(game_icon("copy"))
+        self.copy_layout_button.setAccessibleName(
+            "Copy source UI layout to selected characters")
+        self.copy_layout_button.setToolTip(
+            "Back up each target, then copy window and chat layout only")
+        self.copy_layout_button.clicked.connect(self.apply_layout)
+        target_actions.addWidget(self.copy_layout_button)
+        layout_grid.addLayout(target_actions, 3, 1, 1, 2)
+        layout_grid.setColumnStretch(1, 1)
+        root.addWidget(layout_card, 1)
+
+        restore_card = QFrame()
+        restore_card.setObjectName("VantageUICard")
+        restore_layout = QGridLayout(restore_card)
+        restore_layout.setContentsMargins(8, 7, 8, 7)
+        restore_title = QLabel("Restore")
+        restore_title.setObjectName("OpenDkpPanelTitle")
+        restore_layout.addWidget(restore_title, 0, 0, 1, 2)
+        self.backup_combo = QComboBox()
+        self.backup_combo.setAccessibleName("Character UI backup to restore")
+        self.backup_combo.setToolTip(
+            "Choose any previous skin or layout operation to undo")
+        restore_layout.addWidget(self.backup_combo, 1, 0)
+        self.restore_button = QPushButton("Restore selected…")
+        self.restore_button.setIcon(game_icon("ph-reload"))
+        self.restore_button.setAccessibleName("Restore selected character UI backup")
+        self.restore_button.setToolTip(
+            "Back up the current files first, then restore this operation")
+        self.restore_button.clicked.connect(self.restore_selected)
+        restore_layout.addWidget(self.restore_button, 1, 1)
+        restore_layout.setColumnStretch(0, 1)
+        root.addWidget(restore_card)
+
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setFormat("Ready · 0%")
+        self.progress.setAccessibleName("Character UI operation progress")
+        root.addWidget(self.progress)
+        self.status = QLabel("Ready")
+        self.status.setWordWrap(True)
+        self.status.setObjectName("VantageUIStatus")
+        self.status.setAccessibleName("Character UI manager status")
+        root.addWidget(self.status)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.close)
+        root.addWidget(buttons)
+
+        self._game_timer = QTimer(self)
+        self._game_timer.setInterval(1000)
+        self._game_timer.timeout.connect(self._run_queued_when_game_closes)
+        self._poll_timer = QTimer(self)
+        self._poll_timer.setInterval(250)
+        self._poll_timer.timeout.connect(self._poll_elevation)
+        self.refresh()
+
+    @property
+    def state_directory(self):
+        return data_dir("ui-profile-backups")
+
+    def refresh(self):
+        previous_source = str(self.source_combo.currentData() or "")
+        try:
+            root = normalize_eq_root(self.panel.path_edit.text())
+            self._profiles = discover_character_profiles(root)
+            skin = ui_skin_updater.installed_folder(root)
+            self._skin = skin
+            backups = list_backups(self.state_directory, root)
+        except (OSError, UIProfileError, ui_skin_updater.SkinUpdateError) as error:
+            self._profiles, self._skin, skin, backups = (), "", "", ()
+            self._set_status(f"Cannot load character UI profiles · {error}", error=True)
+        self.skin_value.setText(
+            f"Selected: {skin} · {len(self._profiles)} characters detected"
+            if skin else
+            f"No verified VantageUI selected · {len(self._profiles)} characters detected")
+        self.source_combo.blockSignals(True)
+        self.source_combo.clear()
+        for profile in self._profiles:
+            self.source_combo.addItem(
+                f"{profile.label} · {profile.skin or 'no skin'}", profile.filename)
+        index = self.source_combo.findData(previous_source)
+        self.source_combo.setCurrentIndex(max(0, index))
+        self.source_combo.blockSignals(False)
+        self._rebuild_targets()
+        self.backup_combo.clear()
+        for backup in backups:
+            try:
+                created = datetime.fromisoformat(
+                    backup.created_utc.replace("Z", "+00:00")).astimezone()
+                when = created.strftime("%b %d, %Y · %I:%M %p")
+            except (TypeError, ValueError):
+                when = backup.created_utc[:19]
+            self.backup_combo.addItem(
+                f"{when} · {backup.label} · {backup.file_count} files",
+                backup.backup_id)
+        ready = bool(skin and self._profiles)
+        self.apply_all_button.setEnabled(ready)
+        self.copy_layout_button.setEnabled(ready and len(self._profiles) > 1)
+        self.restore_button.setEnabled(self.backup_combo.count() > 0)
+        if ready and not self._queued_action and not self._pending_elevation:
+            self._set_status(
+                f"Ready · {len(self._profiles)} character UI profiles · backups enabled",
+                announce=False)
+
+    def _rebuild_targets(self):
+        source = str(self.source_combo.currentData() or "")
+        previously_checked = {
+            str(self.target_list.item(index).data(Qt.ItemDataRole.UserRole))
+            for index in range(self.target_list.count())
+            if self.target_list.item(index).checkState() == Qt.CheckState.Checked}
+        self.target_list.clear()
+        for profile in self._profiles:
+            item = QListWidgetItem(profile.label)
+            item.setData(Qt.ItemDataRole.UserRole, profile.filename)
+            selectable = profile.filename != source
+            item.setFlags(
+                item.flags() | Qt.ItemFlag.ItemIsUserCheckable
+                if selectable else item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+            item.setCheckState(
+                Qt.CheckState.Checked if selectable and (
+                    not previously_checked or profile.filename in previously_checked)
+                else Qt.CheckState.Unchecked)
+            if not selectable:
+                item.setToolTip("This is the source character")
+            self.target_list.addItem(item)
+
+    def _source_changed(self, _index):
+        self._rebuild_targets()
+
+    def _select_all_targets(self):
+        source = str(self.source_combo.currentData() or "")
+        for index in range(self.target_list.count()):
+            item = self.target_list.item(index)
+            item.setCheckState(
+                Qt.CheckState.Unchecked
+                if item.data(Qt.ItemDataRole.UserRole) == source else
+                Qt.CheckState.Checked)
+
+    def _clear_targets(self):
+        for index in range(self.target_list.count()):
+            self.target_list.item(index).setCheckState(Qt.CheckState.Unchecked)
+
+    def _checked_targets(self):
+        return [
+            str(self.target_list.item(index).data(Qt.ItemDataRole.UserRole))
+            for index in range(self.target_list.count())
+            if self.target_list.item(index).checkState() == Qt.CheckState.Checked]
+
+    def _confirm(self, title, text):
+        dialog = QMessageBox(
+            QMessageBox.Icon.Question, title, text,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            self)
+        dialog.setDefaultButton(QMessageBox.StandardButton.No)
+        dialog.setEscapeButton(QMessageBox.StandardButton.No)
+        return dialog.exec() == QMessageBox.StandardButton.Yes
+
+    def apply_skin(self):
+        root = normalize_eq_root(self.panel.path_edit.text())
+        try:
+            skin = ui_skin_updater.installed_folder(root)
+        except (OSError, ui_skin_updater.SkinUpdateError) as error:
+            self._set_status(f"Cannot verify VantageUI · {error}", error=True)
+            return False
+        count = len(self._profiles) + int(
+            self.include_default.isChecked() and (Path(root) / "eqclient.ini").is_file())
+        if not skin or not self._profiles:
+            self._set_status("Install or select VantageUI and refresh first", error=True)
+            return False
+        if not self._confirm(
+                "Apply VantageUI to all characters",
+                f"Change only UISkin to {skin} in {count} INI files?\n\n"
+                "Every affected file is backed up first. Macros, socials, "
+                "friends, hotkeys, and window positions stay unchanged."):
+            return False
+        return self._run_or_queue("skin", {
+            "skin_folder": skin,
+            "include_eqclient": self.include_default.isChecked()})
+
+    def apply_layout(self):
+        root = normalize_eq_root(self.panel.path_edit.text())
+        try:
+            skin = ui_skin_updater.installed_folder(root)
+        except (OSError, ui_skin_updater.SkinUpdateError) as error:
+            self._set_status(f"Cannot verify VantageUI · {error}", error=True)
+            return False
+        source = str(self.source_combo.currentData() or "")
+        targets = self._checked_targets()
+        if not skin or not source or not targets:
+            self._set_status("Choose a source and at least one target character", error=True)
+            return False
+        source_label = self.source_combo.currentText().split(" · ", 1)[0]
+        if not self._confirm(
+                "Copy character UI layout",
+                f"Copy {source_label}'s complete window and chat layout to "
+                f"{len(targets)} selected characters?\n\nEach target is backed up "
+                "first. Character macros, socials, friends, and hotkeys are in "
+                "separate files and are never copied."):
+            return False
+        return self._run_or_queue("layout", {
+            "skin_folder": skin, "source": source, "targets": targets})
+
+    def restore_selected(self):
+        backup_id = str(self.backup_combo.currentData() or "")
+        if not backup_id:
+            self._set_status("Choose a backup to restore", error=True)
+            return False
+        if not self._confirm(
+                "Restore character UI backup",
+                "Restore every file in the selected operation?\n\nVantage first "
+                "backs up the current files, so this restore can also be undone."):
+            return False
+        return self._run_or_queue("restore", {"backup_id": backup_id})
+
+    def _run_or_queue(self, action, options):
+        try:
+            running = ui_skin_updater.game_running()
+        except Exception as error:
+            self._set_status(f"Cannot safely check EverQuest · {error}", error=True)
+            return False
+        if running:
+            self._queued_action = (action, dict(options))
+            self._set_busy(True)
+            self._game_timer.start()
+            self._set_status(
+                "Queued · close EverQuest once; Vantage will apply this operation "
+                "automatically and will never close the game")
+            return True
+        return self._execute(action, options)
+
+    def _run_queued_when_game_closes(self):
+        if self._queued_action is None:
+            self._game_timer.stop()
+            return
+        try:
+            if ui_skin_updater.game_running():
+                return
+        except Exception as error:
+            self._queued_action = None
+            self._game_timer.stop()
+            self._set_busy(False)
+            self._set_status(f"Queued operation stopped · {error}", error=True)
+            return
+        action, options = self._queued_action
+        self._queued_action = None
+        self._game_timer.stop()
+        self._execute(action, options)
+
+    def _execute(self, action, options):
+        root = normalize_eq_root(self.panel.path_edit.text())
+        self._set_busy(True)
+        self.progress.setRange(0, 0)
+        self.progress.setFormat("Working…")
+        try:
+            if action == "skin":
+                result = apply_skin_to_all(
+                    root, options["skin_folder"], self.state_directory,
+                    include_eqclient=bool(options.get("include_eqclient", True)))
+            elif action == "layout":
+                result = copy_layout(
+                    root, options["skin_folder"], options["source"],
+                    options["targets"], self.state_directory)
+            else:
+                result = restore_backup(
+                    root, self.state_directory, options["backup_id"])
+        except OSError as error:
+            permission_denied = (
+                isinstance(error, PermissionError) or
+                getattr(error, "winerror", None) == 5 or
+                "permission denied" in str(error).casefold() or
+                "access is denied" in str(error).casefold())
+            if permission_denied:
+                return self._request_elevation(action, root, options)
+            self._set_busy(False)
+            self.progress.setRange(0, 100)
+            self._set_status(f"Operation failed · {error}", error=True)
+            return False
+        except (UIProfileError, ui_skin_updater.SkinUpdateError) as error:
+            self._set_busy(False)
+            self.progress.setRange(0, 100)
+            self._set_status(f"Operation not applied · {error}", error=True)
+            return False
+        self._finish(action, result.changed, result.backup_id)
+        return True
+
+    def _request_elevation(self, action, root, options):
+        pending = request_elevated_profile_action(action, root, **options)
+        if pending is None:
+            self._set_busy(False)
+            self.progress.setRange(0, 100)
+            self._set_status(
+                "Windows permission was not granted; nothing was changed", error=True)
+            return False
+        self._pending_elevation = pending
+        self._poll_attempts = 0
+        self._poll_timer.start()
+        self._set_status(
+            "Approve the Windows permission prompt; Vantage will finish this "
+            "profile operation automatically")
+        return True
+
+    def _poll_elevation(self):
+        pending = self._pending_elevation
+        if pending is None:
+            self._poll_timer.stop()
+            return
+        self._poll_attempts += 1
+        try:
+            result = read_elevated_profile_result(pending)
+        except (OSError, UIProfileError, json.JSONDecodeError) as error:
+            self._pending_elevation = None
+            self._poll_timer.stop()
+            self._set_busy(False)
+            self.progress.setRange(0, 100)
+            self._set_status(f"Invalid Windows response · {error}", error=True)
+            return
+        if result is None:
+            if self._poll_attempts < 480:
+                return
+            pending.request_path.unlink(missing_ok=True)
+            self._pending_elevation = None
+            self._poll_timer.stop()
+            self._set_busy(False)
+            self.progress.setRange(0, 100)
+            self._set_status("Windows permission request timed out", error=True)
+            return
+        self._pending_elevation = None
+        self._poll_timer.stop()
+        if not result.get("ok"):
+            self._set_busy(False)
+            self.progress.setRange(0, 100)
+            self._set_status(
+                f"Operation not applied · {result.get('error', 'permission denied')}",
+                error=True)
+            return
+        self._finish(
+            str(result.get("action") or "operation"),
+            int(result.get("changed") or 0), str(result.get("backup_id") or ""))
+
+    def _finish(self, action, changed, backup_id):
+        labels = {
+            "skin": "VantageUI applied", "layout": "Layout copied",
+            "restore": "Backup restored"}
+        self._set_busy(False)
+        self.progress.setRange(0, 100)
+        self.progress.setValue(100)
+        self.progress.setFormat("Complete · 100%")
+        self.refresh()
+        self._set_status(
+            f"{labels.get(action, 'Operation complete')} · {changed} files · "
+            f"restore point {backup_id[:8]}")
+
+    def _set_busy(self, busy):
+        for control in (
+                self.include_default, self.backup_combo, self.source_combo,
+                self.target_list, self.select_all_button,
+                self.clear_targets_button):
+            control.setEnabled(not busy)
+        ready = bool(self._skin and self._profiles)
+        self.apply_all_button.setEnabled(not busy and ready)
+        self.copy_layout_button.setEnabled(
+            not busy and ready and len(self._profiles) > 1)
+        self.restore_button.setEnabled(
+            not busy and self.backup_combo.count() > 0)
+
+    def _set_status(self, text, *, error=False, announce=True):
+        self.status.setText(str(text))
+        self.status.setProperty("state", "error" if error else "ready")
+        self.status.style().unpolish(self.status)
+        self.status.style().polish(self.status)
+        self.status.setAccessibleDescription(str(text))
+        if announce:
+            try:
+                event = QAccessibleAnnouncementEvent(self.status, str(text))
+                QAccessible.updateAccessibility(event)
+            except (AttributeError, RuntimeError):
+                pass
+
+
 class VantageUI(ParserWindow):
     """Independent, non-blocking VantageUI management surface."""
 
     name = "vantage_ui"
     update_state_changed = Signal(object)
     _allow_clickthrough = False
-    _minimum_scale = 0.80
 
     def __init__(self):
         super().__init__()
@@ -162,6 +639,7 @@ class VantageUI(ParserWindow):
         self._initiating_control = None
         self._last_warnings = ()
         self._shared_update_controller = None
+        self._profile_manager = None
         self._automatic_timer = QTimer(self)
         self._automatic_timer.setInterval(AUTO_CHECK_MS)
         self._automatic_timer.timeout.connect(self._automatic_check)
@@ -267,6 +745,15 @@ class VantageUI(ParserWindow):
             "Copy the exact /loadskin command for the selected verified folder")
         self.copy_command_button.clicked.connect(self.copy_loadskin_command)
         actions.addWidget(self.copy_command_button)
+        self.character_ui_button = QPushButton("Character UI & layouts…")
+        self.character_ui_button.setIcon(game_icon("ph-stack"))
+        self.character_ui_button.setAccessibleName(
+            "Manage character VantageUI settings and layouts")
+        self.character_ui_button.setToolTip(
+            "Back up and update every character's selected VantageUI, copy "
+            "one character's window layout to others, or restore a backup")
+        self.character_ui_button.clicked.connect(self.show_profile_manager)
+        actions.addWidget(self.character_ui_button)
         layout.addWidget(actions)
 
         # Keep the primary action in the ordinary left-to-right keyboard path.
@@ -278,6 +765,8 @@ class VantageUI(ParserWindow):
         QWidget.setTabOrder(self.update_button, self.restore_button)
         QWidget.setTabOrder(
             self.restore_button, self.copy_command_button)
+        QWidget.setTabOrder(
+            self.copy_command_button, self.character_ui_button)
 
         self.auto_update = QCheckBox("Automatically check and update VantageUI")
         self.auto_update.setChecked(bool(
@@ -338,8 +827,10 @@ class VantageUI(ParserWindow):
         layout.addWidget(self.instruction)
         scope = QLabel(
             "Only verified uifiles\\VantageUI-vX.Y.Z folders are managed. The "
-            "legacy VantageUI folder, other skins, character INIs, game binaries, "
-            "running processes, and Companion are never replaced.")
+            "legacy VantageUI folder and other skins are never changed. Character "
+            "UI_*.ini files change only through Character UI & layouts, with a "
+            "restore point first. Character settings INIs, game binaries, running "
+            "processes, and Companion are never replaced.")
         scope.setObjectName("VantageUIScope")
         scope.setWordWrap(True)
         layout.addWidget(scope)
@@ -554,7 +1045,7 @@ class VantageUI(ParserWindow):
         for control in (
                 self.path_edit, self.browse_button, self.check_button,
                 self.restore_button, self.copy_command_button,
-                self.auto_update):
+                self.character_ui_button, self.auto_update):
             control.setEnabled(not self._busy)
         self.copy_command_button.setEnabled(
             not self._busy and bool(self._installed_folder))
@@ -606,6 +1097,16 @@ class VantageUI(ParserWindow):
         QApplication.clipboard().setText(command)
         self._set_status(f"Copied {command}")
         return True
+
+    def show_profile_manager(self):
+        """Open the reversible character UI workflow without duplicating it."""
+        if self._profile_manager is None:
+            self._profile_manager = CharacterUIManagerDialog(self)
+        self._profile_manager.refresh()
+        self._profile_manager.show()
+        self._profile_manager.raise_()
+        self._profile_manager.activateWindow()
+        return self._profile_manager
 
     def _panel_owns_active_focus(self):
         focused = QApplication.focusWidget()

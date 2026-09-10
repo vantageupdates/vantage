@@ -23,7 +23,10 @@ sizes = {
     'combat': (463, 277),
     'heals': (431, 203),
     'market': (777, 489),
+    'opendkp': (743, 477),
     'zones': (701, 443),
+    'quests': (711, 455),
+    'vantage_ui': (681, 531),
 }
 for index, (name, size) in enumerate(sizes.items()):
     panel = app._parsers_dict[name]
@@ -50,8 +53,8 @@ from vantage.helpers.application import VantageApp
 app = VantageApp([])
 QTest.qWait(600)
 names = [
-    'maps', 'spells', 'tick', 'timers', 'combat', 'heals', 'market', 'zones',
-    'quickbar']
+    'maps', 'spells', 'tick', 'timers', 'combat', 'heals', 'market',
+    'opendkp', 'zones', 'quests', 'vantage_ui', 'quickbar']
 
 def rectangles():
     return {

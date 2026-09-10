@@ -8,9 +8,9 @@ from PySide6.QtCore import QEvent, QObject, QPoint, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import QCursor, QPainter, QPainterPath, QRegion
 from PySide6.QtWidgets import (
     QAbstractButton, QAbstractSpinBox, QApplication, QComboBox, QHBoxLayout,
-    QLabel, QLineEdit, QMenu, QPushButton, QFrame, QGraphicsItem,
+    QLabel, QLineEdit, QMenu, QPlainTextEdit, QPushButton, QFrame, QGraphicsItem,
     QGraphicsOpacityEffect, QGraphicsScene, QGraphicsView, QSizePolicy,
-    QToolButton, QVBoxLayout, QWidget)
+    QTextEdit, QToolButton, QVBoxLayout, QWidget)
 
 from vantage.helpers import config
 from vantage.helpers.icons import WINDOW_ICONS, game_icon, game_pixmap
@@ -110,6 +110,20 @@ class ParserContextMenuRouter(QObject):
         if not isinstance(watched, QWidget):
             return False
         event_type = event.type()
+        if event_type == QEvent.Type.ContextMenu:
+            editor = _text_editor_ancestor(watched)
+            if editor is not None:
+                # Explicitly open Qt's familiar Undo/Cut/Copy/Paste/Delete/
+                # Select All menu. This avoids the frameless panel menu
+                # swallowing editor context events inside a scaled surface.
+                position = editor.mapFromGlobal(event.globalPos())
+                menu = (editor.createStandardContextMenu()
+                        if isinstance(editor, QLineEdit) else
+                        editor.createStandardContextMenu(position))
+                menu.setToolTipsVisible(True)
+                menu.exec(event.globalPos())
+                menu.deleteLater()
+                return True
         self._windows = [window for window in self._windows if window]
         for window in self._windows:
             if not window._is_window_descendant(watched):
@@ -128,6 +142,16 @@ class ParserContextMenuRouter(QObject):
                 window._show_window_context_menu(event.globalPos())
                 return True
         return False
+
+
+def _text_editor_ancestor(widget):
+    """Find the native Qt text editor that owns a context-menu event."""
+    current = widget
+    while current is not None:
+        if isinstance(current, (QLineEdit, QPlainTextEdit, QTextEdit)):
+            return current
+        current = current.parentWidget()
+    return None
 
 
 class ParserResizeHandle(QWidget):
@@ -216,8 +240,8 @@ class ParserWindow(QWidget):
     # The complete logical surface can be reduced to one quarter size.  This
     # is deliberately a uniform transform: controls, text, rows and spacing
     # all remain in the same places instead of switching to a compact/reflowed
-    # layout.  A small physical floor keeps a rolled or resized panel possible
-    # to recover with the mouse.
+    # layout. The context-menu percentages are an exact contract, so parser
+    # subclasses must not silently clamp several named presets to one size.
     _minimum_scale = 0.25
 
     def __init__(self, **kwargs):
@@ -1062,7 +1086,7 @@ class ParserWindow(QWidget):
         """Leave editing, buff-audio and map-specific menus untouched."""
         current = widget
         while current and current is not self:
-            if isinstance(current, QLineEdit):
+            if _text_editor_ancestor(current) is not None:
                 return True
             if current.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu:
                 return True
@@ -1121,8 +1145,14 @@ class ParserWindow(QWidget):
                 ("Comfortable · 75%", 0.75),
                 ("Original · 100%", 1.00)):
             size_action = size_menu.addAction(label)
+            size_action.setCheckable(True)
+            current_scale = (
+                self.width() / max(1, self._design_size.width()))
+            size_action.setChecked(
+                not self._collapsed and abs(current_scale - scale) < 0.015)
             size_action.setToolTip(
-                "Scale the complete panel without moving or reflowing its controls")
+                f"Scale the complete panel to {round(scale * 100)}% without "
+                "moving or reflowing its controls")
             size_actions[size_action] = scale
         minimize = menu.addAction("Hide in System Tray")
         window_settings = menu.addAction("Settings for This Window…")
@@ -1459,10 +1489,11 @@ class ParserWindow(QWidget):
             self._update_header_scale_compensation(1.0)
         if collapsed:
             self._pack_header_controls()
-            self._expanded_width = max(
-                getattr(self, "_expanded_width", 0), self.width())
-            self._expanded_height = max(
-                getattr(self, "_expanded_height", 0), self.height())
+            # Restore the exact size the user just chose. Keeping the largest
+            # historical dimensions made a Mini/Compact panel jump back to a
+            # previous larger size every time it was rolled up and expanded.
+            self._expanded_width = self.width()
+            self._expanded_height = self.height()
             self._expanded_minimum_width = self.minimumWidth()
             self._expanded_minimum_height = self.minimumHeight()
             for index in range(1, self.content.count()):
@@ -1671,8 +1702,8 @@ class ParserWindow(QWidget):
     def _effective_minimum_scale(self):
         return max(
             self._minimum_scale,
-            72 / max(1, self._design_size.width()),
-            48 / max(1, self._design_size.height()))
+            48 / max(1, self._design_size.width()),
+            24 / max(1, self._design_size.height()))
 
     def _coerce_to_logical_aspect(self):
         """Compatibility no-op: windows intentionally support free height."""

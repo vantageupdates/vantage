@@ -821,8 +821,6 @@ class TimerRow(QFrame):
 
 
 class SpawnTimers(ParserWindow):
-    _keep_header_readable = True
-    _minimum_readable_width = 300
 
     def __init__(self):
         self.name = "timers"

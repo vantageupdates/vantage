@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
     QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QVBoxLayout,
     QWidget)
 
-from vantage.helpers import config
+from vantage.helpers import config, resource_path
 from vantage.helpers.game_capture import GameWindowCapture
 from vantage.helpers.icons import game_icon
 from vantage.helpers.portable import data_dir
@@ -99,7 +99,7 @@ def load_mobile_spell_detail(name):
     request = Request(
         P99_SPELL_DETAIL_API.format(
             slug=quote(str(name).strip().replace(" ", "_"), safe="")),
-        headers={"User-Agent": "Vantage/1.44.68"})
+        headers={"User-Agent": "Vantage/1.44.69"})
     with urlopen(request, timeout=8) as response:
         payload_bytes = response.read(2_000_001)
     if len(payload_bytes) > 2_000_000:
@@ -143,7 +143,7 @@ _MOBILE_PAGE = r"""<!doctype html>
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% -30%,#1b2427 0,#090b0e 45%);color:var(--text);font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;min-height:100vh}
 button,input,select{font:inherit}.skip-link{position:fixed;top:7px;left:8px;z-index:20;padding:9px 12px;background:var(--raised);color:var(--text);border:2px solid var(--accent);border-radius:8px;transform:translateY(-150%)}.skip-link:focus-visible{transform:translateY(0)}
 .sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
-header{position:sticky;top:0;z-index:5;background:rgba(9,11,14,.96);border-bottom:1px solid var(--line);backdrop-filter:blur(12px)}.head{padding:9px 13px 6px}.brand-row{display:flex;align-items:center;gap:8px}.brand{display:flex;align-items:center;gap:8px;margin:0;font-size:14px;font-weight:850;letter-spacing:.13em}.mark{display:grid;place-items:center;width:20px;height:20px;border:1px solid #806a42;border-radius:6px;background:linear-gradient(145deg,#272d2d,#101418);color:var(--accent);font:900 13px Georgia}.sub{color:var(--muted);font-size:10px;margin-top:2px}
+header{position:sticky;top:0;z-index:5;background:rgba(9,11,14,.96);border-bottom:1px solid var(--line);backdrop-filter:blur(12px)}.head{padding:9px 13px 6px}.brand-row{display:flex;align-items:center;gap:8px}.brand{display:flex;align-items:center;gap:8px;margin:0;font-size:14px;font-weight:850;letter-spacing:.13em}.mark{display:block;width:24px;height:24px;object-fit:contain;filter:drop-shadow(0 2px 4px rgba(0,0,0,.55))}.sub{color:var(--muted);font-size:10px;margin-top:2px}
 .tabs{display:flex;gap:2px;padding:0 8px;overflow-x:auto;scrollbar-width:none}.tabs::-webkit-scrollbar{display:none}.tabs button{flex:1 0 auto;min-width:72px;background:none;color:var(--muted);border:0;border-bottom:2px solid transparent;padding:7px 8px;font-size:10px;font-weight:800;letter-spacing:.04em}.tabs button.on{color:var(--accent);border-bottom-color:var(--gold)}
 .wrap{max-width:760px;margin:auto;padding:9px;scroll-margin-top:92px}.page[hidden]{display:none}.panel-title{margin:1px 2px 8px;font-size:15px;letter-spacing:.04em}.section-tools{display:flex;align-items:end;gap:7px;flex-wrap:wrap;margin-bottom:8px}.section-tools .field{flex:1 1 180px}
 .timer-list,.card-list{list-style:none;margin:0;padding:0}.timer,.card{background:linear-gradient(110deg,rgba(28,34,40,.95),rgba(15,19,23,.95));border:1px solid var(--line);border-radius:9px;margin:6px 0;box-shadow:inset 0 1px rgba(255,255,255,.025)}.timer{padding:9px 10px}.card-button{display:block;width:100%;padding:9px 10px;text-align:left;color:inherit;background:none;border:0;border-radius:8px;cursor:pointer}.card-button:hover{background:rgba(208,182,117,.05)}
@@ -151,6 +151,7 @@ header{position:sticky;top:0;z-index:5;background:rgba(9,11,14,.96);border-botto
 .time,.price{font:800 17px/1 ui-monospace,"Cascadia Mono",Consolas,monospace;flex:none}.price{color:var(--accent)}.track{height:8px;background:#191d21;border:1px solid #343940;border-radius:5px;margin:8px 0 6px;overflow:hidden}.fill{height:100%;background:var(--timer-color,#a88b57);transition:width .25s linear}.meta{color:var(--muted);font-size:10px;margin:5px 0 0}.timer-actions{display:flex;gap:5px;margin-top:7px}.timer-actions button,.tool-button,.dialog-close{min-height:34px;border:1px solid var(--line2);border-radius:7px;background:linear-gradient(#252b31,#171c21);color:var(--text);padding:6px 10px;font-size:11px;font-weight:750}.timer-actions button{flex:1}.timer-actions button:hover,.tool-button:hover{border-color:var(--accent)}button:disabled{opacity:.5}
 .filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:3px 0 9px}.field{min-width:0}.field-wide{grid-column:1/-1}.field label{display:block;color:var(--muted);font-size:10px;font-weight:700;margin:0 0 3px 2px}.filters input,.filters select,.section-tools select{width:100%;background:#101419;color:var(--text);border:1px solid #596169;border-radius:7px;padding:8px 7px;font-size:12px}.market-note{color:var(--muted);font-size:10px;margin:7px 2px}.empty{text-align:center;color:var(--muted);padding:48px 18px;border:1px dashed var(--line);border-radius:9px;margin-top:10px}.summary{color:#d9d3c7;font-size:11px;margin:6px 0 0}.stat-line{color:var(--accent);font:700 10px/1.5 ui-monospace,"Cascadia Mono",monospace;margin-top:5px}
 .game-tools{display:flex;gap:6px;margin:0 0 7px}.game-tools button{flex:1}.game-shell{background:#050607;border:1px solid var(--line);border-radius:9px;overflow:hidden;min-height:220px;display:grid;place-items:center}.game-shell img{display:block;width:100%;height:auto;background:#000;image-rendering:auto}.game-shell.native{display:block;overflow:auto;max-height:76vh}.game-shell.native img{width:auto;max-width:none}.game-shell.zoom-locked{touch-action:pan-x pan-y;overscroll-behavior:contain}.game-state{margin:7px 2px;color:var(--muted);font-size:11px}.game-badge{display:inline-block;margin-left:5px;padding:2px 5px;border:1px solid #397d62;border-radius:5px;color:var(--ok);font-size:8px;font-weight:800}.game-help{padding:48px 18px;text-align:center;color:var(--muted);max-width:440px}.wifi-note{color:var(--warn);font-size:10px;margin:7px 2px}
+.browser-tools{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:7px;margin-bottom:8px}.browser-tools .wide{grid-column:1/-1}.browser-tools label{display:block;color:var(--muted);font-size:10px;font-weight:700}.browser-tools input,.browser-tools select{width:100%;margin-top:3px;background:#101419;color:var(--text);border:1px solid #596169;border-radius:7px;padding:8px 7px}.data-card{padding:9px 10px}.data-card h3{margin:0;font-size:13px}.data-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;margin-top:6px}.data-grid span{color:var(--muted);font-size:10px;overflow-wrap:anywhere}.item-link{color:var(--accent);font-weight:760;text-decoration:underline;text-underline-offset:2px}.quest-steps{margin:8px 0 0;padding-left:20px;color:#d9d3c7;font-size:11px}.quest-detail{border:1px solid var(--line);border-radius:9px;padding:10px;margin:8px 0;background:#0d1115}.quest-detail h3{margin:0 0 5px;color:var(--accent)}
 dialog{width:min(92vw,620px);max-height:84vh;overflow:auto;border:1px solid #6e6248;border-radius:12px;background:#11161b;color:var(--text);padding:0;box-shadow:0 20px 70px #000}dialog::backdrop{background:rgba(0,0,0,.72);backdrop-filter:blur(3px)}.dialog-head{position:sticky;top:0;display:flex;align-items:center;gap:8px;padding:10px 12px;background:rgba(17,22,27,.97);border-bottom:1px solid var(--line)}.dialog-head h2{flex:1;margin:0;font-size:15px;color:var(--accent)}.dialog-body{padding:12px}.detail-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin:8px 0}.detail-cell{padding:6px;border:1px solid var(--line);border-radius:6px;background:#0d1115}.detail-cell b{display:block;color:var(--muted);font-size:9px}.detail-section{margin:12px 0 4px;color:var(--accent);font-size:11px;letter-spacing:.07em}.effect{padding:6px 0;border-bottom:1px solid var(--line)}.source-link{display:inline-block;color:var(--accent);margin-top:10px}
 #state{color:var(--muted);font-size:9px;margin-left:auto;flex:none}.offline{color:var(--bad)!important}:where(a,button,input,select,[tabindex]):focus-visible{outline:3px solid var(--accent);outline-offset:2px;box-shadow:0 0 0 1px var(--void)}
 @media(max-width:430px){.head{padding:8px 9px 5px}.wrap{padding:5px}.timer,.card-button{padding:8px}.time,.price{font-size:15px}.name{font-size:12px}.filters{grid-template-columns:1fr}.field-wide{grid-column:auto}.detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -159,16 +160,21 @@ dialog{width:min(92vw,620px);max-height:84vh;overflow:auto;border:1px solid #6e6
 </head>
 <body>
 <a id="skipLink" class="skip-link" href="#main-content">Skip to content</a>
-<header><div class="head"><div class="brand-row"><h1 class="brand"><span class="mark" aria-hidden="true">V</span><span>VANTAGE<span class="sr-only"> P99 Companion</span></span></h1><span id="state">Connecting…</span></div><div class="sub">P99 companion · personal session</div></div>
+<header><div class="head"><div class="brand-row"><h1 class="brand"><img class="mark" src="/icon.png" alt="" width="24" height="24"><span>VANTAGE<span class="sr-only"> P99 Companion</span></span></h1><span id="state">Connecting…</span></div><div class="sub">P99 companion · personal session</div></div>
 <div class="tabs" role="tablist" aria-label="Mobile companion views">
 <button id="tabTimers" class="on" type="button" role="tab" aria-selected="true" aria-controls="timers" tabindex="0">TIMERS</button>
+<button id="tabBuffs" type="button" role="tab" aria-selected="false" aria-controls="buffsPage" tabindex="-1">BUFFS</button>
 <button id="tabMarket" type="button" role="tab" aria-selected="false" aria-controls="marketPage" tabindex="-1">MARKET</button>
 <button id="tabSpells" type="button" role="tab" aria-selected="false" aria-controls="spellsPage" tabindex="-1">SPELLS</button>
+<button id="tabGuild" type="button" role="tab" aria-selected="false" aria-controls="guildPage" tabindex="-1">GUILD</button>
+<button id="tabZones" type="button" role="tab" aria-selected="false" aria-controls="zonesPage" tabindex="-1">ZONES</button>
+<button id="tabQuests" type="button" role="tab" aria-selected="false" aria-controls="questsPage" tabindex="-1">QUESTS</button>
 <button id="tabGame" type="button" role="tab" aria-selected="false" aria-controls="gamePage" tabindex="-1">EQ LIVE</button>
 </div></header>
 <div id="connectionStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div><div id="connectionAlert" class="sr-only" role="alert" aria-atomic="true"></div><div id="timerStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
 <main id="main-content" class="wrap" tabindex="-1">
 <section id="timers" class="page" role="tabpanel" aria-labelledby="tabTimers" tabindex="0"><h2 class="panel-title">Spawn timers</h2><div class="section-tools"><div class="field"><label for="timerZone">Zone shown on PC and phone</label><select id="timerZone"><option value="">All zones</option></select></div></div><p id="timerEmpty" class="empty" hidden>No saved timers in this zone.</p><ul id="timerRows" class="timer-list" aria-label="Configured timers" aria-busy="false"></ul></section>
+<section id="buffsPage" class="page" role="tabpanel" aria-labelledby="tabBuffs" tabindex="0" hidden><h2 class="panel-title">Active buff timers</h2><p id="buffNote" class="market-note">Synced from the active character in Vantage.</p><div id="buffStatus" class="sr-only" role="status" aria-live="polite"></div><ul id="buffRows" class="timer-list" aria-label="Active spell and buff timers" aria-busy="false"></ul></section>
 <section id="marketPage" class="page" role="tabpanel" aria-labelledby="tabMarket" tabindex="0" hidden><h2 id="marketHeading" class="panel-title">PIGPARSE MARKET · ITEM STATS</h2><search aria-label="Search market and item stats"><form id="marketFilters" class="filters">
 <div class="field field-wide"><label for="mq">Item or effect</label><input id="mq" name="q" type="search" placeholder="Search item, click, proc or worn effect…" autocomplete="off"></div>
 <div class="field"><label for="mc">Class</label><select id="mc"><option value="0">Any class</option><option value="1">Warrior</option><option value="2">Cleric</option><option value="4">Paladin</option><option value="8">Ranger</option><option value="16">Shadow Knight</option><option value="32">Druid</option><option value="64">Monk</option><option value="128">Bard</option><option value="256">Rogue</option><option value="512">Shaman</option><option value="1024">Necromancer</option><option value="2048">Wizard</option><option value="4096">Magician</option><option value="8192">Enchanter</option></select></div>
@@ -180,6 +186,9 @@ dialog{width:min(92vw,620px);max-height:84vh;overflow:auto;border:1px solid #6e6
 <div class="field"><label for="mso">Sort</label><select id="mso"><option value="posts">Most market data</option><option value="price">Highest price</option><option value="ac">Best AC</option><option value="hp">Best HP</option><option value="mana">Best Mana</option><option value="astr">Best STR</option><option value="asta">Best STA</option><option value="adex">Best DEX</option><option value="aagi">Best AGI</option><option value="aint">Best INT</option><option value="awis">Best WIS</option><option value="acha">Best CHA</option><option value="mr">Best MR</option><option value="haste">Best Haste</option></select></div>
 </form></search><div class="market-note" id="marketNote">PigParse prices · P99 item stats and effects</div><div id="marketStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div><ul id="marketRows" class="card-list" aria-labelledby="marketHeading" aria-busy="false"></ul></section>
 <section id="spellsPage" class="page" role="tabpanel" aria-labelledby="tabSpells" tabindex="0" hidden><h2 id="spellsHeading" class="panel-title">P99 SPELL LIBRARY</h2><search aria-label="Search P99 spells"><form id="spellFilters" class="filters"><div class="field field-wide"><label for="sq">Spell</label><input id="sq" type="search" placeholder="Search spell…" autocomplete="off"></div><div class="field"><label for="sc">Class</label><select id="sc"><option value="">Any class</option><option>Bard</option><option>Cleric</option><option>Druid</option><option>Enchanter</option><option>Magician</option><option>Necromancer</option><option>Paladin</option><option>Ranger</option><option>Shadow Knight</option><option>Shaman</option><option>Wizard</option></select></div><div class="field"><label for="sl">Level</label><select id="sl"><option value="0">Any level</option></select></div></form></search><div class="market-note" id="spellNote">Bundled classic spell index · levels 1–60</div><div id="spellStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div><ul id="spellRows" class="card-list" aria-labelledby="spellsHeading" aria-busy="false"></ul></section>
+<section id="guildPage" class="page" role="tabpanel" aria-labelledby="tabGuild" tabindex="0" hidden><h2 id="guildHeading" class="panel-title">Guild DKP &amp; More</h2><p id="guildNote" class="market-note">Public guild data synced from Vantage.</p><div class="browser-tools"><label>View<select id="guildView"><option value="standings">Standings</option><option value="loot">Loot</option><option value="raids">Raids</option><option value="auctions">Live auctions</option><option value="sheets">Guild sheets</option></select></label><label>Filter<input id="guildSearch" type="search" placeholder="Search this view…" autocomplete="off"></label></div><div id="guildStatus" class="sr-only" role="status" aria-live="polite"></div><ul id="guildRows" class="card-list" aria-labelledby="guildHeading" aria-busy="false"></ul></section>
+<section id="zonesPage" class="page" role="tabpanel" aria-labelledby="tabZones" tabindex="0" hidden><h2 class="panel-title">Zones</h2><div class="browser-tools"><label class="wide">Zone<select id="zoneSelect"><option value="">Choose a zone…</option></select></label><label>View<select id="zoneView"><option value="items">Items</option><option value="mobs">Mobs</option><option value="nameds">Nameds</option></select></label><label>Filter<input id="zoneSearch" type="search" placeholder="Filter this zone…" autocomplete="off"></label></div><p id="zoneNote" class="market-note">Choose a zone; information loads automatically from the P99 Wiki.</p><div id="zoneStatus" class="sr-only" role="status" aria-live="polite"></div><ul id="zoneRows" class="card-list" aria-label="Selected zone information" aria-busy="false"></ul></section>
+<section id="questsPage" class="page" role="tabpanel" aria-labelledby="tabQuests" tabindex="0" hidden><h2 class="panel-title">Quests</h2><div class="browser-tools"><label class="wide">Search quests<input id="questSearch" type="search" placeholder="Search all cached P99 quests…" autocomplete="off"></label></div><p id="questNote" class="market-note">Select a quest for its summary and step-by-step checklist.</p><div id="questStatus" class="sr-only" role="status" aria-live="polite"></div><div id="questDetail" class="quest-detail" hidden></div><ul id="questRows" class="card-list" aria-label="Quest search results" aria-busy="false"></ul></section>
 <section id="gamePage" class="page" role="tabpanel" aria-labelledby="tabGame" tabindex="0" hidden><h2 class="panel-title">EVERQUEST LIVE <span class="game-badge">READ ONLY</span></h2><p id="gameState" class="game-state" role="status" aria-live="polite">Waiting for the local view…</p><div class="game-tools"><button id="gameSize" class="tool-button" type="button" title="Switch between screen fit and exact image pixels">FIT TO SCREEN</button><button id="zoomLock" class="tool-button" type="button" aria-pressed="true" title="Prevent accidental pinch zoom while viewing EverQuest">ZOOM LOCKED</button></div><div id="gameShell" class="game-shell zoom-locked"><p id="gameHelp" class="game-help">Enable “EverQuest Live” in Vantage and keep your phone on the same Wi-Fi network.</p><img id="gameFrame" alt="Live read-only view of the EverQuest window" hidden></div><p class="wifi-note">Privacy: the live image works only on your local Wi-Fi. It cannot control EverQuest.</p></section>
 </main>
 <dialog id="detailDialog" aria-labelledby="detailTitle"><div class="dialog-head"><h2 id="detailTitle">Details</h2><button id="detailClose" class="dialog-close" type="button" aria-label="Close details">Close</button></div><div id="detailBody" class="dialog-body"></div></dialog>
@@ -187,11 +196,13 @@ dialog{width:min(92vw,620px);max-height:84vh;overflow:auto;border:1px solid #6e6
 const token=location.hash.slice(1),byId=id=>document.getElementById(id);
 const mainContent=byId('main-content'),skipLink=byId('skipLink'),timersPanel=byId('timers'),timersRoot=byId('timerRows'),timerEmpty=byId('timerEmpty'),timerStatus=byId('timerStatus'),timerZone=byId('timerZone');
 const marketPanel=byId('marketPage'),marketHeading=byId('marketHeading'),marketRoot=byId('marketRows'),marketNote=byId('marketNote'),marketStatus=byId('marketStatus'),spellsPanel=byId('spellsPage'),spellRoot=byId('spellRows'),spellNote=byId('spellNote'),spellStatus=byId('spellStatus');
+const buffsPanel=byId('buffsPage'),buffRoot=byId('buffRows'),buffNote=byId('buffNote'),buffStatus=byId('buffStatus'),guildPanel=byId('guildPage'),guildRoot=byId('guildRows'),guildNote=byId('guildNote'),guildStatus=byId('guildStatus');
+const zonesPanel=byId('zonesPage'),zoneRoot=byId('zoneRows'),zoneNote=byId('zoneNote'),zoneStatus=byId('zoneStatus'),zoneSelect=byId('zoneSelect'),questsPanel=byId('questsPage'),questRoot=byId('questRows'),questNote=byId('questNote'),questStatus=byId('questStatus'),questDetail=byId('questDetail');
 const gamePanel=byId('gamePage'),gameState=byId('gameState'),gameHelp=byId('gameHelp'),gameFrame=byId('gameFrame'),gameShell=byId('gameShell'),gameSize=byId('gameSize'),zoomLock=byId('zoomLock');
 const state=byId('state'),connectionStatus=byId('connectionStatus'),connectionAlert=byId('connectionAlert'),detailDialog=byId('detailDialog'),detailTitle=byId('detailTitle'),detailBody=byId('detailBody');
-const tabTimers=byId('tabTimers'),tabMarket=byId('tabMarket'),tabSpells=byId('tabSpells'),tabGame=byId('tabGame'),tabs=[tabTimers,tabMarket,tabSpells,tabGame];
+const tabTimers=byId('tabTimers'),tabBuffs=byId('tabBuffs'),tabMarket=byId('tabMarket'),tabSpells=byId('tabSpells'),tabGuild=byId('tabGuild'),tabZones=byId('tabZones'),tabQuests=byId('tabQuests'),tabGame=byId('tabGame'),tabs=[tabTimers,tabBuffs,tabMarket,tabSpells,tabGuild,tabZones,tabQuests,tabGame];
 const phases={idle:'READY',respawn:'RESPAWN',combat:'COMBAT',available:'AVAILABLE'},statLabels={ac:'AC',hp:'HP',mana:'Mana',astr:'STR',asta:'STA',adex:'DEX',aagi:'AGI',aint:'INT',awis:'WIS',acha:'CHA',mr:'MR',fr:'FR',cr:'CR',dr:'DR',pr:'PR',attack:'ATK',haste:'Haste',regen:'Regen',manaregen:'Mana regen'};
-let timerUid=0,lastConnection='',polling=false,marketDelay,marketRequest=0,spellDelay,spellRequest=0,gameLoading=false,gameObjectUrl='',gameDelay,timerListWasEmpty=null,syncingZone=false;let timerStates=new Map();
+let timerUid=0,lastConnection='',polling=false,marketDelay,marketRequest=0,spellDelay,spellRequest=0,gameLoading=false,gameObjectUrl='',gameDelay,timerListWasEmpty=null,syncingZone=false,guildData={},zoneData={},questDelay;let timerStates=new Map();
 function node(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n}function announce(root,text){if(root.textContent!==text)root.textContent=text}
 async function get(path){const r=await fetch(path,{cache:'no-store',headers:{Authorization:'Bearer '+token}});if(!r.ok)throw Error(String(r.status));return r.json()}
 async function post(path,data){const r=await fetch(path,{method:'POST',cache:'no-store',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(data)});if(!r.ok)throw Error(String(r.status));return r.json()}
@@ -206,6 +217,8 @@ async function runTimerAction(row,action){for(const button of row._parts.actions
 function updateTimerRow(row,t){const p=row._parts,name=String(t.name||'Spawn'),remaining=String(t.remaining||'--:--'),pn=['idle','respawn','combat','available'].includes(t.phase)?t.phase:'idle',progress=Math.max(0,Math.min(100,Number(t.progress)||0));row.style.setProperty('--timer-color',/^#[0-9a-f]{6}$/i.test(t.color)?t.color:'#a88b57');p.name.textContent=name;p.phase.className='phase '+pn;p.phase.textContent=t.running===false&&pn!=='idle'?'PAUSED':phases[pn];p.time.textContent=remaining;p.track.setAttribute('aria-valuenow',String(progress));p.track.setAttribute('aria-valuetext',progress+'% · '+remaining+' remaining');p.fill.style.width=progress+'%';const toggleAction=t.running?'Pause':pn==='idle'?'Start':'Resume';p.toggle.textContent=toggleAction;p.toggle.setAttribute('aria-label',toggleAction+' '+name+' timer');p.actions.children[1].setAttribute('aria-label','Restart '+name+' timer from the beginning');p.actions.children[2].setAttribute('aria-label','Stop and clear '+name+' timer');const bits=[];if(t.zone)bits.push('ZONE · '+String(t.zone));bits.push(t.smart?'AUTO':'MANUAL','kill '+String(t.kill||'--:--'),'cycle '+String(Number(t.cycles)||0));p.meta.textContent=bits.join(' · ')}
 function syncTimerZone(data){const zones=Array.isArray(data.timer_zones)?data.timer_zones:[''],selected=String(data.timer_zone||'');syncingZone=true;const current=Array.from(timerZone.options).map(option=>option.value);if(JSON.stringify(current)!==JSON.stringify(zones)){timerZone.replaceChildren(...zones.map(zone=>{const option=node('option','',zone||'All zones');option.value=zone;return option}))}timerZone.value=selected;syncingZone=false}
 function drawTimers(data){syncTimerZone(data);const rows=Array.isArray(data.timers)?data.timers:[],existing=new Map(Array.from(timersRoot.children).map(row=>[row.dataset.key,row])),used=new Set(),nextStates=new Map(),milestones=[];let anchor=timersRoot.firstElementChild;for(const t of rows){const key=String(t.timer_id||[t.name,t.zone,t.kill].join('\u241f'));let row=existing.get(key);if(!row)row=createTimerRow(key);used.add(key);updateTimerRow(row,t);const name=String(t.name||'Spawn'),phase=['idle','respawn','combat','available'].includes(t.phase)?t.phase:'idle',running=t.running!==false,previous=timerStates.get(key);if(previous){if(previous.running!==running)milestones.push(name+(running?' resumed.':' paused.'));if(previous.phase!==phase)milestones.push(name+': '+phases[phase].toLowerCase()+'.')}nextStates.set(key,{phase,running});if(row!==anchor)timersRoot.insertBefore(row,anchor);anchor=row.nextElementSibling}for(const row of Array.from(timersRoot.children))if(!used.has(row.dataset.key))row.remove();const empty=rows.length===0;if(timerListWasEmpty!==null&&timerListWasEmpty!==empty)milestones.push(empty?'No timers in this zone.':rows.length+' timer'+(rows.length===1?' is':'s are')+' visible.');if(milestones.length)announce(timerStatus,milestones.slice(0,3).join(' '));timerStates=nextStates;timerListWasEmpty=empty;timerEmpty.hidden=!empty;timersRoot.hidden=empty}
+function drawBuffs(data){const rows=Array.isArray(data.timers)?data.timers:[],identity=[data.character,data.server].filter(Boolean).join(' · ')||'active Vantage profile';buffNote.textContent=identity+(data.camp_state==='camped'?' · camped, timers keep counting':' · live spell timers');if(!rows.length){showListMessage(buffRoot,'No active buffs or spell timers for this character.');return}buffRoot.replaceChildren(...rows.map(buff=>{const row=node('li','timer'),top=node('div','top'),name=node('h3','name',String(buff.name||'Spell')),target=node('span','phase '+(buff.detrimental?'combat':'available'),String(buff.target||'You')),time=node('span','time',String(buff.remaining||'--:--')),track=node('div','track'),fill=node('div','fill');row.style.setProperty('--timer-color',/^#[0-9a-f]{6}$/i.test(buff.color)?buff.color:'#477B91');top.append(name,target,time);track.setAttribute('role','progressbar');track.setAttribute('aria-label',String(buff.name||'Spell')+' remaining time');track.setAttribute('aria-valuemin','0');track.setAttribute('aria-valuemax','100');track.setAttribute('aria-valuenow',String(Number(buff.progress)||0));fill.className='fill';fill.style.width=String(Number(buff.progress)||0)+'%';track.append(fill);row.append(top,track);if(buff.source_item)row.append(node('p','meta','CLICKY · '+String(buff.source_item)));return row}));announce(buffStatus,rows.length+' active spell timer'+(rows.length===1?'':'s'))}
+async function loadBuffs(){buffRoot.setAttribute('aria-busy','true');try{drawBuffs(await get('/api/buffs'))}catch(_){showListMessage(buffRoot,'Buff timers could not be loaded.');announce(buffStatus,'Buff timers could not be loaded.')}finally{buffRoot.setAttribute('aria-busy','false')}}
 timerZone.addEventListener('change',async()=>{if(syncingZone)return;timerZone.disabled=true;try{await post('/api/timers/action',{action:'zone',target:timerZone.value});setTimeout(poll,120)}catch(error){announce(timerStatus,String(error.message)==='403'?'Zone sync requires the local Wi-Fi QR link.':'Zone could not be changed.')}finally{setTimeout(()=>timerZone.disabled=false,350)}});
 function statSummary(item){const stats=item.stats||{},values=Object.entries(stats).slice(0,7).map(([key,value])=>(statLabels[key]||key.toUpperCase())+' '+(Number(value)>0?'+':'')+String(value));return values.join(' · ')}
 function openMarketDetail(item){detailTitle.textContent=String(item.name||'Item');detailBody.replaceChildren();const top=node('div','top');top.append(node('span','source','PIGPARSE PRICE REFERENCE'),node('span','chip',item.nodrop?'NO DROP':'DROPPABLE'),node('span','chip',item.era?String(item.era).toUpperCase():'ERA UNKNOWN'));detailBody.append(top,node('p','price',item.price?Number(item.price).toLocaleString()+' pp':'No current price'),node('p','meta',String(Number(item.posts)||0)+' price observations in 30 days'));const stats=item.stats||{},keys=Object.keys(stats);if(keys.length){detailBody.append(node('h3','detail-section','ITEM STATS'));const grid=node('div','detail-grid');for(const key of keys){const cell=node('div','detail-cell');cell.append(node('b','',statLabels[key]||key.toUpperCase()),node('span','',((Number(stats[key])>0)?'+':'')+String(stats[key])));grid.append(cell)}detailBody.append(grid)}const effects=Array.isArray(item.effects)?item.effects:[];if(effects.length){detailBody.append(node('h3','detail-section','CLICK / PROC / WORN EFFECTS'));for(const effect of effects)detailBody.append(node('div','effect',String(effect.type||'Effect')+' · '+String(effect.name||'')))}const link=node('a','source-link','Open Project 1999 Wiki source');link.setAttribute('aria-label','Open Project 1999 Wiki source in a new tab');link.href=String(item.wiki_url||'#');link.target='_blank';link.rel='noreferrer noopener';detailBody.append(link);detailDialog.showModal()}
@@ -214,6 +227,14 @@ function updateMarketRow(row,item){const p=row._parts,quality=String(item.qualit
 function showListMessage(root,text){root.replaceChildren(node('li','empty',text))}
 function reconcileMarketRows(items){const existing=new Map(Array.from(marketRoot.children).map(row=>[row.dataset.key,row])),used=new Set();let anchor=marketRoot.firstElementChild;for(const item of items){const key='item:'+String(item.id??item.name);let row=existing.get(key);if(!row||!row._parts)row=createMarketRow(key);updateMarketRow(row,item);used.add(key);if(row!==anchor)marketRoot.insertBefore(row,anchor);anchor=row.nextElementSibling}for(const row of Array.from(marketRoot.children))if(!used.has(row.dataset.key))row.remove()}
 function drawMarket(data){const rows=Array.isArray(data.items)?data.items:[],total=Number(data.total)||0,server=String(data.server||'Green');marketHeading.textContent='PIGPARSE '+server.toUpperCase()+' · ITEM STATS';marketNote.textContent=(data.source||('PigParse API · '+server))+' · '+String(total)+' matches · tap an item for full stats';if(!rows.length){showListMessage(marketRoot,'No items match these filters.');return}reconcileMarketRows(rows)}
+async function openLinkedItem(name,url){try{const data=await get('/api/market?q='+encodeURIComponent(name));const item=(data.items||[]).find(row=>String(row.name||'').toLowerCase()===String(name).toLowerCase());if(item){openMarketDetail(item);return}}catch(_){}window.open(url,'_blank','noopener,noreferrer')}
+function renderGuild(){const view=byId('guildView').value,query=byId('guildSearch').value.trim().toLowerCase(),rows=Array.isArray(guildData[view])?guildData[view]:[];const filtered=rows.filter(row=>JSON.stringify(row).toLowerCase().includes(query));guildNote.textContent=String(guildData.guild||'No guild selected')+' · '+String(guildData.status||'Public guild data');if(!filtered.length){showListMessage(guildRoot,guildData.connected?'No rows match this view.':'Choose and connect a guild in Vantage first.');return}guildRoot.replaceChildren(...filtered.slice(0,250).map(item=>{const row=node('li','card data-card'),title=node('h3','');if(view==='loot'){const link=node('button','card-button item-link',String(item.item||'Item'));link.type='button';link.addEventListener('click',()=>openLinkedItem(item.item,item.wiki_url));row.append(link);title.textContent=String(item.character||'—')+' · '+String(item.dkp||'—')+' DKP';row.append(title,node('p','meta',[item.date,item.raid].filter(Boolean).join(' · ')));return row}title.textContent=String(item.name||item.item||'Guild record');row.append(title);const grid=node('div','data-grid');for(const [key,value] of Object.entries(item)){if(['name','item','wiki_url','url'].includes(key))continue;grid.append(node('span','',key.toUpperCase()+' · '+String(value)))}row.append(grid);if(item.url){const link=node('a','source-link','Open guild sheet');link.href=item.url;link.target='_blank';link.rel='noopener noreferrer';row.append(link)}return row}));announce(guildStatus,filtered.length+' guild rows')}
+async function loadGuild(){guildRoot.setAttribute('aria-busy','true');try{guildData=await get('/api/guild');renderGuild()}catch(_){showListMessage(guildRoot,'Guild data could not be loaded.');announce(guildStatus,'Guild data could not be loaded.')}finally{guildRoot.setAttribute('aria-busy','false')}}
+function syncZoneOptions(data){const zones=Array.isArray(data.zones)?data.zones:[],current=zoneSelect.value;zoneSelect.replaceChildren(node('option','','Choose a zone…'),...zones.map(zone=>{const option=node('option','',String(zone.name||zone.value));option.value=String(zone.value||'');return option}));zoneSelect.value=String(data.selected||current||'')}
+function renderZones(){syncZoneOptions(zoneData);const data=zoneData.data||{},view=byId('zoneView').value,query=byId('zoneSearch').value.trim().toLowerCase();let rows=[];if(view==='items')rows=(data.unique_items||[]).map(name=>({name,source:data.name||''}));else rows=(data.mobs||[]).filter(mob=>view!=='nameds'||mob.named);rows=rows.filter(row=>JSON.stringify(row).toLowerCase().includes(query));zoneNote.textContent=String(zoneData.status||'Choose a zone to load its P99 Wiki information.');if(!rows.length){showListMessage(zoneRoot,zoneData.loading?'Loading zone information…':'No matching '+view+' in this zone.');return}zoneRoot.replaceChildren(...rows.slice(0,300).map(item=>{const row=node('li','card data-card'),title=node('h3','',String(item.name||item));row.append(title);if(view==='items'){const link=node('button','card-button item-link','Open item details');link.type='button';link.addEventListener('click',()=>openLinkedItem(item.name,'https://wiki.project1999.com/'+encodeURIComponent(String(item.name).replaceAll(' ','_'))));row.append(link)}else{const bits=[item.level&&('LEVEL '+item.level),item.class,item.race,item.location].filter(Boolean);row.append(node('p','meta',bits.join(' · ')));if(item.loot)row.append(node('p','summary','DROPS · '+String(item.loot)))}return row}));announce(zoneStatus,rows.length+' '+view+' shown')}
+async function loadZones(){zoneRoot.setAttribute('aria-busy','true');try{zoneData=await get('/api/zones');renderZones()}catch(_){showListMessage(zoneRoot,'Zone information could not be loaded.');announce(zoneStatus,'Zone information could not be loaded.')}finally{zoneRoot.setAttribute('aria-busy','false')}}
+function showQuestDetail(quest){if(!quest||!quest.title){questDetail.hidden=true;questDetail.replaceChildren();return}questDetail.hidden=false;questDetail.replaceChildren(node('h3','',String(quest.title)),node('p','summary',String(quest.summary||'No summary available.')));const steps=Array.isArray(quest.steps)?quest.steps:[];if(steps.length){const list=node('ol','quest-steps');for(const step of steps){const text=typeof step==='string'?step:String(step.text||'');if(text)list.append(node('li','',text))}questDetail.append(list)}if(quest.wiki_url){const link=node('a','source-link','Open full P99 Wiki quest');link.href=quest.wiki_url;link.target='_blank';link.rel='noopener noreferrer';questDetail.append(link)}}
+async function loadQuests(){questRoot.setAttribute('aria-busy','true');try{const data=await get('/api/quests?q='+encodeURIComponent(byId('questSearch').value));questNote.textContent=String(data.status||'Quest catalog')+' · '+String(data.total||0)+' matches';showQuestDetail(data.current);const titles=Array.isArray(data.titles)?data.titles:[];if(!titles.length){showListMessage(questRoot,data.loading?'Loading the quest catalog…':'No quests match this search.')}else questRoot.replaceChildren(...titles.map(title=>{const row=node('li','card'),button=node('button','card-button',title);button.type='button';button.addEventListener('click',async()=>{button.disabled=true;try{await post('/api/browser/action',{action:'quest',target:title});setTimeout(loadQuests,220);setTimeout(loadQuests,900)}catch(_){announce(questStatus,'Quest could not be opened.')}finally{setTimeout(()=>button.disabled=false,450)}});row.append(button);return row}));announce(questStatus,String(data.total||0)+' matching quests')}catch(_){showListMessage(questRoot,'Quest catalog could not be loaded.');announce(questStatus,'Quest catalog could not be loaded.')}finally{questRoot.setAttribute('aria-busy','false')}}
 async function poll(){if(polling)return;if(!token){setConnection('INVALID QR',true,'Invalid QR code. Open a new link from Vantage.');return}polling=true;timersRoot.setAttribute('aria-busy','true');try{drawTimers(await get('/api/state'));setConnection('LIVE',false,'')}catch(_){setConnection('OFFLINE',true,'Connection lost. Timers may be out of date.')}finally{timersRoot.setAttribute('aria-busy','false');polling=false}}
 function params(ids){const p=new URLSearchParams();for(const [key,id] of Object.entries(ids))p.set(key,byId(id).value);return p}
 async function loadMarket(announceLoading=true){const request=++marketRequest,p=params({q:'mq',class:'mc',race:'mr',slot:'ms',effect:'me',drop:'md',era:'mera',sort:'mso'});marketRoot.setAttribute('aria-busy','true');if(announceLoading)announce(marketStatus,'Loading market and item stats.');try{const data=await get('/api/market?'+p);if(request!==marketRequest)return;drawMarket(data);announce(marketStatus,(Number(data.total)||0)+' matches')}catch(_){if(request!==marketRequest)return;showListMessage(marketRoot,'Market data could not be loaded.');announce(marketStatus,'Market data could not be loaded.')}finally{if(request===marketRequest)marketRoot.setAttribute('aria-busy','false')}}
@@ -223,10 +244,11 @@ function drawSpells(data){const items=Array.isArray(data.items)?data.items:[];sp
 function syncSpellLevels(levels){const select=byId('sl'),current=select.value,available=(Array.isArray(levels)?levels:[]).map(Number).filter(level=>level>=1&&level<=60);select.replaceChildren();const any=node('option','','Any level');any.value='0';select.append(any,...available.map(level=>{const option=node('option','',`Level ${level}`);option.value=String(level);return option}));select.value=available.includes(Number(current))?current:'0'}
 async function loadSpells(announceLoading=true){const request=++spellRequest,p=params({q:'sq',class:'sc',level:'sl'});spellRoot.setAttribute('aria-busy','true');if(announceLoading)announce(spellStatus,'Loading spells.');try{const data=await get('/api/spells?'+p);if(request!==spellRequest)return;syncSpellLevels(data.available_levels);drawSpells(data);announce(spellStatus,(Number(data.total)||0)+' spell matches')}catch(_){if(request!==spellRequest)return;showListMessage(spellRoot,'Spell library could not be loaded.');announce(spellStatus,'Spell library could not be loaded.')}finally{if(request===spellRequest)spellRoot.setAttribute('aria-busy','false')}}
 function spellChanged(){clearTimeout(spellDelay);spellDelay=setTimeout(()=>loadSpells(true),180)}for(const id of ['sq','sc','sl'])byId(id).addEventListener(id==='sq'?'input':'change',()=>{if(id==='sc')byId('sl').value='0';spellChanged()});byId('spellFilters').addEventListener('submit',event=>{event.preventDefault();clearTimeout(spellDelay);loadSpells(true)});
-function selectTab(selected,focus=false){const market=selected===tabMarket,spells=selected===tabSpells,game=selected===tabGame;for(const tab of tabs){const active=tab===selected;tab.classList.toggle('on',active);tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1}marketPanel.hidden=!market;spellsPanel.hidden=!spells;gamePanel.hidden=!game;timersPanel.hidden=market||spells||game;if(focus)selected.focus();if(market)loadMarket(true);if(spells)loadSpells(true);if(game)loadGame();else clearTimeout(gameDelay)}
+byId('guildView').addEventListener('change',renderGuild);byId('guildSearch').addEventListener('input',renderGuild);byId('zoneView').addEventListener('change',renderZones);byId('zoneSearch').addEventListener('input',renderZones);zoneSelect.addEventListener('change',async()=>{if(!zoneSelect.value)return;zoneSelect.disabled=true;try{await post('/api/browser/action',{action:'zone',target:zoneSelect.value});setTimeout(loadZones,220);setTimeout(loadZones,1000)}catch(_){announce(zoneStatus,'Zone could not be opened.')}finally{setTimeout(()=>zoneSelect.disabled=false,450)}});byId('questSearch').addEventListener('input',()=>{clearTimeout(questDelay);questDelay=setTimeout(loadQuests,180)});
+function selectTab(selected,focus=false){const panels=new Map([[tabTimers,timersPanel],[tabBuffs,buffsPanel],[tabMarket,marketPanel],[tabSpells,spellsPanel],[tabGuild,guildPanel],[tabZones,zonesPanel],[tabQuests,questsPanel],[tabGame,gamePanel]]);for(const tab of tabs){const active=tab===selected;tab.classList.toggle('on',active);tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;panels.get(tab).hidden=!active}if(focus)selected.focus();if(selected===tabBuffs)loadBuffs();if(selected===tabMarket)loadMarket(true);if(selected===tabSpells)loadSpells(true);if(selected===tabGuild)loadGuild();if(selected===tabZones)loadZones();if(selected===tabQuests)loadQuests();if(selected===tabGame)loadGame();else clearTimeout(gameDelay)}
 for(const tab of tabs){tab.addEventListener('click',()=>selectTab(tab));tab.addEventListener('keydown',event=>{let next;if(event.key==='ArrowRight')next=tabs[(tabs.indexOf(tab)+1)%tabs.length];else if(event.key==='ArrowLeft')next=tabs[(tabs.indexOf(tab)-1+tabs.length)%tabs.length];else if(event.key==='Home')next=tabs[0];else if(event.key==='End')next=tabs[tabs.length-1];else return;event.preventDefault();selectTab(next,true)})}
 byId('detailClose').addEventListener('click',()=>detailDialog.close());detailDialog.addEventListener('click',event=>{if(event.target===detailDialog)detailDialog.close()});skipLink.addEventListener('click',event=>{event.preventDefault();mainContent.focus({preventScroll:true});mainContent.scrollIntoView({block:'start',behavior:'auto'})});document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!gamePanel.hidden)loadGame();else clearTimeout(gameDelay)});
-poll();setInterval(poll,2000);setInterval(()=>{if(!marketPanel.hidden)loadMarket(false)},10000);
+poll();setInterval(poll,2000);setInterval(()=>{if(!buffsPanel.hidden)loadBuffs();if(!marketPanel.hidden)loadMarket(false);if(!guildPanel.hidden)loadGuild();if(!zonesPanel.hidden)loadZones();if(!questsPanel.hidden)loadQuests()},5000);
 </script>
 </body>
 </html>"""
@@ -238,18 +260,19 @@ class _ShareHTTPServer(ThreadingHTTPServer):
 
     def __init__(
             self, address, token, snapshot_provider, game_capture=None,
-            lan_token=None, timer_action=None, spells=()):
+            lan_token=None, timer_action=None, browse_action=None, spells=()):
         super().__init__(address, _ShareHandler)
         self.token = token
         self.lan_token = lan_token or token
         self.snapshot_provider = snapshot_provider
         self.game_capture = game_capture
         self.timer_action = timer_action
+        self.browse_action = browse_action
         self.spells = tuple(spells)
 
 
 class _ShareHandler(BaseHTTPRequestHandler):
-    server_version = "VantageMobile/1.44.68"
+    server_version = "VantageMobile/1.44.69"
 
     def log_message(self, *_):
         # Do not write access paths or the user's network details to disk.
@@ -285,10 +308,11 @@ class _ShareHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlsplit(self.path).path
-        if path != "/api/timers/action":
+        if path not in {"/api/timers/action", "/api/browser/action"}:
             self._send(404, b"not found", "text/plain; charset=utf-8")
             return
-        if not self._authorized(lan_only=True):
+        lan_only = path == "/api/timers/action"
+        if not self._authorized(lan_only=lan_only):
             self._send(403, b'{"error":"wifi_only"}', "application/json")
             return
         try:
@@ -305,14 +329,17 @@ class _ShareHandler(BaseHTTPRequestHandler):
         except (UnicodeError, TypeError, ValueError, json.JSONDecodeError):
             self._send(400, b'{"error":"invalid_json"}', "application/json")
             return
-        if action not in {"toggle", "restart", "clear", "zone"} or (
-                action != "zone" and not target):
+        allowed = ({"toggle", "restart", "clear", "zone"} if lan_only else
+                   {"zone", "quest"})
+        if action not in allowed or (
+                not target and not (lan_only and action == "zone")):
             self._send(400, b'{"error":"invalid_action"}', "application/json")
             return
-        if self.server.timer_action is None:
+        callback = self.server.timer_action if lan_only else self.server.browse_action
+        if callback is None:
             self._send(503, b'{"error":"unavailable"}', "application/json")
             return
-        self.server.timer_action(action, target)
+        callback(action, target)
         self._send(202, b'{"accepted":true}', "application/json")
 
     def do_GET(self):
@@ -321,8 +348,16 @@ class _ShareHandler(BaseHTTPRequestHandler):
         if path == "/":
             self._send(200, _MOBILE_PAGE.encode("utf-8"), "text/html; charset=utf-8")
             return
-        if path == "/favicon.ico":
-            self._send(204, b"", "image/x-icon")
+        if path in {"/icon.png", "/favicon.ico"}:
+            filename = "icon.png" if path == "/icon.png" else "icon.ico"
+            content_type = "image/png" if path == "/icon.png" else "image/x-icon"
+            try:
+                with open(resource_path(f"data/ui/{filename}"), "rb") as icon_file:
+                    payload = icon_file.read()
+            except OSError:
+                self._send(404, b"not found", "text/plain; charset=utf-8")
+                return
+            self._send(200, payload, content_type)
             return
         if path.startswith("/api/"):
             if not self._authorized():
@@ -374,6 +409,42 @@ class _ShareHandler(BaseHTTPRequestHandler):
             }
             payload = json.dumps(
                 state, ensure_ascii=False,
+                separators=(",", ":")).encode("utf-8")
+            self._send(200, payload, "application/json; charset=utf-8")
+            return
+        if path == "/api/buffs":
+            snapshot = self.server.snapshot_provider()
+            payload = json.dumps(
+                snapshot.get("buffs", {}), ensure_ascii=False,
+                separators=(",", ":")).encode("utf-8")
+            self._send(200, payload, "application/json; charset=utf-8")
+            return
+        if path == "/api/zones":
+            snapshot = self.server.snapshot_provider()
+            payload = json.dumps(
+                snapshot.get("zones", {}), ensure_ascii=False,
+                separators=(",", ":")).encode("utf-8")
+            self._send(200, payload, "application/json; charset=utf-8")
+            return
+        if path == "/api/quests":
+            snapshot = self.server.snapshot_provider()
+            quests = dict(snapshot.get("quests", {}))
+            query = parse_qs(request_url.query, keep_blank_values=True)
+            text = query.get("q", [""])[0].strip().casefold()
+            titles = [str(title) for title in quests.pop("catalog", ())]
+            if text:
+                titles = [title for title in titles if text in title.casefold()]
+            quests["total"] = len(titles)
+            quests["titles"] = titles[:250]
+            payload = json.dumps(
+                quests, ensure_ascii=False,
+                separators=(",", ":")).encode("utf-8")
+            self._send(200, payload, "application/json; charset=utf-8")
+            return
+        if path == "/api/guild":
+            snapshot = self.server.snapshot_provider()
+            payload = json.dumps(
+                snapshot.get("guild", {}), ensure_ascii=False,
                 separators=(",", ":")).encode("utf-8")
             self._send(200, payload, "application/json; charset=utf-8")
             return
@@ -548,12 +619,15 @@ class MobileShareController(QObject):
     game_enabled_changed = Signal(bool)
     game_executable_changed = Signal(str)
     timer_action_requested = Signal(str, str)
+    browse_action_requested = Signal(str, str)
 
     def __init__(
-            self, snapshot_provider, timer_action_handler=None, parent=None):
+            self, snapshot_provider, timer_action_handler=None,
+            browse_action_handler=None, parent=None):
         super().__init__(parent)
         self.snapshot_provider = snapshot_provider
         self._timer_action_handler = timer_action_handler
+        self._browse_action_handler = browse_action_handler
         self._server = None
         self._server_thread = None
         self._token = ""
@@ -581,6 +655,7 @@ class MobileShareController(QObject):
                 entry.name.replace(" ", "_"), safe=""),
         } for entry in p99_spell_entries())
         self.timer_action_requested.connect(self._dispatch_timer_action)
+        self.browse_action_requested.connect(self._dispatch_browse_action)
         self._network = QNetworkAccessManager(self)
         self._snapshot_timer = QTimer(self)
         self._snapshot_timer.setInterval(1000)
@@ -623,7 +698,8 @@ class MobileShareController(QObject):
             self._server = _ShareHTTPServer(
                 ("0.0.0.0", 0), self._token, self._snapshot,
                 self.game_capture, self._lan_token,
-                self._queue_timer_action, self._spell_items)
+                self._queue_timer_action, self._queue_browse_action,
+                self._spell_items)
         except OSError as error:
             self.status_changed.emit(f"The mobile view could not be opened: {error}")
             return
@@ -702,6 +778,14 @@ class MobileShareController(QObject):
     def _dispatch_timer_action(self, action, target):
         if callable(self._timer_action_handler):
             self._timer_action_handler(action, target)
+            QTimer.singleShot(0, self._refresh_snapshot)
+
+    def _queue_browse_action(self, action, target):
+        self.browse_action_requested.emit(str(action), str(target))
+
+    def _dispatch_browse_action(self, action, target):
+        if callable(self._browse_action_handler):
+            self._browse_action_handler(action, target)
             QTimer.singleShot(0, self._refresh_snapshot)
 
     def set_game_executable(self, path):
@@ -1072,7 +1156,8 @@ class MobileShareDialog(UniformScaleDialog):
         layout.addWidget(self.qr)
 
         included = QLabel(
-            "QR INCLUDES · TIMERS · MARKET · SPELLS · EQ LIVE (OPTIONAL)")
+            "QR INCLUDES · TIMERS · BUFFS · MARKET · SPELLS · GUILD · "
+            "ZONES · QUESTS · EQ LIVE (OPTIONAL)")
         included.setObjectName("MobileShareTerms")
         included.setWordWrap(True)
         included.setAccessibleName(

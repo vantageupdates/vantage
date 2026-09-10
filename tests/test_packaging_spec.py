@@ -32,6 +32,14 @@ def test_embedded_ui_updater_runs_before_single_instance_and_is_bundled():
     assert "data.append(('ui/release.json', '.'))" in spec
 
 
+def test_elevated_character_ui_manager_runs_before_single_instance():
+    entrypoint = (ROOT / "vantage_app.py").read_text(encoding="utf-8")
+
+    assert entrypoint.index('"--manage-ui-profiles"') < entrypoint.index(
+        "SingleInstanceGuard")
+    assert "process_elevated_profile_request(*arguments)" in entrypoint
+
+
 def test_ui_release_build_self_tests_only_standalone_with_a_fresh_report():
     source = (ROOT / "scripts" / "build_ui_release.ps1").read_text(
         encoding="utf-8")

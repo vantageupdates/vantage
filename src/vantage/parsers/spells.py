@@ -320,8 +320,6 @@ class Spells(ParserWindow):
     """Tracks spell casting, duration, and targets by name."""
 
     spell_faded = Signal(str, str)
-    _keep_header_readable = True
-    _minimum_readable_width = 210
 
     def __init__(self):
         self.name = "spells"
@@ -1559,11 +1557,12 @@ class Spells(ParserWindow):
         return True
 
     def snapshot_you_spells(self, character='', server='', now=None):
-        """Capture exact remaining self-buff seconds for camp restoration."""
+        """Capture self buffs with deadlines that keep aging while offline."""
         target = self._spell_container.get_spell_target_by_name('__you__')
         if not target:
             return []
         now = now or datetime.datetime.now()
+        now_epoch = time.time()
         saved = []
         for widget in target.spell_widgets():
             if not self._spell_widget_matches_profile(
@@ -1575,6 +1574,8 @@ class Spells(ParserWindow):
                 saved.append({
                     'name': widget.spell.name,
                     'seconds': min(seconds, 7 * 24 * 60 * 60),
+                    'deadline': now_epoch + min(
+                        seconds, 7 * 24 * 60 * 60),
                 })
         return saved[:128]
 
@@ -1603,8 +1604,10 @@ class Spells(ParserWindow):
                 continue
             source = lookup.get(str(item.get('name') or '').casefold())
             try:
-                remaining = int(item.get('seconds', 0))
-            except (TypeError, ValueError):
+                deadline = float(item.get('deadline', 0) or 0)
+                remaining = int(math.ceil(deadline - time.time())) \
+                    if deadline > 0 else int(item.get('seconds', 0))
+            except (TypeError, ValueError, OverflowError):
                 remaining = 0
             if not source or remaining <= 0:
                 continue
@@ -1615,6 +1618,110 @@ class Spells(ParserWindow):
                 spell, timestamp, '__you__', character, server)
             restored += 1
         return restored
+
+    def mobile_snapshot(self):
+        """Return active spell timers for the private mobile companion."""
+        now_epoch = time.time()
+        selected = self._selected_character_profile()
+        character = str(
+            getattr(self, '_active_character', '') or
+            selected.get('character') or '').strip()
+        server = str(
+            getattr(self, '_active_server', '') or
+            selected.get('server') or '').strip()
+        rows = []
+        seen = set()
+        for item in self._spell_container.snapshot_runtime_state(
+                now_epoch=now_epoch):
+            item_character = str(item.get('character') or '').strip()
+            item_server = str(item.get('server') or '').strip()
+            if character and item_character and \
+                    item_character.casefold() != character.casefold():
+                continue
+            if server and item_server and \
+                    item_server.casefold() != server.casefold():
+                continue
+            payload = item.get('spell') or {}
+            name = str(payload.get('name') or '').strip()
+            target = str(item.get('target') or '__you__').strip()
+            try:
+                remaining = max(0, int(math.ceil(
+                    float(item.get('deadline', 0)) - now_epoch)))
+                duration = max(remaining, int(
+                    payload.get('duration_seconds') or remaining))
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if not name or remaining <= 0:
+                continue
+            source = self.spell_book.get(name)
+            color = spell_progress_palette(source)[1] if source else '#477B91'
+            target_label = {
+                '__you__': 'You', '__custom__': 'Custom',
+                '__utility__': 'Utility',
+            }.get(target, str(item.get('target_alias') or target))
+            marker = str(item.get('target_marker') or '').strip()
+            if marker and target not in {'__you__', '__custom__', '__utility__'}:
+                target_label = f'{target_label} · {marker}'
+            key = (target.casefold(), name.casefold(),
+                   item_character.casefold(), item_server.casefold())
+            seen.add(key)
+            rows.append({
+                'key': '|'.join(key),
+                'name': name,
+                'target': target_label,
+                'remaining_seconds': remaining,
+                'remaining': self._mobile_time_text(remaining),
+                'progress': max(0, min(100, round(
+                    remaining / max(1, duration) * 100))),
+                'color': color,
+                'detrimental': target not in {
+                    '__you__', '__custom__', '__utility__'},
+                'source_item': str(payload.get('source_item') or ''),
+            })
+
+        # A completed camp intentionally removes rows from the live window.
+        # Keep the same character's still-current snapshot visible on mobile.
+        context = getattr(self, '_character_context', None)
+        if context and self._camp_state == 'camped':
+            for item in getattr(context, 'saved_you_spells', ()):
+                name = str(item.get('name') or '').strip()
+                try:
+                    remaining = max(0, int(math.ceil(
+                        float(item.get('deadline', 0)) - now_epoch)))
+                except (TypeError, ValueError, OverflowError):
+                    remaining = 0
+                key = ('__you__', name.casefold(), character.casefold(),
+                       server.casefold())
+                if not name or remaining <= 0 or key in seen:
+                    continue
+                source = self.spell_book.get(name)
+                color = spell_progress_palette(source)[1] if source else '#477B91'
+                rows.append({
+                    'key': '|'.join(key), 'name': name, 'target': 'You',
+                    'remaining_seconds': remaining,
+                    'remaining': self._mobile_time_text(remaining),
+                    'progress': 100, 'color': color, 'detrimental': False,
+                    'source_item': str(
+                        getattr(source, 'source_item', '') or ''),
+                })
+        rows.sort(key=lambda row: (
+            row['target'].casefold(), row['remaining_seconds'],
+            row['name'].casefold()))
+        return {
+            'character': character,
+            'server': server,
+            'camp_state': self._camp_state,
+            'timers': rows[:512],
+            'generated_at': int(now_epoch),
+        }
+
+    @staticmethod
+    def _mobile_time_text(seconds):
+        seconds = max(0, int(seconds))
+        hours, remainder = divmod(seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return (f'{hours:d}:{minutes:02d}:{seconds:02d}' if hours else
+                f'{minutes:d}:{seconds:02d}')
 
     def set_camp_status(self, state, character=''):
         """Show compact, silent feedback for the log-authoritative camp state."""
@@ -1682,6 +1789,11 @@ class Spells(ParserWindow):
             profile = dict(self._character_widget.itemData(profile_index) or {})
             profile['level'] = max(1, min(65, int(context.level)))
             self._character_widget.setItemData(profile_index, profile)
+        if context.character and profile_index >= 0 and \
+                self._character_widget.currentIndex() != profile_index:
+            # Log identity is authoritative: switching characters immediately
+            # switches the visible desktop and mobile buff profile.
+            self._character_widget.setCurrentIndex(profile_index)
         selected = self._selected_character_profile()
         selected_matches = bool(
             context.character and (
@@ -1876,7 +1988,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.68')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.69')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:

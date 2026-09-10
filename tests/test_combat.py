@@ -30,6 +30,46 @@ def test_kill_finalizes_encounter():
     assert round(tracker.last().your_dps, 1) == 10.0
 
 
+def test_zone_line_finishes_every_active_mob_before_same_name_can_restart():
+    tracker = CombatTracker()
+    tracker.ingest(at(0), "You have entered East Commonlands.")
+    tracker.ingest(at(1), "You slash a skeleton for 10 points of damage.")
+    tracker.ingest(at(2), "Alice hits an orc pawn for 7 points of damage.")
+    tracker.ingest(at(3), "You have entered West Commonlands.")
+
+    assert tracker.current() is None
+    assert {fight.target for fight in tracker.completed} == {
+        "a skeleton", "an orc pawn"}
+    assert all(fight.zone == "East Commonlands"
+               for fight in tracker.completed)
+    assert [fight.target for fight in tracker.drain_completed()] == [
+        "a skeleton", "an orc pawn"]
+
+    tracker.ingest(at(4), "You slash a skeleton for 20 points of damage.")
+    assert tracker.current().zone == "West Commonlands"
+    assert tracker.current().total_damage == 20
+
+
+def test_parses_extended_classic_melee_verbs_instead_of_losing_damage():
+    tracker = CombatTracker()
+    lines = (
+        "You frenzy a giant for 11 points of damage.",
+        "A wolf gores a giant for 12 points of damage.",
+        "Archer shoots a giant for 13 points of damage.",
+        "A basilisk stings a giant for 14 points of damage.",
+        "You try to sweep a giant, but miss!",
+    )
+    for offset, message in enumerate(lines):
+        tracker.ingest(at(offset), message)
+
+    fight = tracker.current()
+    assert fight.total_damage == 50
+    assert set(fight.attackers["You"].by_type) == {"Frenzy"}
+    assert fight.attackers["You"].attempts == 2
+    assert fight.attackers["You"].misses == 1
+    assert fight.attackers["Archer"].by_type["Shoot"].damage == 13
+
+
 def test_session_aggregates_attackers():
     tracker = CombatTracker()
     tracker.ingest(at(0), "Alice hits a bat for 9 points of damage.")

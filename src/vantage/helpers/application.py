@@ -51,7 +51,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=68,
+    patch=69,
     build=""
 )
 
@@ -337,6 +337,7 @@ class VantageApp(QApplication):
         self._mobile_share_instance = MobileShareController(
             self._mobile_snapshot,
             timer_action_handler=self._parsers_dict["timers"].mobile_action,
+            browse_action_handler=self._mobile_browse_action,
             parent=self)
         self._mobile_dialog_instance = MobileShareDialog(
             self._mobile_share_instance)
@@ -942,7 +943,7 @@ class VantageApp(QApplication):
         """Persist and clear the exact player-scoped state EQTool clears."""
         spells = self._parsers_dict['spells']
         saved = spells.snapshot_you_spells(character, server)
-        _context, changed = self._character_context.store_you_spells_if_empty(
+        _context, changed = self._character_context.store_you_spells(
             character, server, saved)
         spells.clear_you_spells(character, server)
         self._parsers_dict['maps'].clear_player_location()
@@ -1436,4 +1437,19 @@ class VantageApp(QApplication):
     def _mobile_snapshot(self):
         snapshot = self._parsers_dict["timers"].mobile_snapshot()
         snapshot["market"] = self._parsers_dict["market"].mobile_snapshot()
+        snapshot["buffs"] = self._parsers_dict["spells"].mobile_snapshot()
+        snapshot["guild"] = self._parsers_dict["opendkp"].mobile_snapshot()
+        quests = self._parsers_dict["quests"]
+        if not quests._catalog and not quests._catalog_loading:
+            quests._fetch_catalog()
+        snapshot["quests"] = quests.mobile_snapshot()
+        snapshot["zones"] = self._parsers_dict["zones"].mobile_snapshot()
         return snapshot
+
+    def _mobile_browse_action(self, action, target):
+        """Apply a private, read-only catalog navigation request."""
+        if action == "zone":
+            return self._parsers_dict["zones"].mobile_select(target)
+        if action == "quest":
+            return self._parsers_dict["quests"].mobile_select(target)
+        return False

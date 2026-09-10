@@ -51,7 +51,7 @@ def test_tick_rejects_a_height_that_would_cut_its_controls(tmp_path):
         check=True, capture_output=True, text=True, timeout=30)
     result = json.loads(completed.stdout.strip().splitlines()[-1])
 
-    assert result['size'][0] == 208
-    assert result['size'][1] >= 114
-    assert result['minimum_height'] == 114
+    assert result['size'][0] == 195
+    assert result['size'][1] >= 106
+    assert result['minimum_height'] == 36
     assert all(result['inside'])

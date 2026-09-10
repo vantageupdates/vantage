@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import statistics
+from urllib.parse import quote
 import uuid
 import webbrowser
 
 from PySide6.QtCore import Qt, QTimer, QUrl
-from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
+from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent, QColor
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QComboBox, QDialog, QDialogButtonBox,
@@ -215,7 +216,6 @@ class OpenDKP(ParserWindow):
 
     name = "opendkp"
     _allow_clickthrough = False
-    _minimum_scale = 0.80
     MAX_TABLE_ROWS = 2000
     MAX_SHEET_TABLE_ROWS = 3000
 
@@ -429,6 +429,9 @@ class OpenDKP(ParserWindow):
         self.character_loot = self._table(
             ("Date", "Item", "DKP", "Raid / event"),
             "Selected character loot", (0, Qt.SortOrder.DescendingOrder))
+        self.character_loot.cellClicked.connect(
+            lambda row, column: self._open_loot_item(
+                self.character_loot, row, column))
         self.character_raids = self._table(
             ("Date", "Raid / event", "Awarded", "Spent"),
             "Selected character raids", (0, Qt.SortOrder.DescendingOrder))
@@ -588,6 +591,9 @@ class OpenDKP(ParserWindow):
         self.loot_table = self._table(
             ("Date", "Item", "Character", "DKP", "Raid / event"),
             "OpenDKP loot history", (0, Qt.SortOrder.DescendingOrder))
+        self.loot_table.cellClicked.connect(
+            lambda row, column: self._open_loot_item(
+                self.loot_table, row, column))
         layout.addWidget(self.loot_table, 1)
         return page
 
@@ -871,7 +877,7 @@ class OpenDKP(ParserWindow):
             return False
         request = QNetworkRequest(QUrl(csv_url))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.69")
         request.setAttribute(
             QNetworkRequest.Attribute.RedirectPolicyAttribute,
             QNetworkRequest.RedirectPolicy.NoLessSafeRedirectPolicy)
@@ -1221,13 +1227,16 @@ class OpenDKP(ParserWindow):
             self._set_result(message, announce=True)
             self.client.fetch_active_auctions()
         elif operation == "login":
-            self._set_result("Secure OpenDKP session connected", announce=True)
+            self._set_result(
+                "Secure OpenDKP session connected and saved in Windows",
+                announce=True)
         if operation in {"dkp", "characters", "raids", "items", "auctions"}:
             self._set_status(f"{self._guild_name()} · public data ready", "ready")
 
     def _failed(self, operation, message, status):
         prefix = {
             "auth": "Sign-in required", "login": "Sign-in failed",
+            "session": "Saved sign-in temporarily unavailable",
             "client": "Guild not found"}.get(operation, "OpenDKP request failed")
         detail = f"{prefix}: {_clean(message, f'HTTP {status}')}"
         self._set_status(detail, "error", announce=True)
@@ -1312,6 +1321,27 @@ class OpenDKP(ParserWindow):
         table.setSortingEnabled(sorting)
         if table.columnCount() and table.columnWidth(0) < 150:
             table.setColumnWidth(0, 170)
+
+    @staticmethod
+    def _loot_item_cell(name, source=None):
+        item = SortItem(
+            _clean(name), source, search_text=_clean(name).casefold())
+        font = item.font()
+        font.setUnderline(True)
+        item.setFont(font)
+        item.setForeground(QColor("#D8BE78"))
+        item.setToolTip(f"Open {_clean(name)} item details")
+        item.setData(Qt.ItemDataRole.UserRole + 2, "item-link")
+        return item
+
+    def _open_loot_item(self, table, row, column):
+        if column != 1:
+            return False
+        item = table.item(row, column)
+        if item is None or item.data(Qt.ItemDataRole.UserRole + 2) != "item-link":
+            return False
+        market = getattr(QApplication.instance(), "_parsers_dict", {}).get("market")
+        return bool(market and market._show_wiki_item_name(item.text()))
 
     def _populate_standings(self):
         rows = []
@@ -1402,7 +1432,8 @@ class OpenDKP(ParserWindow):
                 _clean(item.get("CharacterName"), "").casefold() == name.casefold()]
         loot.sort(key=lambda item: str(item.get("Timestamp") or ""), reverse=True)
         self._set_rows(self.character_loot, [
-            (_date_cell(item.get("Timestamp")), _clean(item.get("ItemName")),
+            (_date_cell(item.get("Timestamp")),
+             self._loot_item_cell(item.get("ItemName"), item),
              (_number(item.get("DKP"), 1), None, float(item.get("DKP") or 0)),
              _clean(item.get("Raid"))) for item in loot[:100]])
         raids = self._datasets["character_raids"][:100]
@@ -1423,7 +1454,7 @@ class OpenDKP(ParserWindow):
                        key=lambda item: str(item.get("Timestamp") or ""), reverse=True)
         self._set_rows(self.loot_table, [
             (_date_cell(item.get("Timestamp")),
-             (_clean(item.get("ItemName")), item, _clean(item.get("ItemName")).casefold()),
+             self._loot_item_cell(item.get("ItemName"), item),
              _clean(item.get("CharacterName")),
              (_number(item.get("DKP"), 1), None, float(item.get("DKP") or 0)),
              _clean(item.get("Raid"))) for item in items])
@@ -1434,6 +1465,64 @@ class OpenDKP(ParserWindow):
             summary += f" · median {statistics.median(prices):,.1f} DKP"
         self.loot_summary.setText(summary)
         self._filter_loot()
+
+    def mobile_snapshot(self):
+        """Return bounded, display-ready public guild data for mobile."""
+        profile = self._profile() or {}
+        guild = self._guild_details if isinstance(self._guild_details, dict) else {}
+        standings = sorted(
+            self._datasets.get("dkp", ()),
+            key=lambda row: _clean(row.get("CharacterName")).casefold())
+        loot = sorted(
+            self._datasets.get("items", ()),
+            key=lambda row: str(row.get("Timestamp") or ""), reverse=True)
+        raids = sorted(
+            self._datasets.get("raids", ()),
+            key=lambda row: str(row.get("Timestamp") or ""), reverse=True)
+        auctions = self._datasets.get("active_auctions", ())
+        return {
+            "guild": _clean(
+                guild.get("Name") or profile.get("name") or
+                profile.get("slug"), "No guild selected"),
+            "slug": str(profile.get("slug") or ""),
+            "connected": bool(self.client.slug),
+            "authenticated": bool(self.client.authenticated),
+            "status": self.result_status.text(),
+            "standings": [{
+                "name": _clean(row.get("CharacterName")),
+                "class": _clean(row.get("CharacterClass")),
+                "level": _number(row.get("CharacterLevel")),
+                "rank": _clean(row.get("CharacterRank")),
+                "dkp": _number(row.get("CurrentDKP"), 1),
+                "attendance": _percent(row.get("Calculated_30")),
+            } for row in standings[:500]],
+            "loot": [{
+                "date": _date_text(row.get("Timestamp")),
+                "item": _clean(row.get("ItemName")),
+                "character": _clean(row.get("CharacterName")),
+                "dkp": _number(row.get("DKP"), 1),
+                "raid": _clean(row.get("Raid")),
+                "wiki_url": "https://wiki.project1999.com/" + quote(
+                    _clean(row.get("ItemName"), "").replace(" ", "_"),
+                    safe=""),
+            } for row in loot[:500]],
+            "raids": [{
+                "date": _date_text(row.get("Timestamp")),
+                "name": _clean(row.get("Name")),
+                "items": _number(row.get("ItemCount")),
+                "awarded": _number(row.get("DKPAwarded"), 1),
+                "spent": _number(row.get("DKPSpent"), 1),
+            } for row in raids[:300]],
+            "auctions": [{
+                "item": auction_item_name(row),
+                "remaining": _remaining_text(row),
+                "bids": len(auction_bids(row)),
+            } for row in auctions[:200]],
+            "sheets": [{
+                "name": str(row.get("name") or "Guild sheet"),
+                "url": str(row.get("url") or ""),
+            } for row in config.data.get("opendkp", {}).get("sheets", [])[:32]],
+        }
 
     def _populate_raids(self):
         raids = sorted(self._datasets["raids"],

@@ -1,13 +1,14 @@
 import base64
 import copy
 import json
+from types import SimpleNamespace
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from vantage.helpers import config
 from vantage.helpers.opendkp import (
-    auction_bids, auction_id, auction_item_name, decode_token_username,
+    OpenDkpClient, auction_bids, auction_id, auction_item_name, decode_token_username,
     normalize_guild_slug, rows_from_payload, watch_matches)
 from vantage.parsers.opendkp import OpenDKP, SortItem, _date_cell
 
@@ -115,3 +116,125 @@ def test_numeric_sort_keys_do_not_sort_formatted_dkp_as_text():
     high = SortItem("1,200.0", sort_value=1200)
     assert low < high
     assert not high < low
+
+
+def test_loot_item_cell_opens_the_matching_market_item_card():
+    app = QApplication.instance() or QApplication([])
+    opened = []
+    prior = getattr(app, "_parsers_dict", None)
+    app._parsers_dict = {
+        "market": SimpleNamespace(
+            _show_wiki_item_name=lambda name: opened.append(name) or object())}
+
+    class TableHarness:
+        MAX_TABLE_ROWS = 10
+
+    harness = TableHarness()
+    table = OpenDKP._table(
+        harness, ("Date", "Item"), "Raid loot",
+        (0, Qt.SortOrder.DescendingOrder))
+    try:
+        OpenDKP._set_rows(harness, table, [
+            (_date_cell("2026-09-09T12:00:00Z"),
+             OpenDKP._loot_item_cell("Crown of Rile")),
+        ])
+        assert OpenDKP._open_loot_item(harness, table, 0, 1) is True
+        assert opened == ["Crown of Rile"]
+        assert table.item(0, 1).toolTip() == "Open Crown of Rile item details"
+    finally:
+        if prior is None:
+            delattr(app, "_parsers_dict")
+        else:
+            app._parsers_dict = prior
+        table.deleteLater()
+        app.processEvents()
+
+
+def test_temporary_refresh_failure_keeps_permanent_saved_session(monkeypatch):
+    class Timer:
+        active = False
+        def start(self):
+            self.active = True
+        def isActive(self):
+            return self.active
+
+    deleted = []
+    states = []
+    failures = []
+    client = SimpleNamespace(
+        slug="guild-one", client_details={"WebClientId": "client-id"},
+        username="Raider", _refresh_token="saved-renewable-token",
+        _refreshing=True, _id_token="id", _token_expires_at=1,
+        _pending_auth=[object()], _session_retry_timer=Timer(),
+        auth_changed=SimpleNamespace(
+            emit=lambda *args: states.append(args)),
+        failed=SimpleNamespace(emit=lambda *args: failures.append(args)))
+    monkeypatch.setattr(
+        "vantage.helpers.opendkp.delete_refresh_token",
+        lambda slug: deleted.append(slug))
+
+    OpenDkpClient._auth_failed(client, "refresh", "network offline", 0)
+
+    assert client._refresh_token == "saved-renewable-token"
+    assert deleted == []
+    assert states[-1] == ("saved", "Raider")
+    assert failures[-1] == ("session", "network offline", 0)
+    assert client._session_retry_timer.isActive()
+
+
+def test_rejected_refresh_removes_only_that_invalid_saved_session(monkeypatch):
+    class Timer:
+        def start(self):
+            raise AssertionError("invalid credentials must not retry")
+        def isActive(self):
+            return False
+
+    deleted = []
+    states = []
+    failures = []
+    client = SimpleNamespace(
+        slug="guild-one", client_details={"WebClientId": "client-id"},
+        username="Raider", _refresh_token="expired-token",
+        _refreshing=True, _id_token="id", _token_expires_at=1,
+        _pending_auth=[object()], _session_retry_timer=Timer(),
+        auth_changed=SimpleNamespace(
+            emit=lambda *args: states.append(args)),
+        failed=SimpleNamespace(emit=lambda *args: failures.append(args)))
+    monkeypatch.setattr(
+        "vantage.helpers.opendkp.delete_refresh_token",
+        lambda slug: deleted.append(slug))
+
+    OpenDkpClient._auth_failed(
+        client, "refresh", "NotAuthorizedException", 400)
+
+    assert client._refresh_token == ""
+    assert deleted == ["guild-one"]
+    assert states[-1] == ("expired", "Raider")
+    assert not client._session_retry_timer.isActive()
+
+
+def test_loading_saved_guild_restores_windows_credential(monkeypatch):
+    states = []
+    stopped = []
+    timer_stops = []
+    monkeypatch.setattr(
+        "vantage.helpers.opendkp.read_refresh_token",
+        lambda slug: ("Raider", "permanent-token") if slug == "guild-one"
+        else ("", ""))
+    client = SimpleNamespace(
+        slug="", stop_live=lambda: stopped.append(True),
+        _session_retry_timer=SimpleNamespace(
+            stop=lambda: timer_stops.append(True)),
+        client_details={"old": True}, _id_token="old", _token_expires_at=42,
+        username="", _refresh_token="",
+        auth_changed=SimpleNamespace(
+            emit=lambda *args: states.append(args)))
+
+    assert OpenDkpClient.set_guild(client, "guild-one.opendkp.com") == "guild-one"
+
+    assert client.username == "Raider"
+    assert client._refresh_token == "permanent-token"
+    assert client._id_token == ""
+    assert states == [("saved", "Raider")]
+    assert stopped == [True]
+    assert timer_stops == [True]

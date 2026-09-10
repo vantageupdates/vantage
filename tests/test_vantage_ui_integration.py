@@ -351,10 +351,39 @@ def test_panel_title_copy_versions_and_accessibility(panel):
     for control in (
             panel.path_edit, panel.browse_button, panel.check_button,
             panel.update_button, panel.restore_button,
-            panel.copy_command_button, panel.auto_update,
+            panel.copy_command_button, panel.character_ui_button,
+            panel.auto_update,
             panel.status, panel.progress, panel.log):
         assert control.accessibleName()
         assert control.toolTip() or control is panel.status
+
+
+def test_character_ui_manager_button_reuses_one_reversible_dialog(
+        panel, monkeypatch):
+    calls = []
+
+    class FakeManager:
+        def __init__(self, parent):
+            calls.append(("create", parent))
+        def refresh(self):
+            calls.append(("refresh",))
+        def show(self):
+            calls.append(("show",))
+        def raise_(self):
+            calls.append(("raise",))
+        def activateWindow(self):
+            calls.append(("activate",))
+
+    monkeypatch.setattr(vantage_ui_module, "CharacterUIManagerDialog", FakeManager)
+    first = panel.show_profile_manager()
+    second = panel.show_profile_manager()
+
+    assert first is second
+    assert calls.count(("create", panel)) == 1
+    assert calls.count(("refresh",)) == 2
+    assert panel.character_ui_button.accessibleName() == (
+        "Manage character VantageUI settings and layouts")
+    assert "restore" in panel.character_ui_button.toolTip().casefold()
 
 
 def test_selected_and_available_folders_and_copy_command_are_exact(

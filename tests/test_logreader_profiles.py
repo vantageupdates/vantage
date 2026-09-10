@@ -49,6 +49,37 @@ def test_logreader_keeps_an_independent_cursor_and_profile_for_each_log(tmp_path
             app._signals = previous
 
 
+def test_logreader_waits_for_complete_line_instead_of_splitting_combat_event(
+        tmp_path):
+    path = tmp_path / "eqlog_Alice_Green.txt"
+    path.write_bytes(b"")
+    app = QApplication.instance() or QApplication([])
+    previous = getattr(app, "_signals", None)
+    signals = LogReaderSignals()
+    app._signals = {"logreader": signals}
+    events = []
+    signals.new_line.connect(events.append)
+    reader = LogReader(str(tmp_path))
+    try:
+        partial = b"[Fri Jan 02 03:04:02 2026] You slash a goblin for 12"
+        with path.open("ab") as stream:
+            stream.write(partial)
+        reader._file_changed(str(path))
+        assert events == []
+        assert reader._stats[str(path)]["last_read"] == 0
+
+        with path.open("ab") as stream:
+            stream.write(b" points of damage.\r\n")
+        reader._file_changed(str(path))
+        assert [event[1] for event in events] == [
+            "You slash a goblin for 12 points of damage."]
+        assert reader._stats[str(path)]["last_read"] == path.stat().st_size
+    finally:
+        reader.deleteLater()
+        if previous is not None:
+            app._signals = previous
+
+
 def test_profile_monitor_distinguishes_active_quiet_and_stale_logs(tmp_path):
     now = 2_000_000_000
     paths = []

@@ -259,25 +259,25 @@ def test_scaled_panels_keep_keyboard_pointer_and_tooltips(tmp_path):
     assert result["timer_resize_was_clamped"] is True
     assert result["timer_focus_started_on_suffix"] is True
     assert result["timer_short_focus_visible"] is True
-    assert result["timer_size"][0] == 300
+    assert result["timer_size"][0] == 130
     assert result["timer_size"][1] >= math.ceil(
         result["timer_required_single"] * 300 / 520)
     assert result["missing_timer_tooltips"] == []
     assert result["map_manual_pan"] is True
     assert result["minimum_sizes"] == {
         "quickbar": [255, 25],
-        "maps": [320, 320], "spells": [210, 111],
-        "tick": [208, 114],
-        "timers": [300, min(
+        "maps": [100, 100], "spells": [65, 100],
+        "tick": [65, 36],
+        "timers": [130, min(
             result["timer_required_physical_height"],
             result["timer_screen_height"])],
-        "combat": [416, 240],
-        "heals": [416, 176], "market": [784, 496],
-        "opendkp": [784, 496],
-        "zones": [720, 448], "quests": [720, 580],
-        "vantage_ui": [560, 432]}
+        "combat": [130, 75],
+        "heals": [130, 55], "market": [245, 155],
+        "opendkp": [245, 155],
+        "zones": [225, 140], "quests": [225, 145],
+        "vantage_ui": [175, 135]}
     assert result["minimum_sizes"]["timers"] == [
-        300, min(
+        130, min(
             result["timer_required_physical_height"],
             result["timer_screen_height"])]
     assert result["missing_by_panel"] == {

@@ -50,6 +50,42 @@ def _snapshot():
                  "races": 1, "slots": 524288},
             ),
         },
+        "buffs": {
+            "character": "Mindflux", "server": "Green",
+            "camp_state": "", "timers": [{
+                "key": "you|clarity", "name": "Clarity II", "target": "You",
+                "remaining": "12:34", "remaining_seconds": 754,
+                "progress": 72, "color": "#477B91", "detrimental": False,
+            }],
+        },
+        "guild": {
+            "guild": "Castle", "connected": True, "authenticated": False,
+            "status": "Public data ready",
+            "standings": [{"name": "Mindflux", "class": "Enchanter",
+                            "level": "60", "rank": "Raider", "dkp": "125.0"}],
+            "loot": [{"date": "Sep 09, 2026", "item": "Crown of Rile",
+                      "character": "Mindflux", "dkp": "80.0", "raid": "Tormax",
+                      "wiki_url": "https://wiki.project1999.com/Crown_of_Rile"}],
+            "raids": [], "auctions": [], "sheets": [],
+        },
+        "zones": {
+            "selected": "west commonlands", "loading": False,
+            "status": "West Commonlands · updated now",
+            "zones": ({"name": "West Commonlands",
+                       "value": "west commonlands"},),
+            "data": {"name": "West Commonlands",
+                     "unique_items": ["Dragoon Dirk"],
+                     "mobs": [{"name": "Kizdean Gix", "named": True,
+                               "level": "18", "loot": "Dragoon Dirk"}]},
+        },
+        "quests": {
+            "loading": False, "status": "1 quest · cached",
+            "catalog": ("Jboots",), "pending": "",
+            "current": {"title": "Jboots", "summary": "Get the boots.",
+                        "steps": [{"text": "Hail Hasten Bootstrutter"}],
+                        "wiki_url": "https://wiki.project1999.com/Jboots"},
+            "checklist": {"title": "Jboots", "checked": []},
+        },
     }
 
 
@@ -78,8 +114,14 @@ def test_mobile_page_accessibility_updates_preserve_the_session_fragment():
     assert "announce(gameState" in _MOBILE_PAGE
     assert "gameShell.setAttribute('aria-busy'" not in _MOBILE_PAGE
     assert '<span id="state">Connecting…</span>' in _MOBILE_PAGE
+    assert '<img class="mark" src="/icon.png"' in _MOBILE_PAGE
+    assert '<span class="mark"' not in _MOBILE_PAGE
     assert 'id="connectionStatus"' in _MOBILE_PAGE
     assert 'id="tabSpells"' in _MOBILE_PAGE
+    assert 'id="tabBuffs"' in _MOBILE_PAGE
+    assert 'id="tabGuild"' in _MOBILE_PAGE
+    assert 'id="tabZones"' in _MOBILE_PAGE
+    assert 'id="tabQuests"' in _MOBILE_PAGE
     assert 'id="zoomLock"' in _MOBILE_PAGE
     assert "vantageZoomLock" in _MOBILE_PAGE
     assert "maximum-scale=5,user-scalable=yes" in _MOBILE_PAGE
@@ -111,7 +153,7 @@ def test_mobile_dialog_keeps_the_phone_flow_qr_first_and_explicit():
     assert app is not None
     assert dialog.toggle.text() == "Start Phone QR"
     assert "Copy Link" in buttons
-    assert "TIMERS · MARKET · SPELLS · EQ LIVE" in labels
+    assert "TIMERS · BUFFS · MARKET · SPELLS · GUILD · ZONES · QUESTS" in labels
     assert "PERMANENT" not in labels.upper()
     assert dialog.qr.accessibleName() == "Private mobile session QR code"
     assert "generate the QR" in dialog.qr.accessibleDescription()
@@ -132,6 +174,11 @@ def test_mobile_page_protects_state_and_filters_pigparse():
         assert b"EVERQUEST LIVE" in page
         assert b"READ ONLY" in page
         assert headers["Referrer-Policy"] == "no-referrer"
+
+        icon_status, icon, icon_headers = _request(base, "/icon.png")
+        assert icon_status == 200
+        assert icon.startswith(b"\x89PNG\r\n\x1a\n")
+        assert icon_headers["Content-Type"] == "image/png"
 
         try:
             _request(base, "/api/state", "wrong-token")
@@ -234,6 +281,43 @@ def test_mobile_timer_controls_require_wifi_key_and_queue_action():
         assert status == 202
         assert response == {"accepted": True}
         assert actions == [("restart", "quillmane-id")]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_mobile_buffs_guild_zones_and_quests_are_private_and_browseable():
+    actions = []
+    server = _ShareHTTPServer(
+        ("127.0.0.1", 0), "secret", _snapshot,
+        browse_action=lambda action, target: actions.append((action, target)))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        _, payload, _ = _request(base, "/api/buffs", "secret")
+        assert json.loads(payload)["timers"][0]["name"] == "Clarity II"
+
+        _, payload, _ = _request(base, "/api/guild", "secret")
+        assert json.loads(payload)["loot"][0]["item"] == "Crown of Rile"
+
+        _, payload, _ = _request(base, "/api/zones", "secret")
+        assert json.loads(payload)["data"]["mobs"][0]["name"] == "Kizdean Gix"
+
+        _, payload, _ = _request(base, "/api/quests?q=jbo", "secret")
+        quests = json.loads(payload)
+        assert quests["titles"] == ["Jboots"]
+        assert quests["current"]["steps"][0]["text"].startswith("Hail")
+
+        status, response = _post(base, "/api/browser/action", "secret", {
+            "action": "zone", "target": "west commonlands"})
+        assert status == 202 and response == {"accepted": True}
+        status, _ = _post(base, "/api/browser/action", "secret", {
+            "action": "quest", "target": "Jboots"})
+        assert status == 202
+        assert actions == [
+            ("zone", "west commonlands"), ("quest", "Jboots")]
     finally:
         server.shutdown()
         server.server_close()

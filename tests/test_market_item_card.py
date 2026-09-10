@@ -6,7 +6,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from vantage.parsers.market import (
-    GearItem, MarketModel, WikiItemCard, combined_market_price,
+    GearItem, MarketModel, WikiEntityCard, WikiItemCard,
+    bundled_effect_entity_data, combined_market_price,
     parse_wiki_entity_wikitext,
     parse_wiki_auction_html, parse_wiki_green_auction_html,
     parse_wiki_item_wikitext)
@@ -155,6 +156,25 @@ def test_native_effect_summary_explains_what_the_item_effect_does():
     assert "WHAT IT DOES" in entity["summary"]
     assert "Increase Movement Speed by 34%" in entity["summary"]
     assert "Wears off: The spirit of wolf leaves you." in entity["summary"]
+
+
+def test_item_effect_card_has_bundled_fallback_and_keeps_it_when_offline():
+    app = QApplication.instance() or QApplication([])
+    local = bundled_effect_entity_data("JourneymanBoots")
+    assert local["name"] == "JourneymanBoots"
+    assert ("Spell ID", "874") in local["facts"]
+    assert "Your feet feel quick." in local["summary"]
+
+    card = WikiEntityCard("JourneymanBoots", "effect")
+    card.set_entity_data(local, local=True)
+    before = (card.facts.text(), card.summary.text())
+    card.set_error("connection timed out")
+
+    assert (card.facts.text(), card.summary.text()) == before
+    assert card.source.text() == "LOCAL DATA · WIKI REFRESH UNAVAILABLE"
+    assert "local cached data remains visible" in card.retry_button.toolTip()
+    card.close()
+    app.processEvents()
 
 
 def test_item_effect_names_are_keyboard_accessible_internal_wiki_links():

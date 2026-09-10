@@ -131,7 +131,7 @@ app.quit()
 """
 
 
-def test_scaled_spell_and_timer_headers_keep_readable_physical_metrics(
+def test_scaled_spell_and_timer_headers_stay_separate_and_roll_cleanly(
         tmp_path):
     env = os.environ.copy()
     env['QT_QPA_PLATFORM'] = 'offscreen'
@@ -144,17 +144,14 @@ def test_scaled_spell_and_timer_headers_keep_readable_physical_metrics(
 
     for name in ('spells_short', 'timers_short', 'timers_tall'):
         state = result[name]
-        assert state['menu_height'] >= 19
-        assert state['title_font_height'] >= 12
         assert state['title_width'] >= state['title_text_width']
         assert state['root_inside'] is True
         assert state['root_separate'] is True
         assert state['menu_separate'] is True
-        assert state['smallest_control'] >= 16
-        assert state['overflow'] is True
+        assert state['smallest_control'] >= 12
 
-    assert result['spells_short']['window'][0] >= 210
-    assert result['timers_short']['window'][0] >= 300
+    assert result['spells_short']['window'][0] == 218
+    assert result['timers_short']['window'][0] == 323
     assert result['timers_short']['scale'] == result['timers_tall']['scale']
     assert result['timers_short']['menu_height'] == \
         result['timers_tall']['menu_height']
