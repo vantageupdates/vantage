@@ -3268,17 +3268,29 @@
       <Fill>A_VantageGroupExpFill</Fill>
     </GaugeDrawTemplate>
   </Gauge>
+  <Label item="GW_ExperienceLabel">
+    <ScreenID>GW_ExperienceLabel</ScreenID>
+    <Font>2</Font>
+    <RelativePosition>true</RelativePosition>
+    <Location><X>141</X><Y>88</Y></Location>
+    <Size><CX>89</CX><CY>14</CY></Size>
+    <Text>Experience</Text>
+    <TextColor><R>240</R><G>243</G><B>247</B></TextColor>
+    <NoWrap>true</NoWrap>
+    <AlignRight>false</AlignRight>
+    <AlignCenter>false</AlignCenter>
+  </Label>
   <Label item="PlayerXPPerc">
-    <Font>1</Font>
+    <Font>2</Font>
     <EQType>26</EQType>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>236</X>
-      <Y>89</Y>
+      <Y>88</Y>
     </Location>
     <Size>
       <CX>38</CX>
-      <CY>12</CY>
+      <CY>14</CY>
     </Size>
     <Text>100</Text>
     <TextColor>
@@ -13093,6 +13105,7 @@
     <Pieces>P_Fatigue</Pieces>
     <Pieces>PlayerXPGauge_BG</Pieces>
     <Pieces>PlayerXPGauge</Pieces>
+    <Pieces>GW_ExperienceLabel</Pieces>
     <Pieces>PlayerXPPerc</Pieces>
     <Pieces>STRLabel</Pieces>
     <Pieces>STR</Pieces>

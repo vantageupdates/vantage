@@ -1,5 +1,20 @@
 # VantageUI releases
 
+## 1.44.74
+
+Install folder: `VantageUI-v1.44.74`.
+
+- Added the full Experience heading to Group, aligned with HP, MANA, ATK and
+  attribute labels. Its native percentage remains justified to the resource
+  column's right edge.
+- Matched the heading and percentage font and baseline, with separate fields
+  and a 6px horizontal gap. Preserved all three full-width bars, their spacing,
+  native bindings, party controls and resource-number capacity.
+- No fixed class emblem is included; automatic class selection outside the
+  inventory remains unverified.
+
+Load with `/loadskin VantageUI-v1.44.74 1`. Native appearance requires game review.
+
 ## 1.44.73
 
 Install folder: `VantageUI-v1.44.73`.

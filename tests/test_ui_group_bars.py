@@ -41,7 +41,7 @@ def test_all_three_bars_are_separated_and_percentage_is_not_under_a_fill():
     assert all(b[0] == 129 and b[2] == 145 for b in bars)
     assert bars[1][1] - sum(bars[0][1::2]) == 3
     assert bars[2][1] - sum(bars[1][1::2]) == 3
-    assert rect(node('Label','PlayerXPPerc')) == (236,89,38,12)
+    assert rect(node('Label','PlayerXPPerc')) == (236,88,38,14)
     assert node('Label','PlayerXPPerc').findtext('EQType') == '26'
     assert rect(node('StaticAnimation','GW_StatEXPIcon')) == (129,90,10,10)
     assert rect(node('Label','STR'))[1] == 152
@@ -82,3 +82,26 @@ def test_shared_legacy_gauges_and_inventory_exp_remain_independent():
     assert animations.find("Ui2DAnimation[@item='A_dzFill']/Frames/Size/CX").text == '100'
     inventory = ET.parse(SKIN/'EQUI_Inventory.xml').getroot()
     assert inventory.find("Gauge[@item='IW_ExpGauge']/Size/CX").text == '118'
+
+
+def test_experience_heading_matches_left_labels_and_right_resource_values():
+    label = node('Label', 'GW_ExperienceLabel')
+    percent = node('Label', 'PlayerXPPerc')
+    assert label.findtext('Text') == 'Experience'
+    assert rect(label) == (141,88,89,14)
+    assert label.findtext('EQType') is None
+    assert label.findtext('AlignRight') == label.findtext('AlignCenter') == 'false'
+    assert label.findtext('NoWrap') == percent.findtext('NoWrap') == 'true'
+    assert label.findtext('Font') == percent.findtext('Font') == '2'
+    assert rect(label)[1::2] == rect(percent)[1::2]
+    assert percent.findtext('AlignRight') == 'true'
+    assert 141+89+6 == rect(percent)[0]
+    assert 89 >= len('Experience')*6+8
+    for name in ('PlayerHPLabel','PlayerManaLabel','ATKLabel','STRLabel'):
+        assert rect(node('Label',name))[0] == rect(label)[0]
+    for name in ('PlayerHP','PlayerMana','AC','WIS'):
+        value = node('Label',name)
+        assert value.findtext('AlignRight') == 'true'
+        assert rect(value)[0] + rect(value)[2] == 274
+    pieces = [p.text for p in node('Screen','GroupWindow').findall('Pieces')]
+    assert pieces.count('GW_ExperienceLabel') == 1
