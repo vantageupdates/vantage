@@ -1,5 +1,18 @@
 # VantageUI releases
 
+## 1.44.78
+
+Install folder: `VantageUI-v1.44.78`.
+
+- Removed the baked dark/blue cast from the runtime-tinted spell-gem surface,
+  allowing each native spell-category hue to render brighter and cleaner.
+- Kept a neutral high-value vertical ramp for compact 3D depth while preserving
+  the rounded alpha edge, grey outline, icon art, text geometry and cast states.
+- Left the red-to-green casting-progress palette and all unrelated controls
+  unchanged.
+
+Load with `/loadskin VantageUI-v1.44.78 1`. Native appearance requires game review.
+
 ## 1.44.77
 
 Install folder: `VantageUI-v1.44.77`.
