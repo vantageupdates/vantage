@@ -1,5 +1,17 @@
 # VantageUI releases
 
+## 1.44.79
+
+Install folder: `VantageUI-v1.44.79`.
+
+- Distributed the four inventory footer actions evenly across the complete
+  window width, with equal 94-pixel buttons, symmetric outer margins and
+  consistent separation between controls.
+- Preserved the compact 20-pixel height, labels, native bindings, draw states,
+  internal Pieces order and all unrelated inventory geometry.
+
+Load with `/loadskin VantageUI-v1.44.79 1`. Native appearance requires game review.
+
 ## 1.44.78
 
 Install folder: `VantageUI-v1.44.78`.

@@ -137,6 +137,38 @@ def test_inventory_height_and_bag_positions_remain_fixed_without_fake_capacity_g
         assert len(names) == len(set(names))
 
 
+def test_inventory_footer_actions_share_the_full_width_without_changing_bindings_or_order():
+    screen = node('Screen', 'InventoryWindow')
+    assert rect(screen) == (100, 50, 389, 355)
+
+    visual_order = ('IW_DoneButton', 'IW_FacePick', 'IW_Skills', 'IW_Destroy')
+    expected_x = (2, 99, 196, 293)
+    expected_screen_ids = ('DoneButton', 'IW_FacePick', 'IW_Skills', 'IW_Destroy')
+    expected_labels = ('Done', 'Face', 'Skills', 'Destroy')
+    states = ('Normal', 'Pressed', 'Flyby', 'Disabled', 'PressedFlyby')
+
+    buttons = [node('Button', name) for name in visual_order]
+    assert tuple(rect(button) for button in buttons) == tuple(
+        (x, 325, 94, 20) for x in expected_x
+    )
+    assert tuple(button.findtext('ScreenID') for button in buttons) == expected_screen_ids
+    assert tuple(button.findtext('Text') for button in buttons) == expected_labels
+    for button in buttons:
+        assert tuple(button.findtext(f'ButtonDrawTemplate/{state}') for state in states) == tuple(
+            f'A_Btn{state}' for state in states
+        )
+
+    # Four equal actions span the 389px footer with symmetric 2px outer margins
+    # and consistent 3px gutters, without changing the native Pieces/focus order.
+    assert expected_x[0] == 2
+    assert 389 - (expected_x[-1] + 94) == 2
+    assert tuple(expected_x[i + 1] - (expected_x[i] + 94) for i in range(3)) == (3, 3, 3)
+    footer_piece_order = [
+        piece.text for piece in screen.findall('Pieces') if piece.text in visual_order
+    ]
+    assert footer_piece_order == ['IW_Skills', 'IW_Destroy', 'IW_DoneButton', 'IW_FacePick']
+
+
 def test_existing_resist_and_coin_art_are_not_repainted_or_resized():
     expected = {'window_pieces01.tga': '39077fbb9da9c5a5101eb11212cbe4a440eca56aeacdc6be42eda931e8927a2e',
                 'v3_resists.tga': '9b111fc19afbc6d4b11639f37dc6d2bd86e928aac50d48048690ba4376dafba4'}

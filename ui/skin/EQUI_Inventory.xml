@@ -2459,11 +2459,11 @@
 		<!--<Font>3</Font>-->
 		<RelativePosition>true</RelativePosition>
 		<Location>
-			<X>175</X>
+			<X>196</X>
 			<Y>325</Y>
 		</Location>
 		<Size>
-			<CX>84</CX>
+			<CX>94</CX>
 			<CY>20</CY>
 		</Size>
 		<Style_Transparent>false</Style_Transparent>
@@ -2489,11 +2489,11 @@
 		<!--<Font>3</Font>-->
 		<RelativePosition>true</RelativePosition>
 		<Location>
-			<X>261</X>
+			<X>293</X>
 			<Y>325</Y>
 		</Location>
 		<Size>
-			<CX>84</CX>
+			<CX>94</CX>
 			<CY>20</CY>
 		</Size>
 		<Style_Transparent>false</Style_Transparent>
@@ -2570,7 +2570,7 @@
 			<Y>325</Y>
 		</Location>
 		<Size>
-			<CX>84</CX>
+			<CX>94</CX>
 			<CY>20</CY>
 		</Size>
 		<Style_Transparent>false</Style_Transparent>
@@ -2599,11 +2599,11 @@
 		<!--<Font>3</Font>-->
 		<RelativePosition>true</RelativePosition>
 		<Location>
-			<X>88</X>
+			<X>99</X>
 			<Y>325</Y>
 		</Location>
 		<Size>
-			<CX>85</CX>
+			<CX>94</CX>
 			<CY>20</CY>
 		</Size>
 		<Style_Transparent>false</Style_Transparent>
