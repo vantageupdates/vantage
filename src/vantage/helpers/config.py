@@ -1476,6 +1476,28 @@ def verify_settings():
         data['mobile'].get('game_image_quality', 'hd'), 'hd',
         lambda x: x in ('efficient', 'hd', 'native'))
 
+    # Account-free multi-PC sync. Device identity, group key and transport API
+    # stay local; only Vantage's allowlisted snapshot enters the shared folder.
+    data['device_sync'] = data.get('device_sync', {})
+    if not isinstance(data['device_sync'], dict):
+        data['device_sync'] = {}
+    for key, default in (
+            ('enabled', False), ('sync_settings', True),
+            ('sync_layout', True), ('sync_items_notes', True),
+            ('sync_hotbuttons', True)):
+        data['device_sync'][key] = get_setting(
+            data['device_sync'].get(key, default), default)
+    device_name = ' '.join(str(
+        data['device_sync'].get('device_name') or '').split())[:80]
+    data['device_sync']['device_name'] = device_name
+    group_id = str(data['device_sync'].get('group_id') or '').lower()
+    data['device_sync']['group_id'] = (
+        group_id if re.fullmatch(r'[a-f0-9]{24}', group_id) else '')
+    group_secret = str(data['device_sync'].get('group_secret') or '')
+    data['device_sync']['group_secret'] = (
+        group_secret if re.fullmatch(
+            r'[A-Za-z0-9_-]{43}', group_secret) else '')
+
     # Do not keep obsolete integration configuration in new saves.
     data.pop('discord', None)
 

@@ -53,7 +53,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=71,
+    patch=72,
     build=""
 )
 
@@ -193,8 +193,12 @@ class VantageApp(QApplication):
                 vantage_ui.update_snapshot())
         self._mobile_share_instance = None
         self._mobile_dialog_instance = None
+        self._device_sync_instance = None
+        self._device_sync_dialog_instance = None
         self._spell_library_dialog = None
         self._about_dialog_instance = None
+        if config.data.get("device_sync", {}).get("enabled", False):
+            QTimer.singleShot(0, self._auto_start_device_sync)
         self._splash.step("Finishing tray and log monitoring…", 91)
 
         # Tray Icon
@@ -348,6 +352,20 @@ class VantageApp(QApplication):
         self._mobile_dialog_instance = MobileShareDialog(
             self._mobile_share_instance)
         self.aboutToQuit.connect(self._mobile_share_instance.stop)
+
+    def _ensure_device_sync(self):
+        if self._device_sync_instance is not None:
+            return
+        from vantage.helpers.device_sync import (
+            DeviceSyncController, DeviceSyncDialog)
+        self._device_sync_instance = DeviceSyncController(self)
+        self._device_sync_dialog_instance = DeviceSyncDialog(
+            self._device_sync_instance)
+        self.aboutToQuit.connect(self._device_sync_instance.stop)
+
+    def _auto_start_device_sync(self):
+        self._ensure_device_sync()
+        self._device_sync_instance.start()
 
     def _ensure_location_sharing(self):
         if self._services.get("locationsharing") is not None:
@@ -1422,6 +1440,16 @@ class VantageApp(QApplication):
 
     def show_mobile_share(self):
         dialog = self._mobile_dialog
+        dialog.refresh()
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def show_device_sync(self):
+        """Open the account-free persistent multi-PC sync setup."""
+        self._ensure_device_sync()
+        self._device_sync_instance.start()
+        dialog = self._device_sync_dialog_instance
         dialog.refresh()
         dialog.show()
         dialog.raise_()

@@ -117,18 +117,30 @@ class ParserContextMenuRouter(QObject):
                 # Explicitly open Qt's familiar Undo/Cut/Copy/Paste/Delete/
                 # Select All menu. This avoids the frameless panel menu
                 # swallowing editor context events inside a scaled surface.
-                position = editor.mapFromGlobal(event.globalPos())
-                menu = (editor.createStandardContextMenu()
-                        if isinstance(editor, QLineEdit) else
-                        editor.createStandardContextMenu(position))
-                menu.setToolTipsVisible(True)
-                menu.exec(event.globalPos())
-                menu.deleteLater()
+                _show_standard_text_menu(editor, event.globalPos())
                 return True
         self._windows = [window for window in self._windows if window]
         for window in self._windows:
             if not window._is_window_descendant(watched):
                 continue
+            if event_type == QEvent.Type.ContextMenu:
+                # Parser content is rendered through QGraphicsProxyWidget.
+                # Windows therefore delivers the physical right-click to the
+                # graphics viewport instead of the logical line/text editor.
+                # Resolve the editor under the pointer before the panel menu
+                # can consume the event.
+                editor = window._scaled_text_editor_at_global(
+                    event.globalPos())
+                if editor is not None:
+                    _show_standard_text_menu(editor, event.globalPos())
+                    return True
+                logical_child = window._scaled_child_at_global(
+                    event.globalPos())
+                if (logical_child is not None and
+                        window._preserve_child_context_menu(logical_child)):
+                    # Let QGraphicsProxyWidget deliver the event to the
+                    # logical map, buff, or table control that owns it.
+                    return False
             # An invisible auto-hide header cannot receive Tab focus. Reveal it
             # before Qt calculates the next focus target so every header action
             # remains keyboard reachable without changing pointer behavior.
@@ -151,8 +163,24 @@ def _text_editor_ancestor(widget):
     while current is not None:
         if isinstance(current, (QLineEdit, QPlainTextEdit, QTextEdit)):
             return current
+        if isinstance(current, QAbstractSpinBox):
+            return current.lineEdit()
+        if isinstance(current, QComboBox) and current.isEditable():
+            return current.lineEdit()
         current = current.parentWidget()
     return None
+
+
+def _show_standard_text_menu(editor, global_position):
+    """Open Qt's complete native editing menu at a physical screen point."""
+    position = editor.mapFromGlobal(global_position)
+    menu = (editor.createStandardContextMenu()
+            if isinstance(editor, QLineEdit) else
+            editor.createStandardContextMenu(position))
+    menu.setAccessibleName("Text editing actions")
+    menu.setToolTipsVisible(True)
+    menu.exec(global_position)
+    menu.deleteLater()
 
 
 class ParserResizeHandle(QWidget):
@@ -1023,10 +1051,18 @@ class ParserWindow(QWidget):
             self._focus_scaled_line_edit(event.position().toPoint())
         if (event.type() == QEvent.Type.ContextMenu
                 and isinstance(watched, QWidget)
-                and self._is_window_descendant(watched)
-                and not self._preserve_child_context_menu(watched)):
-            self._show_window_context_menu(event.globalPos())
-            return True
+                and self._is_window_descendant(watched)):
+            editor = self._scaled_text_editor_at_global(event.globalPos())
+            if editor is not None:
+                _show_standard_text_menu(editor, event.globalPos())
+                return True
+            logical_child = self._scaled_child_at_global(event.globalPos())
+            if (logical_child is not None and
+                    self._preserve_child_context_menu(logical_child)):
+                return super().eventFilter(watched, event)
+            if not self._preserve_child_context_menu(watched):
+                self._show_window_context_menu(event.globalPos())
+                return True
         return super().eventFilter(watched, event)
 
     def event(self, event):
@@ -1058,14 +1094,27 @@ class ParserWindow(QWidget):
         scene_position = self._scale_view.mapToScene(viewport_position)
         logical_position = self._scale_proxy.mapFromScene(scene_position)
         child = self._surface.childAt(logical_position.toPoint())
-        while child and child is not self._surface:
-            if isinstance(child, QLineEdit):
-                self._restore_scaled_input_focus(child)
-                QTimer.singleShot(
-                    0, lambda editor=child:
-                    self._restore_scaled_input_focus(editor))
-                return
-            child = child.parentWidget()
+        editor = _text_editor_ancestor(child)
+        if isinstance(editor, QLineEdit):
+            self._restore_scaled_input_focus(editor)
+            QTimer.singleShot(
+                0, lambda current=editor:
+                self._restore_scaled_input_focus(current))
+
+    def _scaled_text_editor_at_global(self, global_position):
+        """Return the logical editor below a scaled panel screen position."""
+        return _text_editor_ancestor(
+            self._scaled_child_at_global(global_position))
+
+    def _scaled_child_at_global(self, global_position):
+        """Map a physical panel point back to its logical child control."""
+        viewport = self._scale_view.viewport()
+        viewport_position = viewport.mapFromGlobal(global_position)
+        if not viewport.rect().contains(viewport_position):
+            return None
+        scene_position = self._scale_view.mapToScene(viewport_position)
+        logical_position = self._scale_proxy.mapFromScene(scene_position)
+        return self._surface.childAt(logical_position.toPoint())
 
     def _restore_scaled_input_focus(self, editor):
         if not editor or not editor.isVisibleTo(self._surface):

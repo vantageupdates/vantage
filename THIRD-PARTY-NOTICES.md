@@ -25,6 +25,11 @@ The Windows executable includes the following open-source runtime components:
   contributors. https://github.com/python-semver/python-semver
 - Segno — BSD 3-Clause License. Copyright Lars Heuer and contributors.
   https://github.com/heuer/segno
+- Syncthing — Mozilla Public License 2.0. The optional portable device-sync
+  transport is downloaded from the official Syncthing GitHub release only
+  after the user selects Install, and its published SHA-256 digest is verified.
+  Vantage does not bundle Syncthing in `Vantage.exe`.
+  https://github.com/syncthing/syncthing
 - Noto Sans — SIL Open Font License 1.1. Copyright the Noto Project Authors.
   https://github.com/notofonts/latin-greek-cyrillic
 - CoreUI Icons Free — the bundled SVG icons are licensed under Creative

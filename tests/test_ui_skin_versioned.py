@@ -58,7 +58,7 @@ def test_legacy_unknown_files_other_skins_and_character_ini_are_preserved(
     assert _tree(legacy) == before
 
 
-def test_upgrade_retains_active_and_two_fallbacks_fourth_install_prunes_oldest(
+def test_upgrade_retains_only_active_and_previous(
         fixture, tmp_path, monkeypatch):
     game, legacy, state = fixture
     unmanaged = _folder(game, "0.1.0")
@@ -67,14 +67,16 @@ def test_upgrade_retains_active_and_two_fallbacks_fourth_install_prunes_oldest(
     for version in ("1.2.3", "1.2.4", "1.2.5"):
         result = _install(tmp_path, monkeypatch, game, state, version)
         assert result.warnings == ()
-    assert set(_registry(game)["managed"]) == {"VantageUI-v1.2.3", "VantageUI-v1.2.4", "VantageUI-v1.2.5"}
+    assert set(_registry(game)["managed"]) == {
+        "VantageUI-v1.2.4", "VantageUI-v1.2.5"}
     assert _install(tmp_path, monkeypatch, game, state, "1.2.6").warnings == ()
     registry = _registry(game)
     assert registry["active"] == "VantageUI-v1.2.6"
     assert registry["previous"] == "VantageUI-v1.2.5"
-    assert set(registry["managed"]) == {"VantageUI-v1.2.4", "VantageUI-v1.2.5", "VantageUI-v1.2.6"}
+    assert set(registry["managed"]) == {
+        "VantageUI-v1.2.5", "VantageUI-v1.2.6"}
     assert not _folder(game, "1.2.3").exists()
-    assert _folder(game, "1.2.4").is_dir()
+    assert not _folder(game, "1.2.4").exists()
     assert unmanaged.is_dir() and legacy.is_dir()
 
 
@@ -242,7 +244,6 @@ def test_retention_preserves_any_changed_or_private_older_folder(
     game, _, state = fixture
     _install(tmp_path, monkeypatch, game, state)
     _install(tmp_path, monkeypatch, game, state, "1.2.4")
-    _install(tmp_path, monkeypatch, game, state, "1.2.5")
     older = _folder(game, "1.2.3")
     if change == "private":
         (older / "private.ini").write_bytes(b"personal")
@@ -259,10 +260,10 @@ def test_retention_preserves_any_changed_or_private_older_folder(
         (older / "EQUI_Test.xml").unlink()
         os.link(external, older / "EQUI_Test.xml")
     before = _tree(older)
-    result = _install(tmp_path, monkeypatch, game, state, "1.2.6")
+    result = _install(tmp_path, monkeypatch, game, state, "1.2.5")
     assert result.action == "installed" and result.warnings
     assert _tree(older) == before
-    assert updater.installed_version(game) == "1.2.6"
+    assert updater.installed_version(game) == "1.2.5"
     assert "VantageUI-v1.2.3" in _registry(game)["managed"]
 
 
@@ -271,15 +272,16 @@ def test_retention_defers_until_game_closed_and_can_run_from_different_profile(
     game, _, state = fixture
     _install(tmp_path, monkeypatch, game, state)
     _install(tmp_path, monkeypatch, game, state, "1.2.4")
-    _install(tmp_path, monkeypatch, game, state, "1.2.5")
     monkeypatch.setattr(updater, "game_running", lambda: True)
+    _install(tmp_path, monkeypatch, game, state, "1.2.5", allow_game_running=True)
     result = _install(tmp_path, monkeypatch, game, state, "1.2.6", allow_game_running=True)
     assert result.warnings and "deferred" in result.warnings[0]
     assert all(_folder(game, v).exists() for v in ("1.2.3", "1.2.4", "1.2.5", "1.2.6"))
     monkeypatch.setattr(updater, "game_running", lambda: False)
     updater.recover_pending(game, tmp_path / "profile-two", log=lambda _: None)
     assert not _folder(game, "1.2.3").exists()
-    assert _folder(game, "1.2.4").exists() and _folder(game, "1.2.6").exists()
+    assert not _folder(game, "1.2.4").exists()
+    assert _folder(game, "1.2.5").exists() and _folder(game, "1.2.6").exists()
 
 
 @pytest.mark.parametrize("interrupt_at", ["first-file", "second-file", "before-rename", "after-rename"])
@@ -325,13 +327,12 @@ def test_cleanup_failure_does_not_undo_committed_install(fixture, tmp_path, monk
     game, _, state = fixture
     _install(tmp_path, monkeypatch, game, state)
     _install(tmp_path, monkeypatch, game, state, "1.2.4")
-    _install(tmp_path, monkeypatch, game, state, "1.2.5")
     def blocked(*args):
         raise PermissionError("sharing violation")
     monkeypatch.setattr(updater, "_delete_verified_file", blocked)
-    result = _install(tmp_path, monkeypatch, game, state, "1.2.6")
+    result = _install(tmp_path, monkeypatch, game, state, "1.2.5")
     assert result.action == "installed" and result.warnings
-    assert updater.installed_version(game) == "1.2.6"
+    assert updater.installed_version(game) == "1.2.5"
     record = _registry(game)["managed"]["VantageUI-v1.2.3"]
     quarantine = game / "uifiles" / record["quarantine"]
     assert (quarantine / "EQUI_Test.xml").read_bytes() == b"<XML>new</XML>"
@@ -515,7 +516,6 @@ def test_reparse_older_tree_is_preserved_without_symlink_privileges(
     game, _, state = fixture
     _install(tmp_path, monkeypatch, game, state)
     _install(tmp_path, monkeypatch, game, state, "1.2.4")
-    _install(tmp_path, monkeypatch, game, state, "1.2.5")
     older = _folder(game, "1.2.3")
     reparse = older if kind == "folder" else older / "EQUI_Test.xml"
     real_lstat = Path.lstat
@@ -525,7 +525,7 @@ def test_reparse_older_tree_is_preserved_without_symlink_privileges(
             return SimpleNamespace(st_mode=info.st_mode, st_file_attributes=0x400)
         return info
     monkeypatch.setattr(Path, "lstat", attributes)
-    result = _install(tmp_path, monkeypatch, game, state, "1.2.6")
+    result = _install(tmp_path, monkeypatch, game, state, "1.2.5")
     assert result.warnings and "Links and junctions" in result.warnings[0]
     assert older.is_dir() and (older / "EQUI_Test.xml").read_bytes() == b"<XML>new</XML>"
 
@@ -549,15 +549,14 @@ def test_game_starting_during_cleanup_preserves_active_previous_and_remaining_re
     game, _, state = fixture
     _install(tmp_path, monkeypatch, game, state)
     _install(tmp_path, monkeypatch, game, state, "1.2.4")
-    _install(tmp_path, monkeypatch, game, state, "1.2.5")
     real_delete = updater._delete_verified_file
     def start_game(path, digest):
         real_delete(path, digest)
         monkeypatch.setattr(updater, "game_running", lambda: True)
     monkeypatch.setattr(updater, "_delete_verified_file", start_game)
-    result = _install(tmp_path, monkeypatch, game, state, "1.2.6")
+    result = _install(tmp_path, monkeypatch, game, state, "1.2.5")
     assert result.action == "installed" and result.warnings
-    assert _folder(game, "1.2.4").is_dir() and _folder(game, "1.2.6").is_dir()
+    assert _folder(game, "1.2.4").is_dir() and _folder(game, "1.2.5").is_dir()
     record = _registry(game)["managed"]["VantageUI-v1.2.3"]
     retired = game / "uifiles" / record["quarantine"]
     assert len(list(retired.iterdir())) == 2
@@ -625,15 +624,15 @@ def test_no_100_percent_success_after_failed_staging_copy(fixture, tmp_path, mon
     assert not _folder(game, "1.2.3").exists()
 
 
-def test_rollback_then_intermediate_release_never_prunes_a_newer_version(
+def test_rollback_then_intermediate_release_keeps_only_new_selection_and_previous(
         fixture, tmp_path, monkeypatch):
     game, _, state = fixture
     _install(tmp_path, monkeypatch, game, state, "1.0.0")
     _install(tmp_path, monkeypatch, game, state, "3.0.0")
     updater.rollback_last(game, state, log=lambda _: None)
     result = _install(tmp_path, monkeypatch, game, state, "2.0.0")
-    assert result.warnings and "newer registered folder" in result.warnings[0]
-    assert _folder(game, "3.0.0").is_dir()
+    assert result.warnings == ()
+    assert not _folder(game, "3.0.0").exists()
     assert updater.installed_version(game) == "2.0.0"
     assert _registry(game)["previous"] == "VantageUI-v1.0.0"
 

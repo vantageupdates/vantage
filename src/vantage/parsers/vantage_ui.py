@@ -1323,7 +1323,7 @@ class VantageUI(ParserWindow):
         }[action]
         if confirm and not self._confirm(
                 title, prompt + "\n\n"
-                "The selected version and two earlier fallback versions are kept. "
+                "The selected version and one previous restore version are kept. "
                 "Modified, unmanaged, and legacy VantageUI folders are preserved. "
                 "Vantage never closes or signals EverQuest. If EverQuest is open, "
                 "do not reload the UI during installation; after success, run "

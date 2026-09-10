@@ -20,6 +20,8 @@ MAX_DUMP_ROWS = 50_000
 MAX_HISTORY = 5
 MAX_NOTES = 250
 MAX_NOTE_BYTES = 256 * 1024
+MAX_DUMP_SCAN_FILES = 50_000
+DUMP_SUFFIXES = {".txt", ".tsv", ".csv"}
 REFERENCE_RE = re.compile(
     r"@\[(Item|Quest|Zone):\s*([^\]\r\n]{1,240})\]", re.IGNORECASE)
 
@@ -66,6 +68,90 @@ def _read_dump_text(path):
         except UnicodeError:
             continue
     raise ValueError("Inventory dump text encoding is not supported")
+
+
+def _looks_like_inventory_dump(path):
+    """Recognize a dump from its header without parsing or retaining it."""
+    try:
+        target = Path(path)
+        if (target.is_symlink() or not target.is_file() or
+                target.suffix.casefold() not in DUMP_SUFFIXES):
+            return False
+        size = target.stat().st_size
+        if size <= 0 or size > MAX_DUMP_BYTES:
+            return False
+        payload = target.open("rb").read(4096)
+    except OSError:
+        return False
+    text = None
+    for encoding in ("utf-8-sig", "utf-16", "cp1252"):
+        try:
+            text = payload.decode(encoding)
+            break
+        except UnicodeError:
+            continue
+    if text is None:
+        return False
+    first = next((line for line in text.splitlines() if line.strip()), "")
+    if not first:
+        return False
+    dialect = "\t" if "\t" in first else ","
+    headings = {
+        value.strip().strip('"').casefold()
+        for value in first.split(dialect)}
+    return {"location", "name"}.issubset(headings)
+
+
+def discover_inventory_dumps(eq_root, max_files=MAX_DUMP_SCAN_FILES):
+    """Find every readable P99 inventory dump below one EverQuest folder.
+
+    Symbolic/reparse directory links are never followed, and files are only
+    recognized by the expected Location/Name header. This searches nested
+    folders without accidentally treating logs, maps, or UI text as dumps.
+    """
+    try:
+        root = Path(eq_root).expanduser().resolve(strict=True)
+    except (OSError, RuntimeError):
+        return []
+    if not root.is_dir():
+        return []
+    found = []
+    scanned = 0
+    try:
+        walker = os.walk(root, topdown=True, followlinks=False)
+        for directory, subdirectories, filenames in walker:
+            current = Path(directory)
+            subdirectories[:] = [
+                name for name in subdirectories
+                if not (current / name).is_symlink()]
+            for filename in filenames:
+                candidate = current / filename
+                if candidate.suffix.casefold() not in DUMP_SUFFIXES:
+                    continue
+                scanned += 1
+                if scanned > max(1, int(max_files)):
+                    return sorted(
+                        found, key=lambda value: (
+                            -value["modified"], value["relative"].casefold()))
+                if not _looks_like_inventory_dump(candidate):
+                    continue
+                try:
+                    details = candidate.stat()
+                    relative = str(candidate.relative_to(root))
+                except (OSError, ValueError):
+                    continue
+                found.append({
+                    "path": str(candidate.resolve()),
+                    "relative": relative,
+                    "character": character_from_filename(candidate),
+                    "modified": float(details.st_mtime),
+                    "size": int(details.st_size),
+                })
+    except OSError:
+        pass
+    return sorted(
+        found,
+        key=lambda value: (-value["modified"], value["relative"].casefold()))
 
 
 def parse_inventory_dump(path, character=""):

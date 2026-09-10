@@ -10,6 +10,8 @@ from vantage.parsers.market import (
     install_auction_hotbuttons, p99_item_link)
 from vantage.helpers import config
 from vantage.helpers.eq_clipboard import clipboard_payloads
+from vantage.helpers.auction_hotbutton import (
+    export_managed_auction_hotbuttons, import_managed_auction_hotbuttons)
 
 
 def _app():
@@ -348,6 +350,44 @@ def test_reinstall_reuses_vantage_hotbar_without_duplicates(tmp_path):
     assert installed.count("Name=V-WTS1") == 1
     assert "WTS Second Item 20p PST" in installed
     assert "WTS First Item 10p PST" not in installed
+
+
+def test_device_sync_exports_only_managed_socials_and_restores_matching_toon(
+        tmp_path):
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    target.mkdir()
+    (source / "eqgame.exe").write_bytes(b"MZ")
+    (target / "eqgame.exe").write_bytes(b"MZ")
+    source_ini = source / "Etsy_P1999Green.ini"
+    target_ini = target / "Etsy_P1999Green.ini"
+    source_ini.write_text(
+        "[HotButtons]\nPage1Button9=B0\n\n[Socials]\n"
+        "Page2Button9Name=KeepMe\nPage2Button9Line1=/loc\n",
+        encoding="cp1252")
+    target_ini.write_text(
+        "[HotButtons]\nPage1Button9=B0\n\n[Socials]\n"
+        "Page2Button9Name=DifferentLocalSocial\nPage2Button9Line1=/who\n",
+        encoding="cp1252")
+    install_auction_hotbuttons(
+        source_ini, ["WTS Manastone 80k PST"], "WTS", 2, 3)
+    install_auction_hotbuttons(
+        source_ini, ["WTB JBoots MQ PST"], "WTB", 2, 4)
+
+    records = export_managed_auction_hotbuttons(source)
+    assert {(record["trade_type"], record["hotbar_page"],
+             record["hotbar_button"]) for record in records} == {
+                 ("WTS", 2, 3), ("WTB", 2, 4)}
+    assert all("KeepMe" not in str(record) for record in records)
+
+    assert import_managed_auction_hotbuttons(target, records) == 2
+    installed = target_ini.read_text(encoding="cp1252")
+    assert "DifferentLocalSocial" in installed
+    assert "/auction WTS Manastone 80k PST" in installed
+    assert "/auction WTB JBoots MQ PST" in installed
+    assert "Page2Button3=" in installed
+    assert "Page2Button4=" in installed
 
 
 def test_advanced_templates_are_hidden_until_requested():

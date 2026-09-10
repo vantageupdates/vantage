@@ -641,6 +641,19 @@ class SettingsWindow(UniformScaleDialog):
             lambda: FriendsManagerDialog(self).exec())
         gsl.addRow('Character friends', manage_friends)
 
+        gsl.addRow(SettingsHeader('DEVICE SYNC'))
+        device_sync = QPushButton('Set Up Device Sync…')
+        device_sync.setIcon(game_icon('link'))
+        device_sync.setAccessibleName(
+            'Set up account-free sync between Vantage PCs')
+        device_sync.setToolTip(
+            'Pair 2, 3 or more PCs once with a code. Approved devices then '
+            'reconnect automatically and exchange selected Vantage settings '
+            'without a user account or Vantage cloud storage.')
+        device_sync.clicked.connect(
+            QApplication.instance().show_device_sync)
+        gsl.addRow('Multiple PCs', device_sync)
+
         gsl.addRow(SettingsHeader('OVERLAYS'))
         arrange_notifications = QPushButton('Arrange')
         arrange_notifications.setIcon(game_icon('cursor'))

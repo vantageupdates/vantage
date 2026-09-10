@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.71 design QA
+# Vantage Companion 1.44.72 design QA
 
 final result: passed
 
@@ -11,6 +11,20 @@ final result: passed
 
 ## Visual checks
 
+- Device Sync uses the same scaled-dialog surface as the rest of Vantage, so
+  resize presets and compact scaling manage every control instead of leaving a
+  second unmanaged layout. Pairing, approval, online/offline state and install
+  progress remain explicit at narrow and full sizes.
+- Device connection checks and Connect/Approve/Remove operations run outside
+  the visual thread. Peer-list selection and scroll position survive each
+  status refresh; changed status and new approval requests are announced only
+  while the dialog is visible.
+- Right-click on line edits, multiline editors, editable combos and spin boxes
+  now reaches the native Undo/Cut/Copy/Paste/Delete/Select All menu even inside
+  scaled parser windows. Existing map, buff and table context menus remain
+  routed to their owning controls.
+- Items & Notes uses a single Find dumps action which lists valid inventory
+  exports found recursively under the configured EverQuest root.
 - Every Vantage data table now keeps authored initial widths while exposing
   each horizontal divider for direct resizing. Stretch, fixed, and automatic
   modes no longer trap clipped text such as long auction seller names.

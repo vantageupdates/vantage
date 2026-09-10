@@ -42,6 +42,15 @@ Market values are attributed in-app to PigParse Green. Project 1999 Wiki is a se
 
 Class, race and equipment-slot metadata is loaded from the P99 Planner community snapshot of Project 1999 Wiki data. It is not used as a price source. Optional mobile Internet sharing uses Cloudflare Quick Tunnels and downloads the official signed `cloudflared` Windows binary only with the user's approval.
 
+Optional multi-PC profile sync uses the open-source Syncthing transport (MPL
+2.0), downloaded from its official GitHub release only after the user's click
+and accepted only after SHA-256 verification. It requires no Vantage or
+Syncthing account. Approved devices exchange Vantage's allowlisted profile
+documents directly, using Syncthing discovery or relay when needed; Vantage
+does not operate a storage service for this data. Both devices must be online
+to exchange a change. Local EQ paths, passwords, credentials and session tokens
+are excluded.
+
 The optional OpenDKP window connects directly to `api.opendkp.com`, the
 guild's `*.opendkp.com` site, AWS Cognito for user-requested sign-in, and the
 OpenDKP live-auction websocket. Public browsing does not require an account.

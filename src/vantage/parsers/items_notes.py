@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from html import escape
+from datetime import datetime
+from pathlib import Path
 import re
 
 from PySide6.QtCore import QSignalBlocker, QStringListModel, Qt, QTimer, QUrl, QUrlQuery
 from PySide6.QtGui import QKeyEvent, QKeySequence, QShortcut, QTextCursor
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QCompleter, QFileDialog, QFrame,
+    QAbstractItemView, QComboBox, QCompleter, QFrame,
     QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton, QSplitter,
     QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QToolButton,
@@ -17,7 +19,9 @@ from PySide6.QtWidgets import (
 from vantage.helpers import config
 from vantage.helpers.icons import game_icon
 from vantage.helpers.item_journal import (
-    REFERENCE_RE, ItemJournal, parse_inventory_dump, reference_token)
+    REFERENCE_RE, ItemJournal, discover_inventory_dumps,
+    parse_inventory_dump, reference_token)
+from vantage.helpers.friends_manager import everquest_root_from_logs
 from vantage.helpers.parser import ParserWindow
 from vantage.parsers.maps.mapdata import MapData
 
@@ -133,7 +137,8 @@ class ItemsNotes(ParserWindow):
 
         help_text = QLabel(
             "In EverQuest use /outputfile inventory Character-Inventory.txt. "
-            "That one P99 dump includes carried and bank items; Vantage only reads it.")
+            "That one P99 dump includes carried and bank items. Find dumps scans "
+            "the complete configured EverQuest folder and only reads valid dumps.")
         help_text.setObjectName("ItemsNotesHelp")
         help_text.setWordWrap(True)
         help_text.setAccessibleName("Inventory dump instructions")
@@ -149,11 +154,12 @@ class ItemsNotes(ParserWindow):
             "Show all tracked characters or one imported inventory snapshot")
         self.character_selector.currentIndexChanged.connect(self._refresh_items)
         top_layout.addWidget(self.character_selector, 1)
-        self.import_button = QPushButton("Import dump")
+        self.import_button = QPushButton("Find dumps")
         self.import_button.setIcon(game_icon("import"))
-        self.import_button.setAccessibleName("Import P99 inventory dump")
+        self.import_button.setAccessibleName(
+            "Find P99 inventory dumps in the EverQuest folder")
         self.import_button.setToolTip(
-            "Read a Location, Name, ID, Count, Slots inventory output file")
+            "Search the complete EverQuest folder for Location, Name, ID, Count, Slots dumps")
         self.import_button.clicked.connect(self._import_dump)
         top_layout.addWidget(self.import_button)
         self.restore_button = QPushButton("Restore prior")
@@ -345,11 +351,71 @@ class ItemsNotes(ParserWindow):
             self._quest_catalog_timer.stop()
 
     def _import_dump(self):
-        path, _filter = QFileDialog.getOpenFileName(
-            self, "Import EverQuest inventory dump", "",
-            "Inventory dumps (*.txt *.tsv *.csv);;All files (*.*)")
-        if not path:
+        roots = self._dump_roots()
+        if not roots:
+            QMessageBox.information(
+                self, "EverQuest folder needed",
+                "Set your EverQuest folder in VantageUI or select the Logs "
+                "folder from the Quick Bar. Vantage will then search that "
+                "entire EverQuest folder automatically.")
             return
+        discovered = {}
+        for root in roots:
+            for record in discover_inventory_dumps(root):
+                discovered.setdefault(record["path"].casefold(), record)
+        dumps = sorted(
+            discovered.values(),
+            key=lambda value: (
+                -value["modified"], value["relative"].casefold()))
+        if not dumps:
+            self.item_status.setText(
+                f"No inventory dumps found under {roots[0]}")
+            QMessageBox.information(
+                self, "No inventory dumps found",
+                "Vantage searched the complete EverQuest folder and its "
+                "subfolders. In game, run /outputfile inventory "
+                "Character-Inventory.txt, then choose Find dumps again.")
+            return
+        labels = []
+        lookup = {}
+        for record in dumps:
+            when = datetime.fromtimestamp(record["modified"]).strftime(
+                "%Y-%m-%d %H:%M")
+            label = (
+                f"{record['character']}  ·  {when}  ·  "
+                f"{record['relative']}")
+            labels.append(label)
+            lookup[label] = record["path"]
+        selected, accepted = QInputDialog.getItem(
+            self, "Choose inventory dump",
+            f"Found {len(labels)} valid dump(s) in the EverQuest folder:",
+            labels, 0, False)
+        if not accepted or not selected:
+            return
+        self._import_dump_path(lookup[selected])
+
+    def _dump_roots(self):
+        """Resolve configured EQ roots without asking for individual files."""
+        candidates = [config.data.get("vantage_ui", {}).get("eq_dir", "")]
+        logs_root = everquest_root_from_logs(
+            config.data.get("general", {}).get("eq_log_dir", ""))
+        if logs_root is not None:
+            candidates.append(str(logs_root))
+        roots = []
+        seen = set()
+        for candidate in candidates:
+            try:
+                root = Path(candidate).expanduser().resolve(strict=True)
+            except (OSError, RuntimeError):
+                continue
+            key = str(root).casefold()
+            if not root.is_dir() or key in seen:
+                continue
+            seen.add(key)
+            roots.append(root)
+        return roots
+
+    def _import_dump_path(self, path):
         try:
             snapshot = parse_inventory_dump(path)
         except (OSError, ValueError) as error:
@@ -368,6 +434,7 @@ class ItemsNotes(ParserWindow):
         self.character_selector.setCurrentIndex(max(0, index))
         self.item_status.setText(
             f"Imported {len(snapshot['items']):,} rows from {snapshot['source']}")
+        return True
 
     def _refresh_items(self):
         character = self.character_selector.currentData() or ""

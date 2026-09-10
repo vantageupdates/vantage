@@ -4,7 +4,33 @@ import pytest
 
 from vantage.helpers.item_journal import (
     ItemJournal, character_from_filename, classify_location,
+    discover_inventory_dumps,
     parse_inventory_dump, reference_token, references_in)
+
+
+def test_discovers_valid_dumps_across_the_complete_eq_tree(tmp_path):
+    nested = tmp_path / "exports" / "characters"
+    nested.mkdir(parents=True)
+    newest = nested / "Velena-Inventory.txt"
+    newest.write_text(
+        "Location\tName\tID\tCount\tSlots\nBank1\tBone Chips\t13073\t20\t0\n",
+        encoding="utf-8")
+    older = tmp_path / "Pyco-Inventory.csv"
+    older.write_text(
+        "Location,Name,ID,Count,Slots\nGeneral1,Journeyman's Boots,2300,1,0\n",
+        encoding="utf-8")
+    (tmp_path / "logs").mkdir()
+    (tmp_path / "logs" / "eqlog_Pyco_project1999.txt").write_text(
+        "[Wed Sep 09 12:00:00 2026] You have entered East Commons.\n",
+        encoding="utf-8")
+    (tmp_path / "maps.txt").write_text("P 1, 2, 3, 0, 0, 0, NPC\n")
+
+    records = discover_inventory_dumps(tmp_path)
+
+    assert {Path(record["path"]).name for record in records} == {
+        "Velena-Inventory.txt", "Pyco-Inventory.csv"}
+    assert {record["character"] for record in records} == {"Velena", "Pyco"}
+    assert any(record["relative"].startswith("exports") for record in records)
 
 
 SAMPLE = (

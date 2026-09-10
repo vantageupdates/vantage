@@ -944,31 +944,15 @@ def _delete_empty_directory(path, expected_id, before_delete):
 
 
 def _retained_folders(registry):
-    """Keep the selection, its rollback target and two older fallback slots.
+    """Keep exactly the selected release and its one rollback target.
 
-    The previous target counts toward the two older fallbacks when it is older
-    than active. After rollback, a newer previous target is additionally kept.
-    Choose only registered, non-retired names; never enumerate skin directories
-    or mistake a partially deleted quarantine for a usable fallback.
+    Only names already present in the verified shared registry qualify. The
+    filesystem is never enumerated here, so unmanaged skins and personal UI
+    folders cannot be mistaken for an obsolete managed version.
     """
-    active = registry["active"]
-    keep = {name for name in (active, registry["previous"]) if name}
-    if not active:
-        return keep
-    def version_key(name):
-        return tuple(map(int, _folder_version(name).split(".")))
-    active_version = version_key(active)
-    older = sorted((name for name, record in registry["managed"].items()
-                    if not record["quarantine"] and version_key(name) < active_version),
-                   key=version_key, reverse=True)
-    fallbacks = sum(version_key(name) < active_version for name in keep)
-    for name in older:
-        if fallbacks >= 2:
-            break
-        if name not in keep:
-            keep.add(name)
-            fallbacks += 1
-    return keep
+    return {
+        name for name in (registry["active"], registry["previous"])
+        if name}
 
 
 def _prune(target, registry, snapshot, log):
@@ -987,10 +971,6 @@ def _prune(target, registry, snapshot, log):
     keep = _retained_folders(registry)
     for name in list(registry["managed"]):
         if name in keep:
-            continue
-        if (tuple(map(int, _folder_version(name).split("."))) >=
-                tuple(map(int, _folder_version(registry["active"]).split(".")))):
-            warn(f"Preserved newer registered folder {name}; only older versions qualify for cleanup.")
             continue
         record = registry["managed"][name]
         try:
@@ -1038,9 +1018,9 @@ def _prune(target, registry, snapshot, log):
             _sync_directory(target)
             del registry["managed"][name]
             snapshot = _save_registry(target, registry, snapshot)
-            log(f"Removed unchanged older managed folder {name}.")
+            log(f"Removed unchanged unused managed folder {name}.")
         except Exception as error:
-            warn(f"UI selection is saved. Preserved older folder {name}; cleanup needs review: {error}")
+            warn(f"UI selection is saved. Preserved unused folder {name}; cleanup needs review: {error}")
             # A concurrent registry writer invalidates the whole remaining plan.
             try:
                 _registry_unchanged(target, snapshot)
