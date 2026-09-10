@@ -208,5 +208,5 @@ def test_repository_snapshot_parses_and_matches_release_contract():
     assert "EQUI_CastSpellWnd.xml" in assets
     assert "SIDL.xml" in assets
     release = package.load_release(root / "ui" / "release.json")
-    assert release == {"schema": 2, "version": "1.44.74",
-                       "skin_folder": "VantageUI-v1.44.74"}
+    assert release == {"schema": 2, "version": "1.44.75",
+                       "skin_folder": "VantageUI-v1.44.75"}

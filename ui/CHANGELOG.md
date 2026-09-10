@@ -1,5 +1,21 @@
 # VantageUI releases
 
+## 1.44.75
+
+Install folder: `VantageUI-v1.44.75`.
+
+- Slimmer native container layout: base window 100x366 to 92x350, side padding
+  6px to 2px, and the slot grid starts 8px higher.
+- Centered two-line name, original 40px bag icon and 40px item slots. Compact
+  20px Done button and 4px footer gaps retain Combine and native controls.
+- Item indices, artwork, dynamic slot visibility and unrelated windows remain
+  unchanged. Actual client auto-sizing still requires in-game confirmation.
+- Inventory class animation is proportionally enlarged 6.25% and centered
+  between the left edge and coin rail, with a thin neutral fading frame. Native
+  dynamic class selection and auto-equip target remain intact; no fixed emblem.
+
+Load with `/loadskin VantageUI-v1.44.75 1`.
+
 ## 1.44.74
 
 Install folder: `VantageUI-v1.44.74`.

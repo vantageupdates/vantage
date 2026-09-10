@@ -109,7 +109,7 @@ def test_container_keeps_native_geometry_and_active_slot_contract():
     root = _root("EQUI_Container.xml")
     window = _item(root, "Screen", "ContainerWindow")
     window_size = _pair(window, "Size", "CX", "CY")
-    assert window_size == (100, 366)
+    assert window_size == (92, 350)
     assert window.findtext("DrawTemplate") == "WDT_Rounded"
     pieces = [piece.text.strip() for piece in window.findall("Pieces")]
 
@@ -120,7 +120,7 @@ def test_container_keeps_native_geometry_and_active_slot_contract():
         assert slot.findtext("ScreenID") == name
         assert int(slot.findtext("EQType")) == 29 + index
         rect = _rect(slot)
-        expected_location = (6 + 40 * ((index - 1) % 2), 84 + 40 * ((index - 1) // 2))
+        expected_location = (2 + 40 * ((index - 1) % 2), 76 + 40 * ((index - 1) // 2))
         assert rect[:2] == expected_location
         assert rect[2:] == (40, 40)
         _assert_in_bounds(rect, window_size)
