@@ -1,5 +1,18 @@
 # VantageUI releases
 
+## 1.44.76
+
+Install folder: `VantageUI-v1.44.76`.
+
+- Recentered every bag slot grid with equal 4px left and right margins.
+- Slimmed the container from 92x350 to 88x334 while preserving 40px slots.
+- Aligned the two-line name, 40px bag icon, Combine and Done controls to the
+  exact horizontal center of the window. Kept their native bindings and states.
+- Increased Experience-bar divider definition slightly with a dark 1px core and
+  soft 1px falloff, preserving its color, rounded ends and five sections.
+
+Load with `/loadskin VantageUI-v1.44.76 1`. Native layout requires game review.
+
 ## 1.44.75
 
 Install folder: `VantageUI-v1.44.75`.

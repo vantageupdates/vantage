@@ -5,7 +5,7 @@
     <ScreenID>Container_Label</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>0</X>
+      <X>2</X>
       <Y>2</Y>
     </Location>
     <Size>
@@ -26,7 +26,7 @@
     <ScreenID>Container_Icon</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>22</X>
+      <X>24</X>
       <Y>32</Y>
     </Location>
     <Size>
@@ -60,7 +60,7 @@
     <ScreenID>ContainerSlot1</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>2</X>
+      <X>4</X>
       <Y>76</Y>
     </Location>
     <Size>
@@ -80,7 +80,7 @@
     <ScreenID>ContainerSlot2</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>42</X>
+      <X>44</X>
       <Y>76</Y>
     </Location>
     <Size>
@@ -100,7 +100,7 @@
     <ScreenID>ContainerSlot3</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>2</X>
+      <X>4</X>
       <Y>116</Y>
     </Location>
     <Size>
@@ -120,7 +120,7 @@
     <ScreenID>ContainerSlot4</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>42</X>
+      <X>44</X>
       <Y>116</Y>
     </Location>
     <Size>
@@ -140,7 +140,7 @@
     <ScreenID>ContainerSlot5</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>2</X>
+      <X>4</X>
       <Y>156</Y>
     </Location>
     <Size>
@@ -160,7 +160,7 @@
     <ScreenID>ContainerSlot6</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>42</X>
+      <X>44</X>
       <Y>156</Y>
     </Location>
     <Size>
@@ -180,7 +180,7 @@
     <ScreenID>ContainerSlot7</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>2</X>
+      <X>4</X>
       <Y>196</Y>
     </Location>
     <Size>
@@ -200,7 +200,7 @@
     <ScreenID>ContainerSlot8</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>42</X>
+      <X>44</X>
       <Y>196</Y>
     </Location>
     <Size>
@@ -220,7 +220,7 @@
     <ScreenID>ContainerSlot9</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>2</X>
+      <X>4</X>
       <Y>236</Y>
     </Location>
     <Size>
@@ -240,7 +240,7 @@
     <ScreenID>ContainerSlot10</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>42</X>
+      <X>44</X>
       <Y>236</Y>
     </Location>
     <Size>
@@ -260,7 +260,7 @@
     <ScreenID>Container_Combine</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>12</X>
+      <X>14</X>
       <Y>280</Y>
     </Location>
     <Size>
@@ -289,7 +289,7 @@
     <ScreenID>DoneButton</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>17</X>
+      <X>19</X>
       <Y>304</Y>
     </Location>
     <Size>
@@ -461,8 +461,8 @@
 			<Y>100</Y>
 		</Location>
 		<Size>
-			<CX>92</CX>
-			<CY>350</CY>
+			<CX>88</CX>
+			<CY>334</CY>
 		</Size>
 		<Text>Container</Text>
 		<Style_VScroll>false</Style_VScroll>

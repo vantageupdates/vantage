@@ -77,6 +77,21 @@ def test_new_bar_atlas_has_native_frames_and_transparent_gutters():
     assert hashlib.sha256((SKIN/'dzbars.png').read_bytes()).hexdigest() == 'bef112ebdbf569836577422467c771d87dfd348dfb5f88d64753baa650439342'
 
 
+def test_experience_dividers_are_subtle_but_clearly_darker_than_falloff():
+    data=(SKIN/'VantageGroupBars.tga').read_bytes()
+    def luma(x,y):
+        b,g,r,a=data[18+4*(y*256+x):22+4*(y*256+x)]
+        assert a > 0
+        return r+g+b
+    for top,width in ((2,145),(26,141)):
+        for section in range(1,5):
+            x=2+round(width*section/5)
+            core=luma(x,top+10)
+            sides=(luma(x-1,top+10),luma(x+1,top+10))
+            assert core < min(sides)
+            assert core*100 <= max(sides)*78
+
+
 def test_shared_legacy_gauges_and_inventory_exp_remain_independent():
     animations = ET.parse(SKIN/'EQUI_Animations.xml').getroot()
     assert animations.find("Ui2DAnimation[@item='A_dzFill']/Frames/Size/CX").text == '100'

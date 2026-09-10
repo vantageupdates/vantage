@@ -13,14 +13,14 @@ def rect(name):
     return tuple(int(n.findtext(p)) for p in ('Location/X','Location/Y','Size/CX','Size/CY'))
 
 @pytest.mark.parametrize('name,bounds', [
-    ('Container_Label',(0,2,84,28)), ('Container_Icon',(22,32,40,40)),
-    ('Container_Combine',(12,280,60,20)), ('Container_CloseButton',(17,304,50,20)),
-    ('ContainerWindow',(350,100,92,350)),
+    ('Container_Label',(2,2,84,28)), ('Container_Icon',(24,32,40,40)),
+    ('Container_Combine',(14,280,60,20)), ('Container_CloseButton',(19,304,50,20)),
+    ('ContainerWindow',(350,100,88,334)),
 ])
 def test_compact_centered_header_and_footer(name,bounds):
     assert rect(name) == bounds
     if name != 'ContainerWindow':
-        assert bounds[0]*2 + bounds[2] == 84
+        assert bounds[0]*2 + bounds[2] == 88
 
 def test_labels_and_controls_remain_separate():
     assert node('Container_Label').findtext('NoWrap') == 'false'
@@ -39,7 +39,14 @@ def test_labels_and_controls_remain_separate():
 def test_native_slot_prefixes_preserve_sizes_and_indices(count):
     for i in range(count):
         n=node(f'ContainerSlot{i+1}')
-        assert rect(f'ContainerSlot{i+1}') == (2+40*(i%2),76+40*(i//2),40,40)
+        assert rect(f'ContainerSlot{i+1}') == (4+40*(i%2),76+40*(i//2),40,40)
         assert n.findtext('EQType') == str(30+i)
     assert node('ContainerWindow').findtext('Style_Sizable') == 'false'
     assert node('ContainerWindow').findtext('Style_Closebox') == 'true'
+
+def test_slot_grid_has_equal_margins_and_tight_footer():
+    width=rect('ContainerWindow')[2]
+    left=rect('ContainerSlot1')[0]
+    right=width-(rect('ContainerSlot2')[0]+rect('ContainerSlot2')[2])
+    assert left == right == 4
+    assert rect('ContainerWindow')[3]-(rect('Container_CloseButton')[1]+20) == 10

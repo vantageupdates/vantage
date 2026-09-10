@@ -13,6 +13,20 @@ public static class VantageGroupBars {
             atlas.SetPixel(2+x,dy+y,source.GetPixel(sx+ox,sy+y));
         }
     }
+    static void Separators(Bitmap atlas,int dy,int width) {
+        // Five restrained sections: a dark core plus a softer adjacent falloff.
+        // Keep the rounded end caps and top/bottom highlights untouched.
+        for(int section=1;section<5;section++) {
+            int center=2+(int)Math.Round(width*section/5.0);
+            for(int y=dy+3;y<dy+17;y++)for(int offset=-1;offset<=1;offset++) {
+                var color=atlas.GetPixel(center+offset,y);
+                double factor=offset==0?.55:.82;
+                atlas.SetPixel(center+offset,y,Color.FromArgb(color.A,
+                    (int)Math.Round(color.R*factor),(int)Math.Round(color.G*factor),
+                    (int)Math.Round(color.B*factor)));
+            }
+        }
+    }
     public static void Render(string sourcePath,string destination,string preview) {
         if(Path.GetFileName(destination)!="VantageGroupBars.tga")
             throw new ArgumentException("Expected the dedicated Group atlas.");
@@ -20,6 +34,8 @@ public static class VantageGroupBars {
         using(var atlas=new Bitmap(256,128,PixelFormat.Format32bppArgb)) {
             Part(source,atlas,0,20,104,20,2,145);  // EXP background.
             Part(source,atlas,2,0,100,20,26,141);  // EXP fill, inset 2px.
+            Separators(atlas,2,145);
+            Separators(atlas,26,141);
             Part(source,atlas,0,90,104,10,50,145); // Thin background.
             Part(source,atlas,0,80,104,10,64,145); // Thin fill.
             Part(source,atlas,0,110,104,10,78,145);// Thin separators.
