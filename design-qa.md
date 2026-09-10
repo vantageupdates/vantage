@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.72 design QA
+# Vantage Companion 1.44.73 design QA
 
 final result: passed
 

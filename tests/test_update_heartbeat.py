@@ -4,9 +4,42 @@ from PySide6.QtTest import QTest
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
+
+import semver
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_companion_auto_install_requires_opt_in_and_reuses_verified_flow():
+    events = []
+    toast = SimpleNamespace(
+        _one_click_active=False,
+        show_updates=lambda **values: events.append(("show", values)),
+        start_one_click_update=lambda: events.append(("start", None)),
+    )
+    info = SimpleNamespace(version=semver.VersionInfo.parse("9.8.7"))
+    target = SimpleNamespace(
+        _update_install_auto_enabled=False,
+        _update_controller=SimpleNamespace(busy=False),
+        _update_toast=toast,
+        _notified_companion_version="",
+        _vantage_ui_update_ready=False,
+        _vantage_ui_available_version="",
+    )
+
+    from vantage.helpers.application import VantageApp
+
+    assert not VantageApp._start_automatic_companion_update(target, info)
+    assert events == []
+    target._update_install_auto_enabled = True
+    assert VantageApp._start_automatic_companion_update(target, info)
+    assert target._notified_companion_version == "9.8.7"
+    assert events == [
+        ("show", {"info": info, "vantage_ui_version": ""}),
+        ("start", None),
+    ]
 
 
 SCRIPT = r"""
@@ -156,14 +189,14 @@ def test_update_heartbeat_starts_fast_retries_and_updates_quickbar(tmp_path):
     assert result['constants'] == [3000, 15000, 60000, 60000]
     assert result['initial']['active'] is True
     assert result['initial']['interval'] == 3000
-    assert 'Vantage 1.44.72 installed' in result['initial']['tooltip']
+    assert 'Vantage 1.44.73 installed' in result['initial']['tooltip']
     assert result['initial']['button_text'] == 'Updated'
     assert result['initial']['badge_text'] == '✓'
     assert result['initial']['receipt_announcements'] == [[
-        'Update complete. Vantage 1.44.72 installed · was 1.44.44.',
+        'Update complete. Vantage 1.44.73 installed · was 1.44.44.',
         'AnnouncementPoliteness.Polite']]
     assert result['initial']['update_toast_visible'] is False
-    update_message = 'Vantage updated · 1.44.44 → 1.44.72'
+    update_message = 'Vantage updated · 1.44.44 → 1.44.73'
     assert update_message in (
         [result['initial']['rail_text']] + result['initial']['rail_pending'])
     assert result['initial']['vantage_ui_visible'] is True

@@ -74,6 +74,7 @@ def test_portable_profile_excludes_paths_connections_and_secrets():
         "general": {
             "eq_log_dir": r"C:\EQ\Logs",
             "audio_muted": True,
+            "auto_install_updates": True,
             "geometry": [1, 2, 3, 4],
         },
         "market": {"live_watch_items": ["Manastone"], "api_token": "no"},
@@ -86,7 +87,8 @@ def test_portable_profile_excludes_paths_connections_and_secrets():
     portable = export_sync_settings(source)
 
     assert portable["general"] == {
-        "audio_muted": True, "geometry": [1, 2, 3, 4]}
+        "audio_muted": True, "auto_install_updates": True,
+        "geometry": [1, 2, 3, 4]}
     assert portable["market"] == {"live_watch_items": ["Manastone"]}
     assert portable["vantage_ui"] == {"auto_update": True}
     assert "sharing" not in portable

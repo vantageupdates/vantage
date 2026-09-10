@@ -249,7 +249,7 @@ def _official_release_asset():
     request = Request(
         SYNCTHING_RELEASE_API,
         headers={"Accept": "application/vnd.github+json",
-                 "User-Agent": "Vantage/1.44.72"})
+                 "User-Agent": "Vantage/1.44.73"})
     with urlopen(request, timeout=15) as response:
         raw = response.read(MAX_RELEASE_BYTES + 1)
     if len(raw) > MAX_RELEASE_BYTES:
@@ -274,7 +274,7 @@ def _official_release_asset():
 def install_syncthing(progress=None):
     """Download one verified portable transport binary from the official release."""
     url, expected = _official_release_asset()
-    request = Request(url, headers={"User-Agent": "Vantage/1.44.72"})
+    request = Request(url, headers={"User-Agent": "Vantage/1.44.73"})
     with urlopen(request, timeout=45) as response:
         length = int(response.headers.get("Content-Length") or 0)
         if length > MAX_ARCHIVE_BYTES:
@@ -956,6 +956,9 @@ class DeviceSyncDialog(UniformScaleDialog):
 
         options = QFormLayout()
         self.sync_settings = QCheckBox("Settings and WTS/WTB preferences")
+        self.sync_settings.setToolTip(
+            "Includes automatic-update opt-ins, but never passwords, tokens, "
+            "credentials, or local paths")
         self.sync_layout = QCheckBox("Window sizes and layout")
         self.sync_items = QCheckBox("Item tracker and notes")
         self.sync_hotbuttons = QCheckBox("WTS/WTB buttons for matching characters")

@@ -53,7 +53,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=72,
+    patch=73,
     build=""
 )
 
@@ -153,6 +153,8 @@ class VantageApp(QApplication):
         self._update_controller = UpdateController(CURRENT_VERSION, self)
         self._update_auto_enabled = bool(
             config.data['general'].get('update_check', True))
+        self._update_install_auto_enabled = bool(
+            config.data['general'].get('auto_install_updates', False))
         self._update_check_state = (
             "idle" if self._update_auto_enabled else "disabled")
         self._update_check_error = ""
@@ -1262,21 +1264,49 @@ class VantageApp(QApplication):
 
     def _update_settings_changed(self):
         enabled = bool(config.data['general'].get('update_check', True))
-        if enabled == self._update_auto_enabled:
+        auto_install = bool(
+            config.data['general'].get('auto_install_updates', False))
+        auto_install_changed = (
+            auto_install != self._update_install_auto_enabled)
+        self._update_install_auto_enabled = auto_install
+        if enabled == self._update_auto_enabled and not auto_install_changed:
             return
-        self._update_auto_enabled = enabled
-        if enabled:
-            self._schedule_update_check(500)
-        else:
-            self._update_heartbeat.stop()
-            self._update_check_state = "disabled"
-            self._vantage_ui_update_state = "disabled"
-            self._refresh_quickbar()
+        if enabled != self._update_auto_enabled:
+            self._update_auto_enabled = enabled
+            if enabled:
+                self._schedule_update_check(500)
+            else:
+                self._update_heartbeat.stop()
+                self._update_check_state = "disabled"
+                self._vantage_ui_update_state = "disabled"
+                self._refresh_quickbar()
+        info = getattr(self._update_controller, "latest_info", None)
+        if (auto_install_changed and auto_install and info is not None and
+                info.version > CURRENT_VERSION):
+            QTimer.singleShot(
+                0, lambda: self._start_automatic_companion_update(info))
 
     def _update_available(self, info):
         self._update_check_state = "ready"
         self._refresh_quickbar()
+        if self._start_automatic_companion_update(info):
+            return
         self._schedule_update_toast()
+
+    def _start_automatic_companion_update(self, info):
+        """Start the verified one-click updater only after explicit opt-in."""
+        if (not self._update_install_auto_enabled or info is None or
+                self._update_controller.busy or
+                self._update_toast._one_click_active):
+            return False
+        self._notified_companion_version = str(info.version)
+        ui_version = (
+            self._vantage_ui_available_version
+            if self._vantage_ui_update_ready else "")
+        self._update_toast.show_updates(
+            info=info, vantage_ui_version=ui_version)
+        self._update_toast.start_one_click_update()
+        return True
 
     def _vantage_ui_update_state_changed(self, snapshot):
         """Fold independent VantageUI discovery into the shared update UX."""

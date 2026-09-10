@@ -513,6 +513,8 @@ def verify_settings():
         data['general']['update_system_version'] = 1
     data['general']['update_check'] = get_setting(
         data['general'].get('update_check', True), True)
+    data['general']['auto_install_updates'] = get_setting(
+        data['general'].get('auto_install_updates', False), False)
     try:
         data['general']['last_update_check'] = max(
             0.0, float(data['general'].get('last_update_check', 0.0)))

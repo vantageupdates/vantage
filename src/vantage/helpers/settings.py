@@ -605,6 +605,16 @@ class SettingsWindow(UniformScaleDialog):
             'Check the official vantageupdates/vantage GitHub Release at '
             'startup and every minute; installation always requires your click')
         gsl.addRow('Automatic update heartbeat', update_check)
+        auto_install_updates = QCheckBox()
+        auto_install_updates.setObjectName(
+            'general:auto_install_updates')
+        auto_install_updates.setToolTip(
+            'Optional: automatically download, verify, install, and restart '
+            'Vantage when a new Companion release is found. Device Sync '
+            'shares this choice with every paired PC.')
+        auto_install_updates.setAccessibleName(
+            'Automatically install Vantage Companion updates')
+        gsl.addRow('Automatically install updates', auto_install_updates)
 
         gsl.addRow(SettingsHeader('LOG ARCHIVE'))
         log_archive_enabled = QCheckBox()
