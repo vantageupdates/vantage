@@ -90,6 +90,43 @@ ITEM_CLICK_DURATION_SECONDS = {
 AMBIGUOUS_EXTERNAL_SELF_BUFFS = {
     "you begin to regenerate.": "Regeneration",
 }
+BARD_CLASS_INDEX = 7
+SHORT_BARD_TWIST_SECONDS = 30
+SELF_DIRECTED_EFFECT_RX = re.compile(
+    r'\b(?:you|your|yours|yourself)\b', re.IGNORECASE)
+
+
+def _is_explicit_self_effect(text):
+    """Return whether a landing sentence explicitly addresses this player."""
+    return bool(SELF_DIRECTED_EFFECT_RX.search(str(text or '')))
+
+
+def _spell_duration_seconds(spell, level):
+    """Calculate a spell's live duration using the active character level."""
+    try:
+        explicit = int(getattr(spell, 'duration_seconds', 0) or 0)
+    except (TypeError, ValueError):
+        explicit = 0
+    if explicit > 0:
+        return explicit
+    return max(0, int(get_spell_duration(spell, level)) * 6)
+
+
+def _is_short_bard_twist(spell, level):
+    """Identify beneficial, castable Bard songs that churn every 30s or less."""
+    levels = tuple(getattr(spell, 'class_levels', ()) or ())
+    if len(levels) <= BARD_CLASS_INDEX:
+        return False
+    try:
+        bard_level = int(levels[BARD_CLASS_INDEX])
+        cast_time = int(getattr(spell, 'cast_time', 0) or 0)
+        beneficial = int(getattr(spell, 'type', 0) or 0) != 0
+    except (TypeError, ValueError):
+        return False
+    if not beneficial or cast_time <= 0 or not 0 < bard_level <= 65:
+        return False
+    seconds = _spell_duration_seconds(spell, level)
+    return 0 < seconds <= SHORT_BARD_TWIST_SECONDS
 
 
 def _focus_spell_control(widget):
@@ -207,13 +244,14 @@ def _external_self_buff_effects(spell_book, unique_messages):
     resolved = {}
     for message, spell in unique_messages.items():
         class_levels = tuple(getattr(spell, 'class_levels', ()) or ())
-        if (int(getattr(spell, 'type', 0) or 0) != 0 and
+        if (_is_explicit_self_effect(message) and
+                int(getattr(spell, 'type', 0) or 0) != 0 and
                 int(getattr(spell, 'duration_formula', 0) or 0) != 0 and
                 any(0 < int(level) <= 65 for level in class_levels)):
             resolved[str(message).strip().casefold()] = spell
     for message, spell_name in AMBIGUOUS_EXTERNAL_SELF_BUFFS.items():
         spell = spell_book.get(spell_name)
-        if spell is not None:
+        if spell is not None and _is_explicit_self_effect(message):
             resolved[message.casefold()] = spell
     return resolved
 
@@ -747,6 +785,11 @@ class Spells(ParserWindow):
     def _spell_for_active_profile(self, source):
         spell = copy.copy(source)
         spell.runtime_level = self._active_cast_level()
+        # Short Bard twists are useful as a live visual when this player cast
+        # them, but warning/fade noise and cross-device persistence turn normal
+        # song rotation into a notification storm.
+        spell.transient_silent = _is_short_bard_twist(
+            spell, spell.runtime_level)
         return spell
 
     def _schedule_runtime_timer_state_save(self):
@@ -898,8 +941,12 @@ class Spells(ParserWindow):
         # for a few seconds instead of disappearing without an explanation.
         custom_worn_audio = self._line_has_custom_audio(text)
         faded = self._spell_container.mark_worn_off(
-            text, timestamp, play_sound=False)
-        if faded:
+            text, timestamp, play_sound=False,
+            character=getattr(self, '_active_character', ''),
+            server=getattr(self, '_active_server', ''))
+        silent_transient = bool(
+            faded and getattr(faded, 'transient_silent', False))
+        if faded and not silent_transient:
             target = faded.parentWidget()
             target_name = (
                 target.target_label.text()
@@ -1228,12 +1275,25 @@ class Spells(ParserWindow):
             else:
                 item_name = pending[1]
 
+        # Without an owned cast/item anchor, a log sentence can only describe
+        # this character when its grammar explicitly says you/your/yours.
+        # This prevents nearby players' and NPCs' effects from leaking into
+        # the active character's self-buff list.
+        if not pending and not _is_explicit_self_effect(text):
+            return False
+
         preferred = pending[2] if pending and len(pending) > 2 else ''
         landing = self._item_effect_landing(
             text, include_other=bool(pending), preferred_spell=preferred)
         if not landing:
             return False
         spell, target, indexed_item = landing
+        # An unanchored landing can come from any nearby Bard's group song.
+        # Only this player's preceding cast (or an observed item glow) is
+        # authoritative enough to create a rapidly cycling song timer.
+        if not pending and _is_short_bard_twist(
+                spell, self._active_cast_level()):
+            return False
         # Without a glow/cast anchor, accept only the dedicated P99-indexed
         # instant-self lookup. The item-only flag alone is too broad because
         # NPC-only spells can share otherwise ordinary landing messages.
@@ -1278,7 +1338,8 @@ class Spells(ParserWindow):
         if indexed:
             return indexed[0], '__you__', indexed[1]
         spell = self.text_you.get(text)
-        if (spell and spell.effect_text_you and
+        if (spell and _is_explicit_self_effect(text) and
+                spell.effect_text_you and
                 spell.duration_formula != 0):
             return spell, '__you__', ''
         if include_other:
@@ -1550,9 +1611,9 @@ class Spells(ParserWindow):
             getattr(widget, 'runtime_character', '') or '').strip().casefold()
         widget_server = str(
             getattr(widget, 'runtime_server', '') or '').strip().casefold()
-        if character and widget_character and character != widget_character:
+        if character and character != widget_character:
             return False
-        if server and widget_server and server != widget_server:
+        if server and server != widget_server:
             return False
         return True
 
@@ -1567,6 +1628,8 @@ class Spells(ParserWindow):
         for widget in target.spell_widgets():
             if not self._spell_widget_matches_profile(
                     widget, character, server):
+                continue
+            if getattr(widget, 'transient_silent', False):
                 continue
             seconds = int(math.ceil(
                 (widget.end_time - now).total_seconds()))
@@ -1676,8 +1739,12 @@ class Spells(ParserWindow):
             if character and item_character and \
                     item_character.casefold() != character.casefold():
                 continue
+            if character and not item_character:
+                continue
             if server and item_server and \
                     item_server.casefold() != server.casefold():
+                continue
+            if server and not item_server:
                 continue
             payload = item.get('spell') or {}
             name = str(payload.get('name') or '').strip()
@@ -2026,7 +2093,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.77')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.78')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -2397,9 +2464,10 @@ class SpellContainer(QFrame):
                 widget_server = str(
                     getattr(widget, 'runtime_server', '') or '').strip().casefold()
                 matches = (
-                    not self._filter_character or not widget_character or
-                    (widget_character == self._filter_character and
-                     (not self._filter_server or not widget_server or
+                    (not self._filter_character and not self._filter_server) or
+                    ((not self._filter_character or
+                      widget_character == self._filter_character) and
+                     (not self._filter_server or
                       widget_server == self._filter_server)))
                 widget.setVisible(matches)
                 visible = visible or matches
@@ -2430,7 +2498,8 @@ class SpellContainer(QFrame):
                 self.findChildren(SpellTarget),
                 key=lambda item: item.created_order):
             for widget in target.spell_widgets():
-                if widget._removed or widget._faded:
+                if (widget._removed or widget._faded or
+                        getattr(widget, 'transient_silent', False)):
                     continue
                 remaining = (widget.end_time - now_datetime).total_seconds()
                 if remaining <= 0:
@@ -2628,7 +2697,9 @@ class SpellContainer(QFrame):
         self._sync_empty_state()
         return True
 
-    def mark_worn_off(self, text, timestamp=None, play_sound=True):
+    def mark_worn_off(
+            self, text, timestamp=None, play_sound=True,
+            character='', server=''):
         """Mark one best matching row FADED without erasing its mob context."""
         worn_text = str(text or '').strip().casefold()
         if not worn_text:
@@ -2654,6 +2725,29 @@ class SpellContainer(QFrame):
                     matches.append(widget)
         if not matches:
             return None
+        profile_character = str(character or '').strip().casefold()
+        profile_server = str(server or '').strip().casefold()
+        if profile_character or profile_server:
+            exact = []
+            legacy = []
+            for widget in matches:
+                widget_character = str(
+                    widget.runtime_character or '').strip().casefold()
+                widget_server = str(
+                    widget.runtime_server or '').strip().casefold()
+                if widget_character or widget_server:
+                    if ((not profile_character or
+                         widget_character == profile_character) and
+                            (not profile_server or
+                             widget_server == profile_server)):
+                        exact.append(widget)
+                else:
+                    legacy.append(widget)
+            # Never consume a different character's matching effect. A blank
+            # pre-profile row is the only safe fallback for migrated state.
+            matches = exact or legacy
+            if not matches:
+                return None
         victim = min(matches, key=lambda widget: widget.end_time)
         victim.mark_faded(timestamp, play_sound=play_sound)
         return victim
@@ -3129,6 +3223,8 @@ class SpellWidget(QFrame):
         self.setAccessibleName(f'{self.spell.name} spell timer')
         self.runtime_character = str(character or '')
         self.runtime_server = str(server or '')
+        self.transient_silent = bool(getattr(
+            self.spell, 'transient_silent', False))
         self._active = True
         self._removed = False
         self._faded = False
@@ -3223,6 +3319,8 @@ class SpellWidget(QFrame):
         self.customContextMenuRequested.connect(self._sound_menu)
 
     def recast(self, timestamp):
+        self.transient_silent = bool(getattr(
+            self.spell, 'transient_silent', False))
         self._calculate(timestamp)
         self.progress.setStyleSheet(spell_progress_stylesheet(self.spell))
         self._fade_remove_timer.stop()
@@ -3303,10 +3401,16 @@ class SpellWidget(QFrame):
             remaining_seconds = remaining.total_seconds()
             self.progress.setValue(max(0, int(remaining_seconds)))
             self.progress.update()
-            warning, critical, pulse, refresh_ms = spell_warning_state(
-                remaining_seconds,
-                config.data['spells']['fade_warning_seconds'],
-                config.data['general'].get('reduce_motion'))
+            if self.transient_silent:
+                warning, critical, pulse, refresh_ms = False, False, False, 1000
+            else:
+                warning, critical, pulse, refresh_ms = spell_warning_state(
+                    remaining_seconds,
+                    config.data['spells']['fade_warning_seconds'],
+                    config.data['general'].get('reduce_motion'))
+            self.setProperty('Warning', warning)
+            self.setProperty('Critical', critical)
+            self.setProperty('Pulse', pulse)
             self.progress.setProperty('Warning', warning)
             self.progress.setProperty('Critical', critical)
             self.progress.setProperty('Pulse', pulse)
@@ -3337,6 +3441,9 @@ class SpellWidget(QFrame):
     def mark_faded(self, timestamp=None, play_sound=True):
         """Keep an early worn-off effect visible as a red blinking FADED row."""
         if self._removed or self._faded:
+            return
+        if self.transient_silent:
+            self._remove()
             return
         self._faded = True
         self._active = False
@@ -3385,8 +3492,12 @@ class SpellWidget(QFrame):
             return
         self._fade_remove_timer.stop()
         target, owner = self._owner_container()
+        focused = QApplication.focusWidget()
+        restore_focus = bool(
+            focused is self or
+            (focused is not None and self.isAncestorOf(focused)))
         focus_target = None
-        if target:
+        if restore_focus and target:
             siblings = [
                 widget for widget in target.spell_widgets()
                 if widget is not self and not widget._removed]

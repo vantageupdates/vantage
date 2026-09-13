@@ -105,6 +105,90 @@ def test_character_filter_keeps_separate_same_spell_rows():
         if not widget.isHidden()] == ["Harmflux"]
 
 
+def test_character_filter_hides_legacy_rows_from_specific_profiles():
+    _app()
+    now = datetime.datetime.now()
+    container = SpellContainer()
+    buff = _spell(
+        "Clarity II", effect_text_other=" feels a clarity of mind.",
+        effect_text_worn_off="Your mind fogs.", type=1)
+    container.add_spell(buff, now, "__you__", "", "")
+    target = container.get_spell_target_by_name("__you__")
+    legacy = target.spell_widgets()[0]
+
+    container.set_profile_filter("", "")
+    assert legacy.isHidden() is False
+    container.set_profile_filter("Mindflux", "Green")
+    assert legacy.isHidden() is True
+    container.set_profile_filter("Harmflux", "Green")
+    assert legacy.isHidden() is True
+
+
+def test_worn_off_isolated_to_exact_character_profile():
+    _app()
+    now = datetime.datetime.now()
+    container = SpellContainer()
+    buff = _spell(
+        "Clarity II", effect_text_other=" feels a clarity of mind.",
+        effect_text_worn_off="Your mind fogs.", type=1)
+    # Give the other profile an earlier deadline: profile filtering, rather
+    # than global expiry order, must still choose Mindflux.
+    container.add_spell(buff, now, "__you__", "Harmflux", "Green")
+    container.add_spell(
+        buff, now + datetime.timedelta(seconds=30), "__you__",
+        "Mindflux", "Green")
+    target = container.get_spell_target_by_name("__you__")
+    rows = {widget.runtime_character: widget
+            for widget in target.spell_widgets()}
+
+    faded = container.mark_worn_off(
+        "Your mind fogs.", now + datetime.timedelta(seconds=60),
+        play_sound=False, character="Mindflux", server="Green")
+
+    assert faded is rows["Mindflux"]
+    assert rows["Mindflux"]._faded is True
+    assert rows["Harmflux"]._faded is False
+
+
+def test_worn_off_profile_falls_back_only_to_unprofiled_legacy_row():
+    _app()
+    now = datetime.datetime.now()
+    container = SpellContainer()
+    buff = _spell(
+        "Clarity II", effect_text_other=" feels a clarity of mind.",
+        effect_text_worn_off="Your mind fogs.", type=1)
+    container.add_spell(buff, now, "__you__", "Harmflux", "Green")
+    target = container.get_spell_target_by_name("__you__")
+    other_profile = target.spell_widgets()[0]
+
+    assert container.mark_worn_off(
+        "Your mind fogs.", now + datetime.timedelta(seconds=10),
+        play_sound=False, character="Mindflux", server="Green") is None
+    assert other_profile._faded is False
+
+    legacy = SpellWidget(
+        buff, now + datetime.timedelta(seconds=1), "", "")
+    target._layout.addWidget(legacy)
+    faded = container.mark_worn_off(
+        "Your mind fogs.", now + datetime.timedelta(seconds=20),
+        play_sound=False, character="Mindflux", server="Green")
+
+    assert faded is legacy
+    assert legacy._faded is True
+    assert other_profile._faded is False
+
+
+def test_profile_matcher_rejects_legacy_row_for_character_snapshot():
+    _app()
+    widget = SpellWidget(_spell(type=1), datetime.datetime.now(), "", "")
+
+    from vantage.parsers.spells import Spells
+
+    assert Spells._spell_widget_matches_profile(widget, "", "") is True
+    assert Spells._spell_widget_matches_profile(
+        widget, "Mindflux", "Green") is False
+
+
 def test_self_buff_recast_claims_and_collapses_legacy_duplicate_rows():
     _app()
     now = datetime.datetime.now()

@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.77 design QA
+# Vantage Companion 1.44.78 design QA
 
 final result: passed
 
@@ -77,6 +77,13 @@ final result: passed
 - The selected logo remains identifiable from 16 through 256 px on dark and light backgrounds.
 - Exact 25%, 35%, 50%, and 75% panel presets were measured across every main window. Headers and controls remain in their authored lanes with no responsive reflow or overlap.
 - Roll-up uses a compact 1:1 header, and expanding or restoring from the tray returns to the exact previous replica size.
+- Self-buff rows are owned by the exact character and server that produced
+  them. Selecting a character hides unowned legacy rows, while a new verified
+  cast may safely claim its own legacy row without touching another profile.
+- Unanchored log text can create a self buff only when it explicitly addresses
+  the player. Short Bard twists from nearby players are ignored; locally cast
+  twists remain visible but transient, silent, and excluded from persistence
+  and device sync so normal song rotation cannot flood notifications.
 
 ## Accessibility checks
 
@@ -98,3 +105,7 @@ final result: passed
 - External P99 Wiki actions identify that they open a new tab.
 - Context-menu presets expose descriptive action names, tooltips, a checked current state, and remain keyboard-selectable through the native Qt menu.
 - No information is communicated by logo color alone.
+- Suppressing repetitive Bard-twist warnings does not suppress ordinary spell
+  fading notices; those retain their visible semantic message and configured
+  audio route. Transient Bard rows use the normal readable timer before clean
+  removal and never flash a misleading Warning, Critical, or FADED state.

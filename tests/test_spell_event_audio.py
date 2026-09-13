@@ -22,6 +22,9 @@ app = VantageApp([])
 spells = app._parsers_dict['spells']
 spells.show()
 app.processEvents()
+spells._character_context = None
+spells._active_character = 'Mindflux'
+spells._active_server = 'Green'
 config.data['general']['audio_muted'] = False
 config.data['spells']['fade_sound_enabled'] = True
 config.data['spells']['sounds_when_hidden'] = False
