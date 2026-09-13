@@ -2592,6 +2592,17 @@
 		</ButtonDrawTemplate>
 	</Button>
 
+  <!-- Titanium still looks up this child when the visible Face action is omitted. -->
+  <Button item="IW_FacePick">
+    <ScreenID>IW_FacePick</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location><X>-5000</X><Y>-5000</Y></Location>
+    <Size><CX>45</CX><CY>20</CY></Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
+    <Text />
+  </Button>
+
 	<Button item = "IW_Tinting">
 		<ScreenID>IW_Tinting</ScreenID>
 	</Button>
@@ -3068,6 +3079,7 @@
     <Pieces>Screen:IW_CharacterView</Pieces>
     <Pieces>IW_CharacterView</Pieces>
     <Pieces>IW_DoneButton</Pieces>
+    <Pieces>IW_FacePick</Pieces>
     <Pieces>IW_Tinting</Pieces>
     <Pieces>IW_AltAdvBtn</Pieces>
     <Pieces>IW_ReclaimButton</Pieces>

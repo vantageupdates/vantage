@@ -52,6 +52,7 @@
       <Duration>1000</Duration>
     </Frames>
   </Ui2DAnimation>
+  <!-- Keep native TargetHP lookup alive; visible health uses the existing color layers. -->
   <Gauge item="Target_HP">
     <ScreenID>TargetHP</ScreenID>
     <Font>2</Font>
@@ -62,8 +63,8 @@
     </TextColor>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>3</X>
-      <Y>3</Y>
+      <X>-5000</X>
+      <Y>-5000</Y>
     </Location>
     <Size>
       <CX>126</CX>
@@ -75,7 +76,7 @@
     <TextOffsetY>0</TextOffsetY>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
+    <Style_Transparent>true</Style_Transparent>
     <TooltipReference />
     <FillTint>
       <R>239</R>
@@ -4677,6 +4678,7 @@
     <Style_Minimizebox>false</Style_Minimizebox>
     <Style_Border>true</Style_Border>
     <Style_Sizable>false</Style_Sizable>
+    <Pieces>Target_HP</Pieces>
     <Pieces>Target_HP2</Pieces>
     <Pieces>VantageTarget_HP_0</Pieces>
     <Pieces>VantageTarget_HP_S05A_X</Pieces>

@@ -164,8 +164,11 @@ def test_inventory_footer_actions_share_the_full_width_without_changing_bindings
     assert expected_x[0] == 4
     assert 389 - (expected_x[-1] + 125) == 4
     assert tuple(expected_x[i + 1] - (expected_x[i] + 125) for i in range(2)) == (3, 3)
-    assert inventory_root.find("Button[@item='IW_FacePick']") is None
-    assert all(piece.text != 'IW_FacePick' for piece in screen.findall('Pieces'))
+    # Native initialization still requires this child, but it is not a footer action.
+    face = inventory_root.find("Button[@item='IW_FacePick']")
+    assert face is not None and face.findtext('ScreenID') == 'IW_FacePick'
+    assert rect(face) == (-5000, -5000, 45, 20)
+    assert [piece.text for piece in screen.findall('Pieces')].count('IW_FacePick') == 1
     footer_piece_order = [
         piece.text for piece in screen.findall('Pieces') if piece.text in visual_order
     ]

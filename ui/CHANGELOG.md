@@ -1,5 +1,19 @@
 # VantageUI releases
 
+## 1.44.82
+
+Install folder: `VantageUI-v1.44.82`.
+
+- Restored `IW_FacePick` as an off-canvas native button after the client reported
+  it missing from InventoryWindow. The visible three-button footer is unchanged.
+- Reinserted the existing `Target_HP` gauge (`ScreenID` `TargetHP`) into its
+  native window off-canvas, without changing any visible target health layers.
+- Added regression coverage for native child lookup and membership, including
+  the difference between declaring a control and instantiating it in `Pieces`.
+
+Load with `/loadskin VantageUI-v1.44.82 1`. Compatibility requires a real reload;
+offline tests do not establish that the corrupted target-child log is cleared.
+
 ## 1.44.81
 
 Install folder: `VantageUI-v1.44.81`.
