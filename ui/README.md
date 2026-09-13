@@ -18,7 +18,7 @@ prune, or adopt it. Every delivered version must be exported to this repository
 and published through the independent UI update channel. Install the same
 verified release locally; do not hand off a separate unmanaged local-only copy.
 New releases install beside the source as
-`VantageUI-v<major.minor.patch>`, for example `VantageUI-v1.44.82`. All XML and
+`VantageUI-v<major.minor.patch>`, for example `VantageUI-v1.44.83`. All XML and
 image files remain directly inside each skin folder, without another nested skin
 directory. Neither packaging nor updating changes character INIs or another
 skin. The matching Titanium/Project 1999 client default skin is still required
@@ -40,12 +40,19 @@ outlines, inset icons, and dark surfaces are retained where compatible. Offline
 checks are not a game-rendering certification: this snapshot still needs an
 in-game reload and visual/interaction verification.
 
+The 1.44.83 urgent Group repair restores the exact known-visible 1.44.80 button
+geometry and atlas after the footer move made the actions disappear in game.
+Invite/Follow return to (133, 0), Disband/Decline to (206, 0), with matching
+64-by-16-pixel faces. Native alias bindings, member order, statistics, bars and
+the 1.44.82 compatibility changes are preserved. The separate TargetWindow
+runtime warning remains under investigation; this release does not resolve it.
+
 The 1.44.82 compatibility hotfix restores `IW_FacePick` as an off-canvas native
 button required by the P99/Titanium inventory contract. It also reconnects the
 existing `Target_HP` gauge (`ScreenID` `TargetHP`) to TargetWindow off-canvas.
 The visible inventory footer, target health layers and other layouts remain
-unchanged. Regression checks verify native child membership; a real reload is
-still needed to confirm that the client's compatibility errors are cleared.
+unchanged. Regression checks verify native child membership. A subsequent real
+reload cleared the inventory error but still reported the TargetWindow warning.
 
 The 1.44.81 layout pass removes persistent Bank child slots that could leave
 ghost item icons, centers spell-name text more cleanly, moves Group
@@ -87,7 +94,7 @@ version or tag. A UI-only release does not increment Companion and does not buil
 or publish `Vantage.exe`. After focused and complete tests, coordinate publication
 of the updater and both transport assets on a reviewed
 `vantage-ui-v<major.minor.patch>` tag in `vantageupdates/vantage`. For this
-candidate the tag is `vantage-ui-v1.44.82`. Verify public asset sizes and
+candidate the tag is `vantage-ui-v1.44.83`. Verify public asset sizes and
 SHA-256 digests against the tested artifacts. An arbitrary source push must not
 automatically publish an unreviewed UI update. The repository
 [release policy](../AGENTS.md) records the separation between Companion and UI
@@ -140,7 +147,7 @@ and the transport payload without publishing `Vantage.exe`. The frontend uses
 only Python's standard library and Tk, without bundling another Qt runtime.
 Settings and external download state belong in
 `%LOCALAPPDATA%\Vantage\UIUpdater`; released skins live in sibling folders such
-as `uifiles\VantageUI-v1.44.82`. Shared managed-version state is stored beside
+as `uifiles\VantageUI-v1.44.83`. Shared managed-version state is stored beside
 them in `uifiles\.vantage-ui-registry.json`, with the namespace lock
 `uifiles\.vantage-ui-update.lock`. The legacy `uifiles\VantageUI` folder remains
 untouched.
@@ -200,7 +207,7 @@ After installation, the updater shows the exact folder name and provides a
 copyable command. Load the new version manually, for example:
 
 ```text
-/loadskin VantageUI-v1.44.82 1
+/loadskin VantageUI-v1.44.83 1
 ```
 
 The updater never writes character INIs or changes EverQuest's selected skin.

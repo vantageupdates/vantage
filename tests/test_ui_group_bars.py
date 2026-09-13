@@ -53,11 +53,11 @@ def test_all_three_bars_are_separated_and_percentage_is_not_under_a_fill():
 
 
 @pytest.mark.parametrize('left,right',[('Invite','Disband'),('Follow','Decline')])
-def test_button_pairs_are_centered_in_the_left_footer_with_a_real_gap(left,right):
+def test_button_pairs_restore_known_visible_top_row_with_nine_pixel_gap(left,right):
     a,b = [rect(node('Button','GW_'+name+'Button')) for name in (left,right)]
-    assert a == (4,221,54,16) and b == (66,221,54,16)
-    assert b[0] - (a[0]+a[2]) == 8
-    assert a[0] == 124-(b[0]+b[2]) == 4
+    assert a == (133,0,64,16) and b == (206,0,64,16)
+    assert b[0] - (a[0]+a[2]) == 9
+    assert a[0]-129 == 274-(b[0]+b[2]) == 4
     for name in (left,right):
         button = node('Button','GW_'+name+'Button')
         assert button.findtext('Font') == '2'

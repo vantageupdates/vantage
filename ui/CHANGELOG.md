@@ -1,5 +1,20 @@
 # VantageUI releases
 
+## 1.44.83
+
+Install folder: `VantageUI-v1.44.83`.
+
+- Restored Group Invite/Follow and Disband/Decline to the exact known-visible
+  1.44.80 top-row geometry: (133, 0) and (206, 0), with 64-by-16-pixel controls.
+- Restored the matching five native-size atlas frames and exact 1.44.80 button
+  artwork after the 1.44.81 footer move made the actions disappear in game.
+- Preserved native alias pairs, member order, statistics, bars and all 1.44.82
+  compatibility changes. Added exact artwork and alias-equivalence coverage.
+
+Load with `/loadskin VantageUI-v1.44.83 1`. Confirm Group visibility after reload.
+The separate TargetWindow runtime warning remains unresolved and is not part
+of this Group repair.
+
 ## 1.44.82
 
 Install folder: `VantageUI-v1.44.82`.
