@@ -168,7 +168,7 @@ def test_spell_footer_is_a_native_countdown_below_unchanged_gems():
         gem = cast.item(root, 'SpellGem', f'CSPW_Spell{i}')
         assert rect(gem) == (1, 18 + i * 30, 120, 28)
         label = cast.item(root, 'Label', f'CSPW_Spell{i}_Name')
-        assert rect(label) == (32, 22 + i * 30, 85, 26)
+        assert rect(label) == (31, 21 + i * 30, 88, 26)
         assert rect(label)[1] + rect(label)[3] <= rect(footer)[1] - 2
     pieces = [p.text for p in parent.findall('Pieces')]
     order = {n.get('item'): i for i, n in enumerate(root)}

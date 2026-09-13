@@ -372,7 +372,8 @@ def test_all_drawable_inventory_slots_use_the_dedicated_gold_border():
                 continue
             drawable.append((path.name, slot))
 
-    assert len(drawable) == 435
+    # Bank bag contents use the native ContainerWindow, not 80 permanent mirrors.
+    assert len(drawable) == 355
     assert set(placeholders) == {
         ("EQUI_BankWnd.xml", "BW_SharedBankSlot0", (1, 1)),
         ("EQUI_BankWnd.xml", "BW_SharedBankSlot1", (1, 1)),

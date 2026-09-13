@@ -1,5 +1,20 @@
 # VantageUI releases
 
+## 1.44.81
+
+Install folder: `VantageUI-v1.44.81`.
+
+- Removed persistent child slot controls from BankWindow so recycled slots no
+  longer leave ghost item icons behind.
+- Improved vertical centering for spell-name text while preserving spell
+  bindings and button geometry.
+- Moved Group Invite/Disband and their native Follow/Decline aliases to the
+  left side of the footer without changing their bindings.
+- Narrowed PetInfoWindow from 144 to 136 pixels, centering its health display
+  and command controls with reduced, symmetric side padding.
+
+Load with `/loadskin VantageUI-v1.44.81 1`. Native appearance requires game review.
+
 ## 1.44.80
 
 Install folder: `VantageUI-v1.44.80`.

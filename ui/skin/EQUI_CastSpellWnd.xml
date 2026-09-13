@@ -81,11 +81,11 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>32</X>
-      <Y>22</Y>
+      <X>31</X>
+      <Y>21</Y>
     </Location>
     <Size>
-      <CX>85</CX>
+      <CX>88</CX>
       <CY>26</CY>
     </Size>
     <EQType>60</EQType>
@@ -124,11 +124,11 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>32</X>
-      <Y>52</Y>
+      <X>31</X>
+      <Y>51</Y>
     </Location>
     <Size>
-      <CX>85</CX>
+      <CX>88</CX>
       <CY>26</CY>
     </Size>
     <EQType>61</EQType>
@@ -167,11 +167,11 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>32</X>
-      <Y>82</Y>
+      <X>31</X>
+      <Y>81</Y>
     </Location>
     <Size>
-      <CX>85</CX>
+      <CX>88</CX>
       <CY>26</CY>
     </Size>
     <EQType>62</EQType>
@@ -210,11 +210,11 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>32</X>
-      <Y>112</Y>
+      <X>31</X>
+      <Y>111</Y>
     </Location>
     <Size>
-      <CX>85</CX>
+      <CX>88</CX>
       <CY>26</CY>
     </Size>
     <EQType>63</EQType>
@@ -253,11 +253,11 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>32</X>
-      <Y>142</Y>
+      <X>31</X>
+      <Y>141</Y>
     </Location>
     <Size>
-      <CX>85</CX>
+      <CX>88</CX>
       <CY>26</CY>
     </Size>
     <EQType>64</EQType>
@@ -296,11 +296,11 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>32</X>
-      <Y>172</Y>
+      <X>31</X>
+      <Y>171</Y>
     </Location>
     <Size>
-      <CX>85</CX>
+      <CX>88</CX>
       <CY>26</CY>
     </Size>
     <EQType>65</EQType>
@@ -339,11 +339,11 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>32</X>
-      <Y>202</Y>
+      <X>31</X>
+      <Y>201</Y>
     </Location>
     <Size>
-      <CX>85</CX>
+      <CX>88</CX>
       <CY>26</CY>
     </Size>
     <EQType>66</EQType>
@@ -382,11 +382,11 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>32</X>
-      <Y>232</Y>
+      <X>31</X>
+      <Y>231</Y>
     </Location>
     <Size>
-      <CX>85</CX>
+      <CX>88</CX>
       <CY>26</CY>
     </Size>
     <EQType>67</EQType>

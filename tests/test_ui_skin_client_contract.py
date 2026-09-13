@@ -103,7 +103,7 @@ def assert_two_line_spell_name_room(gem, label):
     assert gy + 1 <= ly
     assert ly + 2 + 12 + 9 <= gy + gh - 1, 'Wrapped glyphs must stay inside gem'
     assert ly + lh <= gy + gh + 2, 'Transparent layout tail exceeds row gap'
-    assert gx + 31 <= lx and lx + lw <= gx + gw - 4
+    assert gx + 30 <= lx and lx + lw <= gx + gw - 2
 
 
 @pytest.mark.parametrize('index', range(8))
@@ -113,7 +113,7 @@ def test_spell_gems_have_room_for_names_inset_icons_and_row_gaps(index):
     label = item(xml, 'Label', f'CSPW_Spell{index}_Name')
     window = item(xml, 'Screen', 'CastSpellWnd')
     assert rect(gem) == (1, 18 + 30 * index, 120, 28)
-    assert rect(label) == (32, 22 + 30 * index, 85, 26)
+    assert rect(label) == (31, 21 + 30 * index, 88, 26)
     assert_two_line_spell_name_room(gem, label)
     assert label.findtext('Font') == '1'
     assert label.findtext('NoWrap') == 'false'
@@ -125,11 +125,13 @@ def test_spell_gems_have_room_for_names_inset_icons_and_row_gaps(index):
     gx, gy, gw, gh = rect(gem)
     lx, ly, lw, lh = rect(label)
     # Titanium icons are 24px. Never enlarge the art or use newer-client tags.
-    assert gx + 4 + 24 + 3 <= lx
+    # Keep the text lane optically balanced: two pixels after the native
+    # 24px icon and two pixels before the gem's right edge.
+    assert lx - (gx + 4 + 24) == 2
     assert 2 + 24 + 2 == gh
-    assert lx + lw <= gx + gw - 4
-    assert ly == gy + 4
-    assert ly + lh == gy + gh + 2
+    assert gx + gw - (lx + lw) == 2
+    assert ly == gy + 3
+    assert ly + lh == gy + gh + 1
     assert gx + gw <= int(window.findtext('Size/CX')) - 8
     assert gy + gh <= int(window.findtext('Size/CY')) - 8
     assert gem.find('SpellIconSizeX') is None

@@ -59,14 +59,17 @@ def test_chat_input_keeps_height_and_clearance_when_resized(width,height):
     assert rect(parent) == (95,280,421,200)
     assert parent.findtext('Style_Sizable') == 'true'
 
-def test_pet_commands_have_four_pixel_gutters_without_resizing_window():
+def test_pet_health_and_commands_are_centered_in_compact_window():
     xml=root('EQUI_PetInfoWindow.xml')
     expected={'Attack':(4,42,128,18),'Follow':(4,64,62,18),'Taunt':(70,64,62,18),
               'Guard':(4,86,62,18),'Sit':(70,86,62,18),'Stand':(70,86,62,18),
               'Back':(4,108,62,18),'Lost':(70,108,62,18)}
     parent=xml.find("Screen[@item='PetInfoWindow']")
-    assert rect(parent)==(50,160,144,135)
+    assert rect(parent)==(50,160,136,135)
     pieces=[n.text for n in parent.findall('Pieces')]
+    assert pieces[:9] == ['PIW_BuffWindow','PIW_AttackButton','PIW_LostButton',
+                          'PIW_BackButton','PIW_GuardButton','PIW_FollowButton',
+                          'PIW_TauntButton','PIW_SitButton','PIW_StandButton']
     for name,box in expected.items():
         button=xml.find(f"Button[@item='PIW_{name}Button']")
         assert rect(button)==box
@@ -77,6 +80,20 @@ def test_pet_commands_have_four_pixel_gutters_without_resizing_window():
         for state in ('Normal','Pressed','Flyby','Disabled','PressedFlyby'):
             prefix='A_VantageActions' if name=='Attack' else 'A_VantagePet'
             assert button.findtext('ButtonDrawTemplate/'+state) == prefix+state
+    health=xml.find("Gauge[@item='Pet_HP_BG']")
+    assert rect(health)==(6,5,124,34)
+    assert health.findtext('EQType')=='16'
+    assert rect(health)[0] == rect(parent)[2]-(rect(health)[0]+rect(health)[2]) == 6
+    assert rect(xml.find("Button[@item='PIW_AttackButton']"))[0] == \
+           rect(parent)[2]-(4+128) == 4
+    hidden=xml.find("Screen[@item='PIW_BuffWindow']")
+    assert rect(hidden)==(-5000,0,0,0)
+    hidden_pieces=[node.text for node in hidden.findall('Pieces')]
+    assert hidden_pieces == [f'PIW_PetBuff{index}_Button' for index in range(30)]
+    for index in range(30):
+        buff=xml.find(f"Button[@item='PIW_PetBuff{index}_Button']")
+        assert buff.findtext('ScreenID')==f'PetBuff{index}'
+        assert tuple(int(buff.findtext(path)) for path in ('Size/CX','Size/CY'))==(1,1)
     # Sit/Stand are existing mutually exclusive native aliases, not two active buttons.
     for a,b in combinations([v for k,v in expected.items() if k!='Stand'],2):
         ax,ay,aw,ah=a; bx,by,bw,bh=b

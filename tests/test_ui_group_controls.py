@@ -25,17 +25,17 @@ def pixel(state,x,y):
     return tuple(data[pos:pos+4])
 
 
-@pytest.mark.parametrize('name,x', [('Invite',133),('Follow',133),('Disband',206),('Decline',206)])
+@pytest.mark.parametrize('name,x', [('Invite',4),('Follow',4),('Disband',66),('Decline',66)])
 def test_group_alias_buttons_keep_native_ids_and_fit_text_without_touching(name,x):
     b=node('Button','GW_'+name+'Button')
     assert b.findtext('ScreenID') == name+'Button'
     assert b.findtext('Text') == name
     assert b.findtext('Font') == '2'
-    assert rect(b) == (x,0,64,16)
+    assert rect(b) == (x,221,54,16)
     assert b.findtext('Style_Transparent') == 'true'
     assert b.findtext('Style_Border') == b.findtext('Style_Checkbox') == 'false'
     assert b.find('EQType') is None
-    assert 64 >= len(name)*6+12
+    assert 54 >= len(name)*6+12
     assert b.find('TextOffsetX') is None and b.find('TextOffsetY') is None
     pieces=[p.text for p in node('Screen','GroupWindow').findall('Pieces')]
     assert pieces.count(b.get('item')) == 1
@@ -43,14 +43,58 @@ def test_group_alias_buttons_keep_native_ids_and_fit_text_without_touching(name,
         assert b.findtext('ButtonDrawTemplate/'+state) == 'A_VantageGroup'+state
 
 
-def test_button_row_has_nine_pixel_gap_and_clears_the_character_heading():
+def test_footer_clears_party_rows_and_is_independent_of_the_player_column():
     assert rect(node('Screen','GroupWindow')) == (516,78,284,243)
-    assert 206-(133+64) == 9
-    assert int(node('Label','Level').findtext('Location/Y'))-16 == 2
-    assert int(node('Label','Class').findtext('Location/Y'))-16 == 2
+    left = rect(node('Button','GW_InviteButton'))
+    right = rect(node('Button','GW_DisbandButton'))
+    assert right[0]-(left[0]+left[2]) == 8
+    assert 129-(right[0]+right[2]) == 9
+    assert left[1]-sum(rect(node('Gauge','GW_PetGauge5'))[1::2]) == 17
+    assert 243-(left[1]+left[3]) == 6
+    assert int(node('Label','Level').findtext('Location/Y')) == 18
+    assert int(node('Label','Class').findtext('Location/Y')) == 18
     assert int(node('Label','PlayerHP').findtext('Location/X')) == 178
     assert rect(node('Button','GW_LFGButton')) == (-3,16,1,1)
     assert node('Button','GW_LFGButton').findtext('ButtonDrawTemplate/Normal') == 'A_SquareBtnNormal'
+
+
+def test_alternate_button_states_share_positions_and_preserve_native_piece_order():
+    assert rect(node('Button','GW_InviteButton')) == rect(node('Button','GW_FollowButton'))
+    assert rect(node('Button','GW_DisbandButton')) == rect(node('Button','GW_DeclineButton'))
+    pieces = [p.text for p in node('Screen','GroupWindow').findall('Pieces')]
+    assert pieces[:5] == ['GWDummy','GW_InviteButton','GW_DisbandButton',
+                          'GW_FollowButton','GW_DeclineButton']
+    # Member indices are native target bindings; footer placement must never
+    # reorder the roster or change the order of the layered health pieces.
+    member_indices = [int(p[5]) for p in pieces if p.startswith('Party')]
+    assert member_indices == sorted(member_indices)
+    assert set(member_indices) == {1,2,3,4,5}
+    for i in range(1,6):
+        assert pieces.index(f'Party{i}_HP_BG') < pieces.index(f'Party{i}_HP_0')
+        assert pieces.index(f'Party{i}_HP_0') < pieces.index(f'Party{i}_HealthDetail')
+        assert pieces.index(f'Party{i}_HealthDetail') < pieces.index(f'GW_PetGauge{i}')
+
+
+@pytest.mark.parametrize('member,y', [(1,1),(2,42),(3,83),(4,125),(5,167)])
+def test_party_rows_keep_their_geometry_target_bindings_and_function_key_labels(member,y):
+    background = node('Gauge',f'Party{member}_HP_BG')
+    assert rect(background) == (-2,y,124,30)
+    assert background.findtext('EQType') == str(10+member)
+    for suffix in ('HP_0','HealthDetail'):
+        gauge = node('Gauge',f'Party{member}_{suffix}')
+        assert rect(gauge) == (20,y+10,100,20)
+        assert gauge.findtext('EQType') == str(10+member)
+    pet = node('Gauge',f'GW_PetGauge{member}')
+    assert rect(pet) == (18,y+27,104,10)
+    assert pet.findtext('ScreenID') == f'PetGauge{member}'
+    assert pet.findtext('EQType') == str(16+member)
+    health = node('Label',f'GW_HPLabel{member}')
+    assert rect(health) == (-2,y+11,20,12)
+    assert health.findtext('ScreenID') == f'HPLabel{member}'
+    assert health.findtext('EQType') == str(34+member)
+    shortcut = node('Label',f'F{member+1}')
+    assert shortcut.findtext('ScreenID') == shortcut.findtext('Text') == f'F{member+1}'
+    assert rect(shortcut) == (5,y,20 if member == 1 else 14,14)
 
 
 @pytest.mark.parametrize('i,state', list(enumerate(STATES)))
@@ -58,12 +102,12 @@ def test_all_button_states_have_matching_native_frames_clear_corners_and_neutral
     a=node('Ui2DAnimation','A_VantageGroup'+state)
     assert a.findtext('Cycle') == 'false'
     assert a.findtext('Frames/Texture') == 'VantageGroupControls.tga'
-    assert rect(a.find('Frames')) == (2,2+20*i,64,16)
+    assert rect(a.find('Frames')) == (2,2+20*i,54,16)
     assert a.findtext('Frames/Duration') == '1000'
-    for x,y in ((0,0),(63,0),(0,15),(63,15)):
+    for x,y in ((0,0),(53,0),(0,15),(53,15)):
         assert pixel(i,x,y) == (0,0,0,0)
     for y in range(16):
-        for x in range(64):
+        for x in range(54):
             b,g,r,alpha=pixel(i,x,y)
             assert b==g==r
     assert pixel(i,35,8)[3] == 255
@@ -73,9 +117,9 @@ def test_all_button_states_have_matching_native_frames_clear_corners_and_neutral
 def test_raised_pressed_hover_and_disabled_faces_are_distinct_with_identical_alpha():
     hashes=set()
     for i in range(5):
-        values=b''.join(bytes(pixel(i,x,y)) for y in range(16) for x in range(64))
+        values=b''.join(bytes(pixel(i,x,y)) for y in range(16) for x in range(54))
         hashes.add(hashlib.sha256(values).digest())
-        assert all(pixel(i,x,y)[3]==pixel(0,x,y)[3] for y in range(16) for x in range(64))
+        assert all(pixel(i,x,y)[3]==pixel(0,x,y)[3] for y in range(16) for x in range(54))
     assert len(hashes)==5
     assert pixel(0,35,3)[0]>pixel(0,35,12)[0]  # Raised.
     assert pixel(2,35,3)[0]<pixel(2,35,12)[0]  # Depressed.
@@ -89,5 +133,5 @@ def test_atlas_is_flat_power_of_two_and_has_clear_gutters():
     assert data[12:18]==bytes((128,0,128,0,32,40))
     for y in range(128):
         for x in range(128):
-            if not (2<=x<66 and any(2+20*i<=y<18+20*i for i in range(5))):
+            if not (2<=x<56 and any(2+20*i<=y<18+20*i for i in range(5))):
                 assert data[18+4*(y*128+x)+3]==0
