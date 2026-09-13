@@ -150,12 +150,13 @@ spells.parse(now + datetime.timedelta(seconds=73), 'You feel different.')
 
 # P99 does not name buffs cast by another player. ``You begin to regenerate.``
 # is shared by the Regeneration family and an item-only Aura of Battle alias.
-# Without an item glow it must use the canonical player buff, never the clicky.
+# Without an item glow it must show an honest unresolved family, never the
+# lowest-rank spell or an unrelated clicky.
 spells.parse(
     now + datetime.timedelta(seconds=80), 'You begin to regenerate.')
 external_regen = next(
     (widget for widget in clarity_target.spell_widgets()
-     if widget.spell.name == 'regeneration'), None)
+     if widget.spell.name == 'regeneration effect (rank unknown)'), None)
 external_aura_before_click = any(
     widget.spell.name == 'aura of battle'
     for widget in clarity_target.spell_widgets())
@@ -201,6 +202,8 @@ print(json.dumps({
         external_regen.spell.name if external_regen else ''),
     'external_regen_has_no_item': bool(
         external_regen and not external_regen.spell.source_item),
+    'external_regen_uses_cap_estimate': bool(
+        external_regen and external_regen.progress.maximum() >= 1100),
     'external_aura_before_click': external_aura_before_click,
     'regen_not_anchorless_click': (
         'you begin to regenerate.' not in spells._item_self_effects),
@@ -248,8 +251,9 @@ def test_live_casts_recast_named_track_charm_and_clear_interruptions(tmp_path):
         'werewolf_did_not_refresh_clarity': True,
         'mismatched_resist_kept_cast': True,
         'mismatched_resist_event': 'RESIST · Fetter',
-        'external_regen_name': 'regeneration',
+        'external_regen_name': 'regeneration effect (rank unknown)',
         'external_regen_has_no_item': True,
+        'external_regen_uses_cap_estimate': True,
         'external_aura_before_click': False,
         'regen_not_anchorless_click': True,
         'anchored_aura_item': 'Pauldrons of Ferocity',

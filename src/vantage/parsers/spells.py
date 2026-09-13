@@ -10,7 +10,9 @@ import time
 from collections import deque
 
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QPainter
+from PySide6.QtGui import (
+    QAccessible, QAccessibleAnnouncementEvent, QColor, QDesktopServices,
+    QPainter)
 from PySide6.QtNetwork import (
     QNetworkAccessManager, QNetworkReply, QNetworkRequest)
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QComboBox,
@@ -85,11 +87,17 @@ ITEM_CLICK_DURATION_SECONDS = {
 }
 # P99 omits the spell name when another player buffs you. A few landing lines
 # are shared by a whole spell family, so they cannot enter the normal unique
-# message index. Use the lowest common player spell as a truthful label rather
-# than allowing an unrelated item-only alias to claim the line.
+# message index. Keep the family identity without pretending the lowest rank
+# is authoritative; an exact cast from another tailed character log can later
+# replace the family row.
 AMBIGUOUS_EXTERNAL_SELF_BUFFS = {
     "you begin to regenerate.": "Regeneration",
 }
+REGENERATION_FAMILY = frozenset({
+    'regeneration', 'chloroplast', 'regrowth', 'pack chloroplast',
+    'regrowth of the grove', 'regeneration effect (rank unknown)',
+})
+P99_LEVEL_CAP = 60
 BARD_CLASS_INDEX = 7
 SHORT_BARD_TWIST_SECONDS = 30
 SELF_DIRECTED_EFFECT_RX = re.compile(
@@ -99,6 +107,17 @@ SELF_DIRECTED_EFFECT_RX = re.compile(
 def _is_explicit_self_effect(text):
     """Return whether a landing sentence explicitly addresses this player."""
     return bool(SELF_DIRECTED_EFFECT_RX.search(str(text or '')))
+
+
+def _shared_self_buff_family(spell):
+    """Return a stable identity for exact and unresolved shared-text buffs."""
+    explicit = str(getattr(spell, 'shared_buff_family', '') or '').strip()
+    if explicit:
+        return explicit.casefold()
+    if str(getattr(spell, 'name', '') or '').strip().casefold() in \
+            REGENERATION_FAMILY:
+        return 'regeneration'
+    return ''
 
 
 def _spell_duration_seconds(spell, level):
@@ -792,6 +811,38 @@ class Spells(ParserWindow):
             spell, spell.runtime_level)
         return spell
 
+    def _external_self_spell(self, source, landing_text):
+        """Create an honest max-level estimate when EQ hides caster details."""
+        family_name = AMBIGUOUS_EXTERNAL_SELF_BUFFS.get(
+            str(landing_text or '').strip().casefold(), '')
+        if family_name == 'Regeneration':
+            # Every player-cast rank uses the same landing and worn-off lines.
+            # Use the longest P99 player rank as an upper-bound so the row can
+            # never expire after 78 seconds merely because the recipient's
+            # profile level is unknown. EQ's worn-off line remains decisive.
+            estimate_source = (
+                self.spell_book.get('Regrowth of the Grove') or source)
+            spell = copy.copy(estimate_source)
+            spell.name = 'regeneration effect (rank unknown)'
+            spell.runtime_key = 'regeneration'
+            spell.shared_buff_family = 'regeneration'
+            spell.duration_seconds = _spell_duration_seconds(
+                estimate_source, P99_LEVEL_CAP)
+            spell.external_detection_note = (
+                'External regeneration family · exact rank hidden by the '
+                'recipient EQ log · upper-bound duration; worn-off is exact')
+            spell.guard_initial_worn_off = True
+            spell.source_item = ''
+            spell.item_only = False
+            spell.runtime_level = P99_LEVEL_CAP
+            return spell
+        spell = copy.copy(source)
+        spell.runtime_level = P99_LEVEL_CAP
+        spell.external_detection_note = (
+            'External buff · duration estimated at the P99 level cap because '
+            'the recipient EQ log does not report the caster level')
+        return spell
+
     def _schedule_runtime_timer_state_save(self):
         self._runtime_state_save_timer.start()
 
@@ -849,7 +900,10 @@ class Spells(ParserWindow):
             return False
         if target_index in trigger.delivered_target_indexes:
             return False
-        spell = self._spell_for_active_profile(trigger.spell)
+        # The spell and caster level belong to the log that opened the cast,
+        # not whichever recipient log supplied this landing line. This lets a
+        # Druid log name Regrowth of the Grove correctly on an SK log.
+        spell = copy.copy(trigger.spell)
         self._spell_container.add_spell(
             spell, timestamp, target_name,
             getattr(self, '_active_character', ''),
@@ -1161,6 +1215,9 @@ class Spells(ParserWindow):
                 # effect is fixed at twelve minutes.  Let the owned glow line
                 # select the indexed item effect before the landing is timed.
                 indexed_spell = self.spell_book.get(indexed_spell_name)
+                if indexed_spell is not None:
+                    indexed_spell = self._spell_for_active_profile(
+                        indexed_spell)
                 self._spell_trigger.mark_item_cast(
                     item_name, timestamp, indexed_spell)
         elif not item_triggers_enabled:
@@ -1184,7 +1241,7 @@ class Spells(ParserWindow):
                     self._pending_charm = None
 
                 spell_trigger = SpellTrigger(
-                    spell=spell,
+                    spell=self._spell_for_active_profile(spell),
                     timestamp=timestamp
                 )
                 spell_trigger.target_detected.connect(
@@ -1308,9 +1365,13 @@ class Spells(ParserWindow):
             if not player_buff and not indexed_click:
                 return False
         self._pending_item_click = None
-        detected = _item_effect_spell(spell, indexed_item or item_name)
+        if not pending and player_buff:
+            detected = self._external_self_spell(spell, text)
+        else:
+            detected = _item_effect_spell(spell, indexed_item or item_name)
         detected.source_item = indexed_item or item_name
-        detected.runtime_level = self._active_cast_level()
+        if not getattr(detected, 'runtime_level', 0):
+            detected.runtime_level = self._active_cast_level()
         self._spell_container.add_spell(
             detected, timestamp, target,
             getattr(self, '_active_character', ''),
@@ -2093,7 +2154,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.78')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.79')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -2481,7 +2542,8 @@ class SpellContainer(QFrame):
             'duration_formula', 'pvp_duration', 'pvp_duration_formula', 'type',
             'spell_icon', 'skill', 'resist_type', 'effect_text_you',
             'effect_text_other', 'effect_text_worn_off', 'source_item',
-            'item_only', 'runtime_level')
+            'item_only', 'runtime_level', 'shared_buff_family',
+            'external_detection_note')
         payload = {}
         for field_name in fields:
             value = getattr(spell, field_name, None)
@@ -2555,7 +2617,8 @@ class SpellContainer(QFrame):
                         'pvp_duration_formula', 'type', 'spell_icon', 'skill',
                         'resist_type', 'effect_text_you', 'effect_text_other',
                         'effect_text_worn_off', 'source_item', 'item_only',
-                        'runtime_level'}:
+                        'runtime_level', 'shared_buff_family',
+                        'external_detection_note'}:
                     setattr(spell, key, value)
             spell.saved_remaining_seconds = min(
                 remaining, 365 * 24 * 60 * 60)
@@ -3103,6 +3166,10 @@ class SpellTarget(QFrame):
                 (self.name == '__you__' and
                  str(sw.spell.name).strip().casefold() ==
                  str(spell.name).strip().casefold()) or
+                (self.name == '__you__' and
+                 _shared_self_buff_family(sw.spell) and
+                 _shared_self_buff_family(sw.spell) ==
+                 _shared_self_buff_family(spell)) or
                 widget_key == spell_key)
             existing_character = str(
                 sw.runtime_character or '').strip().casefold()
@@ -3123,11 +3190,12 @@ class SpellTarget(QFrame):
             primary = max(matching, key=lambda widget: (
                 bool(str(widget.runtime_character or '').strip()),
                 widget.end_time))
+            previous_name = str(primary.spell.name)
             primary.spell = spell
             primary.runtime_character = str(
                 character or primary.runtime_character or '')
             primary.runtime_server = str(server or primary.runtime_server or '')
-            primary.recast(timestamp)
+            primary.recast(timestamp, previous_name=previous_name)
             for duplicate in matching:
                 if duplicate is not primary:
                     duplicate._remove()
@@ -3158,17 +3226,28 @@ class SpellProgressBar(QProgressBar):
 
     def __init__(self, spell_name):
         super().__init__()
-        self._spell_name = string.capwords(spell_name)
+        self._spell_name = ''
+        self._context_description = ''
         self._time_text = ''
         self.setTextVisible(False)
+        self.set_spell_metadata(spell_name)
+
+    def set_spell_metadata(self, spell_name, context_description=''):
+        """Refresh painted and assistive text when a row changes identity."""
+        self._spell_name = string.capwords(str(spell_name or 'Spell'))
+        self._context_description = str(context_description or '').strip()
         self.setAccessibleName(f'{self._spell_name} spell timer')
+        self.set_time_text(self._time_text)
 
     def set_time_text(self, text):
         self._time_text = str(text)
-        self.setAccessibleDescription(
+        countdown = (
             f'{self._spell_name} has faded'
             if self._time_text == 'FADED' else
             f'{self._spell_name}, {self._time_text} remaining')
+        self.setAccessibleDescription(
+            f'{countdown}. {self._context_description}'
+            if self._context_description else countdown)
         self.update()
 
     def paintEvent(self, event):
@@ -3243,6 +3322,12 @@ class SpellWidget(QFrame):
         # assembled so keyboard removal and actions remain reliable.
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._calculate(timestamp)
+        if bool(getattr(self.spell, 'guard_initial_worn_off', False)):
+            try:
+                self._ignore_worn_off_until = timestamp + datetime.timedelta(
+                    seconds=RECAST_WORN_OFF_GRACE_SECONDS)
+            except TypeError:
+                self._ignore_worn_off_until = None
         self.setProperty('Warning', False)
         self._update()
 
@@ -3278,11 +3363,11 @@ class SpellWidget(QFrame):
         layout = QHBoxLayout()
         layout.setContentsMargins(1, 2, 2, 2)
         self.setLayout(layout)
-        icon_label = get_spell_icon(
+        self._icon_label = get_spell_icon(
             self.spell.spell_icon, self.spell.name)
-        icon_label.setAttribute(
+        self._icon_label.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        layout.addWidget(icon_label, 0)
+        layout.addWidget(self._icon_label, 0)
         layout.setSpacing(2)
 
         self.progress = SpellProgressBar(self.spell.name)
@@ -3302,9 +3387,20 @@ class SpellWidget(QFrame):
             Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
         layout.addWidget(self.progress, 1)
+        self._refresh_spell_metadata()
+
+    def _refresh_spell_metadata(self, previous_name=''):
+        """Keep the reused row's visible, tooltip, icon, and AT text aligned."""
+        readable_name = string.capwords(str(self.spell.name or 'Spell'))
         school = spell_school_name(self.spell)
         item_source = str(getattr(self.spell, 'source_item', '') or '')
-        source_text = f'Item click · {item_source} · ' if item_source else ''
+        detection_note = str(getattr(
+            self.spell, 'external_detection_note', '') or '')
+        source_text = (
+            f'Item click · {item_source} · ' if item_source else
+            f'{detection_note} · ' if detection_note else '')
+        self.setAccessibleName(f'{readable_name} spell timer')
+        self.progress.set_spell_metadata(readable_name, detection_note)
         self.progress.setToolTip(
             f'{source_text}{school} · visual progress of the spell time remaining')
         self.setToolTip(
@@ -3312,13 +3408,27 @@ class SpellWidget(QFrame):
             'Enter, Space, Shift+F10, or Menu for mob assignment, sound, and '
             'remove actions')
         target_kind = 'beneficial or personal' if self.spell.type else 'hostile'
+        uncertainty = f'{detection_note}. ' if detection_note else ''
         self.setAccessibleDescription(
-            f'{target_kind} {school} timer; double-click or press Delete to '
+            f'{uncertainty}{target_kind} {school} timer; double-click or '
+            'press Delete to '
             'remove; press Enter, Space, Shift+F10, or Menu for actions')
+        self._icon_label.setPixmap(spell_icon_pixmap(self.spell.spell_icon, 22))
+        self._icon_label.setAccessibleName(f'Icon for {readable_name}')
+        self._icon_label.setToolTip(
+            f'{readable_name} · Velious spell icon {int(self.spell.spell_icon)}')
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.customContextMenuRequested.connect(self._sound_menu)
+        if not getattr(self, '_sound_menu_connected', False):
+            self.customContextMenuRequested.connect(self._sound_menu)
+            self._sound_menu_connected = True
+        old_readable = string.capwords(str(previous_name or ''))
+        if old_readable and old_readable.casefold() != readable_name.casefold():
+            event = QAccessibleAnnouncementEvent(
+                self, f'{old_readable} identified as {readable_name}')
+            event.setPoliteness(QAccessible.AnnouncementPoliteness.Polite)
+            QAccessible.updateAccessibility(event)
 
-    def recast(self, timestamp):
+    def recast(self, timestamp, previous_name=''):
         self.transient_silent = bool(getattr(
             self.spell, 'transient_silent', False))
         self._calculate(timestamp)
@@ -3342,15 +3452,7 @@ class SpellWidget(QFrame):
         self.progress.setProperty('Faded', False)
         self.setStyle(self.style())
         self.progress.setStyle(self.progress.style())
-        school = spell_school_name(self.spell)
-        item_source = str(getattr(self.spell, 'source_item', '') or '')
-        source_text = f'Item click · {item_source} · ' if item_source else ''
-        self.progress.setToolTip(
-            f'{source_text}{school} · visual progress of the spell time remaining')
-        self.setToolTip(
-            f'{source_text}{school} · double-click to remove; right-click, '
-            'Enter, Space, Shift+F10, or Menu for mob assignment, sound, and '
-            'remove actions')
+        self._refresh_spell_metadata(previous_name)
         # Clear a visible FADED label immediately. Calling _update() here
         # would create another recurring callback chain, so refresh only the
         # active display while the existing chain continues normally.

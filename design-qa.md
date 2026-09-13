@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.78 design QA
+# Vantage Companion 1.44.79 design QA
 
 final result: passed
 
@@ -11,6 +11,13 @@ final result: passed
 
 ## Visual checks
 
+- External Regeneration-family landings no longer inherit the receiving
+  character's level. When another tailed character log names the cast, the
+  same row resolves to the exact spell and preserves the caster's level.
+  When EQ exposes only the shared recipient message, Vantage labels the rank
+  unknown, uses a safe P99 level-cap upper bound, and lets the authoritative
+  worn-off line end it. A short replacement guard prevents an older rank's
+  delayed worn-off line from immediately removing the new timer.
 - Mobile Guild exposes the saved-guild selector before its DKP views; Zones
   keeps its selector stable across polling and provides an explicit reload.
   Save to Home gives short platform-specific instructions and states the
