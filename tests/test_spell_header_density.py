@@ -63,7 +63,26 @@ result = {
     'overlaps': overlaps,
     'focus_started_on_library': focus_started_on_library,
     'focus_moved_to_overflow': panel._header_overflow_button.hasFocus(),
+    'active_sync': {
+        'visible': panel._active_sync_toggle.isVisible(),
+        'row_visible': panel._active_sync_row.isVisible(),
+        'in_header': panel._menu.isAncestorOf(panel._active_sync_toggle),
+        'text': panel._active_sync_toggle.text(),
+        'accessible_name': panel._active_sync_toggle.accessibleName(),
+        'tooltip': panel._active_sync_toggle.toolTip(),
+        'initially_checked': panel._active_sync_toggle.isChecked(),
+    },
 }
+
+panel._active_sync_toggle.click()
+app.processEvents()
+result['active_sync']['saved_after_click'] = config.data[
+    'device_sync']['sync_active_spells']
+config.data['device_sync']['sync_active_spells'] = True
+app._signals['settings'].config_updated.emit()
+app.processEvents()
+result['active_sync']['refreshed_from_config'] = \
+    panel._active_sync_toggle.isChecked()
 
 level = panel._level_widget
 level.setValue(60)
@@ -134,6 +153,17 @@ def test_narrow_spell_header_collapses_low_priority_tools_without_overlap(
     assert result['focus_started_on_library'] is True
     assert result['focus_moved_to_overflow'] is False
     assert result['overflow_actions'] == []
+    active_sync = result['active_sync']
+    assert active_sync['visible'] is True
+    assert active_sync['row_visible'] is True
+    assert active_sync['in_header'] is False
+    assert active_sync['text'] == 'Sync buffs across PCs'
+    assert active_sync['accessible_name'] == \
+        'Sync active buffs with paired PCs'
+    assert active_sync['tooltip']
+    assert active_sync['initially_checked'] is True
+    assert active_sync['saved_after_click'] is False
+    assert active_sync['refreshed_from_config'] is True
     level = result['level']
     assert level['object_name'] == 'SpellLevelRocker'
     assert level['display'] == 'Lv 60'

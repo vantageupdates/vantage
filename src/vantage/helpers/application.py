@@ -54,7 +54,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=84,
+    patch=85,
     build=""
 )
 
@@ -108,6 +108,7 @@ class VantageApp(QApplication):
         self._log_reader = None
         self._log_status = "NO LOGS"
         self._last_log_activity = None
+        self._latest_log_activity = None
         self._last_audio = "None yet"
         self._last_audio_event = None
         self._last_audio_blocked = "None yet"
@@ -866,11 +867,28 @@ class VantageApp(QApplication):
         self._return_focus_to_launcher(launcher)
         return True
 
-    def _log_activity(self, _line):
+    def _log_activity(self, line):
         self._last_log_activity = time.monotonic()
+        try:
+            character, server = line[2], line[3]
+        except (TypeError, IndexError, KeyError):
+            character = server = ""
+        character = " ".join(str(character or "").split())[:80]
+        server = " ".join(str(server or "").split())[:80]
+        self._latest_log_activity = {
+            "character": character,
+            "server": server,
+            "authority_at": time.time(),
+        }
         if self._toggled and self._log_status != "ONLINE":
             self._set_log_status(
                 "ONLINE", "Log activity detected.", notify=True)
+
+    def device_sync_log_activity(self):
+        """Return this session's latest real EQ log activity, if any."""
+        if not isinstance(self._latest_log_activity, dict):
+            return None
+        return dict(self._latest_log_activity)
 
     def _log_health_check(self):
         if not self._toggled or self._log_status != 'ONLINE':

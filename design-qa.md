@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.84 design QA
+# Vantage Companion 1.44.85 design QA
 
 final result: passed
 
@@ -16,6 +16,13 @@ final result: passed
   mistaken for a worn-off event. Only confirmed expiry, worn-off, death, or
   explicit removal retires a synced row; defective 1.44.83 removal clocks are
   discarded while still-valid saved rows are retained.
+- Active buffs now follow the paired PC with the latest real EverQuest log
+  activity for each character. Its complete character-specific list replaces
+  older copies, including recasts and ended timers, without changing another
+  character's rows; stale PCs cannot merge or delete the current owner's data.
+- Buffs/Spells and Device Sync expose the same independent active-buff sync
+  opt-out. Turning it off prevents that PC from sending or receiving active
+  buffs while Smart Timers, zones, settings, notes, and buttons keep syncing.
 - Yellow and amber buff bars again use the same light label as every other
   normal spell bar. Their fills remain icon-derived and saturated, but are
   value-limited so the complete label stays readable without a black repaint.

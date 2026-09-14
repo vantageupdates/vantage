@@ -16,10 +16,10 @@ from PySide6.QtGui import (
 from PySide6.QtNetwork import (
     QNetworkAccessManager, QNetworkReply, QNetworkRequest)
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QComboBox,
-                             QFileDialog, QFrame, QHBoxLayout, QInputDialog,
-                             QLabel, QMenu, QProgressBar, QScrollArea,
-                             QSpinBox, QSizePolicy, QToolButton, QVBoxLayout,
-                             QPushButton, QWidget)
+                             QCheckBox, QFileDialog, QFrame, QHBoxLayout,
+                             QInputDialog, QLabel, QMenu, QProgressBar,
+                             QScrollArea, QSpinBox, QSizePolicy, QToolButton,
+                             QVBoxLayout, QPushButton, QWidget)
 
 from vantage.helpers.parser import ParserWindow
 from vantage.helpers import config, format_time, resource_path, text_time_to_seconds
@@ -561,6 +561,27 @@ class Spells(ParserWindow):
         profile_layout.addWidget(self._add_character_button, 0)
         profile_layout.addWidget(self._level_widget, 0)
         self.content.insertWidget(1, self._profile_bar, 0)
+        self._active_sync_row = QWidget()
+        self._active_sync_row.setObjectName('SpellActiveSyncRow')
+        sync_layout = QHBoxLayout(self._active_sync_row)
+        sync_layout.setContentsMargins(3, 1, 3, 1)
+        sync_layout.setSpacing(2)
+        self._active_sync_toggle = QCheckBox('Sync buffs across PCs')
+        self._active_sync_toggle.setObjectName('SpellActiveSyncToggle')
+        self._active_sync_toggle.setChecked(
+            config.data.get('device_sync', {}).get(
+                'sync_active_spells', True))
+        self._active_sync_toggle.setAccessibleName(
+            'Sync active buffs with paired PCs')
+        self._active_sync_toggle.setToolTip(
+            'On: active buffs follow the paired PC with the latest real '
+            'EverQuest log activity for each character. Off: this PC neither '
+            'sends nor receives active buffs; Smart Timers are unaffected.')
+        self._active_sync_toggle.toggled.connect(
+            self._toggle_active_spell_sync)
+        sync_layout.addWidget(self._active_sync_toggle, 0)
+        sync_layout.addStretch(1)
+        self.content.insertWidget(2, self._active_sync_row, 0)
         self._camp_state = ''
         self._update_profile_bar_density()
 
@@ -1460,6 +1481,11 @@ class Spells(ParserWindow):
         self._bard_group.set_enabled(enabled)
         if not enabled:
             self._bard_counter.reset()
+        active_sync = config.data.get('device_sync', {}).get(
+            'sync_active_spells', True)
+        self._active_sync_toggle.blockSignals(True)
+        self._active_sync_toggle.setChecked(bool(active_sync))
+        self._active_sync_toggle.blockSignals(False)
 
     def _flush_bard_counts(self):
         if not config.data['spells'].get('bard_count_enabled', False):
@@ -2204,6 +2230,19 @@ class Spells(ParserWindow):
             self._custom_timer_toggle.isChecked()
         config.save()
 
+    def _toggle_active_spell_sync(self, checked):
+        config.data.setdefault('device_sync', {})[
+            'sync_active_spells'] = bool(checked)
+        config.save()
+        app = QApplication.instance()
+        app_signals = getattr(app, '_signals', {})
+        settings_signals = (
+            app_signals.get('settings')
+            if isinstance(app_signals, dict) else None)
+        config_updated = getattr(settings_signals, 'config_updated', None)
+        if config_updated is not None:
+            config_updated.emit()
+
     def _boat_server_name(self):
         value = str(getattr(self, '_active_server', '') or '').casefold()
         for token, label in (
@@ -2240,7 +2279,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.84')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.85')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:

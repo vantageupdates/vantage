@@ -12,6 +12,7 @@ import copy
 import hashlib
 import hmac
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -31,9 +32,9 @@ from PySide6.QtCore import QObject, QSize, QTimer, Signal
 from PySide6.QtGui import (
     QAccessible, QAccessibleAnnouncementEvent, QGuiApplication)
 from PySide6.QtWidgets import (
-    QCheckBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QMessageBox, QProgressBar, QPushButton, QVBoxLayout,
-    QWidget)
+    QApplication, QCheckBox, QDialog, QFormLayout, QHBoxLayout, QLabel,
+    QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QProgressBar,
+    QPushButton, QVBoxLayout, QWidget)
 
 from vantage.helpers import config
 from vantage.helpers.auction_hotbutton import (
@@ -42,11 +43,15 @@ from vantage.helpers.icons import game_icon
 from vantage.helpers.portable import data_dir
 from vantage.helpers.responsive import scrollable
 from vantage.helpers.scaled_dialog import UniformScaleDialog
-from vantage.helpers.timer_sync import merge_timer_state, timer_rows_equal
+from vantage.helpers.timer_sync import sanitize_timer_rows
 
 
 PAIR_PREFIX = "VANTAGE-SYNC-1."
 SNAPSHOT_SCHEMA = 1
+SPELL_TIMER_SCHEMA = 1
+MAX_ACTIVE_SPELL_PROFILES = 64
+MAX_ACTIVE_SPELL_ROWS = 512
+MAX_ACTIVE_SPELL_BYTES = 1024 * 1024
 SYNCTHING_RELEASE_API = (
     "https://api.github.com/repos/syncthing/syncthing/releases/latest")
 MAX_RELEASE_BYTES = 2 * 1024 * 1024
@@ -173,8 +178,9 @@ def export_sync_settings(settings, include_layout=True, include_timers=True):
         folded_section = str(section).casefold()
         if folded_section == "timers" and not include_timers:
             continue
-        if folded_section == "spells" and not include_timers and isinstance(
-                value, dict):
+        # Active spell state has its own authoritative per-profile payload.
+        # Never let a legacy portable-settings snapshot merge or overwrite it.
+        if folded_section == "spells" and isinstance(value, dict):
             value = {
                 key: child for key, child in value.items()
                 if str(key).casefold() not in {
@@ -196,29 +202,133 @@ def apply_sync_settings(
     portable = export_sync_settings(
         incoming, include_layout=include_layout,
         include_timers=include_timers)
-    incoming_spells = portable.get("spells")
-    merged_timer_state = None
-    if include_timers and isinstance(incoming_spells, dict) and (
-            "active_timer_state" in incoming_spells or
-            "active_timer_sync" in incoming_spells):
-        local_spells = current.get("spells") \
-            if isinstance(current.get("spells"), dict) else {}
-        merged_timer_state = merge_timer_state(
-            local_spells.get("active_timer_state", []),
-            local_spells.get("active_timer_sync", {}),
-            incoming_spells.pop("active_timer_state", []),
-            incoming_spells.pop("active_timer_sync", {}),
-            incoming_revision=timer_revision)
+    del timer_revision  # retained for compatibility with older callers
     for section, value in portable.items():
         if isinstance(value, dict) and isinstance(current.get(section), dict):
             _merge_dict(current[section], value)
         else:
             current[section] = copy.deepcopy(value)
-    if merged_timer_state is not None:
-        spells = current.setdefault("spells", {})
-        spells["active_timer_state"], spells["active_timer_sync"] = \
-            merged_timer_state
     return current
+
+
+def _active_profile_key(character, server):
+    character = " ".join(str(character or "").split())[:80]
+    server = " ".join(str(server or "").split())[:80]
+    if not character:
+        return ""
+    return f"{character.casefold()}\0{server.casefold()}"
+
+
+def _positive_clock(value):
+    try:
+        value = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+    return value if math.isfinite(value) and value > 0 else 0.0
+
+
+def _profile_rows(rows, character, server):
+    key = _active_profile_key(character, server)
+    result = []
+    for row in sanitize_timer_rows(rows)[:MAX_ACTIVE_SPELL_ROWS]:
+        if _active_profile_key(
+                row.get("character"), row.get("server")) != key:
+            continue
+        row["character"] = character
+        row["server"] = server
+        result.append(row)
+    return result
+
+
+def _prune_spell_authority(authority_state):
+    newest = sorted(
+        authority_state.items(),
+        key=lambda pair: (
+            _positive_clock(pair[1].get("authority_at"))
+            if isinstance(pair[1], dict) else 0.0,
+            _positive_clock(pair[1].get("state_at"))
+            if isinstance(pair[1], dict) else 0.0),
+        reverse=True)[:MAX_ACTIVE_SPELL_PROFILES]
+    authority_state.clear()
+    authority_state.update(newest)
+
+
+def build_spell_timer_payload(rows, log_activity, state_at=None):
+    """Build one bounded profile snapshot from this session's latest EQ line."""
+    if not isinstance(log_activity, dict):
+        return None
+    character = " ".join(
+        str(log_activity.get("character") or "").split())[:80]
+    server = " ".join(str(log_activity.get("server") or "").split())[:80]
+    authority_at = _positive_clock(log_activity.get("authority_at"))
+    state_at = _positive_clock(state_at) or time.time()
+    if not _active_profile_key(character, server) or not authority_at:
+        return None
+    payload = {
+        "schema": SPELL_TIMER_SCHEMA,
+        "character": character,
+        "server": server,
+        "authority_at": authority_at,
+        "state_at": state_at,
+        "rows": _profile_rows(rows, character, server),
+    }
+    try:
+        if len(_json_bytes(payload)) > MAX_ACTIVE_SPELL_BYTES:
+            return None
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return payload
+
+
+def apply_spell_timer_payload(
+        settings, payload, authority_state, source_device):
+    """Apply an authoritative full replacement for exactly one profile."""
+    if not isinstance(payload, dict) or not source_device:
+        return False, False
+    try:
+        if (payload.get("schema") != SPELL_TIMER_SCHEMA or
+                len(_json_bytes(payload)) > MAX_ACTIVE_SPELL_BYTES):
+            return False, False
+    except (TypeError, ValueError, OverflowError):
+        return False, False
+    character = " ".join(str(payload.get("character") or "").split())[:80]
+    server = " ".join(str(payload.get("server") or "").split())[:80]
+    key = _active_profile_key(character, server)
+    authority_at = _positive_clock(payload.get("authority_at"))
+    state_at = _positive_clock(payload.get("state_at"))
+    if not key or not authority_at or not state_at:
+        return False, False
+
+    current = authority_state.get(key, {})
+    current_authority = _positive_clock(current.get("authority_at"))
+    same_authority = (
+        str(current.get("device") or "") == str(source_device) and
+        authority_at == current_authority)
+    if not (
+            authority_at > current_authority or
+            (same_authority and
+             state_at > _positive_clock(current.get("state_at")))):
+        return False, False
+
+    spells = settings.setdefault("spells", {})
+    local_rows = sanitize_timer_rows(spells.get("active_timer_state", []))
+    before = _profile_rows(local_rows, character, server)
+    incoming = _profile_rows(payload.get("rows", []), character, server)
+    replacement = [
+        row for row in local_rows
+        if _active_profile_key(
+            row.get("character"), row.get("server")) != key]
+    replacement.extend(incoming)
+    changed = before != incoming
+    if changed:
+        spells["active_timer_state"] = replacement[:MAX_ACTIVE_SPELL_ROWS]
+    authority_state[key] = {
+        "device": str(source_device)[:80],
+        "authority_at": authority_at,
+        "state_at": state_at,
+    }
+    _prune_spell_authority(authority_state)
+    return True, changed
 
 
 def _merge_dict(target, source):
@@ -281,7 +391,7 @@ def _official_release_asset():
     request = Request(
         SYNCTHING_RELEASE_API,
         headers={"Accept": "application/vnd.github+json",
-                 "User-Agent": "Vantage/1.44.84"})
+                 "User-Agent": "Vantage/1.44.85"})
     with urlopen(request, timeout=15) as response:
         raw = response.read(MAX_RELEASE_BYTES + 1)
     if len(raw) > MAX_RELEASE_BYTES:
@@ -306,7 +416,7 @@ def _official_release_asset():
 def install_syncthing(progress=None):
     """Download one verified portable transport binary from the official release."""
     url, expected = _official_release_asset()
-    request = Request(url, headers={"User-Agent": "Vantage/1.44.84"})
+    request = Request(url, headers={"User-Agent": "Vantage/1.44.85"})
     with urlopen(request, timeout=45) as response:
         length = int(response.headers.get("Content-Length") or 0)
         if length > MAX_ARCHIVE_BYTES:
@@ -519,6 +629,7 @@ class DeviceSyncController(QObject):
         self._local_modified_at = 0.0
         self._last_hotbutton_hash = ""
         self._seen = {}
+        self._spell_authority = {}
         self._state_path = data_dir("device-sync", "local-state.json")
         self._timer = QTimer(self)
         self._timer.setInterval(3000)
@@ -559,6 +670,25 @@ class DeviceSyncController(QObject):
                         self._seen[str(device)] = max(0.0, float(revision))
                 except (TypeError, ValueError):
                     pass
+        raw_authority = state.get("spell_authority", {})
+        if isinstance(raw_authority, dict):
+            for key, value in list(raw_authority.items())[
+                    :MAX_ACTIVE_SPELL_PROFILES * 2]:
+                if not isinstance(value, dict):
+                    continue
+                character, separator, server = str(key).partition("\0")
+                device = str(value.get("device") or "")[:80]
+                authority_at = _positive_clock(value.get("authority_at"))
+                state_at = _positive_clock(value.get("state_at"))
+                if (separator and _active_profile_key(character, server) == key and
+                        DEVICE_ID_RX.fullmatch(device) and authority_at and
+                        state_at):
+                    self._spell_authority[key] = {
+                        "device": device,
+                        "authority_at": authority_at,
+                        "state_at": state_at,
+                    }
+            _prune_spell_authority(self._spell_authority)
 
     def _save_state(self):
         _atomic_json(self._state_path, {
@@ -567,6 +697,9 @@ class DeviceSyncController(QObject):
             "local_modified_at": self._local_modified_at,
             "hotbutton_hash": self._last_hotbutton_hash,
             "seen": dict(list(self._seen.items())[-64:]),
+            "spell_authority": dict(list(
+                self._spell_authority.items())[
+                    -MAX_ACTIVE_SPELL_PROFILES:]),
         })
 
     @property
@@ -816,17 +949,46 @@ class DeviceSyncController(QObject):
 
     def _snapshot_payload(self):
         settings = config.data["device_sync"]
+        generated_at = time.time()
         payload = {
             "schema": SNAPSHOT_SCHEMA,
             "device": self._device_id,
             "name": settings["device_name"],
             "group": settings["group_id"],
-            "generated_at": time.time(),
+            "generated_at": generated_at,
             "settings": export_sync_settings(
                 config.data, settings.get("sync_layout", True),
                 settings.get("sync_timers", True))
                 if settings.get("sync_settings", True) else {},
         }
+        if settings.get("sync_active_spells", True):
+            app = self.parent()
+            activity = None
+            getter = getattr(app, "device_sync_log_activity", None)
+            if callable(getter):
+                activity = getter()
+            spell_timers = build_spell_timer_payload(
+                config.data.get("spells", {}).get(
+                    "active_timer_state", []),
+                activity, generated_at)
+            if spell_timers is not None:
+                key = _active_profile_key(
+                    spell_timers["character"], spell_timers["server"])
+                current = self._spell_authority.get(key, {})
+                current_authority = _positive_clock(
+                    current.get("authority_at"))
+                owns_authority = (
+                    current.get("device") == self._device_id and
+                    spell_timers["authority_at"] == current_authority)
+                if (spell_timers["authority_at"] > current_authority or
+                        owns_authority):
+                    payload["spell_timers"] = spell_timers
+                    self._spell_authority[key] = {
+                        "device": self._device_id,
+                        "authority_at": spell_timers["authority_at"],
+                        "state_at": spell_timers["state_at"],
+                    }
+                    _prune_spell_authority(self._spell_authority)
         if settings.get("sync_items_notes", True):
             notes = _safe_read_json(data_dir("items-notes.json", create=False))
             if notes:
@@ -841,10 +1003,16 @@ class DeviceSyncController(QObject):
 
     @staticmethod
     def _content_hash(payload):
+        spell_timers = copy.deepcopy(payload.get("spell_timers"))
+        if isinstance(spell_timers, dict):
+            # Snapshot time makes a later deletion/recast authoritative, but
+            # should not create a new transport write while rows are unchanged.
+            spell_timers.pop("state_at", None)
         return hashlib.sha256(_json_bytes({
             "settings": payload.get("settings", {}),
             "items_notes": payload.get("items_notes", {}),
             "hotbuttons": payload.get("hotbuttons", []),
+            "spell_timers": spell_timers,
         })).hexdigest()
 
     def _export_if_changed(self):
@@ -873,53 +1041,37 @@ class DeviceSyncController(QObject):
                 continue
             device = str(payload.get("device") or "")
             revision = float(payload.get("generated_at") or 0)
+            unseen_profile = revision > float(self._seen.get(device, 0))
+            pending_spells = bool(
+                settings.get("sync_active_spells", True) and
+                isinstance(payload.get("spell_timers"), dict))
             if (device == self._device_id or device not in peers or
                     payload.get("group") != group or
                     payload.get("schema") != SNAPSHOT_SCHEMA or
-                    revision <= float(self._seen.get(device, 0))):
+                    (not unseen_profile and not pending_spells)):
                 continue
             candidates.append((revision, device, payload))
         applied = 0
         for revision, device, payload in sorted(candidates):
-            self._seen[device] = revision
+            self._seen[device] = max(
+                revision, float(self._seen.get(device, 0)))
             newer_profile = revision > self._local_modified_at
             before_device_sync = copy.deepcopy(
                 config.data.get("device_sync", {}))
-            before_timers = copy.deepcopy(
-                config.data.get("spells", {}).get(
-                    "active_timer_state", []))
-            before_timer_meta = copy.deepcopy(
-                config.data.get("spells", {}).get(
-                    "active_timer_sync", {}))
             incoming_settings = payload.get("settings", {})
             if (settings.get("sync_settings", True) and newer_profile):
                 apply_sync_settings(
                     config.data, incoming_settings,
                     settings.get("sync_layout", True),
-                    settings.get("sync_timers", True),
-                    timer_revision=revision)
-            elif (settings.get("sync_settings", True) and
-                  settings.get("sync_timers", True)):
-                remote_spells = incoming_settings.get("spells", {}) \
-                    if isinstance(incoming_settings, dict) else {}
-                if isinstance(remote_spells, dict):
-                    apply_sync_settings(
-                        config.data,
-                        {"spells": {
-                            key: copy.deepcopy(value)
-                            for key, value in remote_spells.items()
-                            if key in {
-                                "active_timer_state", "active_timer_sync"}
-                        }},
-                        include_layout=False, include_timers=True,
-                        timer_revision=revision)
+                    settings.get("sync_timers", True))
+            accepted_active = False
+            active_changed = False
+            if settings.get("sync_active_spells", True):
+                accepted_active, active_changed = apply_spell_timer_payload(
+                    config.data, payload.get("spell_timers"),
+                    self._spell_authority, device)
             config.data["device_sync"] = before_device_sync
-            timer_changed = (
-                config.data.get("spells", {}).get(
-                    "active_timer_state", []) != before_timers or
-                config.data.get("spells", {}).get(
-                    "active_timer_sync", {}) != before_timer_meta)
-            if not newer_profile and not timer_changed:
+            if not newer_profile and not accepted_active:
                 self._save_state()
                 continue
             if (newer_profile and settings.get("sync_items_notes", True) and
@@ -935,41 +1087,24 @@ class DeviceSyncController(QObject):
                 "items_notes": _safe_read_json(
                     data_dir("items-notes.json", create=False)) or {},
                 "hotbuttons": payload.get("hotbuttons", []),
+                "spell_timers": self._snapshot_payload().get(
+                    "spell_timers"),
             }
-            remote_spells = incoming_settings.get("spells", {}) \
-                if isinstance(incoming_settings, dict) else {}
-            remote_has_timers = bool(
-                settings.get("sync_timers", True) and
-                isinstance(remote_spells, dict) and (
-                    "active_timer_state" in remote_spells or
-                    "active_timer_sync" in remote_spells))
-            timer_snapshot_differs = bool(remote_has_timers and (
-                not timer_rows_equal(
-                    config.data.get("spells", {}).get(
-                        "active_timer_state", []),
-                    remote_spells.get("active_timer_state", [])) or
-                config.data.get("spells", {}).get(
-                    "active_timer_sync", {}) !=
-                remote_spells.get("active_timer_sync", {})))
-            # Every accepted timer change must update this PC's own snapshot
-            # on the next poll. Otherwise its older file can keep advertising
-            # rows that this device has already merged or explicitly removed.
-            self._last_local_hash = (
-                "" if timer_changed or timer_snapshot_differs else
-                self._content_hash(digest_source))
+            self._last_local_hash = self._content_hash(digest_source)
             self._local_modified_at = max(self._local_modified_at, revision)
             app = self.parent()
             if app is not None and hasattr(app, "_signals"):
                 if newer_profile:
                     app._signals["settings"].config_updated.emit()
                 parsers = getattr(app, "_parsers_dict", {})
-                for parser_name in ("timers", "spells"):
-                    if parser_name == "timers" and not newer_profile:
+                for parser_name, should_refresh in (
+                        ("timers", newer_profile),
+                        ("spells", active_changed)):
+                    if not should_refresh:
                         continue
-                    if parser_name == "spells" and not timer_changed:
-                        continue
-                    parser = parsers.get(parser_name) if isinstance(
-                        parsers, dict) else None
+                    parser = (
+                        parsers.get(parser_name)
+                        if isinstance(parsers, dict) else None)
                     refresh = getattr(parser, "refresh_synced_content", None)
                     if callable(refresh):
                         refresh()
@@ -1028,7 +1163,8 @@ class DeviceSyncDialog(UniformScaleDialog):
         title.setObjectName("SettingsSectionTitle")
         layout.addWidget(title)
         intro = QLabel(
-            "Keep Smart Timers, Vantage settings, WTS/WTB, watched items and notes on "
+            "Keep Smart Timers, active buffs, Vantage settings, WTS/WTB, "
+            "watched items and notes on "
             "2, 3 or more PCs. No account: your data moves encrypted between "
             "approved devices and is not stored in a Vantage cloud.")
         intro.setWordWrap(True)
@@ -1059,23 +1195,32 @@ class DeviceSyncDialog(UniformScaleDialog):
             "Includes automatic-update opt-ins, but never passwords, tokens, "
             "credentials, or local paths")
         self.sync_layout = QCheckBox("Window sizes and layout")
-        self.sync_timers = QCheckBox(
-            "Smart Timers, zones and active countdowns")
+        self.sync_timers = QCheckBox("Smart Timers and zones")
         self.sync_timers.setAccessibleName(
-            "Sync Smart Timers, zones, and active countdowns between paired PCs")
+            "Sync Smart Timers and zones between paired PCs")
         self.sync_timers.setToolTip(
-            "Sync timer definitions, selected zones, phases and current countdown state")
+            "Sync Smart Timer definitions, countdown state, and zones between "
+            "paired PCs; this does not control active buffs")
+        self.sync_active_spells = QCheckBox("Active buffs")
+        self.sync_active_spells.setAccessibleName(
+            "Sync active buffs with paired PCs")
+        self.sync_active_spells.setToolTip(
+            "Active buffs follow the PC with the latest real EverQuest log "
+            "activity for that character, including recasts and ended timers. "
+            "Turn this off to neither send nor receive active buffs on this PC.")
         self.sync_items = QCheckBox("Item tracker and notes")
         self.sync_hotbuttons = QCheckBox("WTS/WTB buttons for matching characters")
         options.addRow("Sync", self.sync_settings)
         options.addRow("Also", self.sync_layout)
         options.addRow("Also", self.sync_timers)
+        options.addRow("Also", self.sync_active_spells)
         options.addRow("Also", self.sync_items)
         options.addRow("Also", self.sync_hotbuttons)
         layout.addLayout(options)
         for checkbox in (
                 self.sync_settings, self.sync_layout, self.sync_items,
-                self.sync_timers, self.sync_hotbuttons):
+                self.sync_timers, self.sync_active_spells,
+                self.sync_hotbuttons):
             checkbox.toggled.connect(self._save_options)
 
         code_row = QHBoxLayout()
@@ -1139,6 +1284,14 @@ class DeviceSyncDialog(UniformScaleDialog):
         self.controller.installation_finished.connect(
             self._installation_finished)
         self.controller.state_changed.connect(self.refresh)
+        app = QApplication.instance()
+        app_signals = getattr(app, "_signals", {})
+        settings_signals = (
+            app_signals.get("settings")
+            if isinstance(app_signals, dict) else None)
+        config_updated = getattr(settings_signals, "config_updated", None)
+        if config_updated is not None:
+            config_updated.connect(self.refresh)
         self.refresh()
 
     def _progress(self, value):
@@ -1170,10 +1323,19 @@ class DeviceSyncDialog(UniformScaleDialog):
         settings["sync_settings"] = self.sync_settings.isChecked()
         settings["sync_layout"] = self.sync_layout.isChecked()
         settings["sync_timers"] = self.sync_timers.isChecked()
+        settings["sync_active_spells"] = self.sync_active_spells.isChecked()
         settings["sync_items_notes"] = self.sync_items.isChecked()
         settings["sync_hotbuttons"] = self.sync_hotbuttons.isChecked()
         settings["enabled"] = True
         config.save()
+        app = QApplication.instance()
+        app_signals = getattr(app, "_signals", {})
+        settings_signals = (
+            app_signals.get("settings")
+            if isinstance(app_signals, dict) else None)
+        config_updated = getattr(settings_signals, "config_updated", None)
+        if config_updated is not None:
+            config_updated.emit()
 
     def _copy_code(self):
         try:
@@ -1238,6 +1400,7 @@ class DeviceSyncDialog(UniformScaleDialog):
                 (self.sync_settings, "sync_settings", True),
                 (self.sync_layout, "sync_layout", True),
                 (self.sync_timers, "sync_timers", True),
+                (self.sync_active_spells, "sync_active_spells", True),
                 (self.sync_items, "sync_items_notes", True),
                 (self.sync_hotbuttons, "sync_hotbuttons", True)):
             checkbox.blockSignals(True)

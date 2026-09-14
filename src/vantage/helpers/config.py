@@ -1541,6 +1541,7 @@ def verify_settings():
     for key, default in (
             ('enabled', False), ('sync_settings', True),
             ('sync_layout', True), ('sync_timers', True),
+            ('sync_active_spells', True),
             ('sync_items_notes', True),
             ('sync_hotbuttons', True)):
         data['device_sync'][key] = get_setting(

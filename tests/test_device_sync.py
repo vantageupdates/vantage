@@ -1,22 +1,27 @@
 import copy
+import json
 
 import pytest
 
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QCheckBox
 
 from vantage.helpers import config
 from vantage.helpers.device_sync import (
-    DeviceSyncDialog, DeviceSyncError, apply_sync_settings, build_pair_code,
+    DeviceSyncController, DeviceSyncDialog, DeviceSyncError,
+    apply_spell_timer_payload,
+    apply_sync_settings, build_pair_code, build_spell_timer_payload,
     decode_pair_code, export_sync_settings, sign_snapshot, verify_snapshot)
 from vantage.helpers.timer_sync import (
     merge_timer_state, record_explicit_timer_removals,
     record_local_timer_state, timer_identity)
+from vantage.parsers.spells import Spells
 
 
 DEVICE_ID = "AAAAAAA-BBBBBBB-CCCCCCC-DDDDDDD-EEEEEEE-FFFFFFF-GGGGGGG-HHHHHHH"
 GROUP_ID = "0123456789abcdef01234567"
 GROUP_KEY = "abcdefghijklmnopqrstuvwxyzABCDEFGH_12345678"
+REMOTE_DEVICE_ID = "BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB"
 
 
 def _buff(name, deadline, target="__you__", character="Spiritflux",
@@ -69,6 +74,10 @@ class _FakeController(QObject):
 
     def remove(self, *_args):
         pass
+
+
+class _FakeSettingsSignals(QObject):
+    config_updated = Signal()
 
 
 def test_pair_code_is_account_free_copy_paste_invitation():
@@ -150,7 +159,9 @@ def test_smart_timers_are_an_explicit_portable_sync_category():
     assert current["timers"] == {"items": [{"id": "local"}]}
 
 
-def test_timer_sync_option_excludes_smart_and_spell_runtime_timers():
+@pytest.mark.parametrize("include_timers", (False, True))
+def test_portable_settings_always_exclude_legacy_active_spell_fields(
+        include_timers):
     source = {
         "spells": {
             "level": 60,
@@ -162,10 +173,10 @@ def test_timer_sync_option_excludes_smart_and_spell_runtime_timers():
         "timers": {"items": [{"id": "frenzy"}]},
     }
 
-    portable = export_sync_settings(source, include_timers=False)
+    portable = export_sync_settings(source, include_timers=include_timers)
 
     assert portable["spells"] == {"level": 60}
-    assert "timers" not in portable
+    assert ("timers" in portable) is include_timers
 
 
 def test_concurrent_spiritflux_snapshots_keep_every_unexpired_buff():
@@ -202,7 +213,7 @@ def test_concurrent_spiritflux_snapshots_keep_every_unexpired_buff():
     assert len(metadata["versions"]) == 7
 
 
-def test_apply_sync_settings_unions_runtime_rows_instead_of_replacing_list():
+def test_apply_sync_settings_ignores_legacy_active_spell_fields():
     focus = _buff("Focus of Spirit", 5200)
     regrowth = _buff("Regrowth", 5300)
     left_rows, left_meta = record_local_timer_state(
@@ -214,14 +225,244 @@ def test_apply_sync_settings_unions_runtime_rows_instead_of_replacing_list():
         "active_timer_sync": left_meta,
     }}
 
+    before = copy.deepcopy(current)
     apply_sync_settings(current, {"spells": {
         "active_timer_state": right_rows,
         "active_timer_sync": right_meta,
     }}, timer_revision=102.0)
 
-    assert {row["spell"]["name"] for row in
-            current["spells"]["active_timer_state"]} == {
-                "Focus of Spirit", "Regrowth"}
+    assert current == before
+
+
+def test_spell_timer_payload_contains_only_latest_log_profile():
+    payload = build_spell_timer_payload([
+        _buff("Focus of Spirit", 5200),
+        _buff("Grim Aura", 5300, character="Mindflux"),
+        {"not": "a timer"},
+    ], {
+        "character": " Spiritflux ",
+        "server": " P1999 Green ",
+        "authority_at": 200.0,
+    }, state_at=210.0)
+
+    assert payload == {
+        "schema": 1,
+        "character": "Spiritflux",
+        "server": "P1999 Green",
+        "authority_at": 200.0,
+        "state_at": 210.0,
+        "rows": [_buff("Focus of Spirit", 5200)],
+    }
+    assert build_spell_timer_payload([], None, state_at=210.0) is None
+
+
+def test_newer_log_active_pc_replaces_profile_and_preserves_other_profiles():
+    current = {"spells": {"active_timer_state": [
+        _buff("Focus of Spirit", 5200),
+        _buff("Regrowth", 5300),
+        _buff("Grim Aura", 5400, character="Mindflux"),
+    ]}}
+    authority = {}
+    incoming_focus = _buff("Focus of Spirit", 6200)
+
+    accepted, changed = apply_spell_timer_payload(current, {
+        "schema": 1,
+        "character": "Spiritflux",
+        "server": "P1999 Green",
+        "authority_at": 200.0,
+        "state_at": 210.0,
+        "rows": [incoming_focus],
+    }, authority, DEVICE_ID)
+
+    assert accepted is True
+    assert changed is True
+    assert [(row["character"], row["spell"]["name"]) for row in
+            current["spells"]["active_timer_state"]] == [
+                ("Mindflux", "Grim Aura"),
+                ("Spiritflux", "Focus of Spirit"),
+            ]
+    assert authority["spiritflux\0p1999 green"] == {
+        "device": DEVICE_ID,
+        "authority_at": 200.0,
+        "state_at": 210.0,
+    }
+
+
+def test_stale_spell_authority_cannot_merge_or_delete():
+    focus = _buff("Focus of Spirit", 6200)
+    current = {"spells": {"active_timer_state": [focus]}}
+    authority = {"spiritflux\0p1999 green": {
+        "device": "new-owner",
+        "authority_at": 300.0,
+        "state_at": 310.0,
+    }}
+
+    accepted, changed = apply_spell_timer_payload(current, {
+        "schema": 1,
+        "character": "Spiritflux",
+        "server": "P1999 Green",
+        "authority_at": 299.0,
+        "state_at": 999.0,
+        "rows": [],
+    }, authority, "stale-pc")
+
+    assert accepted is False
+    assert changed is False
+    assert current["spells"]["active_timer_state"] == [focus]
+    assert authority["spiritflux\0p1999 green"]["device"] == "new-owner"
+
+
+def test_same_owner_and_authority_can_publish_later_recast_or_deletion():
+    focus = _buff("Focus of Spirit", 5200)
+    current = {"spells": {"active_timer_state": [focus]}}
+    authority = {"spiritflux\0p1999 green": {
+        "device": DEVICE_ID,
+        "authority_at": 300.0,
+        "state_at": 310.0,
+    }}
+    regrowth = _buff("Regrowth", 6400)
+
+    accepted, changed = apply_spell_timer_payload(current, {
+        "schema": 1,
+        "character": "Spiritflux",
+        "server": "P1999 Green",
+        "authority_at": 300.0,
+        "state_at": 311.0,
+        "rows": [regrowth],
+    }, authority, DEVICE_ID)
+
+    assert accepted is True
+    assert changed is True
+    assert current["spells"]["active_timer_state"] == [regrowth]
+    assert authority["spiritflux\0p1999 green"]["state_at"] == 311.0
+
+
+def test_active_buff_sync_is_independent_from_smart_timer_sync():
+    class Activity:
+        @staticmethod
+        def device_sync_log_activity():
+            return {
+                "character": "Spiritflux",
+                "server": "P1999 Green",
+                "authority_at": 200.0,
+            }
+
+    class SnapshotController:
+        _device_id = DEVICE_ID
+        _spell_authority = {}
+
+        @staticmethod
+        def parent():
+            return Activity()
+
+    original = config.data
+    try:
+        config.data = {
+            "device_sync": {
+                "device_name": "Gaming PC",
+                "group_id": GROUP_ID,
+                "sync_settings": True,
+                "sync_layout": True,
+                "sync_timers": False,
+                "sync_active_spells": True,
+                "sync_items_notes": False,
+                "sync_hotbuttons": False,
+            },
+            "spells": {"active_timer_state": [
+                _buff("Focus of Spirit", 5200)]},
+            "timers": {"items": [{"id": "local-smart-timer"}]},
+        }
+
+        payload = DeviceSyncController._snapshot_payload(
+            SnapshotController())
+        assert "timers" not in payload["settings"]
+        assert payload["spell_timers"]["rows"] == [
+            _buff("Focus of Spirit", 5200)]
+
+        config.data["device_sync"]["sync_active_spells"] = False
+        payload = DeviceSyncController._snapshot_payload(
+            SnapshotController())
+        assert "spell_timers" not in payload
+    finally:
+        config.data = original
+
+
+def test_disabled_active_buff_sync_rejects_until_reenabled(
+        tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "save", lambda: None)
+    class Transport:
+        shared = tmp_path
+
+    class ReceivingController:
+        transport = Transport()
+        _device_id = DEVICE_ID
+        _seen = {}
+        _local_modified_at = 500.0
+        _last_local_hash = ""
+        _spell_authority = {}
+
+        @staticmethod
+        def peers():
+            return [{"id": REMOTE_DEVICE_ID}]
+
+        @staticmethod
+        def parent():
+            return None
+
+        @staticmethod
+        def _save_state():
+            pass
+
+        @staticmethod
+        def _snapshot_payload():
+            return {}
+
+        _content_hash = staticmethod(DeviceSyncController._content_hash)
+
+    original = config.data
+    focus = _buff("Focus of Spirit", 5200)
+    try:
+        config.data = {
+            "device_sync": {
+                "group_id": GROUP_ID,
+                "group_secret": GROUP_KEY,
+                "sync_settings": False,
+                "sync_timers": True,
+                "sync_active_spells": False,
+            },
+            "spells": {"active_timer_state": [focus]},
+        }
+        incoming = sign_snapshot({
+            "schema": 1,
+            "device": REMOTE_DEVICE_ID,
+            "group": GROUP_ID,
+            "generated_at": 400.0,
+            "settings": {},
+            "spell_timers": {
+                "schema": 1,
+                "character": "Spiritflux",
+                "server": "P1999 Green",
+                "authority_at": 300.0,
+                "state_at": 400.0,
+                "rows": [],
+            },
+        }, GROUP_KEY)
+        (tmp_path / f"{REMOTE_DEVICE_ID}.json").write_text(
+            json.dumps(incoming), encoding="utf-8")
+
+        assert DeviceSyncController._apply_received(
+            ReceivingController()) == 0
+        assert config.data["spells"]["active_timer_state"] == [focus]
+        assert ReceivingController._spell_authority == {}
+
+        config.data["device_sync"]["sync_active_spells"] = True
+        assert DeviceSyncController._apply_received(
+            ReceivingController()) == 1
+        assert config.data["spells"]["active_timer_state"] == []
+        assert ReceivingController._spell_authority[
+            "spiritflux\0p1999 green"]["device"] == REMOTE_DEVICE_ID
+    finally:
+        config.data = original
 
 
 def test_unchanged_restored_timer_preserves_remote_clock():
@@ -364,6 +605,20 @@ def test_config_invalidates_flawed_schema_one_timer_clocks():
         config.data = original
 
 
+def test_config_defaults_active_buff_sync_on_and_requires_a_boolean():
+    original = config.data
+    try:
+        config.data = {"device_sync": {}}
+        config.verify_settings()
+        assert config.data["device_sync"]["sync_active_spells"] is True
+
+        config.data["device_sync"]["sync_active_spells"] = "yes"
+        config.verify_settings()
+        assert config.data["device_sync"]["sync_active_spells"] is True
+    finally:
+        config.data = original
+
+
 def test_apply_preserves_machine_local_values():
     current = {
         "general": {"eq_log_dir": r"C:\Local\Logs", "audio_muted": False},
@@ -404,6 +659,10 @@ def test_dialog_uses_scaled_surface_and_announces_changed_status():
     app.processEvents()
     assert dialog.status.text() == "Waiting for approval"
     assert dialog.status.accessibleDescription() == "Waiting for approval"
+    assert dialog.sync_timers.text() == "Smart Timers and zones"
+    assert dialog.sync_active_spells.text() == "Active buffs"
+    assert "neither send nor receive" in \
+        dialog.sync_active_spells.toolTip().casefold()
     dialog.close()
 
 
@@ -421,3 +680,46 @@ def test_dialog_preserves_peer_selection_during_status_refresh():
 
     assert dialog.peers.currentItem().data(256)[1] == DEVICE_ID
     dialog.close()
+
+
+def test_buffs_sync_toggle_immediately_refreshes_open_device_sync_dialog(
+        monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    original_data = config.data
+    had_signals = hasattr(app, "_signals")
+    original_signals = getattr(app, "_signals", None)
+    settings_signals = _FakeSettingsSignals()
+    app._signals = {"settings": settings_signals}
+    saves = []
+    emissions = []
+    monkeypatch.setattr(config, "save", lambda: saves.append(True))
+    settings_signals.config_updated.connect(
+        lambda: emissions.append(True))
+    try:
+        config.data = {"device_sync": {
+            "sync_settings": True,
+            "sync_layout": True,
+            "sync_timers": True,
+            "sync_active_spells": True,
+            "sync_items_notes": True,
+            "sync_hotbuttons": True,
+        }}
+        dialog = DeviceSyncDialog(_FakeController())
+        spell_controls = type("SpellControls", (), {})()
+        spell_controls._active_sync_toggle = QCheckBox()
+        spell_controls._active_sync_toggle.setChecked(True)
+
+        Spells._toggle_active_spell_sync(spell_controls, False)
+        app.processEvents()
+
+        assert config.data["device_sync"]["sync_active_spells"] is False
+        assert dialog.sync_active_spells.isChecked() is False
+        assert len(saves) == 1
+        assert len(emissions) == 1
+        dialog.close()
+    finally:
+        config.data = original_data
+        if had_signals:
+            app._signals = original_signals
+        else:
+            del app._signals
