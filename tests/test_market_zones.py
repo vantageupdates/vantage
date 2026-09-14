@@ -7,7 +7,9 @@ import sys
 
 from vantage.helpers import config
 from vantage.parsers.maps.mapdata import MapData
-from vantage.parsers.market import parse_wiki_zone_payload
+from vantage.parsers.market import (
+    parse_wiki_entity_wikitext, parse_wiki_zone_payload)
+from vantage.parsers.zones import parse_global_mob_pages
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,11 +32,13 @@ def test_zone_column_width_config_clamps_each_table_independently():
             "items": [-20, 5000],
             "mobs": [220, 65],
             "nameds": ["bad", 73, 84, 95, 315, 177],
+            "all_mobs": [221, 66, 91, 106, 281, 221],
         }}}
         config.verify_settings()
         assert config.data["zones"]["column_widths"] == {
             "items": [38, 1200],
             "nameds": [220, 73, 84, 95, 315, 177],
+            "all_mobs": [221, 66, 91, 106, 281, 221],
         }
 
         config.data = {"zones": ["damaged"]}
@@ -157,9 +161,63 @@ def test_zone_wiki_payload_extracts_searchable_mobs_nameds_drops_and_map():
     assert "AC: 8" not in zone["mobs"][1]["loot"]
 
 
+def test_global_mob_pages_filters_items_and_keeps_clickable_relationships():
+    npc_source = """{{Namedmobpage
+| name = Crystal Eyes
+| race = Giant Spider
+| class = Rogue
+| level = 47
+| zone = [[Velketor's Labyrinth]]
+| location = 20% @ (479, 2)
+| known_loot = {{:Crystal Spider Eyes}}, [[Velium Crystal Staff]]
+| relatedquests = [[The Lost Map]] and [[Coldain Prayer Shawl Quests|Prayer Shawl]]
+}}"""
+    item_source = """{{Itembox
+| itemname = Crystal Spider Eyes
+| statsblock = AC 8
+}}"""
+    payload = {"query": {"pages": {
+        "10": {"title": "Crystal Spider Eyes", "revisions": [
+            {"*": item_source}]},
+        "11": {"title": "Crystal Eyes", "revisions": [
+            {"*": npc_source}]},
+    }}}
+
+    results = parse_global_mob_pages(payload, "Crystal Eyes")
+
+    assert len(results) == 1
+    mob = results[0]
+    assert mob["name"] == "Crystal Eyes"
+    assert mob["named"] is True
+    assert mob["location"] == (
+        "Velketor's Labyrinth · 20% @ (479, 2)")
+    assert mob["drops"] == ["Velium Crystal Staff", "Crystal Spider Eyes"]
+    assert [quest["name"] for quest in mob["related_quests"]] == [
+        "The Lost Map", "Prayer Shawl"]
+    assert mob["_entity_loaded"] is True
+
+
+def test_native_npc_parser_includes_every_related_quest():
+    source = """{{Mobpage
+| name = an escaped froglok
+| relatedquests = [[Froglok Slave Quest]], [[The Missing Piece]]
+}}"""
+
+    entity = parse_wiki_entity_wikitext(source, "an escaped froglok", "npc")
+
+    assert entity["related_quests"] == [
+        {"name": "Froglok Slave Quest", "target": "Froglok Slave Quest",
+         "url": "https://wiki.project1999.com/Froglok_Slave_Quest"},
+        {"name": "The Missing Piece", "target": "The Missing Piece",
+         "url": "https://wiki.project1999.com/The_Missing_Piece"},
+    ]
+
+
 UI_SCRIPT = r"""
 import json
+from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QToolButton
 import vantage.parsers.zones as zones_module
 from vantage.helpers.application import VantageApp
 
@@ -204,6 +262,33 @@ selected_name = zones._selected_value()['name']
 selected_drop = zones.zone_drop_selector.currentText()
 map_enabled = zones.zone_map_button.isEnabled()
 named_rows = zones.named_table.rowCount()
+global_mob = {
+    'name': 'Crystal Eyes', 'target': 'Crystal Eyes', 'named': True,
+    'level': '47', 'class': 'Rogue', 'race': 'Giant Spider',
+    'location': "Velketor's Labyrinth · (479, 2)",
+    'drops': ['Crystal Spider Eyes', 'Velium Crystal Staff'],
+    'loot': 'Crystal Spider Eyes, Velium Crystal Staff',
+    'related_quests': [
+        {'name': 'The Lost Map', 'target': 'The Lost Map'},
+        {'name': 'Prayer Shawl', 'target': 'Coldain Prayer Shawl Quests'},
+    ], '_entity_loaded': True,
+}
+zones._global_mob_results = [global_mob]
+zones._fill_mobs(zones.all_mob_table, zones._global_mob_results)
+zones.tabs.setCurrentIndex(3)
+zones.all_mob_table.selectRow(0)
+app.processEvents()
+relation_html = zones.all_mob_relations.text()
+relation_accessible = zones.all_mob_relations.accessibleName()
+opened_items = []
+opened_quests = []
+market._show_wiki_item_name = lambda name: opened_items.append(name)
+market._show_wiki_entity = (
+    lambda target, label, kind: opened_quests.append((target, label, kind)))
+zones.all_mob_relations.linkActivated.emit(
+    'vantage://item/Crystal%20Spider%20Eyes')
+zones.all_mob_relations.linkActivated.emit(
+    'vantage://quest/Coldain%20Prayer%20Shawl%20Quests')
 auto_load_calls = []
 zones._load_zone = lambda *_args, **kwargs: auto_load_calls.append((
     zones.zone_selector.currentData(), kwargs.get('announce'))) or True
@@ -232,6 +317,18 @@ print(json.dumps({
     'map_enabled': map_enabled,
     'table_name': zones.named_table.accessibleName(),
     'search_tip': zones.zone_search.toolTip(),
+    'all_mob_search_name': zones.all_mob_search.accessibleName(),
+    'all_mob_search_description': zones.all_mob_search.accessibleDescription(),
+    'all_mob_visible_help': zones.all_mob_search_status.text(),
+    'relation_html': relation_html,
+    'relation_accessible': relation_accessible,
+    'relation_keyboard': bool(
+        zones.all_mob_relations.textInteractionFlags() &
+        Qt.TextInteractionFlag.LinksAccessibleByKeyboard),
+    'all_mob_clear_name': zones.all_mob_search.findChild(
+        QToolButton).accessibleName(),
+    'opened_items': opened_items,
+    'opened_quests': opened_quests,
     'quickbar_has_zones': 'zones' in app._parsers_dict['quickbar']._buttons,
     'selection_auto_loads_once': auto_load_calls[:1] == [
         ('kael drakkel', True)] and len(auto_load_calls) == 2,
@@ -259,7 +356,7 @@ def test_independent_zone_window_filters_tabs_and_exposes_selected_drop(tmp_path
         "market_tabs": [
             "PigParse · prices", "Gear · stats", "WTS / WTB Builder",
             "Sale Alerts · 0"],
-        "zone_tabs": ["Items", "Mobs", "Nameds"],
+        "zone_tabs": ["Items", "Mobs", "Nameds", "Any Mob"],
         "selector_editable": False,
         "filtered_items": 1,
         "named_rows": 1,
@@ -269,6 +366,32 @@ def test_independent_zone_window_filters_tabs_and_exposes_selected_drop(tmp_path
         "table_name": "Named NPCs in selected zone",
         "search_tip": (
             "Filter the loaded zone's mobs, nameds, item drops, and locations"),
+        "all_mob_search_name": (
+            "Search mobs across every Project 1999 zone"),
+        "all_mob_search_description": (
+            "Enter at least two characters. Results are not limited by the "
+            "zone selected above"),
+        "all_mob_visible_help": (
+            "Enter at least two characters. Search is independent of the "
+            "selected zone."),
+        "relation_html": (
+            "<b>Crystal Eyes</b><br><b>Drops:</b> "
+            "<a href=\"vantage://item/Crystal%20Spider%20Eyes\">"
+            "Crystal Spider Eyes</a>, "
+            "<a href=\"vantage://item/Velium%20Crystal%20Staff\">"
+            "Velium Crystal Staff</a><br><b>Related quests:</b> "
+            "<a href=\"vantage://quest/The%20Lost%20Map\">The Lost Map</a>, "
+            "<a href=\"vantage://quest/Coldain%20Prayer%20Shawl%20Quests\">"
+            "Prayer Shawl</a>"),
+        "relation_accessible": (
+            "Crystal Eyes. Drops: Crystal Spider Eyes, Velium Crystal Staff. "
+            "Related quests: The Lost Map, Prayer Shawl"),
+        "relation_keyboard": True,
+        "all_mob_clear_name": "Clear all-zone mob search",
+        "opened_items": ["Crystal Spider Eyes"],
+        "opened_quests": [[
+            "Coldain Prayer Shawl Quests", "Coldain Prayer Shawl Quests",
+            "quest"]],
         "quickbar_has_zones": True,
         "selection_auto_loads_once": True,
         "explicit_and_log_announce_modes": [
@@ -278,6 +401,269 @@ def test_independent_zone_window_filters_tabs_and_exposes_selected_drop(tmp_path
         "filter_announcements": 1,
         "selector_focused_on_open": True,
         "launcher_focus_safe": True,
+    }
+
+
+GLOBAL_MOB_SEARCH_SCRIPT = r"""
+import json
+from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtNetwork import QNetworkReply
+from PySide6.QtTest import QTest
+from vantage.helpers.application import VantageApp
+
+class FakeReply(QObject):
+    finished = Signal()
+    def __init__(self):
+        super().__init__()
+        self.payload = b'{}'
+        self.aborted = False
+    def abort(self):
+        self.aborted = True
+    def error(self):
+        return (QNetworkReply.NetworkError.OperationCanceledError
+                if self.aborted else QNetworkReply.NetworkError.NoError)
+    def errorString(self):
+        return 'cancelled' if self.aborted else ''
+    def readAll(self):
+        return self.payload
+
+class FakeNetwork:
+    def __init__(self):
+        self.replies = []
+        self.urls = []
+    def get(self, request):
+        reply = FakeReply()
+        self.replies.append(reply)
+        self.urls.append(request.url().toString())
+        return reply
+
+app = VantageApp([])
+zones = app._parsers_dict['zones']
+network = FakeNetwork()
+zones._network = network
+zones.tabs.setCurrentIndex(3)
+zones.show()
+app.processEvents()
+zones.all_mob_search.setText('Crystal Eyes')
+QTest.keyClick(zones.all_mob_search, Qt.Key.Key_Return)
+search_reply = network.replies[0]
+search_reply.payload = json.dumps({'query': {'search': [
+    {'title': 'Crystal Eyes'}, {'title': 'Crystal Spider Eyes'}
+]}}).encode()
+search_reply.finished.emit()
+
+npc = '''{{Namedmobpage
+| name = Crystal Eyes
+| race = Giant Spider
+| class = Rogue
+| level = 47
+| zone = [[Velketor's Labyrinth]]
+| location = (479, 2)
+| known_loot = {{:Crystal Spider Eyes}}, [[Velium Crystal Staff]]
+| relatedquests = [[The Lost Map]]
+}}'''
+item = '''{{Itembox
+| itemname = Crystal Spider Eyes
+| statsblock = AC 8
+}}'''
+pages_reply = network.replies[1]
+pages_reply.payload = json.dumps({'query': {'pages': {
+    '1': {'title': 'Crystal Eyes', 'revisions': [{'*': npc}]},
+    '2': {'title': 'Crystal Spider Eyes', 'revisions': [{'*': item}]},
+}}}).encode()
+pages_reply.finished.emit()
+app.processEvents()
+
+print(json.dumps({
+    'requests': len(network.urls),
+    'search_endpoint': 'list=search' in network.urls[0],
+    'batch_endpoint': 'prop=revisions' in network.urls[1],
+    'rows': zones.all_mob_table.rowCount(),
+    'selected': zones._selected_value()['name'],
+    'focused': zones.all_mob_table.hasFocus(),
+    'button_enabled': zones.all_mob_search_button.isEnabled(),
+    'status': zones.all_mob_search_status.text(),
+    'item_link': 'vantage://item/Crystal%20Spider%20Eyes' in
+                 zones.all_mob_relations.text(),
+    'quest_link': 'vantage://quest/The%20Lost%20Map' in
+                  zones.all_mob_relations.text(),
+}))
+app.quit()
+"""
+
+
+def test_any_mob_search_uses_enter_batches_pages_and_focuses_results(tmp_path):
+    env = os.environ.copy()
+    env["QT_QPA_PLATFORM"] = "offscreen"
+    env["PYTHONPATH"] = str(ROOT / "src")
+    env["VANTAGE_DATA_DIR"] = str(tmp_path / "profile")
+    completed = subprocess.run(
+        [sys.executable, "-c", GLOBAL_MOB_SEARCH_SCRIPT], cwd=ROOT, env=env,
+        check=True, capture_output=True, text=True, timeout=35)
+    result = json.loads(completed.stdout.strip().splitlines()[-1])
+    assert result == {
+        "requests": 2,
+        "search_endpoint": True,
+        "batch_endpoint": True,
+        "rows": 1,
+        "selected": "Crystal Eyes",
+        "focused": True,
+        "button_enabled": True,
+        "status": (
+            "1 mob found across all zones · select a row for every linked "
+            "drop and quest"),
+        "item_link": True,
+        "quest_link": True,
+    }
+
+
+STALE_MOB_SEARCH_SCRIPT = r"""
+import json
+from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtNetwork import QNetworkReply
+from PySide6.QtTest import QTest
+from vantage.helpers.application import VantageApp
+
+class FakeReply(QObject):
+    finished = Signal()
+    def __init__(self):
+        super().__init__()
+        self.aborted = False
+        self.payload = b'{}'
+    def abort(self):
+        self.aborted = True
+    def error(self):
+        return (QNetworkReply.NetworkError.OperationCanceledError
+                if self.aborted else QNetworkReply.NetworkError.NoError)
+    def errorString(self):
+        return 'cancelled' if self.aborted else ''
+    def readAll(self):
+        return self.payload
+
+class FakeNetwork:
+    def __init__(self):
+        self.replies = []
+    def get(self, _request):
+        reply = FakeReply()
+        self.replies.append(reply)
+        return reply
+
+app = VantageApp([])
+zones = app._parsers_dict['zones']
+network = FakeNetwork()
+zones._network = network
+zones.tabs.setCurrentIndex(3)
+zones.show()
+zones.all_mob_search.setFocus(Qt.FocusReason.OtherFocusReason)
+zones.all_mob_search.setText('Crystal Eyes')
+QTest.keyClick(zones.all_mob_search, Qt.Key.Key_Return)
+old_reply = network.replies[0]
+zones.all_mob_search.setText('Dread')
+old_reply.payload = json.dumps({'query': {'search': [
+    {'title': 'Crystal Eyes'}
+]}}).encode()
+old_reply.finished.emit()
+app.processEvents()
+print(json.dumps({
+    'aborted': old_reply.aborted,
+    'rows': zones.all_mob_table.rowCount(),
+    'focused': zones.all_mob_search.hasFocus(),
+    'button_enabled': zones.all_mob_search_button.isEnabled(),
+    'status': zones.all_mob_search_status.text(),
+}))
+app.quit()
+"""
+
+
+def test_editing_submitted_mob_query_cancels_stale_results_and_keeps_focus(
+        tmp_path):
+    env = os.environ.copy()
+    env["QT_QPA_PLATFORM"] = "offscreen"
+    env["PYTHONPATH"] = str(ROOT / "src")
+    env["VANTAGE_DATA_DIR"] = str(tmp_path / "profile")
+    completed = subprocess.run(
+        [sys.executable, "-c", STALE_MOB_SEARCH_SCRIPT], cwd=ROOT, env=env,
+        check=True, capture_output=True, text=True, timeout=35)
+    assert json.loads(completed.stdout.strip().splitlines()[-1]) == {
+        "aborted": True,
+        "rows": 0,
+        "focused": True,
+        "button_enabled": True,
+        "status": (
+            "Search text changed · press Enter or Search all zones for the "
+            "new mob name."),
+    }
+
+
+EMPTY_MOB_SEARCH_SCRIPT = r"""
+import json
+from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtNetwork import QNetworkReply
+from PySide6.QtTest import QTest
+from vantage.helpers.application import VantageApp
+
+class FakeReply(QObject):
+    finished = Signal()
+    def __init__(self):
+        super().__init__()
+        self.payload = b'{"query":{"search":[]}}'
+    def abort(self):
+        pass
+    def error(self):
+        return QNetworkReply.NetworkError.NoError
+    def errorString(self):
+        return ''
+    def readAll(self):
+        return self.payload
+
+class FakeNetwork:
+    def __init__(self):
+        self.reply = None
+    def get(self, _request):
+        self.reply = FakeReply()
+        return self.reply
+
+app = VantageApp([])
+zones = app._parsers_dict['zones']
+network = FakeNetwork()
+zones._network = network
+zones.tabs.setCurrentIndex(3)
+zones.show()
+app.processEvents()
+zones.all_mob_search.setText('No Such Mob')
+zones.all_mob_search_button.setFocus(Qt.FocusReason.OtherFocusReason)
+button_focused_before_search = zones.all_mob_search_button.hasFocus()
+QTest.keyClick(zones.all_mob_search_button, Qt.Key.Key_Space)
+focused_while_loading = zones.all_mob_search.hasFocus()
+network.reply.finished.emit()
+app.processEvents()
+print(json.dumps({
+    'button_focused_before_search': button_focused_before_search,
+    'focused_while_loading': focused_while_loading,
+    'focused_after_empty': zones.all_mob_search.hasFocus(),
+    'button_enabled': zones.all_mob_search_button.isEnabled(),
+    'status': zones.all_mob_search_status.text(),
+}))
+app.quit()
+"""
+
+
+def test_keyboard_search_button_keeps_retry_focus_when_results_are_empty(
+        tmp_path):
+    env = os.environ.copy()
+    env["QT_QPA_PLATFORM"] = "offscreen"
+    env["PYTHONPATH"] = str(ROOT / "src")
+    env["VANTAGE_DATA_DIR"] = str(tmp_path / "profile")
+    completed = subprocess.run(
+        [sys.executable, "-c", EMPTY_MOB_SEARCH_SCRIPT], cwd=ROOT, env=env,
+        check=True, capture_output=True, text=True, timeout=35)
+    assert json.loads(completed.stdout.strip().splitlines()[-1]) == {
+        "button_focused_before_search": True,
+        "focused_while_loading": True,
+        "focused_after_empty": True,
+        "button_enabled": True,
+        "status": (
+            "No P99 NPC pages matched No Such Mob. Try a shorter mob name."),
     }
 
 
@@ -292,6 +678,7 @@ widths = {
     'items': [411, 222],
     'mobs': [211, 72, 83, 94, 305, 176],
     'nameds': [251, 73, 84, 95, 315, 177],
+    'all_mobs': [231, 74, 85, 96, 325, 207],
 }
 for key, values in widths.items():
     table = zones._zone_tables[key]
@@ -349,6 +736,7 @@ def test_zone_column_widths_are_interactive_distinct_and_persisted(tmp_path):
         "items": [411, 222],
         "mobs": [211, 72, 83, 94, 305, 176],
         "nameds": [251, 73, 84, 95, 315, 177],
+        "all_mobs": [231, 74, 85, 96, 325, 207],
     }
     assert json.loads(saved.stdout.strip().splitlines()[-1]) == expected
     result = json.loads(restored.stdout.strip().splitlines()[-1])

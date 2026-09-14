@@ -1380,6 +1380,7 @@ def verify_settings():
         'items': (320, 240),
         'mobs': (220, 65, 90, 105, 280, 180),
         'nameds': (220, 65, 90, 105, 280, 180),
+        'all_mobs': (220, 65, 90, 105, 280, 220),
     }
     # Validate each table independently. A damaged width list for one tab must
     # never discard the user's valid layout for either of the other tabs.

@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.80 design QA
+# Vantage Companion 1.44.81 design QA
 
 final result: passed
 
@@ -11,6 +11,10 @@ final result: passed
 
 ## Visual checks
 
+- Zones adds a separate **Any Mob** workflow that searches the complete P99
+  Wiki instead of the selected zone. Results keep a compact sortable table;
+  selecting a mob exposes every parsed drop and related quest as a labeled,
+  keyboard-accessible in-app link without replacing the selected-zone tabs.
 - Lavastorm and Nektulos now load the complete classic P99/nParse map sets
   instead of mixing in revamped Live geometry. Source matching is
   case-insensitive and deterministic, and known classic zone-line positions
