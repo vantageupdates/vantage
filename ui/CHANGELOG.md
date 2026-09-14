@@ -1,5 +1,23 @@
 # VantageUI releases
 
+## 1.44.84
+
+Install folder: `VantageUI-v1.44.84`.
+
+- Compacted BankWindow from 330 by 274 to 136 by 160 pixels, removing the empty
+  area left after the earlier ghost-icon repair.
+- Arranged the eight native 30-pixel bag slots in a 4-by-2 grid with 2-pixel
+  gaps; arranged the four coin controls in a 2-by-2 grid below the banker title.
+- Added equal-width Change/Done footer buttons with a 4-pixel gap and 5-pixel
+  bottom clearance inside the native client area.
+- Preserved every native bank binding, shared placeholder and child order.
+  Zero synthetic bag-content mirrors are restored, retaining the ghost fix.
+- Added containment, non-overlap, spacing and five-digit coin-room checks.
+  Live bank clicks, item transfers and native text rendering remain unverified.
+
+Load with `/loadskin VantageUI-v1.44.84 1`. Verify bank operations after reload.
+TargetWindow is unchanged; its separate runtime warning remains pending.
+
 ## 1.44.83
 
 Install folder: `VantageUI-v1.44.83`.
