@@ -13,6 +13,12 @@ PHASE_RESPAWN = "respawn"
 PHASE_COMBAT = "combat"
 PHASE_AVAILABLE = "available"
 
+TIMER_MODE_SPAWN = "spawn"
+TIMER_MODE_COUNTDOWN = "countdown"
+TIMER_MODE_COOLDOWN = "cooldown"
+TIMER_MODES = {
+    TIMER_MODE_SPAWN, TIMER_MODE_COUNTDOWN, TIMER_MODE_COOLDOWN}
+
 
 def zone_timer_visible(timer_zone, selected_zone):
     """Global rows are visible everywhere; zoned rows match the chosen view."""
@@ -59,6 +65,10 @@ class SpawnTimerState:
     volume: int = 85
     source: str = ""
     automatic: bool = False
+    # ``spawn`` keeps the original kill/respawn cycle. ``countdown`` is a
+    # one-shot general timer and ``cooldown`` is a reusable one-phase timer.
+    # Keeping spawn as the default makes every existing saved row compatible.
+    timer_mode: str = TIMER_MODE_SPAWN
     timer_id: str = field(default_factory=lambda: uuid.uuid4().hex)
     phase: str = PHASE_IDLE
     running: bool = False
@@ -77,6 +87,9 @@ class SpawnTimerState:
         self.color = self.color if re.fullmatch(r"#[0-9a-fA-F]{6}", self.color or "") else "#B38C52"
         if self.sound_path is not None:
             self.sound_path = str(self.sound_path)[:500]
+        self.timer_mode = str(self.timer_mode or TIMER_MODE_SPAWN).casefold()
+        if self.timer_mode not in TIMER_MODES:
+            self.timer_mode = TIMER_MODE_SPAWN
 
     @classmethod
     def from_dict(cls, values):
@@ -157,7 +170,10 @@ class SpawnTimerState:
             self.warning_sent = True
             events.append(TimerEvent(
                 "warning", self.timer_id, self.name,
-                f"{self.name}: spawn in {max(1, int(self.deadline - now))} s"
+                f"{self.name}: " + (
+                    f"spawn in {max(1, int(self.deadline - now))} s"
+                    if self.timer_mode == TIMER_MODE_SPAWN else
+                    f"ends in {max(1, int(self.deadline - now))} s")
             ))
 
         safety = 0
@@ -165,6 +181,23 @@ class SpawnTimerState:
             safety += 1
             transition_at = self.deadline
             if self.phase == PHASE_RESPAWN:
+                if self.timer_mode != TIMER_MODE_SPAWN:
+                    self.cycles += 1
+                    self.phase = PHASE_AVAILABLE
+                    self.running = False
+                    self.phase_started_at = transition_at
+                    self.deadline = None
+                    self.warning_sent = False
+                    kind = (
+                        "ready" if self.timer_mode == TIMER_MODE_COOLDOWN
+                        else "complete")
+                    message = (
+                        f"{self.name}: ready"
+                        if self.timer_mode == TIMER_MODE_COOLDOWN else
+                        f"{self.name}: timer complete")
+                    events.append(TimerEvent(
+                        kind, self.timer_id, self.name, message))
+                    break
                 events.append(TimerEvent(
                     "spawn", self.timer_id, self.name,
                     f"{self.name}: spawn available"
@@ -215,6 +248,8 @@ class SpawnTimerState:
         return max(0, min(100, round((1 - remaining / self.phase_duration()) * 100)))
 
     def matches_kill(self, mob_name, zone=""):
+        if self.timer_mode != TIMER_MODE_SPAWN:
+            return False
         if self.zone and zone and self.zone.casefold() != zone.casefold():
             return False
         pattern = (self.mob_pattern or self.name).strip()

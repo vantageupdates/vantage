@@ -11,8 +11,9 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = r"""
 import json
 
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QPointF, Qt, QTimer
 from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QAbstractSlider
 
 from vantage.helpers import config
 from vantage.helpers.application import VantageApp
@@ -74,6 +75,9 @@ QTest.qWait(100)
 scroll = panel._scale_view.verticalScrollBar()
 last_row = list(panel._rows.values())[-1]
 last_row.play_button.setFocus(Qt.FocusReason.TabFocusReason)
+# Reproduce the late QGraphicsView scrollbar reset seen under full-suite load:
+# focus reveal may run before the proxy widget's deferred range/layout pass.
+QTimer.singleShot(10, lambda: scroll.setValue(scroll.minimum()))
 QTest.qWait(100)
 logical_point = last_row.play_button.mapTo(
     panel._surface, last_row.play_button.rect().center())
@@ -88,16 +92,37 @@ many_row_state = {
     'expected_policy': int(Qt.ScrollBarPolicy.ScrollBarAsNeeded.value),
     'scroll_maximum': scroll.maximum(),
     'scroll_value': scroll.value(),
+    'button_has_focus': last_row.play_button.hasFocus(),
+    'focus_widget': (
+        app.focusWidget().accessibleName() if app.focusWidget() else None),
+    'pending_focus_reveal': bool(
+        panel._pending_timer_focus_control is not None),
+    'focus_reveal_passes': panel._timer_focus_reveal_passes,
+    'focus_reveal_timer_active': panel._timer_focus_reveal_timer.isActive(),
     'focus_visible': panel._scale_view.viewport().rect().contains(
         viewport_point),
     'scroll_name': scroll.accessibleName(),
     'scroll_tooltip': scroll.toolTip(),
 }
 
+# Once the FocusIn reveal has settled, a still-focused row must not make the
+# one-second timer refresh override a later manual scroll choice.
+scroll.triggerAction(QAbstractSlider.SliderAction.SliderToMinimum)
+manual_scroll = scroll.value()
+QTest.qWait(1250)
+manual_scroll_state = {
+    'requested': manual_scroll,
+    'after_ticker': scroll.value(),
+    'button_has_focus': last_row.play_button.hasFocus(),
+    'pending_focus_reveal': bool(
+        panel._pending_timer_focus_control is not None),
+}
+
 print(json.dumps({
     'four': four_row_state,
     'three': three_row_state,
     'many': many_row_state,
+    'manual': manual_scroll_state,
 }))
 app.quit()
 """
@@ -124,7 +149,16 @@ def test_timer_resize_floor_keeps_all_four_rows_visible(tmp_path):
     assert result['many']['minimum'] <= result['many']['screen_height']
     assert result['many']['scroll_policy'] == result['many']['expected_policy']
     assert result['many']['scroll_maximum'] > 0
-    assert result['many']['scroll_value'] > 0
+    assert result['many']['scroll_value'] > 0, (
+        f"focus={result['many']['button_has_focus']} "
+        f"widget={result['many']['focus_widget']!r} "
+        f"pending={result['many']['pending_focus_reveal']} "
+        f"passes={result['many']['focus_reveal_passes']} "
+        f"active={result['many']['focus_reveal_timer_active']} "
+        f"maximum={result['many']['scroll_maximum']}")
     assert result['many']['focus_visible'] is True
     assert result['many']['scroll_name'] == 'Scroll Smart Timer rows'
     assert 'complete zone list' in result['many']['scroll_tooltip']
+    assert result['manual']['button_has_focus'] is True
+    assert result['manual']['pending_focus_reveal'] is False
+    assert result['manual']['after_ticker'] == result['manual']['requested']

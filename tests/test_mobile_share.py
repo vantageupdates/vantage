@@ -184,6 +184,18 @@ def test_mobile_page_accessibility_updates_preserve_the_private_session():
     assert "in a new tab" in _MOBILE_PAGE
 
 
+def test_mobile_smart_timers_render_generic_modes_and_restart_semantics():
+    assert '<h2 class="panel-title">Smart timers</h2>' in _MOBILE_PAGE
+    assert "function timerMode(t)" in _MOBILE_PAGE
+    assert "pn==='available'?'DONE'" in _MOBILE_PAGE
+    assert "pn==='available'?'READY'" in _MOBILE_PAGE
+    assert "return'Start again'" in _MOBILE_PAGE
+    assert "mode==='countdown'?'COUNTDOWN':'REUSABLE COOLDOWN'" in \
+        _MOBILE_PAGE
+    assert "'duration '+String(t.duration||'--:--')" in _MOBILE_PAGE
+    assert "previous.running!==running&&!completed" in _MOBILE_PAGE
+
+
 def test_mobile_pwa_shell_routes_are_cacheable_without_caching_private_api():
     server = _ShareHTTPServer(("127.0.0.1", 0), "secret-token", _snapshot)
     thread = threading.Thread(target=server.serve_forever, daemon=True)

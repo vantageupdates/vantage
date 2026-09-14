@@ -3,6 +3,8 @@ from vantage.helpers.spawn_timer import (
     PHASE_COMBAT,
     PHASE_RESPAWN,
     SpawnTimerState,
+    TIMER_MODE_COOLDOWN,
+    TIMER_MODE_COUNTDOWN,
     reset_stale_persisted_timers,
     zone_timer_visible,
     parse_duration_input,
@@ -11,7 +13,7 @@ from vantage.helpers.respawn_catalog import (
     NAMED_SPAWN_CATALOG, RESPAWN_CATALOG, duration_seconds,
     named_spawn_for, respawn_for_short_name)
 from vantage.parsers.timers import (
-    extract_killed_mob, extract_log_timer_command)
+    SpawnTimers, extract_killed_mob, extract_log_timer_command)
 
 
 def test_manual_kill_anchors_respawn_and_increments_cycle():
@@ -47,6 +49,65 @@ def test_non_smart_timer_waits_for_manual_confirmation():
     timer.tick(90)
     assert timer.phase == PHASE_AVAILABLE
     assert timer.deadline is None
+
+
+def test_general_countdown_completes_once_without_entering_a_spawn_cycle():
+    timer = SpawnTimerState(
+        "Gate rotation", 45, timer_mode=TIMER_MODE_COUNTDOWN)
+    timer.start(100)
+
+    events = timer.tick(145)
+
+    assert [event.kind for event in events] == ["complete"]
+    assert events[0].message == "Gate rotation: timer complete"
+    assert timer.phase == PHASE_AVAILABLE
+    assert timer.running is False
+    assert timer.deadline is None
+    assert timer.cycles == 1
+    assert timer.tick(500) == []
+    assert not timer.matches_kill("Gate rotation")
+
+
+def test_reusable_cooldown_can_be_restarted_after_becoming_ready():
+    timer = SpawnTimerState(
+        "Clicky", 30, timer_mode=TIMER_MODE_COOLDOWN)
+    timer.start(10)
+    assert [event.kind for event in timer.tick(40)] == ["ready"]
+    assert timer.phase == PHASE_AVAILABLE
+    assert timer.running is False
+
+    timer.restart(80)
+
+    assert timer.phase == PHASE_RESPAWN
+    assert timer.deadline == 110
+
+
+def test_mobile_toggle_starts_a_completed_generic_timer_again():
+    timer = SpawnTimerState(
+        "Clicky", 30, timer_mode=TIMER_MODE_COOLDOWN)
+    timer.start(10)
+    timer.tick(40)
+
+    class Host:
+        _states = {timer.timer_id: timer}
+
+        def __init__(self):
+            self.message = ""
+            self.changes = 0
+
+        def announce(self, message):
+            self.message = message
+
+        def state_changed(self):
+            self.changes += 1
+
+    host = Host()
+    SpawnTimers.mobile_action(host, "toggle", timer.timer_id)
+
+    assert timer.running is True
+    assert timer.phase == PHASE_RESPAWN
+    assert host.message == "Clicky: started from phone"
+    assert host.changes == 1
 
 
 def test_pause_and_resume_preserve_remaining_time():

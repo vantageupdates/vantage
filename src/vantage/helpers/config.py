@@ -1025,6 +1025,44 @@ def verify_settings():
     data['timers']['view_zone'] = get_setting(
         data['timers'].get('view_zone', ''), '',
         lambda value: isinstance(value, str))
+    raw_timer_instances = data['timers'].get('instances', [])
+    if not isinstance(raw_timer_instances, list):
+        raw_timer_instances = []
+    timer_instances = []
+    seen_timer_instances = set()
+    for raw_instance in raw_timer_instances[:16]:
+        raw_id = (
+            raw_instance.get('id') if isinstance(raw_instance, dict)
+            else raw_instance)
+        instance_id = str(raw_id or '').strip().lower()
+        if (not re.fullmatch(r'[a-z0-9]{6,24}', instance_id)
+                or instance_id in seen_timer_instances):
+            continue
+        seen_timer_instances.add(instance_id)
+        timer_instances.append({'id': instance_id})
+        section_key = f'timer_view_{instance_id}'
+        section = data.get(section_key, {})
+        if not isinstance(section, dict):
+            section = {}
+        section['geometry'] = get_setting(
+            section.get('geometry', [650, 30, 520, 360]),
+            [650, 30, 520, 360],
+            lambda value: isinstance(value, list) and len(value) == 4)
+        for key, default in (
+                ('toggled', True), ('clickthrough', False),
+                ('auto_hide_menu', False), ('always_on_top', True),
+                ('frameless', True), ('collapsed', False),
+                ('compact', False)):
+            section[key] = get_setting(section.get(key, default), default)
+        section['opacity'] = get_setting(
+            section.get('opacity', 92), 92,
+            lambda value: isinstance(value, (int, float)) and
+            not isinstance(value, bool) and 25 <= value <= 100)
+        section['view_zone'] = get_setting(
+            section.get('view_zone', ''), '',
+            lambda value: isinstance(value, str))[:160]
+        data[section_key] = section
+    data['timers']['instances'] = timer_instances
     data['timers']['seen_share_ids'] = get_setting(
         data['timers'].get('seen_share_ids', []), [],
         lambda value: isinstance(value, list))

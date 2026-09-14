@@ -54,7 +54,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=85,
+    patch=86,
     build=""
 )
 
@@ -1441,6 +1441,7 @@ class VantageApp(QApplication):
             if spells is not None:
                 spells.checkpoint_runtime_state()
             if timers is not None:
+                timers.checkpoint_view_geometries()
                 timers.checkpoint_runtime_state()
             spell_rows = copy.deepcopy(
                 config.data.get('spells', {}).get('active_timer_state', []))

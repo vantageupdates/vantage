@@ -7,7 +7,9 @@ from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtWidgets import QApplication, QPushButton, QSpinBox
 
 from vantage.helpers import config
-from vantage.helpers.spawn_timer import PHASE_IDLE, PHASE_RESPAWN, SpawnTimerState
+from vantage.helpers.icons import game_icon
+from vantage.helpers.spawn_timer import (
+    PHASE_IDLE, PHASE_RESPAWN, SpawnTimerState, TIMER_MODE_COUNTDOWN)
 from vantage.parsers.timers import (
     SPAWN_TIMER_WINDOW_STYLE, TimerEditDialog, TimerProgressBar, TimerRow)
 
@@ -106,6 +108,51 @@ def test_individual_volume_remains_in_the_timer_edit_dialog():
     dialog.apply(timer)
     assert timer.volume == 42
     dialog.close()
+
+
+def test_timer_editor_supports_general_countdowns_without_mob_only_fields():
+    app = _app()
+    dialog = TimerEditDialog()
+    dialog.timer_mode.setCurrentIndex(
+        dialog.timer_mode.findData(TIMER_MODE_COUNTDOWN))
+    app.processEvents()
+
+    assert dialog.timer_mode.accessibleName() == "Timer type"
+    assert "countdown" in dialog.timer_mode.toolTip().casefold()
+    assert dialog._timer_form.labelForField(dialog.respawn).text() == "Duration"
+    assert dialog.kill.isEnabled() is False
+    assert dialog.smart.isEnabled() is False
+    assert dialog.mob_pattern.isEnabled() is False
+
+    dialog.name.setText("Port cooldown")
+    dialog.respawn.setText("10m")
+    timer = dialog.apply()
+    assert timer.timer_mode == TIMER_MODE_COUNTDOWN
+    assert timer.respawn_seconds == 600
+    dialog.close()
+
+
+def test_completed_countdown_row_shows_done_and_starts_again():
+    app = _app()
+    timer = SpawnTimerState(
+        "Gate rotation", 30, timer_mode=TIMER_MODE_COUNTDOWN)
+    timer.start(10)
+    timer.tick(40)
+    owner = _Owner()
+    row = TimerRow(timer, owner)
+    app.processEvents()
+
+    assert timer.running is False
+    assert row.phase_label.text() == "DONE"
+    assert row.play_button.toolTip() == "Start Gate rotation again"
+    assert row.play_button.icon().cacheKey() == game_icon("play").cacheKey()
+
+    row._toggle()
+
+    assert timer.running is True
+    assert timer.phase == PHASE_RESPAWN
+    assert owner.changes == 1
+    row.close()
 
 
 def test_timer_row_uses_border_light_crisp_controls():
