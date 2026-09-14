@@ -1,5 +1,20 @@
 # VantageUI releases
 
+## 1.44.85
+
+Install folder: `VantageUI-v1.44.85`.
+
+- Changed all eight spell-name labels to near-black text over a warm,
+  translucent inset for stronger contrast across native spell-category colors.
+- Preserved the native spell IDs, EQType mappings, geometry, Pieces order,
+  icon lane, colored perimeter and 120-by-28-pixel click targets.
+- Kept the inset inside the existing noninteractive outline layer, without
+  adding controls or Pieces to the Cast Spell window.
+
+Load with `/loadskin VantageUI-v1.44.85 1`. Spell casting, hotkeys,
+hover/pressed feedback and native text rendering remain unverified until a live
+reload.
+
 ## 1.44.84
 
 Install folder: `VantageUI-v1.44.84`.

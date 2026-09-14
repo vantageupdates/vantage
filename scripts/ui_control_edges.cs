@@ -50,6 +50,61 @@ public static class VantageControlEdgesRenderer {
             if(RoundedDistance(x+(sx+0.5)/8,y+(sy+0.5)/8,w,h,radius,inset)<=0) inside++;
         return (255*inside+32)/64;
     }
+    // The existing StaticAnimation draws this cell after the tinted gem and
+    // before its Label. Do not use SpellGem Holder: native AboutSIDL describes
+    // that art as the empty container, not an occupied-gem text backing.
+    // The inset leaves the icon lane and outer school-colored perimeter clear.
+    // Its 3.5px radius sits inside the existing 5.5px rim with a 2px top inset.
+    public static Color SpellNamePlatePixel(int x,int y) {
+        x-=30; y-=2;
+        if(x<0 || x>=88 || y<0 || y>=24) return Color.Transparent;
+        int coverage=RoundedAlpha(x,y,88,24,3.5,0);
+        if(coverage==0) return Color.Transparent;
+        int inner=RoundedAlpha(x,y,88,24,2.5,1);
+        // Restrained 1px, 10%-black structural edge on a warm neutral face.
+        // The face stays translucent so the native spell category still shows.
+        int red=(238*inner+214*(coverage-inner)+coverage/2)/coverage;
+        int green=(232*inner+209*(coverage-inner)+coverage/2)/coverage;
+        int blue=(215*inner+194*(coverage-inner)+coverage/2)/coverage;
+        return Color.FromArgb((190*coverage+127)/255,red,green,blue);
+    }
+    public static void RenderSpellNamePlate(string destination) {
+        if(Path.GetFileName(destination)!="VantageControlEdges.tga")
+            throw new ArgumentException("Only the dedicated edge atlas is supported.");
+        byte[] data=File.ReadAllBytes(destination);
+        if(data.Length!=18+512*128*4 || data[0]!=0 || data[1]!=0 || data[2]!=2
+            || data[12]!=0 || data[13]!=2 || data[14]!=128 || data[15]!=0
+            || data[16]!=32 || data[17]!=40)
+            throw new ArgumentException("Expected the reviewed top-origin 512x128 BGRA atlas.");
+        using(var edge=CreateSpellOutline()) {
+            for(int y=0;y<28;y++) for(int x=0;x<120;x++) {
+                Color c=SpellNamePlatePixel(x,y);
+                if(c.A==0) c=edge.GetPixel(x,y);
+                int i=18+((34+y)*512+2+x)*4;
+                // Rebuild the original ring, replacing only the name inset.
+                // Never blend into a previous result: reruns are idempotent.
+                data[i]=c.B; data[i+1]=c.G; data[i+2]=c.R; data[i+3]=c.A;
+            }
+        }
+        File.WriteAllBytes(destination,data);
+    }
+    static Bitmap CreateSpellOutline() {
+        var edge=new Bitmap(120,28,PixelFormat.Format32bppArgb);
+        using(var high=new Bitmap(480,112,PixelFormat.Format32bppArgb)) {
+            using(var g=Graphics.FromImage(high))
+            using(var path=Round(3,3,474,106,22))
+            using(var pen=new Pen(Color.FromArgb(155,148,148,148),4)) {
+                g.SmoothingMode=SmoothingMode.AntiAlias;
+                g.DrawPath(pen,path);
+            }
+            using(var g=Graphics.FromImage(edge)) {
+                g.InterpolationMode=InterpolationMode.HighQualityBicubic;
+                g.PixelOffsetMode=PixelOffsetMode.HighQuality;
+                g.DrawImage(high,new Rectangle(0,0,120,28),0,0,480,112,GraphicsUnit.Pixel);
+            }
+        }
+        return edge;
+    }
     static Color ActionsPixel(int x,int y,int state,int width=128) {
         int alpha=RoundedAlpha(x,y,width,18,7,0.5);
         if(alpha==0) return Color.Transparent;
@@ -173,21 +228,13 @@ public static class VantageControlEdgesRenderer {
             // Spell-only neutral outline. A static screen piece draws this
             // after the native school-tinted gem; never tint the grey border.
             // Dedicated 120x28 cell, clear of HP strips and shared gold slices.
-            using(var high=new Bitmap(480,112,PixelFormat.Format32bppArgb))
-            using(var edge=new Bitmap(120,28,PixelFormat.Format32bppArgb)) {
-                using(var g=Graphics.FromImage(high))
-                using(var path=Round(3,3,474,106,22))
-                using(var pen=new Pen(Color.FromArgb(155,148,148,148),4)) {
-                    g.SmoothingMode=SmoothingMode.AntiAlias;
-                    g.DrawPath(pen,path);
-                }
-                using(var g=Graphics.FromImage(edge)) {
-                    g.InterpolationMode=InterpolationMode.HighQualityBicubic;
-                    g.PixelOffsetMode=PixelOffsetMode.HighQuality;
-                    g.DrawImage(high,new Rectangle(0,0,120,28),0,0,480,112,GraphicsUnit.Pixel);
-                }
+            using(var edge=CreateSpellOutline()) {
                 for(int y=0;y<28;y++) for(int x=0;x<120;x++)
                     atlas.SetPixel(2+x,34+y,edge.GetPixel(x,y));
+            }
+            for(int y=2;y<26;y++) for(int x=30;x<118;x++) {
+                Color c=SpellNamePlatePixel(x,y);
+                if(c.A!=0) atlas.SetPixel(2+x,34+y,c);
             }
             // Actions-only art matches the 128x18 hitboxes exactly. The shared
             // 120x24 A_Btn* sprites stay unchanged for every other window.
