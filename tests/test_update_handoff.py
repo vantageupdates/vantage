@@ -105,6 +105,7 @@ import time
 
 from vantage.helpers import config
 from vantage.helpers.application import VantageApp
+from vantage.helpers.update_handoff import spell_handoff_path
 
 persisted = list(config.data['spells']['active_timer_state'])
 app = VantageApp([])
@@ -126,16 +127,21 @@ print(json.dumps({
         for row in rows},
     'persisted_deadlines': {
         row['spell']['name']: row['deadline'] for row in persisted},
+    'handoff_consumed': not spell_handoff_path().exists(),
 }))
 app.quit()
 """
 
 
-def _run(script, profile):
+def _run(script, profile, *, updated_from=''):
     env = os.environ.copy()
     env['QT_QPA_PLATFORM'] = 'offscreen'
     env['PYTHONPATH'] = str(ROOT / 'src')
     env['VANTAGE_DATA_DIR'] = str(profile)
+    if updated_from:
+        env['VANTAGE_UPDATED_FROM'] = updated_from
+    else:
+        env.pop('VANTAGE_UPDATED_FROM', None)
     completed = subprocess.run(
         [sys.executable, '-c', script], cwd=ROOT, env=env,
         check=True, capture_output=True, text=True, timeout=40)
@@ -154,10 +160,19 @@ def test_real_update_dialog_quit_and_fresh_process_restore_all_active_spells(
     assert {row['target'] for row in installed['rows_after_quit']} == {
         '__you__', 'a crystalline devourer'}
 
+    # Reproduce the observed field failure where the ordinary config did not
+    # retain its update-time rows. The dedicated handoff must still carry the
+    # exact verified checkpoint into the replacement executable.
+    config_file = profile / 'vantage.config.json'
+    stale = json.loads(config_file.read_text(encoding='utf-8'))
+    stale['spells']['active_timer_state'] = []
+    config_file.write_text(json.dumps(stale), encoding='utf-8')
+
     # Make the second process prove that absolute deadlines age during the
     # update/restart interval instead of restarting full-duration timers.
     time.sleep(1.1)
-    restored = _run(RESTORE_SCRIPT, profile)
+    restored = _run(
+        RESTORE_SCRIPT, profile, updated_from='1.44.85')
 
     assert restored['names'] == ['Update Mob Debuff', 'Update Self Buff']
     assert restored['targets'] == ['__you__', 'a crystalline devourer']
@@ -166,6 +181,7 @@ def test_real_update_dialog_quit_and_fresh_process_restore_all_active_spells(
     assert restored['mob_marker'] == 'B'
     assert restored['mob_alias'] == 'West ramp'
     assert restored['mob_named'] is True
+    assert restored['handoff_consumed'] is True
     assert 0 < restored['remaining']['Update Self Buff'] < 300
     assert 0 < restored['remaining']['Update Mob Debuff'] < 240
 
@@ -302,6 +318,7 @@ def test_update_apply_parser_forwards_handoff_only_after_verified_success(
 def test_checkpoint_does_not_report_success_when_fresh_process_would_read_stale(
         monkeypatch, tmp_path):
     from vantage.helpers import config
+    from vantage.helpers import application as application_module
     from vantage.helpers.application import VantageApp
 
     config_file = tmp_path / 'vantage.config.json'
@@ -318,6 +335,8 @@ def test_checkpoint_does_not_report_success_when_fresh_process_would_read_stale(
         'spells': {'active_timer_state': []},
         'timers': {'items': []},
     })
+    monkeypatch.setattr(
+        application_module, 'write_spell_handoff', lambda _rows: [])
 
     class _Geometry:
         def _save_geometry(self):
@@ -342,6 +361,215 @@ def test_checkpoint_does_not_report_success_when_fresh_process_would_read_stale(
     persisted = json.loads(config_file.read_text(encoding='utf-8'))
     assert persisted['spells']['active_timer_state'] == []
     assert persisted['timers']['items'] == []
+
+
+def test_update_handoff_preserves_active_pc_authority_until_newer_remote_removal(
+        monkeypatch, tmp_path):
+    """Cover checkpoint, duplicate quit save, fresh restore, and Device Sync."""
+    from vantage.helpers import config
+    from vantage.helpers import application as application_module
+    from vantage.helpers.application import VantageApp
+    from vantage.helpers.device_sync import (
+        DeviceSyncController, sign_snapshot)
+    from vantage.helpers.timer_sync import record_local_timer_state
+    from vantage.helpers.update_handoff import write_spell_handoff
+
+    local_device = (
+        'AAAAAAA-BBBBBBB-CCCCCCC-DDDDDDD-EEEEEEE-FFFFFFF-GGGGGGG-HHHHHHH')
+    remote_device = (
+        'BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB')
+    group_id = '0123456789abcdef01234567'
+    group_key = 'abcdefghijklmnopqrstuvwxyzABCDEFGH_12345678'
+    profile_key = 'spiritflux\0p1999 green'
+    config_file = tmp_path / 'vantage.config.json'
+    state_file = tmp_path / 'local-state.json'
+    shared = tmp_path / 'shared'
+    shared.mkdir()
+    handoff_file = tmp_path / 'update-spell-handoff.json'
+    live_row = {
+        'deadline': time.time() + 600,
+        'target': '__you__',
+        'target_created_order': 1,
+        'target_marker': '',
+        'character': 'Spiritflux',
+        'server': 'P1999 Green',
+        'spell': {
+            'name': 'Focus of Spirit',
+            'runtime_key': 'focus of spirit',
+        },
+    }
+    monkeypatch.setattr(config, '_filename', str(config_file))
+    monkeypatch.setattr(config, 'data', {})
+    monkeypatch.setattr(
+        application_module, 'write_spell_handoff',
+        lambda rows: write_spell_handoff(rows, path=handoff_file))
+    config.verify_settings()
+    config.data['device_sync'].update({
+        'enabled': True,
+        'device_name': 'Active gaming PC',
+        'group_id': group_id,
+        'group_secret': group_key,
+        'sync_settings': False,
+        'sync_active_spells': True,
+        'sync_items_notes': False,
+        'sync_hotbuttons': False,
+    })
+    config.data['spells']['active_timer_state'] = []
+    config.data['spells']['active_timer_sync'] = {}
+    config.data['timers']['items'] = []
+    config.save()
+
+    class _Transport:
+        def __init__(self, folder):
+            self.shared = folder
+
+    class _Activity:
+        @staticmethod
+        def device_sync_log_activity():
+            return {
+                'character': 'Spiritflux',
+                'server': 'P1999 Green',
+                'authority_at': 300.0,
+            }
+
+    class _SyncCheckpoint:
+        checkpoint_for_update = DeviceSyncController.checkpoint_for_update
+        _export_if_changed = DeviceSyncController._export_if_changed
+        _snapshot_payload = DeviceSyncController._snapshot_payload
+        _content_hash = staticmethod(DeviceSyncController._content_hash)
+        _save_state = DeviceSyncController._save_state
+
+        def __init__(self):
+            self.transport = _Transport(shared)
+            self._state_path = state_file
+            self._device_id = local_device
+            self._last_local_hash = ''
+            self._last_hotbutton_hash = ''
+            self._local_modified_at = 0.0
+            self._seen = {}
+            self._spell_authority = {profile_key: {
+                'device': remote_device,
+                'authority_at': 250.0,
+                'state_at': 260.0,
+            }}
+
+        @staticmethod
+        def parent():
+            return _Activity()
+
+    class _Geometry:
+        @staticmethod
+        def _save_geometry():
+            pass
+
+    class _Spells:
+        calls = 0
+
+        def checkpoint_runtime_state(self):
+            self.calls += 1
+            # The second call models aboutToQuit observing a temporarily
+            # incomplete rendered container after the verified checkpoint.
+            visible = [live_row] if self.calls == 1 else []
+            rows, metadata = record_local_timer_state(
+                config.data['spells']['active_timer_state'], visible,
+                config.data['spells']['active_timer_sync'], now=300.0)
+            config.data['spells']['active_timer_state'] = rows
+            config.data['spells']['active_timer_sync'] = metadata
+            config.save()
+
+    class _Timers:
+        @staticmethod
+        def checkpoint_view_geometries():
+            pass
+
+        @staticmethod
+        def checkpoint_runtime_state():
+            pass
+
+    spells = _Spells()
+    sync = _SyncCheckpoint()
+    host = SimpleNamespace(
+        _parsers=[_Geometry()],
+        _parsers_dict={'spells': spells, 'timers': _Timers()},
+        _device_sync_instance=sync)
+
+    assert VantageApp.checkpoint_for_update(host) is True
+    # QApplication.aboutToQuit invokes the spell checkpoint once more.
+    spells.checkpoint_runtime_state()
+    assert [row['spell']['name'] for row in
+            config.data['spells']['active_timer_state']] == [
+                'Focus of Spirit']
+    published = json.loads(
+        (shared / f'{local_device}.json').read_text(encoding='utf-8'))
+    assert [row['spell']['name'] for row in
+            published['spell_timers']['rows']] == ['Focus of Spirit']
+
+    # Model the replacement executable loading the durable config and the
+    # authority journal before its first new EQ log line arrives.
+    config.load(str(config_file))
+
+    class _FreshController:
+        _load_state = DeviceSyncController._load_state
+        _save_state = DeviceSyncController._save_state
+        _apply_received = DeviceSyncController._apply_received
+        _snapshot_payload = DeviceSyncController._snapshot_payload
+        _content_hash = staticmethod(DeviceSyncController._content_hash)
+
+        def __init__(self):
+            self.transport = _Transport(shared)
+            self._state_path = state_file
+            self._device_id = local_device
+            self._last_local_hash = ''
+            self._last_hotbutton_hash = ''
+            self._local_modified_at = 0.0
+            self._seen = {}
+            self._spell_authority = {}
+
+        @staticmethod
+        def peers():
+            return [{'id': remote_device}]
+
+        @staticmethod
+        def parent():
+            return None
+
+    fresh = _FreshController()
+    fresh._load_state()
+    assert fresh._spell_authority[profile_key]['device'] == local_device
+    assert fresh._spell_authority[profile_key]['authority_at'] == 300.0
+
+    def write_remote(authority_at, state_at):
+        payload = sign_snapshot({
+            'schema': 1,
+            'device': remote_device,
+            'group': group_id,
+            'generated_at': state_at,
+            'settings': {},
+            'spell_timers': {
+                'schema': 1,
+                'character': 'Spiritflux',
+                'server': 'P1999 Green',
+                'authority_at': authority_at,
+                'state_at': state_at,
+                'rows': [],
+            },
+        }, group_key)
+        (shared / f'{remote_device}.json').write_text(
+            json.dumps(payload), encoding='utf-8')
+
+    # A stale remote empty copy must not erase the freshly restored buff.
+    write_remote(275.0, 280.0)
+    assert fresh._apply_received() == 0
+    assert [row['spell']['name'] for row in
+            config.data['spells']['active_timer_state']] == [
+                'Focus of Spirit']
+
+    # A PC that later observes the character really is authoritative; its
+    # empty full profile represents a confirmed removal and must still win.
+    write_remote(400.0, 410.0)
+    assert fresh._apply_received() == 1
+    assert config.data['spells']['active_timer_state'] == []
+    assert fresh._spell_authority[profile_key]['device'] == remote_device
 
 
 def test_any_checkpoint_exception_becomes_safe_domain_failure(monkeypatch):

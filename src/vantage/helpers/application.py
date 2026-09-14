@@ -30,6 +30,8 @@ from vantage.helpers.responsive import TableColumnManager
 from vantage.helpers.splash import StartupSplash
 from vantage.helpers.updater import UpdateController
 from vantage.helpers.update_toast import QuickUpdateToast
+from vantage.helpers.update_handoff import (
+    consume_spell_handoff, read_spell_handoff, write_spell_handoff)
 from vantage.parsers.combat import Combat
 from vantage.parsers.heals import HealChain
 from vantage.parsers.maps import Maps
@@ -54,7 +56,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=86,
+    patch=87,
     build=""
 )
 
@@ -148,7 +150,19 @@ class VantageApp(QApplication):
             self._ensure_location_sharing()
 
         # Load Parsers
+        self._update_spell_handoff = read_spell_handoff(
+            updated_from=os.environ.get("VANTAGE_UPDATED_FROM", ""))
+        if self._update_spell_handoff is not None:
+            config.data.setdefault('spells', {})['active_timer_state'] = \
+                copy.deepcopy(self._update_spell_handoff)
+            # Make the recovered copy durable before any parser or sync
+            # controller can observe it. The sidecar remains if this fails.
+            try:
+                config.save()
+            except (OSError, TypeError, ValueError):
+                pass
         self._load_parsers()
+        self._finish_update_spell_handoff_restore()
         self._splash.step("Preparing lightweight on-demand tools…", 82)
         self._settings_instance = None
         self._update_dialog_instance = None
@@ -330,6 +344,32 @@ class VantageApp(QApplication):
         # one click away with its saved geometry intact.
         for parser in self._parsers:
             parser.finish_startup(show_on_launch=parser is quickbar)
+
+    def _finish_update_spell_handoff_restore(self):
+        """Consume an update sidecar only after UI and disk agree on it."""
+        expected = getattr(self, '_update_spell_handoff', None)
+        if expected is None:
+            return False
+        spells = self._parsers_dict.get('spells')
+        timers = self._parsers_dict.get('timers')
+        if spells is None or timers is None:
+            return False
+        restored = spells._spell_container.snapshot_runtime_state()
+        spells.checkpoint_runtime_state()
+        spell_rows = copy.deepcopy(
+            config.data.get('spells', {}).get('active_timer_state', []))
+        timer_rows = copy.deepcopy(
+            config.data.get('timers', {}).get('items', []))
+        try:
+            config.save()
+        except (OSError, TypeError, ValueError):
+            return False
+        if not config.verify_update_checkpoint(spell_rows, timer_rows):
+            return False
+        consumed = consume_spell_handoff(expected, restored)
+        if consumed:
+            self._update_spell_handoff = None
+        return consumed
 
     @property
     def _settings(self):
@@ -1440,11 +1480,17 @@ class VantageApp(QApplication):
             timers = self._parsers_dict.get('timers')
             if spells is not None:
                 spells.checkpoint_runtime_state()
+            spell_rows = copy.deepcopy(
+                config.data.get('spells', {}).get('active_timer_state', []))
+            write_spell_handoff(spell_rows)
             if timers is not None:
                 timers.checkpoint_view_geometries()
                 timers.checkpoint_runtime_state()
-            spell_rows = copy.deepcopy(
-                config.data.get('spells', {}).get('active_timer_state', []))
+            device_sync = getattr(self, '_device_sync_instance', None)
+            sync_checkpoint = getattr(
+                device_sync, 'checkpoint_for_update', None)
+            if callable(sync_checkpoint) and not sync_checkpoint():
+                return False
             timer_rows = copy.deepcopy(
                 config.data.get('timers', {}).get('items', []))
             config.save()

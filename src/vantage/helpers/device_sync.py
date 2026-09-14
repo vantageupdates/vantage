@@ -391,7 +391,7 @@ def _official_release_asset():
     request = Request(
         SYNCTHING_RELEASE_API,
         headers={"Accept": "application/vnd.github+json",
-                 "User-Agent": "Vantage/1.44.86"})
+                 "User-Agent": "Vantage/1.44.87"})
     with urlopen(request, timeout=15) as response:
         raw = response.read(MAX_RELEASE_BYTES + 1)
     if len(raw) > MAX_RELEASE_BYTES:
@@ -416,7 +416,7 @@ def _official_release_asset():
 def install_syncthing(progress=None):
     """Download one verified portable transport binary from the official release."""
     url, expected = _official_release_asset()
-    request = Request(url, headers={"User-Agent": "Vantage/1.44.86"})
+    request = Request(url, headers={"User-Agent": "Vantage/1.44.87"})
     with urlopen(request, timeout=45) as response:
         length = int(response.headers.get("Content-Length") or 0)
         if length > MAX_ARCHIVE_BYTES:
@@ -780,6 +780,30 @@ class DeviceSyncController(QObject):
         self._timer.stop()
         self.transport.stop()
         self._ready = False
+
+    def checkpoint_for_update(self):
+        """Durably publish this active PC's buff state before an update.
+
+        The replacement process starts without any in-memory log activity.
+        Persisting the latest authority decision here prevents an older peer
+        snapshot from replacing the freshly restored rows during that brief
+        startup gap.  ``_snapshot_payload`` still refuses to claim a profile
+        unless this process has observed a real EQ log line, so a genuinely
+        newer authoritative peer (including an empty/deleted profile) keeps
+        winning normally.
+        """
+        settings = config.data.get("device_sync", {})
+        if not (
+                settings.get("enabled", False) and
+                settings.get("sync_active_spells", True) and
+                self._device_id):
+            return True
+        self._export_if_changed()
+        # The content hash deliberately ignores ``state_at``.  An unchanged
+        # timer collection may therefore skip its transport write, but the
+        # authority journal still has to survive the executable handoff.
+        self._save_state()
+        return True
 
     def refresh(self):
         if self._polling:

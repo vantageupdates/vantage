@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.86 design QA
+# Vantage Companion 1.44.87 design QA
 
 final result: passed
 
@@ -11,6 +11,13 @@ final result: passed
 
 ## Visual checks
 
+- Companion updates preserve the exact live buff set through a separate,
+  bounded atomic handoff. The replacement process restores it only for a
+  verified post-update launch, confirms the restored UI and durable config,
+  then consumes the handoff; normal restarts cannot revive removed buffs.
+- Device Sync checkpoints the active PC's latest log-backed authority before
+  an update closes Vantage. Stale peers cannot erase the restored rows during
+  startup, while a genuinely newer authoritative removal still wins.
 - Spell timer persistence now follows landing-driven nParse semantics: a
   partial refresh, profile switch, camp, or cross-device rebuild cannot be
   mistaken for a worn-off event. Only confirmed expiry, worn-off, death, or
