@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.79 design QA
+# Vantage Companion 1.44.80 design QA
 
 final result: passed
 
@@ -11,6 +11,10 @@ final result: passed
 
 ## Visual checks
 
+- Lavastorm and Nektulos now load the complete classic P99/nParse map sets
+  instead of mixing in revamped Live geometry. Source matching is
+  case-insensitive and deterministic, and known classic zone-line positions
+  validate that the live `/loc` marker stays inside both loaded maps.
 - External Regeneration-family landings no longer inherit the receiving
   character's level. When another tailed character log names the cast, the
   same row resolves to the exact spell and preserves the caster's level.
