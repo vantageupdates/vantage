@@ -42,6 +42,7 @@ from vantage.helpers.icons import game_icon
 from vantage.helpers.portable import data_dir
 from vantage.helpers.responsive import scrollable
 from vantage.helpers.scaled_dialog import UniformScaleDialog
+from vantage.helpers.timer_sync import merge_timer_state, timer_rows_equal
 
 
 PAIR_PREFIX = "VANTAGE-SYNC-1."
@@ -169,8 +170,15 @@ def export_sync_settings(settings, include_layout=True, include_timers=True):
     for section, value in source.items():
         if str(section).casefold() in LOCAL_TOP_LEVEL:
             continue
-        if str(section).casefold() == "timers" and not include_timers:
+        folded_section = str(section).casefold()
+        if folded_section == "timers" and not include_timers:
             continue
+        if folded_section == "spells" and not include_timers and isinstance(
+                value, dict):
+            value = {
+                key: child for key, child in value.items()
+                if str(key).casefold() not in {
+                    "active_timer_state", "active_timer_sync"}}
         if section == "vantage_ui":
             value = {
                 key: child for key, child in value.items()
@@ -182,16 +190,34 @@ def export_sync_settings(settings, include_layout=True, include_timers=True):
 
 
 def apply_sync_settings(
-        current, incoming, include_layout=True, include_timers=True):
+        current, incoming, include_layout=True, include_timers=True,
+        timer_revision=None):
     """Merge a validated portable profile without replacing local-only values."""
     portable = export_sync_settings(
         incoming, include_layout=include_layout,
         include_timers=include_timers)
+    incoming_spells = portable.get("spells")
+    merged_timer_state = None
+    if include_timers and isinstance(incoming_spells, dict) and (
+            "active_timer_state" in incoming_spells or
+            "active_timer_sync" in incoming_spells):
+        local_spells = current.get("spells") \
+            if isinstance(current.get("spells"), dict) else {}
+        merged_timer_state = merge_timer_state(
+            local_spells.get("active_timer_state", []),
+            local_spells.get("active_timer_sync", {}),
+            incoming_spells.pop("active_timer_state", []),
+            incoming_spells.pop("active_timer_sync", {}),
+            incoming_revision=timer_revision)
     for section, value in portable.items():
         if isinstance(value, dict) and isinstance(current.get(section), dict):
             _merge_dict(current[section], value)
         else:
             current[section] = copy.deepcopy(value)
+    if merged_timer_state is not None:
+        spells = current.setdefault("spells", {})
+        spells["active_timer_state"], spells["active_timer_sync"] = \
+            merged_timer_state
     return current
 
 
@@ -255,7 +281,7 @@ def _official_release_asset():
     request = Request(
         SYNCTHING_RELEASE_API,
         headers={"Accept": "application/vnd.github+json",
-                 "User-Agent": "Vantage/1.44.81"})
+                 "User-Agent": "Vantage/1.44.82"})
     with urlopen(request, timeout=15) as response:
         raw = response.read(MAX_RELEASE_BYTES + 1)
     if len(raw) > MAX_RELEASE_BYTES:
@@ -280,7 +306,7 @@ def _official_release_asset():
 def install_syncthing(progress=None):
     """Download one verified portable transport binary from the official release."""
     url, expected = _official_release_asset()
-    request = Request(url, headers={"User-Agent": "Vantage/1.44.81"})
+    request = Request(url, headers={"User-Agent": "Vantage/1.44.82"})
     with urlopen(request, timeout=45) as response:
         length = int(response.headers.get("Content-Length") or 0)
         if length > MAX_ARCHIVE_BYTES:
@@ -856,17 +882,49 @@ class DeviceSyncController(QObject):
         applied = 0
         for revision, device, payload in sorted(candidates):
             self._seen[device] = revision
-            if revision <= self._local_modified_at:
-                continue
-            before = copy.deepcopy(config.data.get("device_sync", {}))
-            if settings.get("sync_settings", True):
+            newer_profile = revision > self._local_modified_at
+            before_device_sync = copy.deepcopy(
+                config.data.get("device_sync", {}))
+            before_timers = copy.deepcopy(
+                config.data.get("spells", {}).get(
+                    "active_timer_state", []))
+            before_timer_meta = copy.deepcopy(
+                config.data.get("spells", {}).get(
+                    "active_timer_sync", {}))
+            incoming_settings = payload.get("settings", {})
+            if (settings.get("sync_settings", True) and newer_profile):
                 apply_sync_settings(
-                    config.data, payload.get("settings", {}),
+                    config.data, incoming_settings,
                     settings.get("sync_layout", True),
-                    settings.get("sync_timers", True))
-            config.data["device_sync"] = before
-            if settings.get("sync_items_notes", True) and isinstance(
-                    payload.get("items_notes"), dict):
+                    settings.get("sync_timers", True),
+                    timer_revision=revision)
+            elif (settings.get("sync_settings", True) and
+                  settings.get("sync_timers", True)):
+                remote_spells = incoming_settings.get("spells", {}) \
+                    if isinstance(incoming_settings, dict) else {}
+                if isinstance(remote_spells, dict):
+                    apply_sync_settings(
+                        config.data,
+                        {"spells": {
+                            key: copy.deepcopy(value)
+                            for key, value in remote_spells.items()
+                            if key in {
+                                "active_timer_state", "active_timer_sync"}
+                        }},
+                        include_layout=False, include_timers=True,
+                        timer_revision=revision)
+            config.data["device_sync"] = before_device_sync
+            timer_changed = (
+                config.data.get("spells", {}).get(
+                    "active_timer_state", []) != before_timers or
+                config.data.get("spells", {}).get(
+                    "active_timer_sync", {}) != before_timer_meta)
+            if not newer_profile and not timer_changed:
+                self._save_state()
+                continue
+            if (newer_profile and settings.get("sync_items_notes", True) and
+                    isinstance(
+                    payload.get("items_notes"), dict)):
                 _atomic_json(data_dir("items-notes.json"), payload["items_notes"])
             config.verify_settings()
             config.save()
@@ -878,13 +936,38 @@ class DeviceSyncController(QObject):
                     data_dir("items-notes.json", create=False)) or {},
                 "hotbuttons": payload.get("hotbuttons", []),
             }
-            self._last_local_hash = self._content_hash(digest_source)
-            self._local_modified_at = revision
+            remote_spells = incoming_settings.get("spells", {}) \
+                if isinstance(incoming_settings, dict) else {}
+            remote_has_timers = bool(
+                settings.get("sync_timers", True) and
+                isinstance(remote_spells, dict) and (
+                    "active_timer_state" in remote_spells or
+                    "active_timer_sync" in remote_spells))
+            timer_snapshot_differs = bool(remote_has_timers and (
+                not timer_rows_equal(
+                    config.data.get("spells", {}).get(
+                        "active_timer_state", []),
+                    remote_spells.get("active_timer_state", [])) or
+                config.data.get("spells", {}).get(
+                    "active_timer_sync", {}) !=
+                remote_spells.get("active_timer_sync", {})))
+            # Every accepted timer change must update this PC's own snapshot
+            # on the next poll. Otherwise its older file can keep advertising
+            # rows that this device has already merged or explicitly removed.
+            self._last_local_hash = (
+                "" if timer_changed or timer_snapshot_differs else
+                self._content_hash(digest_source))
+            self._local_modified_at = max(self._local_modified_at, revision)
             app = self.parent()
             if app is not None and hasattr(app, "_signals"):
-                app._signals["settings"].config_updated.emit()
+                if newer_profile:
+                    app._signals["settings"].config_updated.emit()
                 parsers = getattr(app, "_parsers_dict", {})
                 for parser_name in ("timers", "spells"):
+                    if parser_name == "timers" and not newer_profile:
+                        continue
+                    if parser_name == "spells" and not timer_changed:
+                        continue
                     parser = parsers.get(parser_name) if isinstance(
                         parsers, dict) else None
                     refresh = getattr(parser, "refresh_synced_content", None)

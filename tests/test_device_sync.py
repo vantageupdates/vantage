@@ -5,14 +5,33 @@ import pytest
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QApplication
 
+from vantage.helpers import config
 from vantage.helpers.device_sync import (
     DeviceSyncDialog, DeviceSyncError, apply_sync_settings, build_pair_code,
     decode_pair_code, export_sync_settings, sign_snapshot, verify_snapshot)
+from vantage.helpers.timer_sync import (
+    merge_timer_state, record_local_timer_state, timer_identity)
 
 
 DEVICE_ID = "AAAAAAA-BBBBBBB-CCCCCCC-DDDDDDD-EEEEEEE-FFFFFFF-GGGGGGG-HHHHHHH"
 GROUP_ID = "0123456789abcdef01234567"
 GROUP_KEY = "abcdefghijklmnopqrstuvwxyzABCDEFGH_12345678"
+
+
+def _buff(name, deadline, target="__you__", character="Spiritflux",
+          server="P1999 Green", runtime_key=""):
+    return {
+        "deadline": float(deadline),
+        "target": target,
+        "target_created_order": 1,
+        "target_marker": "",
+        "character": character,
+        "server": server,
+        "spell": {
+            "name": name,
+            "runtime_key": runtime_key or name.casefold(),
+        },
+    }
 
 
 class _FakeController(QObject):
@@ -128,6 +147,172 @@ def test_smart_timers_are_an_explicit_portable_sync_category():
     current = {"timers": {"items": [{"id": "local"}]}, "market": {}}
     apply_sync_settings(current, source, include_timers=False)
     assert current["timers"] == {"items": [{"id": "local"}]}
+
+
+def test_timer_sync_option_excludes_smart_and_spell_runtime_timers():
+    source = {
+        "spells": {
+            "level": 60,
+            "active_timer_state": [_buff("Focus of Spirit", 5000)],
+            "active_timer_sync": {
+                "schema": 1, "versions": {"row": 12.0},
+                "tombstones": {"old": 11.0}},
+        },
+        "timers": {"items": [{"id": "frenzy"}]},
+    }
+
+    portable = export_sync_settings(source, include_timers=False)
+
+    assert portable["spells"] == {"level": 60}
+    assert "timers" not in portable
+
+
+def test_concurrent_spiritflux_snapshots_keep_every_unexpired_buff():
+    legion_rows = [
+        _buff("Focus of Spirit", 5200),
+        _buff("Regrowth", 5300),
+        _buff("Shroud of the Spirits", 5400),
+        _buff("Focus of Spirit", 5500, target="Jonarn"),
+        _buff("Shroud of the Spirits", 5600, target="Jonarn"),
+        _buff("Riotous Health", 5700, target="Jonarn"),
+    ]
+    chuwi_rows = [
+        _buff("Riotous Health", 5700, target="Jonarn"),
+        _buff("Grim Aura", 5800),
+    ]
+    legion_rows, legion_meta = record_local_timer_state(
+        [], legion_rows, {}, now=100.0)
+    chuwi_rows, chuwi_meta = record_local_timer_state(
+        [], chuwi_rows, {}, now=101.0)
+
+    merged, metadata = merge_timer_state(
+        legion_rows, legion_meta, chuwi_rows, chuwi_meta,
+        incoming_revision=102.0)
+
+    assert {(row["spell"]["name"], row["target"]) for row in merged} == {
+        ("Focus of Spirit", "__you__"),
+        ("Regrowth", "__you__"),
+        ("Shroud of the Spirits", "__you__"),
+        ("Focus of Spirit", "Jonarn"),
+        ("Shroud of the Spirits", "Jonarn"),
+        ("Riotous Health", "Jonarn"),
+        ("Grim Aura", "__you__"),
+    }
+    assert len(metadata["versions"]) == 7
+
+
+def test_apply_sync_settings_unions_runtime_rows_instead_of_replacing_list():
+    focus = _buff("Focus of Spirit", 5200)
+    regrowth = _buff("Regrowth", 5300)
+    left_rows, left_meta = record_local_timer_state(
+        [], [focus], {}, now=100.0)
+    right_rows, right_meta = record_local_timer_state(
+        [], [regrowth], {}, now=101.0)
+    current = {"spells": {
+        "active_timer_state": left_rows,
+        "active_timer_sync": left_meta,
+    }}
+
+    apply_sync_settings(current, {"spells": {
+        "active_timer_state": right_rows,
+        "active_timer_sync": right_meta,
+    }}, timer_revision=102.0)
+
+    assert {row["spell"]["name"] for row in
+            current["spells"]["active_timer_state"]} == {
+                "Focus of Spirit", "Regrowth"}
+
+
+def test_unchanged_restored_timer_preserves_remote_clock():
+    focus = _buff("Focus of Spirit", 5200)
+    rows, metadata = record_local_timer_state([], [focus], {}, now=100.0)
+    restored = copy.deepcopy(rows)
+    restored[0]["deadline"] += 0.2
+
+    _rows, after = record_local_timer_state(
+        rows, restored, metadata, now=300.0)
+
+    assert after == metadata
+
+
+def test_timer_identity_separates_profiles_targets_and_instances():
+    base = _buff("Focus of Spirit", 5200)
+    another_character = _buff(
+        "Focus of Spirit", 5200, character="Mindflux")
+    target_a = _buff("Focus of Spirit", 5200, target="a goblin")
+    target_a["target_marker"] = "A"
+    target_b = copy.deepcopy(target_a)
+    target_b["target_marker"] = "B"
+
+    identities = {
+        timer_identity(row)
+        for row in (base, another_character, target_a, target_b)}
+
+    assert len(identities) == 4
+
+
+def test_explicit_worn_off_propagates_and_newer_recast_can_return():
+    focus = _buff("Focus of Spirit", 5200)
+    rows, metadata = record_local_timer_state([], [focus], {}, now=100.0)
+    stale_rows, stale_metadata = copy.deepcopy(rows), copy.deepcopy(metadata)
+    rows, metadata = record_local_timer_state(
+        rows, [], metadata, now=200.0)
+
+    merged, merged_metadata = merge_timer_state(
+        rows, metadata, stale_rows, stale_metadata,
+        incoming_revision=210.0)
+
+    assert merged == []
+    identity = timer_identity(focus)
+    assert merged_metadata["tombstones"][identity] == 200.0
+
+    refreshed = _buff("Focus of Spirit", 6200)
+    refreshed_rows, refreshed_meta = record_local_timer_state(
+        stale_rows, [refreshed], stale_metadata, now=300.0)
+    merged, _metadata = merge_timer_state(
+        merged, merged_metadata, refreshed_rows, refreshed_meta,
+        incoming_revision=310.0)
+
+    assert len(merged) == 1
+    assert merged[0]["deadline"] == 6200.0
+
+
+def test_legacy_snapshot_absence_cannot_delete_and_shorter_copy_cannot_regress():
+    focus = _buff("Focus of Spirit", 6200)
+    regrowth = _buff("Regrowth", 6100)
+    local_rows, local_meta = record_local_timer_state(
+        [], [focus, regrowth], {}, now=100.0)
+    stale_focus = _buff("Focus of Spirit", 5100)
+
+    merged, _metadata = merge_timer_state(
+        local_rows, local_meta, [stale_focus], {}, incoming_revision=200.0)
+
+    assert {row["spell"]["name"] for row in merged} == {
+        "Focus of Spirit", "Regrowth"}
+    assert next(row for row in merged
+                if row["spell"]["name"] == "Focus of Spirit")[
+                    "deadline"] == 6200.0
+
+
+def test_config_bounds_timer_sync_clocks_and_migrates_invalid_metadata():
+    original = config.data
+    try:
+        config.data = {"spells": {"active_timer_sync": {
+            "schema": 999,
+            "versions": {
+                f"timer-{index}": float(index + 1)
+                for index in range(1200)},
+            "tombstones": {"bad": "not-a-clock", "valid": 50.0},
+        }}}
+
+        config.verify_settings()
+
+        metadata = config.data["spells"]["active_timer_sync"]
+        assert metadata["schema"] == 1
+        assert len(metadata["versions"]) == 1024
+        assert metadata["tombstones"] == {"valid": 50.0}
+    finally:
+        config.data = original
 
 
 def test_apply_preserves_machine_local_values():

@@ -10,6 +10,7 @@ import tempfile
 
 from vantage.helpers.trigger_groups import normalize_trigger_groups
 from vantage.helpers.quickbar_items import QUICKBAR_ITEM_KEYS
+from vantage.helpers.timer_sync import sanitize_timer_sync_meta
 
 data = {}
 _filename = ''
@@ -962,6 +963,8 @@ def verify_settings():
     data['spells']['active_timer_state'] = get_setting(
         data['spells'].get('active_timer_state', []), [],
         lambda value: isinstance(value, list))[:512]
+    data['spells']['active_timer_sync'] = sanitize_timer_sync_meta(
+        data['spells'].get('active_timer_sync', {}))
     data['spells']['active_character_key'] = get_setting(
         data['spells'].get('active_character_key', ''), '',
         lambda value: isinstance(value, str))[:160]

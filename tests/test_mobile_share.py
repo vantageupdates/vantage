@@ -109,7 +109,7 @@ def _post(base, path, token, data):
         return response.status, json.loads(response.read())
 
 
-def test_mobile_page_accessibility_updates_preserve_the_session_fragment():
+def test_mobile_page_accessibility_updates_preserve_the_private_session():
     assert 'id="skipLink"' in _MOBILE_PAGE
     assert "skipLink.addEventListener('click'" in _MOBILE_PAGE
     assert "event.preventDefault();mainContent.focus" in _MOBILE_PAGE
@@ -130,11 +130,39 @@ def test_mobile_page_accessibility_updates_preserve_the_session_fragment():
     assert 'id="tabQuests"' in _MOBILE_PAGE
     assert 'id="installApp"' in _MOBILE_PAGE
     assert "Save Vantage to your Home Screen" in _MOBILE_PAGE
-    assert "this shortcut belongs to the current private session" in _MOBILE_PAGE
+    assert "vantageMobileSessionToken" in _MOBILE_PAGE
+    assert "history.replaceState" in _MOBILE_PAGE
+    assert 'rel="manifest" href="/manifest.webmanifest"' in _MOBILE_PAGE
+    assert "navigator.serviceWorker.register('/sw.js'" in _MOBILE_PAGE
+    assert "Showing saved data while Vantage reconnects" in _MOBILE_PAGE
+    assert "OFFLINE · SAVED" in _MOBILE_PAGE
+    assert 'role="status" aria-live="polite"' in _MOBILE_PAGE
+    assert "function announceConnectionPolitely" in _MOBILE_PAGE
+    assert "8000-(Date.now()-lastPoliteConnectionAt)" in _MOBILE_PAGE
+    assert "if(actionRequired)" in _MOBILE_PAGE
+    assert (
+        "Scan the new QR in Vantage.',true" in _MOBILE_PAGE)
+    assert (
+        "setConnection('OFFLINE · SAVED',true,'Connection lost." in
+        _MOBILE_PAGE)
+    assert (
+        "setConnection('OFFLINE · SAVED',true,'Connection lost."
+        " Showing saved data while Vantage reconnects. If its private"
+        " address changed, scan the new QR.',true" not in _MOBILE_PAGE)
     assert "syncGuildOptions(guildData)" in _MOBILE_PAGE
     assert "pendingZone||data.selected" in _MOBILE_PAGE
     assert "function stableReplace" in _MOBILE_PAGE
     assert "contains(document.activeElement)" in _MOBILE_PAGE
+    assert 'aria-describedby="buffNote"' in _MOBILE_PAGE
+    assert "function createBuffRow" in _MOBILE_PAGE
+    assert "function updateBuffRow" in _MOBILE_PAGE
+    assert "buffRosterSignature" in _MOBILE_PAGE
+    assert "nextRoster.set(key,{name,descriptor})" in _MOBILE_PAGE
+    assert "if(buffRoster!==null&&rosterSignature!==buffRosterSignature)" in (
+        _MOBILE_PAGE)
+    assert "value.name+' added.'" in _MOBILE_PAGE
+    assert "value.name+' ended.'" in _MOBILE_PAGE
+    assert "buffRoot.replaceChildren" not in _MOBILE_PAGE
     assert "Search included and cached P99 quests" in _MOBILE_PAGE
     assert "live Wiki mobs, drops, and nameds are temporarily unavailable" in _MOBILE_PAGE
     assert "RELOAD SELECTED ZONE" in _MOBILE_PAGE
@@ -154,6 +182,63 @@ def test_mobile_page_accessibility_updates_preserve_the_session_fragment():
     assert "/api/timers/action" in _MOBILE_PAGE
     assert "toggleAction+' '+name+' timer'" in _MOBILE_PAGE
     assert "in a new tab" in _MOBILE_PAGE
+
+
+def test_mobile_pwa_shell_routes_are_cacheable_without_caching_private_api():
+    server = _ShareHTTPServer(("127.0.0.1", 0), "secret-token", _snapshot)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        _, manifest_payload, manifest_headers = _request(
+            base, "/manifest.webmanifest")
+        manifest = json.loads(manifest_payload)
+        assert manifest["name"] == "Vantage P99 Companion"
+        assert manifest["display"] == "standalone"
+        assert manifest["start_url"] == "/"
+        assert "token" not in manifest_payload.decode("utf-8").casefold()
+        assert manifest_headers["Content-Type"].startswith(
+            "application/manifest+json")
+        assert manifest_headers["Cache-Control"] == "no-cache"
+
+        _, worker, worker_headers = _request(base, "/sw.js")
+        worker_text = worker.decode("utf-8")
+        assert "vantage-mobile-shell-v1" in worker_text
+        assert "request.mode==='navigate'" in worker_text
+        assert "url.pathname.startsWith('/api/')" in worker_text
+        assert "Authorization" not in worker_text
+        assert worker_headers["Service-Worker-Allowed"] == "/"
+        assert worker_headers["Cache-Control"] == "no-cache"
+
+        _, _, page_headers = _request(base, "/")
+        csp = page_headers["Content-Security-Policy"]
+        assert "worker-src 'self'" in csp
+        assert "manifest-src 'self'" in csp
+
+        _, _, api_headers = _request(base, "/api/state", "secret-token")
+        assert api_headers["Cache-Control"] == "no-store, max-age=0"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_mobile_page_restores_cached_data_and_retains_it_on_fetch_failure():
+    assert "const savedState=readCached('/api/state')" in _MOBILE_PAGE
+    assert "drawTimers(savedState.data)" in _MOBILE_PAGE
+    assert "writeCached(path,data)" in _MOBILE_PAGE
+    assert "while(index.length>=24)" in _MOBILE_PAGE
+    assert "function retainOrExplain" in _MOBILE_PAGE
+    assert "Showing the last saved data." in _MOBILE_PAGE
+    assert "window.addEventListener('online'" in _MOBILE_PAGE
+    assert "window.addEventListener('offline'" in _MOBILE_PAGE
+    assert "showListMessage(buffRoot,'Buff timers could not be loaded.')" not in (
+        _MOBILE_PAGE)
+    assert "render(cached.data,{cached:true,savedAt:" in _MOBILE_PAGE
+    assert "function savedBuffAge" in _MOBILE_PAGE
+    assert "' · SAVED · '+savedBuffAge" in _MOBILE_PAGE
+    assert "reconnecting for current timers" in _MOBILE_PAGE
+    assert "saved buff data remains visible" in _MOBILE_PAGE
 
 
 def test_mobile_dialog_keeps_the_phone_flow_qr_first_and_explicit():

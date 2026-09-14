@@ -34,6 +34,8 @@ from vantage.helpers.portable import data_dir, store_portable_file
 from vantage.helpers.respawn_catalog import named_spawn_for
 from vantage.helpers.spell_icons import (
     spell_icon_pixmap, spell_icon_coordinates)
+from vantage.helpers.timer_sync import (
+    record_local_timer_state, timer_identity)
 from vantage.helpers.trigger_groups import (
     effective_trigger_style, group_enabled, normalize_trigger_color)
 
@@ -852,11 +854,16 @@ class Spells(ParserWindow):
     def checkpoint_runtime_state(self):
         """Synchronously preserve every active buff before an app handoff."""
         self._runtime_state_save_timer.stop()
-        config.data['spells']['active_timer_state'] = \
-            self._spell_container.snapshot_runtime_state()
+        spells = config.data['spells']
+        rows, metadata = record_local_timer_state(
+            spells.get('active_timer_state', []),
+            self._spell_container.snapshot_runtime_state(),
+            spells.get('active_timer_sync', {}))
+        spells['active_timer_state'] = rows
+        spells['active_timer_sync'] = metadata
         if getattr(config, '_filename', ''):
             config.save()
-        return len(config.data['spells']['active_timer_state'])
+        return len(rows)
 
     def _restore_runtime_timer_state(self):
         saved = config.data['spells'].get('active_timer_state', [])
@@ -865,8 +872,13 @@ class Spells(ParserWindow):
         # Drop expired or malformed rows immediately. Absolute deadlines mean
         # the remaining values are already current after any offline interval.
         cleaned = self._spell_container.snapshot_runtime_state()
-        if cleaned != saved:
+        if self._runtime_sync_signature(cleaned) != \
+                self._runtime_sync_signature(saved):
+            cleaned, metadata = record_local_timer_state(
+                saved, cleaned,
+                config.data['spells'].get('active_timer_sync', {}))
             config.data['spells']['active_timer_state'] = cleaned
+            config.data['spells']['active_timer_sync'] = metadata
             if getattr(config, '_filename', ''):
                 config.save()
         return restored
@@ -1763,6 +1775,59 @@ class Spells(ParserWindow):
                 deadline))
         return tuple(sorted(signature))
 
+    def _synced_focus_candidates(self):
+        """Return stable keys and controls in the visible spell-row order."""
+        candidates = []
+        for target in self._spell_container.spell_targets():
+            if target.isHidden():
+                continue
+            target_key = (
+                'target', str(target.name or '').casefold(),
+                str(target.instance_marker or '').casefold(),
+                int(target.created_order))
+            candidates.append((target_key, target.target_label))
+            for widget in target.spell_widgets():
+                if widget.isHidden() or widget._removed:
+                    continue
+                key = timer_identity({
+                    'target': target.name,
+                    'target_marker': target.instance_marker,
+                    'target_created_order': target.created_order,
+                    'character': widget.runtime_character,
+                    'server': widget.runtime_server,
+                    'spell': self._spell_container._spell_runtime_payload(
+                        widget.spell),
+                })
+                candidates.append((('timer', key), widget))
+        return candidates
+
+    def _capture_synced_focus(self):
+        focused = QApplication.focusWidget()
+        if (focused is None or
+                (focused is not self._spell_container and
+                 not self._spell_container.isAncestorOf(focused))):
+            return None
+        candidates = self._synced_focus_candidates()
+        for index, (key, control) in enumerate(candidates):
+            if focused is control or control.isAncestorOf(focused):
+                return key, index
+        return None
+
+    def _restore_synced_focus(self, anchor):
+        if anchor is None:
+            return
+        key, prior_index = anchor
+        candidates = self._synced_focus_candidates()
+        target = next(
+            (control for candidate_key, control in candidates
+             if candidate_key == key), None)
+        if target is None and candidates:
+            target = candidates[min(prior_index, len(candidates) - 1)][1]
+        if target is None:
+            target = getattr(self, '_character_widget', None)
+        if target is not None and target.isVisible() and target.isEnabled():
+            _focus_spell_control(target)
+
     def refresh_synced_content(self):
         """Refresh active buff/countdown rows after a newer device snapshot."""
         saved = config.data.get('spells', {}).get('active_timer_state', [])
@@ -1770,6 +1835,7 @@ class Spells(ParserWindow):
         if self._runtime_sync_signature(saved) == \
                 self._runtime_sync_signature(current):
             return 0
+        focus_anchor = self._capture_synced_focus()
         self._runtime_state_save_timer.stop()
         for target in list(self._spell_container.spell_targets()):
             target.setParent(None)
@@ -1777,8 +1843,15 @@ class Spells(ParserWindow):
         restored = self._spell_container.restore_runtime_state(
             saved, self.spell_book)
         cleaned = self._spell_container.snapshot_runtime_state()
-        config.data['spells']['active_timer_state'] = cleaned
+        if self._runtime_sync_signature(cleaned) != \
+                self._runtime_sync_signature(saved):
+            cleaned, metadata = record_local_timer_state(
+                saved, cleaned,
+                config.data['spells'].get('active_timer_sync', {}))
+            config.data['spells']['active_timer_state'] = cleaned
+            config.data['spells']['active_timer_sync'] = metadata
         self._spell_container._sync_empty_state()
+        self._restore_synced_focus(focus_anchor)
         return restored
 
     def mobile_snapshot(self):
@@ -2154,7 +2227,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.81')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.82')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:

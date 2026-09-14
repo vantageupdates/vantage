@@ -3,10 +3,11 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QApplication, QLineEdit
 
 from vantage.helpers import config
-from vantage.parsers.spells import Spell, SpellContainer, SpellWidget
+from vantage.parsers.spells import Spells, Spell, SpellContainer, SpellWidget
 
 
 def _app():
@@ -81,6 +82,85 @@ def test_expired_spell_state_is_not_restored():
         saved, {}, now_epoch=1_000,
         now_datetime=datetime.datetime(2026, 9, 2)) == 0
     assert container.spell_targets() == []
+
+
+def test_synced_refresh_restores_exact_or_nearest_focus_without_stealing():
+    app = _app()
+    original_spells = config.data['spells']
+    now = datetime.datetime.now()
+    book = {
+        name: _spell(name, type=1, runtime_key=name.casefold())
+        for name in ("Focus of Spirit", "Regrowth", "Grim Aura")}
+
+    class _Host:
+        _runtime_sync_signature = staticmethod(Spells._runtime_sync_signature)
+        _synced_focus_candidates = Spells._synced_focus_candidates
+        _capture_synced_focus = Spells._capture_synced_focus
+        _restore_synced_focus = Spells._restore_synced_focus
+
+    host = _Host()
+    host._runtime_state_save_timer = QTimer()
+    host._runtime_state_save_timer.setSingleShot(True)
+    host._character_widget = QLineEdit()
+    host.spell_book = book
+    host._spell_container = SpellContainer()
+    host._spell_container.show()
+    for name in ("Focus of Spirit", "Regrowth"):
+        host._spell_container.add_spell(
+            book[name], now, "__you__", "Spiritflux", "Green")
+    regrowth = next(
+        widget for widget in
+        host._spell_container.get_spell_target_by_name(
+            "__you__").spell_widgets()
+        if widget.spell.name == "Regrowth")
+    regrowth.setFocus()
+    app.processEvents()
+
+    desired = SpellContainer()
+    for name in ("Regrowth", "Grim Aura"):
+        desired.add_spell(
+            book[name], now, "__you__", "Spiritflux", "Green")
+    config.data['spells'] = {
+        **original_spells,
+        'active_timer_state': desired.snapshot_runtime_state(),
+        'active_timer_sync': {},
+    }
+    Spells.refresh_synced_content(host)
+    app.processEvents()
+
+    target = host._spell_container.get_spell_target_by_name("__you__")
+    refreshed_regrowth = next(
+        widget for widget in target.spell_widgets()
+        if widget.spell.name == "Regrowth")
+    assert refreshed_regrowth.hasFocus()
+
+    desired = SpellContainer()
+    desired.add_spell(
+        book["Grim Aura"], now, "__you__", "Spiritflux", "Green")
+    config.data['spells']['active_timer_state'] = \
+        desired.snapshot_runtime_state()
+    Spells.refresh_synced_content(host)
+    app.processEvents()
+    remaining = host._spell_container.get_spell_target_by_name(
+        "__you__").spell_widgets()[0]
+    assert remaining.spell.name == "Grim Aura"
+    assert remaining.hasFocus()
+
+    outside = QLineEdit()
+    outside.show()
+    outside.setFocus()
+    app.processEvents()
+    desired.add_spell(
+        book["Focus of Spirit"], now, "__you__", "Spiritflux", "Green")
+    config.data['spells']['active_timer_state'] = \
+        desired.snapshot_runtime_state()
+    Spells.refresh_synced_content(host)
+    app.processEvents()
+    assert outside.hasFocus()
+
+    config.data['spells'] = original_spells
+    outside.close()
+    host._spell_container.close()
 
 
 def test_character_filter_keeps_separate_same_spell_rows():
