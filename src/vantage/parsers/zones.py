@@ -657,7 +657,7 @@ class Zones(ParserWindow):
         request.setTransferTimeout(ZONE_NETWORK_TIMEOUT_MS)
         request.setHeader(
             QNetworkRequest.KnownHeaders.UserAgentHeader,
-            "Vantage/1.44.82 (vantagecompanion@gmail.com)")
+            "Vantage/1.44.83 (vantagecompanion@gmail.com)")
         reply = self._network.get(request)
         self._zone_request_id += 1
         reply.setProperty("zoneRequestId", self._zone_request_id)
@@ -860,7 +860,7 @@ class Zones(ParserWindow):
         request.setTransferTimeout(ZONE_NETWORK_TIMEOUT_MS)
         request.setHeader(
             QNetworkRequest.KnownHeaders.UserAgentHeader,
-            "Vantage/1.44.82 (vantagecompanion@gmail.com)")
+            "Vantage/1.44.83 (vantagecompanion@gmail.com)")
         reply = self._network.get(request)
         reply.setProperty("mobSearchRequestId", request_id)
         reply.setProperty("mobSearchQuery", query)
@@ -902,7 +902,7 @@ class Zones(ParserWindow):
             request.setTransferTimeout(ZONE_NETWORK_TIMEOUT_MS)
             request.setHeader(
                 QNetworkRequest.KnownHeaders.UserAgentHeader,
-                "Vantage/1.44.82 (vantagecompanion@gmail.com)")
+                "Vantage/1.44.83 (vantagecompanion@gmail.com)")
             pages_reply = self._network.get(request)
             pages_reply.setProperty("mobSearchRequestId", request_id)
             pages_reply.setProperty("mobSearchQuery", query)
@@ -1156,7 +1156,7 @@ class Zones(ParserWindow):
         self._zone_drop_requests.add(key)
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(target.replace(" ", "_"), safe=""))))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.82")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.83")
         reply = self._network.get(request)
         self._drop_reply_contexts[reply] = (mob, target, key, cache_path)
         reply.finished.connect(self._drops_finished)

@@ -2227,7 +2227,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.82')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.83')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -3351,8 +3351,8 @@ class SpellProgressBar(QProgressBar):
         right_flags = (
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
-        # One restrained one-pixel shadow keeps text legible on every school
-        # color without adding glow or another UI layer.
+        # One restrained one-pixel shadow keeps light text legible on the
+        # empty track and on ordinary dark spell families.
         painter.setPen(QColor(0, 0, 0, 205))
         painter.drawText(name_rect.translated(1, 1), left_flags, name)
         painter.drawText(
@@ -3362,6 +3362,28 @@ class SpellProgressBar(QProgressBar):
             '#FFF0C2' if self.property('Warning') else '#F7F8F8'))
         painter.drawText(name_rect, left_flags, name)
         painter.drawText(time_rect, right_flags, self._time_text)
+        dark_fill_text = bool(self.property('DarkFillText')) and not any((
+            self.property('Warning'), self.property('Critical'),
+            self.property('Faded')))
+        if dark_fill_text:
+            try:
+                span = max(1, self.maximum() - self.minimum())
+                ratio = max(0.0, min(
+                    1.0, (self.value() - self.minimum()) / span))
+            except (TypeError, ValueError, ZeroDivisionError):
+                ratio = 0.0
+            fill_rect = self.rect().adjusted(1, 1, -1, -1)
+            fill_rect.setWidth(round(fill_rect.width() * ratio))
+            if fill_rect.width() > 0:
+                # The label can cross the progress edge. Repaint only the
+                # yellow filled portion black; the empty dark portion keeps
+                # its light label instead of becoming unreadable.
+                painter.save()
+                painter.setClipRect(fill_rect)
+                painter.setPen(QColor('#000000'))
+                painter.drawText(name_rect, left_flags, name)
+                painter.drawText(time_rect, right_flags, self._time_text)
+                painter.restore()
         painter.end()
 
 
@@ -3448,6 +3470,8 @@ class SpellWidget(QFrame):
         self.progress.setProperty('Critical', False)
         self.progress.setProperty('Pulse', False)
         self.progress.setProperty('Faded', False)
+        self.progress.setProperty(
+            'DarkFillText', spell_progress_uses_dark_text(self.spell))
         if self.spell.type:
             self.progress.setObjectName('SpellWidgetProgressBarGood')
         else:
@@ -3505,6 +3529,8 @@ class SpellWidget(QFrame):
         self.transient_silent = bool(getattr(
             self.spell, 'transient_silent', False))
         self._calculate(timestamp)
+        self.progress.setProperty(
+            'DarkFillText', spell_progress_uses_dark_text(self.spell))
         self.progress.setStyleSheet(spell_progress_stylesheet(self.spell))
         self._fade_remove_timer.stop()
         self._active = True
@@ -3976,7 +4002,12 @@ def _spell_bar_contrast(foreground, background):
     """Return the measured sRGB contrast of a painted label and bar stop."""
     def luminance(color):
         channels = []
-        for channel in (color.redF(), color.greenF(), color.blueF()):
+        # The stylesheet serializes QColor to 8-bit sRGB hex. Measure those
+        # exact rendered channels rather than QColor's higher-precision HSV
+        # intermediates, which can round across the 4.5:1 boundary.
+        for channel in (
+                color.red() / 255.0, color.green() / 255.0,
+                color.blue() / 255.0):
             channels.append(
                 channel / 12.92 if channel <= 0.04045 else
                 ((channel + 0.055) / 1.055) ** 2.4)
@@ -3990,26 +4021,93 @@ def _spell_bar_contrast(foreground, background):
     return (lighter + 0.05) / (darker + 0.05)
 
 
-def _readable_spell_bar_color(color, minimum_contrast=4.5):
-    """Darken only value until off-white timer text meets normal-text AA."""
-    foreground = QColor('#F7F8F8')
+def _readable_spell_bar_color(
+        color, minimum_contrast=4.5, dark_text=False, foreground=None):
+    """Adjust only value until the semantic label color meets text AA."""
+    foreground = QColor(
+        foreground or ('#000000' if dark_text else '#F7F8F8'))
     hue, saturation, value, alpha = color.getHsv()
-    while (value > 0 and
+    step = 1 if dark_text else -1
+    boundary = 255 if dark_text else 0
+    while (value != boundary and
            _spell_bar_contrast(foreground, color) < minimum_contrast):
-        value -= 1
+        value += step
         color = QColor.fromHsv(hue, saturation, value, alpha)
     return color
+
+
+def spell_semantic_progress_palettes():
+    """Return AA-limited normal/pulse gradients for timer status states."""
+    definitions = {
+        'warning': (
+            '#FFF0C2',
+            ('#A76D1D', '#855312', '#593509'),
+            ('#BC812D', '#9A6515', '#68410B')),
+        'critical': (
+            '#FFFFFF',
+            ('#D05258', '#B3363C', '#772329'),
+            ('#E25A62', '#BC353C', '#812229')),
+        'faded': (
+            '#F7F8F8',
+            ('#BF414A', '#9B2831', '#671A22'),
+            ('#EC626B', '#D13E48', '#8D232C')),
+    }
+    palettes = {}
+    for state, (foreground, normal, pulse) in definitions.items():
+        palettes[state] = {
+            'foreground': foreground,
+            'normal': tuple(
+                _readable_spell_bar_color(
+                    QColor(stop), foreground=foreground).name(
+                        QColor.NameFormat.HexRgb).upper()
+                for stop in normal),
+            'pulse': tuple(
+                _readable_spell_bar_color(
+                    QColor(stop), foreground=foreground).name(
+                        QColor.NameFormat.HexRgb).upper()
+                for stop in pulse),
+        }
+    return palettes
+
+
+def spell_progress_uses_dark_text(spell):
+    """Identify icon-yellow bars whose filled chunk uses a black label."""
+    color = _spell_icon_accent(int(getattr(spell, 'spell_icon', 0) or 0))
+    hue, saturation, _value, _alpha = color.getHsv()
+    return 38 <= hue <= 62 and saturation >= 96
 
 
 def spell_progress_palette(spell):
     """Build a moderately chromatic, readable palette from the spell icon."""
     body = _spell_icon_accent(int(getattr(spell, 'spell_icon', 0) or 0))
     hue, saturation, value, alpha = body.getHsv()
-    highlight = _readable_spell_bar_color(QColor.fromHsv(
-        hue, max(96, saturation - 8), min(170, value + 18), alpha))
-    body = _readable_spell_bar_color(body)
-    depth = _readable_spell_bar_color(QColor.fromHsv(
-        hue, min(248, saturation + 10), max(62, value - 16), alpha))
+    dark_text = spell_progress_uses_dark_text(spell)
+    raw_stops = (
+        QColor.fromHsv(
+            hue, max(96, saturation - 8), min(170, value + 18), alpha),
+        body,
+        QColor.fromHsv(
+            hue, min(248, saturation + 10), max(62, value - 16), alpha),
+    )
+    if dark_text:
+        # Lift the complete yellow gradient together. Adjusting each stop
+        # independently could make the nominal lower shade brighter than the
+        # body and flatten or invert the restrained depth cue.
+        lift = 0
+        foreground = QColor('#000000')
+        while lift < 255:
+            stops = tuple(QColor.fromHsv(
+                color.hue(), color.saturation(),
+                min(255, color.value() + lift), color.alpha())
+                for color in raw_stops)
+            if all(_spell_bar_contrast(foreground, stop) >= 4.5
+                   for stop in stops):
+                break
+            lift += 1
+        highlight, body, depth = stops
+    else:
+        highlight, body, depth = (
+            _readable_spell_bar_color(color) for color in raw_stops)
     border = QColor.fromHsv(
         hue, max(112, min(232, saturation - 18)),
         min(162, value + 10), alpha)
@@ -4020,6 +4118,13 @@ def spell_progress_palette(spell):
 def spell_progress_stylesheet(spell):
     """A compact, gently dimensional bar keyed to the real icon artwork."""
     highlight, body, depth, border = spell_progress_palette(spell)
+    semantic = spell_semantic_progress_palettes()
+    warning = semantic['warning']['normal']
+    warning_pulse = semantic['warning']['pulse']
+    critical = semantic['critical']['normal']
+    critical_pulse = semantic['critical']['pulse']
+    faded = semantic['faded']['normal']
+    faded_pulse = semantic['faded']['pulse']
     return f"""
         QProgressBar {{
             min-height: 20px;
@@ -4041,33 +4146,39 @@ def spell_progress_stylesheet(spell):
         }}
         QProgressBar[Warning="true"]::chunk {{
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #A76D1D, stop:0.22 #855312, stop:1 #593509);
+                stop:0 {warning[0]}, stop:0.22 {warning[1]},
+                stop:1 {warning[2]});
         }}
         QProgressBar[Warning="true"][Pulse="true"]::chunk {{
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #BC812D, stop:0.22 #9A6515, stop:1 #68410B);
+                stop:0 {warning_pulse[0]}, stop:0.22 {warning_pulse[1]},
+                stop:1 {warning_pulse[2]});
         }}
         QProgressBar[Critical="true"] {{
             border-color: #E35B5B;
         }}
         QProgressBar[Critical="true"]::chunk {{
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #D05258, stop:0.22 #B3363C, stop:1 #772329);
+                stop:0 {critical[0]}, stop:0.22 {critical[1]},
+                stop:1 {critical[2]});
         }}
         QProgressBar[Critical="true"][Pulse="true"]::chunk {{
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #E25A62, stop:0.22 #BC353C, stop:1 #812229);
+                stop:0 {critical_pulse[0]}, stop:0.22 {critical_pulse[1]},
+                stop:1 {critical_pulse[2]});
         }}
         QProgressBar[Faded="true"] {{
             border-color: #B54149;
         }}
         QProgressBar[Faded="true"]::chunk {{
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #BF414A, stop:0.22 #9B2831, stop:1 #671A22);
+                stop:0 {faded[0]}, stop:0.22 {faded[1]},
+                stop:1 {faded[2]});
         }}
         QProgressBar[Faded="true"][Pulse="true"]::chunk {{
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #EC626B, stop:0.22 #D13E48, stop:1 #8D232C);
+                stop:0 {faded_pulse[0]}, stop:0.22 {faded_pulse[1]},
+                stop:1 {faded_pulse[2]});
         }}
     """
 

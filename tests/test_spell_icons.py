@@ -15,11 +15,13 @@ from PySide6.QtWidgets import QApplication, QFrame
 from vantage.helpers import config
 from vantage.helpers.spell_icons import spell_icon_pixmap
 from vantage.parsers.spells import (
-    SpellWidget, _spell_bar_contrast, _spell_icon_accent,
+    Spell, SpellProgressBar, SpellWidget, _spell_bar_contrast,
+    _spell_icon_accent,
     _spell_icon_coordinates, _spell_target_sort_key,
     _spell_widget_sort_key,
     create_spell_book, spell_progress_palette, spell_progress_stylesheet,
-    spell_school_name, spell_warning_state)
+    spell_progress_uses_dark_text, spell_school_name,
+    spell_semantic_progress_palettes, spell_warning_state)
 
 
 def test_velious_zero_based_sheet_mapping():
@@ -182,7 +184,8 @@ def test_spell_progress_palette_is_stable_colorful_and_icon_driven():
     assert f"stop:1 {spell_progress_palette(beneficial)[2]}" in style
     assert "Pulse" in style
     assert 'QProgressBar[Faded="true"]' in style
-    assert "#D13E48" in style
+    semantic = spell_semantic_progress_palettes()
+    assert semantic['faded']['pulse'][1] in style
     assert "min-height: 20px" in style
     assert "max-height: 20px" in style
     assert "padding: 0px" in style
@@ -191,13 +194,52 @@ def test_spell_progress_palette_is_stable_colorful_and_icon_driven():
         for line in style.splitlines() if "border-radius:" in line]
     assert radius_values.count("0px") == 2
     assert all(value == "0px" for value in radius_values)
-    assert "#9A6515" in style
-    assert "#BC353C" in style
+    assert semantic['warning']['pulse'][1] in style
+    assert semantic['critical']['pulse'][1] in style
     assert "box-shadow" not in style
 
 
+def test_semantic_state_palettes_meet_exact_text_contrast_on_all_stops():
+    palettes = spell_semantic_progress_palettes()
+    expected = {
+        'warning': {
+            'foreground': '#FFF0C2',
+            'normal': ('#98611A', '#855312', '#593509'),
+            'pulse': ('#936423', '#966215', '#68410B'),
+            'normal_ratios': (4.5556, 5.7025, 9.5436),
+            'pulse_ratios': (4.5245, 4.5614, 7.8717),
+        },
+        'critical': {
+            'foreground': '#FFFFFF',
+            'normal': ('#C64E54', '#B3363C', '#772329'),
+            'pulse': ('#C64F57', '#BC353C', '#812229'),
+            'normal_ratios': (4.5465, 5.9835, 10.2099),
+            'pulse_ratios': (4.5092, 5.6562, 9.5704),
+        },
+        'faded': {
+            'foreground': '#F7F8F8',
+            'normal': ('#BF414A', '#9B2831', '#671A22'),
+            'pulse': ('#BC4E55', '#CD3D49', '#8D232C'),
+            'normal_ratios': (4.8491, 7.1992, 11.2941),
+            'pulse_ratios': (4.5277, 4.5274, 8.1920),
+        },
+    }
+
+    for state, state_palette in palettes.items():
+        foreground = QColor(expected[state]['foreground'])
+        assert state_palette['foreground'] == expected[state]['foreground']
+        for mode in ('normal', 'pulse'):
+            assert state_palette[mode] == expected[state][mode]
+            ratios = tuple(round(
+                _spell_bar_contrast(foreground, QColor(stop)), 4)
+                for stop in state_palette[mode])
+            assert ratios == expected[state][f'{mode}_ratios']
+            assert min(ratios) >= 4.5, (state, mode, ratios)
+
+
 def test_icon_palette_chroma_depth_and_text_contrast_are_bounded():
-    foreground = QColor('#F7F8F8')
+    light_foreground = QColor('#F7F8F8')
+    dark_foreground = QColor('#000000')
     distinct_hues = set()
     for icon_index in range(216):
         spell = SimpleNamespace(spell_icon=icon_index)
@@ -206,10 +248,14 @@ def test_icon_palette_chroma_depth_and_text_contrast_are_bounded():
         highlight, body, depth, border = colors
         distinct_hues.add(round(body.hue() / 15) if body.hue() >= 0 else -1)
 
-        # The icon hue is clearly saturated, but value stays in the dark
-        # overlay range. Hex serialization can shift HSV by one point.
+        dark_text = spell_progress_uses_dark_text(spell)
+        # Non-yellow icon families remain in the dark overlay range. Yellow
+        # alone receives the minimum lift needed for a black AA label.
         assert 155 <= body.saturation() <= 249
-        assert 110 <= body.value() <= 130
+        if dark_text:
+            assert 130 <= body.value() <= 180
+        else:
+            assert 110 <= body.value() <= 130
         assert 147 <= highlight.saturation() <= 241
         assert 165 <= depth.saturation() <= 249
         assert 111 <= border.saturation() <= 233
@@ -219,11 +265,62 @@ def test_icon_palette_chroma_depth_and_text_contrast_are_bounded():
         assert 0 <= highlight.value() - body.value() <= 18
         assert 0 <= body.value() - depth.value() <= 16
         for stop in (highlight, body, depth):
+            foreground = dark_foreground if dark_text else light_foreground
             assert _spell_bar_contrast(foreground, stop) >= 4.5
 
     # Icon art, rather than a uniform teal/green override, still determines
     # visibly distinct spell families.
     assert len(distinct_hues) >= 6
+
+
+def test_icon_yellow_palette_uses_exact_black_with_measured_aa_stops():
+    config.verify_settings()
+    spell = SimpleNamespace(spell_icon=0)
+    palette = spell_progress_palette(spell)
+    ratios = tuple(round(
+        _spell_bar_contrast(QColor('#000000'), QColor(stop)), 4)
+        for stop in palette[:3])
+
+    assert spell_progress_uses_dark_text(spell) is True
+    assert palette[:3] == ('#AB9248', '#99823B', '#897330')
+    assert ratios == (6.9367, 5.6107, 4.5586)
+    assert min(ratios) >= 4.5
+    widget = SpellWidget(Spell(
+        name='Yellow Test', spell_icon=0, type=1,
+        duration_seconds=60, duration_formula=11, duration=10),
+        datetime.datetime.now())
+    assert bool(widget.progress.property('DarkFillText')) is True
+
+
+def test_yellow_label_is_black_only_over_fill_and_light_over_empty_track():
+    app = QApplication.instance() or QApplication([])
+    bar = SpellProgressBar('Yellow Test')
+    bar.setProperty('DarkFillText', True)
+    bar.setRange(0, 100)
+    bar.setValue(50)
+    bar.set_time_text('12:34')
+    bar.resize(220, 22)
+    bar.show()
+    app.processEvents()
+
+    image = bar.grab().toImage()
+    left = [image.pixelColor(x, y) for x in range(4, 108)
+            for y in range(3, 19)]
+    right = [image.pixelColor(x, y) for x in range(112, 216)
+             for y in range(3, 19)]
+
+    assert bool(bar.property('DarkFillText')) is True
+    assert sum(color.value() <= 20 for color in left) >= 8
+    assert sum(color.value() >= 220 for color in right) >= 8
+
+    bar.setProperty('Warning', True)
+    bar.setValue(100)
+    bar.setStyle(bar.style())
+    app.processEvents()
+    warning = bar.grab().toImage()
+    warning_pixels = [warning.pixelColor(x, y) for x in range(4, 216)
+                      for y in range(3, 19)]
+    assert sum(color.value() >= 220 for color in warning_pixels) >= 16
 
 
 def test_spell_row_is_two_pixels_shorter_without_clipping_the_progress_bar():
