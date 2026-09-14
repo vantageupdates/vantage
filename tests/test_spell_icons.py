@@ -15,13 +15,12 @@ from PySide6.QtWidgets import QApplication, QFrame
 from vantage.helpers import config
 from vantage.helpers.spell_icons import spell_icon_pixmap
 from vantage.parsers.spells import (
-    Spell, SpellProgressBar, SpellWidget, _spell_bar_contrast,
-    _spell_icon_accent,
+    SpellWidget, _spell_bar_contrast, _spell_icon_accent,
     _spell_icon_coordinates, _spell_target_sort_key,
     _spell_widget_sort_key,
     create_spell_book, spell_progress_palette, spell_progress_stylesheet,
-    spell_progress_uses_dark_text, spell_school_name,
-    spell_semantic_progress_palettes, spell_warning_state)
+    spell_school_name, spell_semantic_progress_palettes,
+    spell_warning_state)
 
 
 def test_velious_zero_based_sheet_mapping():
@@ -239,7 +238,6 @@ def test_semantic_state_palettes_meet_exact_text_contrast_on_all_stops():
 
 def test_icon_palette_chroma_depth_and_text_contrast_are_bounded():
     light_foreground = QColor('#F7F8F8')
-    dark_foreground = QColor('#000000')
     distinct_hues = set()
     for icon_index in range(216):
         spell = SimpleNamespace(spell_icon=icon_index)
@@ -248,14 +246,10 @@ def test_icon_palette_chroma_depth_and_text_contrast_are_bounded():
         highlight, body, depth, border = colors
         distinct_hues.add(round(body.hue() / 15) if body.hue() >= 0 else -1)
 
-        dark_text = spell_progress_uses_dark_text(spell)
-        # Non-yellow icon families remain in the dark overlay range. Yellow
-        # alone receives the minimum lift needed for a black AA label.
+        # Every icon family remains in the dark overlay range so one light
+        # label stays readable across the complete filled chunk.
         assert 155 <= body.saturation() <= 249
-        if dark_text:
-            assert 130 <= body.value() <= 180
-        else:
-            assert 110 <= body.value() <= 130
+        assert 110 <= body.value() <= 130
         assert 147 <= highlight.saturation() <= 241
         assert 165 <= depth.saturation() <= 249
         assert 111 <= border.saturation() <= 233
@@ -265,62 +259,23 @@ def test_icon_palette_chroma_depth_and_text_contrast_are_bounded():
         assert 0 <= highlight.value() - body.value() <= 18
         assert 0 <= body.value() - depth.value() <= 16
         for stop in (highlight, body, depth):
-            foreground = dark_foreground if dark_text else light_foreground
-            assert _spell_bar_contrast(foreground, stop) >= 4.5
+            assert _spell_bar_contrast(light_foreground, stop) >= 4.5
 
     # Icon art, rather than a uniform teal/green override, still determines
     # visibly distinct spell families.
     assert len(distinct_hues) >= 6
 
 
-def test_icon_yellow_palette_uses_exact_black_with_measured_aa_stops():
-    config.verify_settings()
+def test_icon_yellow_palette_uses_one_light_label_with_measured_aa_stops():
     spell = SimpleNamespace(spell_icon=0)
     palette = spell_progress_palette(spell)
     ratios = tuple(round(
-        _spell_bar_contrast(QColor('#000000'), QColor(stop)), 4)
+        _spell_bar_contrast(QColor('#F7F8F8'), QColor(stop)), 4)
         for stop in palette[:3])
 
-    assert spell_progress_uses_dark_text(spell) is True
-    assert palette[:3] == ('#AB9248', '#99823B', '#897330')
-    assert ratios == (6.9367, 5.6107, 4.5586)
+    assert palette[:3] == ('#837037', '#826E32', '#725F28')
+    assert ratios == (4.5500, 4.6709, 5.8342)
     assert min(ratios) >= 4.5
-    widget = SpellWidget(Spell(
-        name='Yellow Test', spell_icon=0, type=1,
-        duration_seconds=60, duration_formula=11, duration=10),
-        datetime.datetime.now())
-    assert bool(widget.progress.property('DarkFillText')) is True
-
-
-def test_yellow_label_is_black_only_over_fill_and_light_over_empty_track():
-    app = QApplication.instance() or QApplication([])
-    bar = SpellProgressBar('Yellow Test')
-    bar.setProperty('DarkFillText', True)
-    bar.setRange(0, 100)
-    bar.setValue(50)
-    bar.set_time_text('12:34')
-    bar.resize(220, 22)
-    bar.show()
-    app.processEvents()
-
-    image = bar.grab().toImage()
-    left = [image.pixelColor(x, y) for x in range(4, 108)
-            for y in range(3, 19)]
-    right = [image.pixelColor(x, y) for x in range(112, 216)
-             for y in range(3, 19)]
-
-    assert bool(bar.property('DarkFillText')) is True
-    assert sum(color.value() <= 20 for color in left) >= 8
-    assert sum(color.value() >= 220 for color in right) >= 8
-
-    bar.setProperty('Warning', True)
-    bar.setValue(100)
-    bar.setStyle(bar.style())
-    app.processEvents()
-    warning = bar.grab().toImage()
-    warning_pixels = [warning.pixelColor(x, y) for x in range(4, 216)
-                      for y in range(3, 19)]
-    assert sum(color.value() >= 220 for color in warning_pixels) >= 16
 
 
 def test_spell_row_is_two_pixels_shorter_without_clipping_the_progress_bar():

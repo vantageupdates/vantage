@@ -7,6 +7,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QLineEdit
 
 from vantage.helpers import config
+from vantage.helpers.timer_sync import timer_identity
 from vantage.parsers.spells import Spells, Spell, SpellContainer, SpellWidget
 
 
@@ -31,6 +32,38 @@ def _spell(name="Fetter", **values):
     }
     fields.update(values)
     return Spell(**fields)
+
+
+def test_authoritative_widget_removal_captures_identity_before_detach():
+    _app()
+    container = SpellContainer()
+    container.add_spell(
+        _spell(runtime_level=60), datetime.datetime.now(), "__you__",
+        "Spiritflux", "Green")
+    saved = container.snapshot_runtime_state()
+    removed = []
+    container.timer_rows_removed.connect(removed.extend)
+
+    widget = container.get_spell_target_by_name("__you__").spell_widgets()[0]
+    widget._remove()
+
+    assert len(removed) == 1
+    assert timer_identity(removed[0]) == timer_identity(saved[0])
+
+
+def test_non_authoritative_render_cleanup_does_not_emit_removal():
+    _app()
+    container = SpellContainer()
+    container.add_spell(
+        _spell(runtime_level=60), datetime.datetime.now(), "__you__",
+        "Spiritflux", "Green")
+    removed = []
+    container.timer_rows_removed.connect(removed.extend)
+
+    widget = container.get_spell_target_by_name("__you__").spell_widgets()[0]
+    widget._remove(authoritative=False)
+
+    assert removed == []
 
 
 def test_spell_state_restores_current_remaining_time_after_downtime():

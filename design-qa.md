@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.83 design QA
+# Vantage Companion 1.44.84 design QA
 
 final result: passed
 
@@ -11,6 +11,14 @@ final result: passed
 
 ## Visual checks
 
+- Spell timer persistence now follows landing-driven nParse semantics: a
+  partial refresh, profile switch, camp, or cross-device rebuild cannot be
+  mistaken for a worn-off event. Only confirmed expiry, worn-off, death, or
+  explicit removal retires a synced row; defective 1.44.83 removal clocks are
+  discarded while still-valid saved rows are retained.
+- Yellow and amber buff bars again use the same light label as every other
+  normal spell bar. Their fills remain icon-derived and saturated, but are
+  value-limited so the complete label stays readable without a black repaint.
 - Zones adds a separate **Any Mob** workflow that searches the complete P99
   Wiki instead of the selected zone. Results keep a compact sortable table;
   selecting a mob exposes every parsed drop and related quest as a labeled,
@@ -102,6 +110,9 @@ final result: passed
 
 ## Accessibility checks
 
+- One `#F7F8F8` label is used across every normal spell fill and its empty
+  track. All 216 icon palettes meet 4.5:1; the measured yellow-family minimum
+  is 4.5039:1, with no clipped black-text layer or focus/name changes.
 - Every table exposes Shift+F10 column controls for the focused column:
   wider, narrower, auto-fit, and reset. Width changes are announced and focus
   returns to the table after the menu closes.

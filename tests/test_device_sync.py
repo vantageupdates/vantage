@@ -10,7 +10,8 @@ from vantage.helpers.device_sync import (
     DeviceSyncDialog, DeviceSyncError, apply_sync_settings, build_pair_code,
     decode_pair_code, export_sync_settings, sign_snapshot, verify_snapshot)
 from vantage.helpers.timer_sync import (
-    merge_timer_state, record_local_timer_state, timer_identity)
+    merge_timer_state, record_explicit_timer_removals,
+    record_local_timer_state, timer_identity)
 
 
 DEVICE_ID = "AAAAAAA-BBBBBBB-CCCCCCC-DDDDDDD-EEEEEEE-FFFFFFF-GGGGGGG-HHHHHHH"
@@ -251,12 +252,26 @@ def test_timer_identity_separates_profiles_targets_and_instances():
     assert len(identities) == 4
 
 
+def test_partial_snapshot_absence_never_deletes_or_tombstones_live_buff():
+    focus = _buff("Focus of Spirit", 5200)
+    regrowth = _buff("Regrowth", 5300)
+    rows, metadata = record_local_timer_state(
+        [], [focus, regrowth], {}, now=100.0)
+
+    rows, metadata = record_local_timer_state(
+        rows, [focus], metadata, now=200.0)
+
+    assert {row["spell"]["name"] for row in rows} == {
+        "Focus of Spirit", "Regrowth"}
+    assert metadata["tombstones"] == {}
+
+
 def test_explicit_worn_off_propagates_and_newer_recast_can_return():
     focus = _buff("Focus of Spirit", 5200)
     rows, metadata = record_local_timer_state([], [focus], {}, now=100.0)
     stale_rows, stale_metadata = copy.deepcopy(rows), copy.deepcopy(metadata)
-    rows, metadata = record_local_timer_state(
-        rows, [], metadata, now=200.0)
+    rows, metadata = record_explicit_timer_removals(
+        rows, [focus], metadata, now=200.0)
 
     merged, merged_metadata = merge_timer_state(
         rows, metadata, stale_rows, stale_metadata,
@@ -275,6 +290,23 @@ def test_explicit_worn_off_propagates_and_newer_recast_can_return():
 
     assert len(merged) == 1
     assert merged[0]["deadline"] == 6200.0
+
+
+def test_schema_one_tombstone_cannot_erase_an_active_row():
+    focus = _buff("Focus of Spirit", 5200)
+    rows, metadata = record_local_timer_state([], [focus], {}, now=100.0)
+    identity = timer_identity(focus)
+
+    merged, merged_metadata = merge_timer_state(
+        rows, metadata, [], {
+            "schema": 1,
+            "versions": {identity: 900.0},
+            "tombstones": {identity: 1000.0},
+        }, incoming_revision=1100.0)
+
+    assert [row["spell"]["name"] for row in merged] == ["Focus of Spirit"]
+    assert merged_metadata["schema"] == 2
+    assert identity not in merged_metadata["tombstones"]
 
 
 def test_legacy_snapshot_absence_cannot_delete_and_shorter_copy_cannot_regress():
@@ -298,7 +330,7 @@ def test_config_bounds_timer_sync_clocks_and_migrates_invalid_metadata():
     original = config.data
     try:
         config.data = {"spells": {"active_timer_sync": {
-            "schema": 999,
+            "schema": 2,
             "versions": {
                 f"timer-{index}": float(index + 1)
                 for index in range(1200)},
@@ -308,9 +340,26 @@ def test_config_bounds_timer_sync_clocks_and_migrates_invalid_metadata():
         config.verify_settings()
 
         metadata = config.data["spells"]["active_timer_sync"]
-        assert metadata["schema"] == 1
+        assert metadata["schema"] == 2
         assert len(metadata["versions"]) == 1024
         assert metadata["tombstones"] == {"valid": 50.0}
+    finally:
+        config.data = original
+
+
+def test_config_invalidates_flawed_schema_one_timer_clocks():
+    original = config.data
+    try:
+        config.data = {"spells": {"active_timer_sync": {
+            "schema": 1,
+            "versions": {"live": 100.0},
+            "tombstones": {"live": 200.0},
+        }}}
+
+        config.verify_settings()
+
+        assert config.data["spells"]["active_timer_sync"] == {
+            "schema": 2, "versions": {}, "tombstones": {}}
     finally:
         config.data = original
 

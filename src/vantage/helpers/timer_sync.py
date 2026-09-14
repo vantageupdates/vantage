@@ -11,7 +11,7 @@ import time
 MAX_TIMER_ROWS = 512
 MAX_TIMER_CLOCKS = 1024
 MAX_TIMER_IDENTITY_LENGTH = 720
-TIMER_SYNC_SCHEMA = 1
+TIMER_SYNC_SCHEMA = 2
 SHARED_RUNTIME_FAMILIES = {
     "regeneration": "regeneration",
     "chloroplast": "regeneration",
@@ -89,6 +89,16 @@ def sanitize_timer_sync_meta(meta):
     """Validate and bound clocks without trusting arbitrary snapshot keys."""
     source = meta if isinstance(meta, dict) else {}
     result = {"schema": TIMER_SYNC_SCHEMA, "versions": {}, "tombstones": {}}
+    # Schema 1 inferred tombstones from a temporarily incomplete rendered
+    # snapshot. Those clocks are unsafe: accepting even one can erase a live
+    # buff on every linked PC. Keep its active rows, but deliberately migrate
+    # all schema-1/unknown clocks to an empty schema-2 journal.
+    try:
+        source_schema = int(source.get("schema", 0))
+    except (TypeError, ValueError, OverflowError):
+        source_schema = 0
+    if source_schema != TIMER_SYNC_SCHEMA:
+        return result
     for field in ("versions", "tombstones"):
         values = source.get(field) if isinstance(source.get(field), dict) else {}
         cleaned = []
@@ -142,7 +152,7 @@ def timer_rows_equal(left, right):
 
 
 def record_local_timer_state(previous_rows, current_rows, meta, now=None):
-    """Record local additions, recasts and removals with per-effect clocks."""
+    """Record additions/recasts without treating snapshot absence as removal."""
     previous = _row_map(previous_rows)
     current = _row_map(current_rows)
     result_meta = sanitize_timer_sync_meta(meta)
@@ -156,6 +166,12 @@ def record_local_timer_state(previous_rows, current_rows, meta, now=None):
             mutation_clock = _next_clock(result_meta, now)
         return mutation_clock
 
+    # A normal widget snapshot can be partial during restore, profile changes,
+    # or cross-device refresh. Union it with the last checkpoint. Only a
+    # confirmed semantic removal may delete a row (see
+    # ``record_explicit_timer_removals`` below).
+    active = dict(previous)
+    active.update(current)
     for key, row in current.items():
         if key not in previous or _row_changed(previous[key], row):
             versions[key] = changed_clock()
@@ -165,10 +181,36 @@ def record_local_timer_state(previous_rows, current_rows, meta, now=None):
             versions[key] = changed_clock()
         if tombstones.get(key, 0) <= versions.get(key, 0):
             tombstones.pop(key, None)
-    for key in previous.keys() - current.keys():
-        tombstones[key] = changed_clock()
 
-    return list(current.values()), _prune_meta(result_meta, current)
+    # An absolute deadline is authoritative on every device. Unlike ordinary
+    # snapshot absence, passing it is safe evidence that the timer ended.
+    observed_at = _valid_clock(now) or time.time()
+    expired = {
+        key for key, row in active.items()
+        if float(row.get("deadline", 0)) <= observed_at}
+    if expired:
+        expiry_clock = changed_clock()
+        for key in expired:
+            active.pop(key, None)
+            tombstones[key] = expiry_clock
+
+    return list(active.values()), _prune_meta(result_meta, active)
+
+
+def record_explicit_timer_removals(active_rows, removed_rows, meta, now=None):
+    """Record only confirmed worn-off, expiry, death, or user removals."""
+    active = _row_map(active_rows)
+    result_meta = sanitize_timer_sync_meta(meta)
+    removed_keys = {
+        timer_identity(row) for row in sanitize_timer_rows(removed_rows)}
+    removed_keys.discard("")
+    if not removed_keys:
+        return list(active.values()), _prune_meta(result_meta, active)
+    mutation_clock = _next_clock(result_meta, now)
+    for key in removed_keys:
+        active.pop(key, None)
+        result_meta["tombstones"][key] = mutation_clock
+    return list(active.values()), _prune_meta(result_meta, active)
 
 
 def _prune_meta(meta, active=None):
@@ -201,6 +243,7 @@ def merge_timer_state(
     tombstones = dict(left["tombstones"])
     incoming_is_legacy = not bool(
         isinstance(incoming_meta, dict) and
+        incoming_meta.get("schema") == TIMER_SYNC_SCHEMA and
         (incoming_meta.get("versions") or incoming_meta.get("tombstones")))
     legacy_clock = _next_clock(left, incoming_revision) if incoming else 0.0
 

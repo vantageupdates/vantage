@@ -35,7 +35,7 @@ from vantage.helpers.respawn_catalog import named_spawn_for
 from vantage.helpers.spell_icons import (
     spell_icon_pixmap, spell_icon_coordinates)
 from vantage.helpers.timer_sync import (
-    record_local_timer_state, timer_identity)
+    record_explicit_timer_removals, record_local_timer_state, timer_identity)
 from vantage.helpers.trigger_groups import (
     effective_trigger_style, group_enabled, normalize_trigger_color)
 
@@ -434,6 +434,8 @@ class Spells(ParserWindow):
             self._persist_runtime_timer_state)
         self._spell_container.state_changed.connect(
             self._schedule_runtime_timer_state_save)
+        self._spell_container.timer_rows_removed.connect(
+            self._record_runtime_timer_removals)
         self._refresh_character_profiles()
         self._restore_runtime_timer_state()
         QApplication.instance().aboutToQuit.connect(
@@ -864,6 +866,15 @@ class Spells(ParserWindow):
         if getattr(config, '_filename', ''):
             config.save()
         return len(rows)
+
+    def _record_runtime_timer_removals(self, removed_rows):
+        """Persist only removal events captured before their widgets detach."""
+        spells = config.data['spells']
+        rows, metadata = record_explicit_timer_removals(
+            spells.get('active_timer_state', []), removed_rows,
+            spells.get('active_timer_sync', {}))
+        spells['active_timer_state'] = rows
+        spells['active_timer_sync'] = metadata
 
     def _restore_runtime_timer_state(self):
         saved = config.data['spells'].get('active_timer_state', [])
@@ -1723,7 +1734,9 @@ class Spells(ParserWindow):
         removed = 0
         for widget in list(target.spell_widgets()):
             if self._spell_widget_matches_profile(widget, character, server):
-                widget._remove()
+                # Camp temporarily clears the rendered rows, but the saved
+                # character snapshot must survive for the next login.
+                widget._remove(authoritative=False)
                 removed += 1
         self._spell_container._sync_empty_state()
         return removed
@@ -2227,7 +2240,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.83')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.84')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -2505,6 +2518,7 @@ class BardCountGroup(QFrame):
 class SpellContainer(QFrame):
 
     state_changed = Signal()
+    timer_rows_removed = Signal(object)
 
     def __init__(self):
         super().__init__()
@@ -2624,6 +2638,54 @@ class SpellContainer(QFrame):
                 payload[field_name] = value
         return payload
 
+    def _runtime_row_for_widget(
+            self, target, widget, now_epoch=None, now_datetime=None,
+            include_ended=False):
+        """Serialize one row, including its identity before explicit removal."""
+        if (not isinstance(target, SpellTarget) or
+                not isinstance(widget, SpellWidget) or
+                getattr(widget, 'transient_silent', False)):
+            return None
+        now_epoch = time.time() if now_epoch is None else float(now_epoch)
+        now_datetime = now_datetime or datetime.datetime.now()
+        remaining = (widget.end_time - now_datetime).total_seconds()
+        if not include_ended and (
+                widget._removed or widget._faded or remaining <= 0):
+            return None
+        return {
+            # Identity does not depend on the deadline. An ended/faded row
+            # still needs a positive placeholder so the shared sanitizer can
+            # validate the captured removal event.
+            'deadline': (
+                now_epoch + remaining if remaining > 0 else now_epoch + 0.001),
+            'target': target.name,
+            'target_created_order': target.created_order,
+            'target_activity_order': target.last_activity_order,
+            'target_named': target.is_named,
+            'target_marker': target.instance_marker,
+            'target_alias': target.alias,
+            'character': widget.runtime_character,
+            'server': widget.runtime_server,
+            'warning_played': widget._warning_played,
+            'spell': self._spell_runtime_payload(widget.spell),
+        }
+
+    def _record_widget_timer_removal(self, widget, target):
+        row = self._runtime_row_for_widget(
+            target, widget, include_ended=True)
+        if row:
+            self.timer_rows_removed.emit([row])
+
+    def _record_target_timer_removals(self, target):
+        rows = [
+            row for row in (
+                self._runtime_row_for_widget(
+                    target, widget, include_ended=True)
+                for widget in target.spell_widgets())
+            if row]
+        if rows:
+            self.timer_rows_removed.emit(rows)
+
     def snapshot_runtime_state(self, now_epoch=None, now_datetime=None):
         """Serialize active rows with absolute deadlines for offline aging."""
         now_epoch = time.time() if now_epoch is None else float(now_epoch)
@@ -2633,25 +2695,11 @@ class SpellContainer(QFrame):
                 self.findChildren(SpellTarget),
                 key=lambda item: item.created_order):
             for widget in target.spell_widgets():
-                if (widget._removed or widget._faded or
-                        getattr(widget, 'transient_silent', False)):
+                row = self._runtime_row_for_widget(
+                    target, widget, now_epoch, now_datetime)
+                if not row:
                     continue
-                remaining = (widget.end_time - now_datetime).total_seconds()
-                if remaining <= 0:
-                    continue
-                saved.append({
-                    'deadline': now_epoch + remaining,
-                    'target': target.name,
-                    'target_created_order': target.created_order,
-                    'target_activity_order': target.last_activity_order,
-                    'target_named': target.is_named,
-                    'target_marker': target.instance_marker,
-                    'target_alias': target.alias,
-                    'character': widget.runtime_character,
-                    'server': widget.runtime_server,
-                    'warning_played': widget._warning_played,
-                    'spell': self._spell_runtime_payload(widget.spell),
-                })
+                saved.append(row)
                 if len(saved) >= 512:
                     return saved
         return saved
@@ -2741,7 +2789,7 @@ class SpellContainer(QFrame):
         # may already have inferred duplicates, so collapse them before recast.
         if named and len(instances) > 1:
             for duplicate in instances[1:]:
-                duplicate._remove()
+                duplicate._remove(authoritative=False)
             instances = instances[:1]
         if named and instances:
             instances[0].is_named = True
@@ -3042,11 +3090,14 @@ class SpellTarget(QFrame):
         self._layout.addWidget(self.target_label, 0)
         self._layout.addStretch()
 
-    def _remove(self, event=None):
+    def _remove(self, event=None, authoritative=True):
         if self._removed:
             return
-        self._removed = True
         owner = self.parentWidget()
+        if (authoritative and owner and
+                hasattr(owner, '_record_target_timer_removals')):
+            owner._record_target_timer_removals(self)
+        self._removed = True
         focus_target = None
         if owner:
             siblings = [
@@ -3271,7 +3322,7 @@ class SpellTarget(QFrame):
             primary.recast(timestamp, previous_name=previous_name)
             for duplicate in matching:
                 if duplicate is not primary:
-                    duplicate._remove()
+                    duplicate._remove(authoritative=False)
         else:
             self._layout.addWidget(SpellWidget(
                 spell, timestamp, character, server))
@@ -3351,8 +3402,8 @@ class SpellProgressBar(QProgressBar):
         right_flags = (
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
-        # One restrained one-pixel shadow keeps light text legible on the
-        # empty track and on ordinary dark spell families.
+        # One restrained one-pixel shadow keeps the single light label
+        # legible across both the filled chunk and the empty track.
         painter.setPen(QColor(0, 0, 0, 205))
         painter.drawText(name_rect.translated(1, 1), left_flags, name)
         painter.drawText(
@@ -3362,28 +3413,6 @@ class SpellProgressBar(QProgressBar):
             '#FFF0C2' if self.property('Warning') else '#F7F8F8'))
         painter.drawText(name_rect, left_flags, name)
         painter.drawText(time_rect, right_flags, self._time_text)
-        dark_fill_text = bool(self.property('DarkFillText')) and not any((
-            self.property('Warning'), self.property('Critical'),
-            self.property('Faded')))
-        if dark_fill_text:
-            try:
-                span = max(1, self.maximum() - self.minimum())
-                ratio = max(0.0, min(
-                    1.0, (self.value() - self.minimum()) / span))
-            except (TypeError, ValueError, ZeroDivisionError):
-                ratio = 0.0
-            fill_rect = self.rect().adjusted(1, 1, -1, -1)
-            fill_rect.setWidth(round(fill_rect.width() * ratio))
-            if fill_rect.width() > 0:
-                # The label can cross the progress edge. Repaint only the
-                # yellow filled portion black; the empty dark portion keeps
-                # its light label instead of becoming unreadable.
-                painter.save()
-                painter.setClipRect(fill_rect)
-                painter.setPen(QColor('#000000'))
-                painter.drawText(name_rect, left_flags, name)
-                painter.drawText(time_rect, right_flags, self._time_text)
-                painter.restore()
         painter.end()
 
 
@@ -3470,8 +3499,6 @@ class SpellWidget(QFrame):
         self.progress.setProperty('Critical', False)
         self.progress.setProperty('Pulse', False)
         self.progress.setProperty('Faded', False)
-        self.progress.setProperty(
-            'DarkFillText', spell_progress_uses_dark_text(self.spell))
         if self.spell.type:
             self.progress.setObjectName('SpellWidgetProgressBarGood')
         else:
@@ -3529,8 +3556,6 @@ class SpellWidget(QFrame):
         self.transient_silent = bool(getattr(
             self.spell, 'transient_silent', False))
         self._calculate(timestamp)
-        self.progress.setProperty(
-            'DarkFillText', spell_progress_uses_dark_text(self.spell))
         self.progress.setStyleSheet(spell_progress_stylesheet(self.spell))
         self._fade_remove_timer.stop()
         self._active = True
@@ -3688,11 +3713,14 @@ class SpellWidget(QFrame):
         if owner and hasattr(owner, 'state_changed'):
             owner.state_changed.emit()
 
-    def _remove(self):
+    def _remove(self, authoritative=True):
         if self._removed:
             return
         self._fade_remove_timer.stop()
         target, owner = self._owner_container()
+        if (authoritative and owner and
+                hasattr(owner, '_record_widget_timer_removal')):
+            owner._record_widget_timer_removal(self, target)
         focused = QApplication.focusWidget()
         restore_focus = bool(
             focused is self or
@@ -4022,16 +4050,13 @@ def _spell_bar_contrast(foreground, background):
 
 
 def _readable_spell_bar_color(
-        color, minimum_contrast=4.5, dark_text=False, foreground=None):
+        color, minimum_contrast=4.5, foreground=None):
     """Adjust only value until the semantic label color meets text AA."""
-    foreground = QColor(
-        foreground or ('#000000' if dark_text else '#F7F8F8'))
+    foreground = QColor(foreground or '#F7F8F8')
     hue, saturation, value, alpha = color.getHsv()
-    step = 1 if dark_text else -1
-    boundary = 255 if dark_text else 0
-    while (value != boundary and
+    while (value > 0 and
            _spell_bar_contrast(foreground, color) < minimum_contrast):
-        value += step
+        value -= 1
         color = QColor.fromHsv(hue, saturation, value, alpha)
     return color
 
@@ -4070,18 +4095,10 @@ def spell_semantic_progress_palettes():
     return palettes
 
 
-def spell_progress_uses_dark_text(spell):
-    """Identify icon-yellow bars whose filled chunk uses a black label."""
-    color = _spell_icon_accent(int(getattr(spell, 'spell_icon', 0) or 0))
-    hue, saturation, _value, _alpha = color.getHsv()
-    return 38 <= hue <= 62 and saturation >= 96
-
-
 def spell_progress_palette(spell):
     """Build a moderately chromatic, readable palette from the spell icon."""
     body = _spell_icon_accent(int(getattr(spell, 'spell_icon', 0) or 0))
     hue, saturation, value, alpha = body.getHsv()
-    dark_text = spell_progress_uses_dark_text(spell)
     raw_stops = (
         QColor.fromHsv(
             hue, max(96, saturation - 8), min(170, value + 18), alpha),
@@ -4089,25 +4106,8 @@ def spell_progress_palette(spell):
         QColor.fromHsv(
             hue, min(248, saturation + 10), max(62, value - 16), alpha),
     )
-    if dark_text:
-        # Lift the complete yellow gradient together. Adjusting each stop
-        # independently could make the nominal lower shade brighter than the
-        # body and flatten or invert the restrained depth cue.
-        lift = 0
-        foreground = QColor('#000000')
-        while lift < 255:
-            stops = tuple(QColor.fromHsv(
-                color.hue(), color.saturation(),
-                min(255, color.value() + lift), color.alpha())
-                for color in raw_stops)
-            if all(_spell_bar_contrast(foreground, stop) >= 4.5
-                   for stop in stops):
-                break
-            lift += 1
-        highlight, body, depth = stops
-    else:
-        highlight, body, depth = (
-            _readable_spell_bar_color(color) for color in raw_stops)
+    highlight, body, depth = (
+        _readable_spell_bar_color(color) for color in raw_stops)
     border = QColor.fromHsv(
         hue, max(112, min(232, saturation - 18)),
         min(162, value + 10), alpha)
