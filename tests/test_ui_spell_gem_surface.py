@@ -1,13 +1,8 @@
-"""Bright spell-gem tint surface and strict atlas-scope regression coverage."""
+"""Restrained spell-gem tint surface and strict atlas-scope regression coverage."""
 
 import importlib.util
-import hashlib
-import subprocess
-import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
-
-import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,7 +20,7 @@ def pixel(data, x, y):
     return red, green, blue, alpha
 
 
-def test_spell_gems_use_the_bright_tintable_background():
+def test_spell_gems_use_the_neutral_tintable_background():
     root = ET.parse(SKIN / "EQUI_CastSpellWnd.xml").getroot()
     animations = ET.parse(SKIN / "EQUI_Animations.xml").getroot()
     background = animations.find("Ui2DAnimation[@item='V3_CastBackground']/Frames")
@@ -37,7 +32,7 @@ def test_spell_gems_use_the_bright_tintable_background():
         assert template.findtext("Background") == "V3_CastBackground"
 
 
-def test_background_is_neutral_bright_and_keeps_3d_shading():
+def test_background_is_neutral_restrained_and_keeps_3d_shading():
     data = (SKIN / "v3_controls.tga").read_bytes()
     visible = [
         pixel(data, x, surface.BACKGROUND_TOP + y)
@@ -47,10 +42,10 @@ def test_background_is_neutral_bright_and_keeps_3d_shading():
     ]
     assert all(red == green == blue for red, green, blue, _ in visible)
     values = {red for red, _, _, _ in visible}
-    assert min(values) == min(surface.BACKGROUND_SHADES) == 158
-    assert max(values) == max(surface.BACKGROUND_SHADES) == 250
-    assert pixel(data, 60, 34)[:3] == (250, 250, 250)
-    assert pixel(data, 60, 53)[:3] == (158, 158, 158)
+    assert min(values) == min(surface.BACKGROUND_SHADES) == 153
+    assert max(values) == max(surface.BACKGROUND_SHADES) == 242
+    assert pixel(data, 60, 34)[:3] == (242, 242, 242)
+    assert pixel(data, 60, 53)[:3] == (153, 153, 153)
 
 
 def test_generator_is_idempotent_and_changes_only_background_rgb():
@@ -70,77 +65,44 @@ def test_generator_is_idempotent_and_changes_only_background_rgb():
     assert repaired[start + 3:end:4] == bytes(changed[start + 3:end:4])
 
 
-def name_plate_pixel(data, x, y):
-    """Read local coordinates in the existing 120x28 untinted outline cell."""
-    offset = 18 + ((y + 34) * 512 + x + 2) * 4
-    blue, green, red, alpha = data[offset:offset + 4]
-    return red, green, blue, alpha
+def linear_luminance(rgb):
+    def linear(channel):
+        channel /= 255
+        return channel / 12.92 if channel <= .04045 else ((channel + .055) / 1.055) ** 2.4
+    return sum(linear(channel) * weight
+               for channel, weight in zip(rgb, (.2126, .7152, .0722)))
 
 
-def contrast(foreground, background):
-    def luminance(rgb):
-        values = [value / 255 for value in rgb]
-        linear = [value / 12.92 if value <= .04045 else ((value + .055) / 1.055) ** 2.4
-                  for value in values]
-        return sum(value * weight for value, weight in zip(linear, (.2126, .7152, .0722)))
-    left, right = sorted((luminance(foreground), luminance(background)))
-    return (right + .05) / (left + .05)
-
-
-def composite(pixel_rgba, background):
-    alpha = pixel_rgba[3]
-    return tuple((front * alpha + back * (255 - alpha) + 127) // 255
-                 for front, back in zip(pixel_rgba[:3], background))
-
-
-def test_name_plate_changes_only_the_existing_label_lane_and_preserves_all_other_art():
-    data = (SKIN / 'VantageControlEdges.tga').read_bytes()
-    assert data[:3] == bytes((0, 0, 2))
-    assert data[12:18] == bytes((0, 2, 128, 0, 32, 40))
-    assert len(data) == 18 + 512 * 128 * 4
-    masked = bytearray(data)
-    # Fingerprint captured before this change, with only the approved name
-    # inset zeroed. Protects every other control, icon lane, rim and gutter.
-    for y in range(2, 26):
-        for x in range(30, 118):
-            offset = 18 + ((y + 34) * 512 + x + 2) * 4
-            masked[offset:offset + 4] = bytes(4)
-    assert hashlib.sha256(masked).hexdigest() == (
-        'b7f12dbbb5c47580a8d580b0b660b25dfcfdc7306aa1f1914f0739024a4ab3c4'
+def test_ramp_reduces_linear_luminance_uniformly_by_about_seven_percent():
+    previous = (
+        198, 220, 230, 238, 244, 248, 250, 248, 246, 242, 238, 234, 230, 226,
+        222, 216, 210, 204, 198, 192, 186, 180, 174, 168, 162, 158, 170, 196,
     )
-    assert name_plate_pixel(data, 60, 12) == (238, 232, 215, 190)
-    assert name_plate_pixel(data, 60, 2) == (214, 209, 194, 190)
-    assert name_plate_pixel(data, 30, 2)[3] == 0
-    # This cutout reveals the original grey outer rim, not a square plate.
-    assert name_plate_pixel(data, 117, 25) == (148, 148, 148, 115)
-    assert all(name_plate_pixel(data, x, y)[3] == 0
-               for y in range(4, 24) for x in range(5, 30))
-    # Category-tinted Background, empty Holder and Highlight stay unchanged.
-    assert hashlib.sha256((SKIN / 'v3_controls.tga').read_bytes()).hexdigest() == (
-        'cc40f8ea9c32bce5c0c47131fc2b137357a7e745dbd8061a359fa9eff8ac6e0f'
-    )
+    reductions = [
+        1 - linear_luminance((new,) * 3) / linear_luminance((old,) * 3)
+        for old, new in zip(previous, surface.BACKGROUND_SHADES)
+    ]
+    assert all(0.063 <= reduction <= 0.075 for reduction in reductions)
+    assert len(set(surface.BACKGROUND_SHADES)) > 20, 'Keep the original 3D ramp detail'
 
 
-@pytest.mark.parametrize('background', [
-    (160, 26, 26),   # Screenshot f171... red at (115,36).
-    (149, 161, 32),  # Yellow-green at (115,126).
-    (61, 50, 162),   # Blue at (115,186).
-    (0, 0, 0),      # Darkest possible underlying pixel, including empty rows.
-    (255, 255, 255),
-])
-def test_near_black_names_have_contrast_throughout_the_modeled_two_line_ink_area(background):
-    data = (SKIN / 'VantageControlEdges.tga').read_bytes()
-    # Existing screenshot-based glyph budget: label local (30,3), 2px ink
-    # inset, 12px line pitch, 9px ink. Include the entire envelope, even the
-    # between-line gap and antialiased plate corners; not just its center.
-    for y in range(5, 26):
-        for x in range(32, 116):
-            plate = name_plate_pixel(data, x, y)
-            assert 160 <= plate[3] <= 190
-            assert contrast((8, 10, 13), composite(plate, background)) >= 4.5
+def test_representative_runtime_tints_are_only_slightly_dimmer():
+    # At the brightest row, the neutral source changes from 250 to 242. The
+    # legacy client multiplies the source by its category color at runtime.
+    scale = max(surface.BACKGROUND_SHADES) / 250
+    measured = {
+        (160, 26, 26): (155, 25, 25),
+        (149, 161, 32): (144, 156, 31),
+        (61, 50, 162): (59, 48, 157),
+    }
+    for before, expected in measured.items():
+        after = tuple(round(channel * scale) for channel in before)
+        assert after == expected
+        reduction = 1 - linear_luminance(after) / linear_luminance(before)
+        assert 0.065 <= reduction <= 0.07
 
 
-def test_near_black_names_keep_native_bindings_and_reuse_the_existing_untinted_layer():
+def test_original_cream_names_keep_native_bindings_without_new_drawables():
     root = ET.parse(SKIN / 'EQUI_CastSpellWnd.xml').getroot()
     window = root.find("Screen[@item='CastSpellWnd']")
     pieces = [piece.text for piece in window.findall('Pieces')]
@@ -152,7 +114,7 @@ def test_near_black_names_keep_native_bindings_and_reuse_the_existing_untinted_l
         assert len(labels) == 1
         label = labels[0]
         assert label.get('item') == label.findtext('ScreenID') == name + '_Name'
-        assert tuple(int(label.findtext('TextColor/' + c)) for c in 'RGB') == (8, 10, 13)
+        assert tuple(int(label.findtext('TextColor/' + c)) for c in 'RGB') == (231, 228, 222)
         assert label.findtext('NoWrap') == 'false'
         assert label.findtext('AlignCenter') == 'true'
         outline = root.find(f"StaticAnimation[@item='{name}_Outline']")
@@ -161,30 +123,3 @@ def test_near_black_names_keep_native_bindings_and_reuse_the_existing_untinted_l
         assert outline.find('Tint') is None
         assert pieces.index(name) < pieces.index(name + '_Outline') < pieces.index(name + '_Name')
         assert root.find(f"SpellGem[@item='{name}']/SpellGemDrawTemplate/Holder").text == 'V3_CastHolder'
-
-
-@pytest.mark.skipif(sys.platform != 'win32', reason='Native deterministic atlas generator uses System.Drawing')
-def test_scoped_plate_generator_repairs_and_is_byte_idempotent(tmp_path):
-    actual = (SKIN / 'VantageControlEdges.tga').read_bytes()
-    candidate = tmp_path / 'VantageControlEdges.tga'
-    corrupted = bytearray(actual)
-    offset = 18 + ((34 + 12) * 512 + 2 + 60) * 4
-    corrupted[offset:offset + 4] = bytes((1, 2, 3, 4))
-    candidate.write_bytes(corrupted)
-    source = str(ROOT / 'scripts' / 'ui_control_edges.cs').replace("'", "''")
-    destination = str(candidate).replace("'", "''")
-    command = (
-        "$ErrorActionPreference='Stop'; "
-        f"Add-Type -Path '{source}' -ReferencedAssemblies System.Drawing; "
-        f"[VantageControlEdgesRenderer]::RenderSpellNamePlate('{destination}'); "
-        f"$first=[IO.File]::ReadAllBytes('{destination}'); "
-        f"[VantageControlEdgesRenderer]::RenderSpellNamePlate('{destination}'); "
-        f"$second=[IO.File]::ReadAllBytes('{destination}'); "
-        "if([Convert]::ToBase64String($first) -ne [Convert]::ToBase64String($second)) "
-        "{ throw 'Plate generator is not idempotent' }"
-    )
-    subprocess.run([
-        str(Path(r'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe')),
-        '-NoProfile', '-NonInteractive', '-Command', command,
-    ], check=True, capture_output=True, text=True, timeout=60)
-    assert candidate.read_bytes() == actual

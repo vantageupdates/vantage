@@ -1,4 +1,4 @@
-"""Build the neutral, high-value surface that EverQuest tints per spell gem.
+"""Build the restrained neutral surface that EverQuest tints per spell gem.
 
 The client supplies the spell-category hue at runtime.  A dark or colored source
 surface multiplies that hue down, so the background atlas must stay neutral and
@@ -19,16 +19,17 @@ BACKGROUND_TOP = 28
 BACKGROUND_WIDTH = 120
 BACKGROUND_HEIGHT = 28
 
-# High-value neutral ramp: a soft highlight near the top and a controlled lower
-# shadow.  Runtime spell hues remain saturated because no baked hue is present.
+# Neutral ramp with the original relief and a uniform 7% linear-luminance cut.
+# Runtime spell hues stay unchanged because no baked hue is present; only their
+# intensity is reduced slightly (6.39%-7.49% after 8-bit rounding).
 BACKGROUND_SHADES = (
-    198, 220, 230, 238, 244, 248, 250, 248, 246, 242, 238, 234, 230, 226,
-    222, 216, 210, 204, 198, 192, 186, 180, 174, 168, 162, 158, 170, 196,
+    192, 213, 223, 230, 236, 240, 242, 240, 238, 234, 230, 227, 223, 219,
+    215, 209, 203, 198, 192, 186, 180, 174, 168, 163, 157, 153, 165, 190,
 )
 
 
 def brighten_spell_gem_background(data: bytes) -> bytes:
-    """Return the atlas with only V3_CastBackground neutralized and lifted."""
+    """Return the atlas with only V3_CastBackground set to its neutral ramp."""
     if len(data) != 18 + ATLAS_WIDTH * ATLAS_HEIGHT * 4:
         raise ValueError("Expected a 256x256 uncompressed 32-bit TGA")
     if data[:3] != bytes((0, 0, 2)):

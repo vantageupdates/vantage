@@ -1,5 +1,24 @@
 # VantageUI releases
 
+## 1.44.86
+
+Install folder: `VantageUI-v1.44.86`.
+
+- Restored the original cream text for all eight spell names and removed the
+  warm translucent name plate introduced in 1.44.85.
+- Byte-restored the prior fine grey outline and changed only the neutral
+  tintable spell-background ramp, reducing its linear luminance by 6.39 to
+  7.49 percent while retaining the existing 3D relief.
+- Preserved every native spell ID, EQType mapping, geometry, Pieces entry,
+  icon lane, colored perimeter and 120-by-28-pixel click target.
+- Titanium SIDL exposes one shared neutral source surface rather than separate
+  intensity controls for each dynamic spell-category hue, so every hue receives
+  the same subtle reduction.
+
+Load with `/loadskin VantageUI-v1.44.86 1`. Spell casting, hotkeys,
+hover/pressed feedback, dynamic tinting and native text rendering remain
+unverified until a live reload.
+
 ## 1.44.85
 
 Install folder: `VantageUI-v1.44.85`.

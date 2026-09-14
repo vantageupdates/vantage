@@ -188,7 +188,7 @@ def test_spell_grey_outline_is_untinted_noninteractive_and_inside_its_gem(index)
     assert list(xml).index(outline) < list(xml).index(item(xml, 'Screen', 'CastSpellWnd'))
 
 
-def test_spell_outline_keeps_its_grey_rounded_ring_and_clear_icon_lane():
+def test_spell_outline_is_a_fine_grey_rounded_ring_with_no_center_paint():
     animation = item(root('EQUI_Animations.xml'), 'Ui2DAnimation', 'A_VantageSpellGemOutline')
     assert animation.findtext('Cycle') == 'false'
     assert len(animation.findall('Frames')) == 1
@@ -199,16 +199,13 @@ def test_spell_outline_keeps_its_grey_rounded_ring_and_clear_icon_lane():
     def pixel(x, y):
         offset = 18 + 4 * ((y + 34) * 512 + x + 2)
         return tuple(data[offset:offset + 4])
-    def in_name_plate(x, y):
-        return 30 <= x < 118 and 2 <= y < 26
-    visible = [pixel(x, y) for y in range(28) for x in range(120)
-               if not in_name_plate(x, y) and pixel(x, y)[3]]
+    visible = [pixel(x, y) for y in range(28) for x in range(120) if pixel(x, y)[3]]
     assert visible and all(b == g == r for b, g, r, a in visible)
     assert 80 <= max(c[3] for c in visible) <= 170
     assert len({c[3] for c in visible}) > 8, 'Antialiased coverage, not hard square edges'
     for x, y in ((0, 0), (119, 0), (0, 27), (119, 27)):
         assert pixel(x, y)[3] == 0
-    assert all(pixel(x, y)[3] == 0 for y in range(4, 24) for x in range(5, 30))
+    assert all(pixel(x, y)[3] == 0 for y in range(4, 24) for x in range(5, 115))
     # Both horizontal and vertical edges exist; not just a disconnected line.
     assert any(pixel(60, y)[3] > 70 for y in range(3))
     assert any(pixel(60, y)[3] > 70 for y in range(25, 28))

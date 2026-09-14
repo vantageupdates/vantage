@@ -68,11 +68,11 @@ def test_version_frame_is_single_subtle_rounded_line():
 
 def test_brand_and_control_atlases_have_reviewed_hashes():
     expected = {
-        'VantageControlEdges.tga': '4bf5720c7ce4553351bf72bab87991c151da43131c17fc5e5ab64b47b6f3378d',
+        'VantageControlEdges.tga': 'bb5c99fa1973a6b6446cf16f43fd8534254f047593ddcae090d38141f86efe04',
         'VantageSlotHints.tga': '0e214c71cc332db388c12ddf10db55896e7fcf761549f75d0d41313fd0c3fadf',
         'classic_pieces01.tga': 'b8fc8eebe8e463e88e60538efc21ff51e416177336309ab8d54a5535bbec2e56',
         'quickbar_frames.tga': 'efdc8c0053136d4c1827b1840bdf00a850d62897ea80c1b7c915eaf9ced6f477',
-        'v3_controls.tga': 'cc40f8ea9c32bce5c0c47131fc2b137357a7e745dbd8061a359fa9eff8ac6e0f',
+        'v3_controls.tga': '1f80e76f5859a6513d23f312649aae1c58bc29697aeeba76b9ed966919adef55',
     }
     for name, digest in expected.items():
         assert hashlib.sha256((SKIN / name).read_bytes()).hexdigest() == digest
