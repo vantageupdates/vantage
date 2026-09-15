@@ -1,5 +1,22 @@
 # VantageUI releases
 
+## 1.44.88
+
+Install folder: `VantageUI-v1.44.88`.
+
+- Shifted the full Pet Info command block two pixels left: Attack and every
+  native command alias now use X positions 2 and 68 for improved optical
+  alignment inside the compact 136-pixel window.
+- Preserved every button width, height, Y position, 4-pixel column gap,
+  ScreenID, Pieces entry, draw template, tooltip and click target; Sit/Stand
+  remain coincident native aliases.
+- Set the pet-name gauge to Font 2 while preserving its EQType 16 binding,
+  text and gauge offsets, health geometry and all threshold layers.
+
+Load with `/loadskin VantageUI-v1.44.88 1`. Optical alignment, pet-name text,
+clicks, keyboard focus and native Sit/Stand switching remain unverified until
+an in-game reload.
+
 ## 1.44.87
 
 Install folder: `VantageUI-v1.44.87`.

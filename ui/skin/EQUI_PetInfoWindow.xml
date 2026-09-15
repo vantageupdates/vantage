@@ -203,7 +203,7 @@
     <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>4</X>
+      <X>2</X>
       <Y>42</Y>
     </Location>
     <Size>
@@ -236,7 +236,7 @@
     <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>4</X>
+      <X>2</X>
       <Y>64</Y>
     </Location>
     <Size>
@@ -269,7 +269,7 @@
     <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>70</X>
+      <X>68</X>
       <Y>64</Y>
     </Location>
     <Size>
@@ -302,7 +302,7 @@
     <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>4</X>
+      <X>2</X>
       <Y>86</Y>
     </Location>
     <Size>
@@ -335,7 +335,7 @@
     <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>70</X>
+      <X>68</X>
       <Y>86</Y>
     </Location>
     <Size>
@@ -369,7 +369,7 @@
     <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>70</X>
+      <X>68</X>
       <Y>86</Y>
     </Location>
     <Size>
@@ -402,7 +402,7 @@
     <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>4</X>
+      <X>2</X>
       <Y>108</Y>
     </Location>
     <Size>
@@ -435,7 +435,7 @@
     <!--<Font>3</Font>-->
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>70</X>
+      <X>68</X>
       <Y>108</Y>
     </Location>
     <Size>
@@ -541,6 +541,7 @@
     </Frames>
   </Ui2DAnimation>
   <Gauge item="Pet_HP_BG">
+    <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>6</X>

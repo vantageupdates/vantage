@@ -61,9 +61,12 @@ def test_chat_input_keeps_height_and_clearance_when_resized(width,height):
 
 def test_pet_health_and_commands_are_centered_in_compact_window():
     xml=root('EQUI_PetInfoWindow.xml')
-    expected={'Attack':(4,42,128,18),'Follow':(4,64,62,18),'Taunt':(70,64,62,18),
-              'Guard':(4,86,62,18),'Sit':(70,86,62,18),'Stand':(70,86,62,18),
-              'Back':(4,108,62,18),'Lost':(70,108,62,18)}
+    expected={'Attack':(2,42,128,18),'Follow':(2,64,62,18),'Taunt':(68,64,62,18),
+              'Guard':(2,86,62,18),'Sit':(68,86,62,18),'Stand':(68,86,62,18),
+              'Back':(2,108,62,18),'Lost':(68,108,62,18)}
+    tooltips={'Attack':'Pet Attack','Follow':'Pet Follow Me','Taunt':'Pet Taunt',
+              'Guard':'Pet Guard Here','Sit':'Pet Sit Down','Stand':'Pet Stand Up',
+              'Back':'Pet Back Off','Lost':'Pet Get Lost'}
     parent=xml.find("Screen[@item='PetInfoWindow']")
     assert rect(parent)==(50,160,136,135)
     pieces=[n.text for n in parent.findall('Pieces')]
@@ -74,18 +77,32 @@ def test_pet_health_and_commands_are_centered_in_compact_window():
         button=xml.find(f"Button[@item='PIW_{name}Button']")
         assert rect(button)==box
         assert button.findtext('ScreenID') == name+'Button'
+        assert button.findtext('TooltipReference') == tooltips[name]
         assert button.findtext('Style_Transparent')=='true' and button.findtext('Style_Border')=='false'
         assert pieces.count('PIW_'+name+'Button')==1
-        assert box[0]>=4 and box[0]+box[2]<=132 and box[1]+box[3]<=126
+        assert box[0]>=2 and box[0]+box[2]<=130 and box[1]+box[3]<=126
         for state in ('Normal','Pressed','Flyby','Disabled','PressedFlyby'):
             prefix='A_VantageActions' if name=='Attack' else 'A_VantagePet'
             assert button.findtext('ButtonDrawTemplate/'+state) == prefix+state
     health=xml.find("Gauge[@item='Pet_HP_BG']")
     assert rect(health)==(6,5,124,34)
+    assert health.findtext('Font')=='2'
     assert health.findtext('EQType')=='16'
+    assert health.findtext('Text')=='No Pet'
+    assert (health.findtext('TextOffsetX'),health.findtext('TextOffsetY'))==('25','0')
+    assert (health.findtext('GaugeOffsetX'),health.findtext('GaugeOffsetY'))==('20','14')
+    assert health.findtext('GaugeDrawTemplate/Background')=='A_dzBackground'
     assert rect(health)[0] == rect(parent)[2]-(rect(health)[0]+rect(health)[2]) == 6
-    assert rect(xml.find("Button[@item='PIW_AttackButton']"))[0] == \
-           rect(parent)[2]-(4+128) == 4
+    attack=rect(xml.find("Button[@item='PIW_AttackButton']"))
+    assert attack[0]==2 and rect(parent)[2]-(attack[0]+attack[2])==6
+    assert (attack[0]+attack[2]/2)-rect(parent)[2]/2 == -2
+    follow=rect(xml.find("Button[@item='PIW_FollowButton']"))
+    taunt=rect(xml.find("Button[@item='PIW_TauntButton']"))
+    assert follow[0]==attack[0]==2
+    assert taunt[0]-(follow[0]+follow[2])==4
+    assert rect(parent)[2]-(taunt[0]+taunt[2])==6
+    assert rect(xml.find("Button[@item='PIW_SitButton']")) == \
+           rect(xml.find("Button[@item='PIW_StandButton']"))
     hidden=xml.find("Screen[@item='PIW_BuffWindow']")
     assert rect(hidden)==(-5000,0,0,0)
     hidden_pieces=[node.text for node in hidden.findall('Pieces')]

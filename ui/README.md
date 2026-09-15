@@ -18,7 +18,7 @@ prune, or adopt it. Every delivered version must be exported to this repository
 and published through the independent UI update channel. Install the same
 verified release locally; do not hand off a separate unmanaged local-only copy.
 New releases install beside the source as
-`VantageUI-v<major.minor.patch>`, for example `VantageUI-v1.44.87`. All XML and
+`VantageUI-v<major.minor.patch>`, for example `VantageUI-v1.44.88`. All XML and
 image files remain directly inside each skin folder, without another nested skin
 directory. Neither packaging nor updating changes character INIs or another
 skin. The matching Titanium/Project 1999 client default skin is still required
@@ -34,13 +34,13 @@ health bars with yellow/orange/red thresholds, and restored native containers.
 Keep future exports explicit and review
 their asset diffs before packaging or publication.
 
-The 1.44.87 player-mana pass adds twenty native 5-percent threshold states to
-the existing mana gauge. Most of the range remains blue, shifts through violet
-near critical mana, and becomes red only from 0 through 10 percent. The native
-`PlayerMana` EQType 2 binding and geometry remain intact, as does the numeric
-`ManaLabel` EQType 20 readout, so color reinforces rather than replaces the
-quantity. Offline contract and palette checks pass; the live transition and
-native rendering still need an in-game reload.
+The 1.44.88 Pet Info pass shifts the complete command block two pixels left for
+better optical alignment in the compact 136-pixel window. Attack and all native
+aliases now use X positions 2 and 68 while retaining their sizes, Y positions,
+4-pixel column gap, bindings, Pieces order, draw templates, tooltips and click
+targets. The pet-name gauge now uses Font 2; its EQType 16 binding, health
+geometry and threshold layers are unchanged. Native optical rendering, clicks,
+focus and Sit/Stand switching still need an in-game reload.
 
 The latest conservative pass restores opaque native window backgrounds after
 the transparent-background experiment failed in game. Spell spacing, subdued
@@ -110,7 +110,7 @@ version or tag. A UI-only release does not increment Companion and does not buil
 or publish `Vantage.exe`. After focused and complete tests, coordinate publication
 of the updater and both transport assets on a reviewed
 `vantage-ui-v<major.minor.patch>` tag in `vantageupdates/vantage`. For this
-candidate the tag is `vantage-ui-v1.44.87`. Verify public asset sizes and
+candidate the tag is `vantage-ui-v1.44.88`. Verify public asset sizes and
 SHA-256 digests against the tested artifacts. An arbitrary source push must not
 automatically publish an unreviewed UI update. The repository
 [release policy](../AGENTS.md) records the separation between Companion and UI
@@ -163,7 +163,7 @@ and the transport payload without publishing `Vantage.exe`. The frontend uses
 only Python's standard library and Tk, without bundling another Qt runtime.
 Settings and external download state belong in
 `%LOCALAPPDATA%\Vantage\UIUpdater`; released skins live in sibling folders such
-as `uifiles\VantageUI-v1.44.87`. Shared managed-version state is stored beside
+as `uifiles\VantageUI-v1.44.88`. Shared managed-version state is stored beside
 them in `uifiles\.vantage-ui-registry.json`, with the namespace lock
 `uifiles\.vantage-ui-update.lock`. The legacy `uifiles\VantageUI` folder remains
 untouched.
@@ -223,7 +223,7 @@ After installation, the updater shows the exact folder name and provides a
 copyable command. Load the new version manually, for example:
 
 ```text
-/loadskin VantageUI-v1.44.87 1
+/loadskin VantageUI-v1.44.88 1
 ```
 
 The updater never writes character INIs or changes EverQuest's selected skin.
