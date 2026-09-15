@@ -76,6 +76,7 @@ _ACTIVE_EFFECTS = set()
 _MUTED = False
 _SPEECH = None
 _DEFAULT_VOICE_NAME = ""
+_SPEECH_PREWARM_PENDING = False
 
 
 def _percent(value, default=100):
@@ -187,6 +188,8 @@ def audio_muted():
 def set_audio_muted(muted):
     """Globally mute new alerts and immediately stop active Vantage audio."""
     global _MUTED
+    was_muted = bool(_MUTED or config.data.get(
+        "general", {}).get("audio_muted", False))
     _MUTED = bool(muted)
     # Update the in-memory preference in the same operation.  Previously the
     # application wrote config on the following line, leaving two mute states
@@ -194,6 +197,9 @@ def set_audio_muted(muted):
     config.data.setdefault("general", {})["audio_muted"] = _MUTED
     if _MUTED:
         stop_all_audio()
+    elif was_muted:
+        # Recreate the discarded backend before the first post-mute alert.
+        prewarm_speech_engine()
 
 
 def _playback_block_reason(app, channel="", allow_hidden=False):
@@ -298,6 +304,43 @@ def _speech_engine():
         except (AttributeError, RuntimeError):
             _DEFAULT_VOICE_NAME = ""
     return _SPEECH
+
+
+def _finish_speech_prewarm():
+    """Initialize the local Qt/SAPI backend without speaking or taking focus."""
+    global _SPEECH_PREWARM_PENDING
+    _SPEECH_PREWARM_PENDING = False
+    if audio_muted():
+        return False
+    speech = _speech_engine()
+    if speech is None:
+        return False
+    # Voice discovery and selection are part of the measurable cold path on
+    # Windows. Do them now on Qt's owning thread so the first real alert only
+    # has to submit its text to the already initialized backend.
+    _apply_speech_profile(speech, profile_audio_settings())
+    return True
+
+
+def prewarm_speech_engine(delay_ms=0):
+    """Schedule one silent speech-backend warm-up on the Qt event loop.
+
+    QTextToSpeech and its Windows SAPI backend are Qt objects and must stay on
+    the application thread. A zero-delay Qt callback is asynchronous with
+    respect to application construction but never creates a worker thread,
+    speaks, or changes window focus.
+    """
+    global _SPEECH_PREWARM_PENDING
+    if _SPEECH is not None:
+        return True
+    app = QApplication.instance()
+    if (app is None or QTextToSpeech is None or audio_muted() or
+            _SPEECH_PREWARM_PENDING):
+        return bool(_SPEECH_PREWARM_PENDING)
+    _SPEECH_PREWARM_PENDING = True
+    QTimer.singleShot(
+        max(0, int(delay_ms or 0)), _finish_speech_prewarm)
+    return True
 
 
 def speech_voice_names():
@@ -421,6 +464,20 @@ def _apply_speech_profile(speech, settings, voice_name="", pitch=0):
         pass
 
 
+def _stop_speech_immediately(speech):
+    """Flush queued speech at the earliest boundary supported by Qt/SAPI."""
+    boundary = getattr(
+        getattr(QTextToSpeech, "BoundaryHint", None), "Immediate", None)
+    try:
+        if boundary is not None:
+            speech.stop(boundary)
+        else:
+            speech.stop()
+    except TypeError:
+        # Small test adapters and older Qt bindings only expose stop().
+        speech.stop()
+
+
 def stop_all_audio():
     """Immediately silence and dispose every Vantage playback backend."""
     global _SPEECH
@@ -453,7 +510,7 @@ def stop_all_audio():
         except (AttributeError, RuntimeError):
             pass
         try:
-            speech.stop()
+            _stop_speech_immediately(speech)
         except (AttributeError, RuntimeError):
             pass
         try:
@@ -547,8 +604,13 @@ def play_alert(
 def speak_text(
         text, volume=80, interrupt=False, source="Vantage speech",
         character="", server="", channel="", allow_hidden=False,
-        voice_name="", pitch=0):
-    """Speak resolved trigger text through the built-in Windows voice."""
+        voice_name="", pitch=0, replace_pending=False):
+    """Speak resolved trigger text through the built-in Windows voice.
+
+    Automatic notifications pass ``replace_pending=True`` so a fresh event is
+    never trapped behind obsolete speech. Explicit trigger authors retain the
+    separate ``interrupt`` switch: false preserves the queue and true stops it.
+    """
     message = str(text or "").strip()
     app = QApplication.instance()
     blocked = _playback_block_reason(app, channel, allow_hidden)
@@ -562,8 +624,8 @@ def speak_text(
     speech = _speech_engine()
     if not message or volume <= 0 or speech is None:
         return False
-    if interrupt:
-        speech.stop()
+    if interrupt or replace_pending:
+        _stop_speech_immediately(speech)
     _apply_speech_profile(
         speech, profile, voice_name=str(voice_name or "").strip(),
         pitch=pitch)
@@ -572,7 +634,7 @@ def speak_text(
     if blocked:
         try:
             speech.setVolume(0.0)
-            speech.stop()
+            _stop_speech_immediately(speech)
         except (AttributeError, RuntimeError):
             pass
         _report_blocked(app, source, blocked, channel)

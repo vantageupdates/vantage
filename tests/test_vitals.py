@@ -19,7 +19,7 @@ from vantage.helpers import config
 from vantage.helpers.game_capture import GameWindowCapture
 from vantage.helpers.quickbar_items import QUICKBAR_ITEMS
 from vantage.helpers.vitals import (
-    MIN_CONFIDENCE, VitalStopTracker, default_vital_bars,
+    MIN_CONFIDENCE, VitalStopTracker, default_vital_bar, default_vital_bars,
     default_vital_stop, denormalize_rect, normalize_rect, preset_percentages,
     read_visible_percent, read_vital_bar, sanitize_vital_bar,
     sanitize_vital_bars)
@@ -513,6 +513,41 @@ def test_numeric_migration_keeps_ocr_roi_and_clears_legacy_bar_roi():
     persisted = sanitize_vital_bar(migrated)
     assert persisted["rect"] == numeric_rect
     assert persisted["ocr_calibrated"] is True
+
+
+def test_full_alert_silence_defaults_migrate_and_preserve_explicit_values():
+    defaults = default_vital_bars()
+    assert [bar["silence_full_alerts"] for bar in defaults] == [
+        False, False, True, False]
+
+    # Existing target profiles without the field migrate safely, while other
+    # overlay types retain the original full-health alert behavior.
+    assert sanitize_vital_bar({
+        "id": "old-target", "type": "target_hp",
+    })["silence_full_alerts"] is True
+    assert sanitize_vital_bar({
+        "id": "old-player", "type": "my_hp",
+    })["silence_full_alerts"] is False
+
+    opted_in = sanitize_vital_bar({
+        "id": "player", "type": "my_hp", "silence_full_alerts": True,
+    })
+    opted_out = sanitize_vital_bar({
+        "id": "target", "type": "target_hp", "silence_full_alerts": False,
+    })
+    assert opted_in["silence_full_alerts"] is True
+    assert opted_out["silence_full_alerts"] is False
+
+    # Sanitization persists an explicit preference, so changing Type later
+    # cannot silently replace the user's choice with that type's default.
+    opted_in["type"] = "custom"
+    opted_out["type"] = "group_hp"
+    assert sanitize_vital_bar(opted_in)["silence_full_alerts"] is True
+    assert sanitize_vital_bar(opted_out)["silence_full_alerts"] is False
+
+    round_trip = sanitize_vital_bars(json.loads(json.dumps([
+        opted_in, opted_out])))
+    assert [bar["silence_full_alerts"] for bar in round_trip] == [True, False]
 
 
 def test_one_poll_monitors_every_enabled_saved_bar_from_the_same_frame():
@@ -1042,6 +1077,104 @@ def test_vital_bar_has_one_numeric_reading_flow_and_no_obsolete_controls():
     assert all(term not in visible_copy
                for term in ("bar fill", "color tolerance", "legacy", "fallback"))
     dialog.close()
+
+
+@pytest.mark.parametrize("bar_type", [
+    "my_hp", "my_mana", "target_hp", "group_hp", "custom",
+])
+def test_overlay_editor_exposes_accessible_full_alert_silence_for_every_type(
+        bar_type):
+    app = _app()
+    bar = default_vital_bar("test", "Test overlay", bar_type)
+    dialog = VitalBarDialog(bar)
+    dialog.show()
+    app.processEvents()
+
+    control = dialog.silence_full_alerts
+    assert control.text() == "Mute sound and speech at 100%"
+    assert control.accessibleName() == "Mute sound and speech at 100%"
+    description = control.accessibleDescription()
+    assert "Sound and text-to-speech" in description
+    assert "this overlay reads 100%" in description
+    assert "Visual notifications" in description
+    assert "lower alert stops remain active" in description
+    assert dialog.silence_full_label.text() == "Full-health audio"
+    assert dialog.silence_full_label.buddy() is control
+    assert control.isChecked() is (bar_type == "target_hp")
+
+    dialog.name.setFocus(Qt.FocusReason.TabFocusReason)
+    for expected in (dialog.kind, dialog.enabled, control, dialog.stop_list):
+        QTest.keyClick(dialog.focusWidget(), Qt.Key.Key_Tab)
+        app.processEvents()
+        assert dialog.focusWidget() is expected
+
+    control.setChecked(not control.isChecked())
+    saved_choice = control.isChecked()
+    dialog.kind.setCurrentIndex(dialog.kind.findData(
+        "custom" if bar_type == "target_hp" else "target_hp"))
+    assert dialog.value()["silence_full_alerts"] is saved_choice
+    dialog.close()
+
+
+def test_target_full_alert_silence_mutes_audio_but_preserves_visual_and_lower(
+        monkeypatch):
+    notifications = []
+    deliveries = []
+
+    class OverlayApp:
+        def show_overlay_notification(self, *args, **kwargs):
+            notifications.append((args, kwargs))
+
+    class FakeApplication:
+        @staticmethod
+        def instance():
+            return OverlayApp()
+
+    monkeypatch.setattr(vitals_module, "QApplication", FakeApplication)
+    owner = type("Owner", (), {})()
+    owner._play_delivery = lambda *args: deliveries.append(args) or True
+    bar = sanitize_vital_bar({
+        "id": "target", "name": "Target HP", "type": "target_hp",
+        "stops": [
+            dict(default_vital_stop(75, "below", 0), cooldown=0),
+            dict(default_vital_stop(50, "below", 1), cooldown=0,
+                 delivery="tts"),
+            dict(default_vital_stop(100, "full", 2), cooldown=0),
+        ],
+    })
+    tracker = VitalStopTracker()
+
+    def update(percent, now):
+        events = tracker.update(
+            bar["id"], percent, bar["stops"], confidence=1.0, now=now)
+        for stop, crossed in events:
+            Vitals._deliver_stop(owner, bar, stop, percent, crossed)
+        return [crossed for _stop, crossed in events]
+
+    assert update(80, 0) == []
+    assert update(74, 1) == ["below"]
+    assert update(49, 2) == ["below"]
+    assert len(notifications) == 2 and len(deliveries) == 2
+
+    # The tracker emits and advances its full state. The accessible visual
+    # notification remains, while the Sound route is muted. Holding at 100
+    # cannot create a stale second alert.
+    assert update(100, 3) == ["full"]
+    assert update(100, 4) == []
+    assert len(notifications) == 3 and len(deliveries) == 2
+
+    # Damage rearms the tracker. Muting applies equally to a TTS full stop,
+    # while its visual notice remains; disabling the per-overlay choice then
+    # restores the speech delivery too.
+    bar["stops"][2]["delivery"] = "tts"
+    assert update(96, 5) == []
+    assert update(100, 6) == ["full"]
+    assert len(notifications) == 4 and len(deliveries) == 2
+    bar["silence_full_alerts"] = False
+    assert update(96, 7) == []
+    assert update(100, 8) == ["full"]
+    assert len(notifications) == 5 and len(deliveries) == 3
+    assert deliveries[-1][0]["delivery"] == "tts"
 
 
 def test_overlay_name_validation_is_visible_associated_and_keyboard_focused():

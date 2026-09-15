@@ -63,6 +63,8 @@ class _Speech:
         self.pitch = None
         self.volume = None
         self.message = None
+        self.messages = []
+        self.events = []
         self.stop_count = 0
         self.deleted = False
 
@@ -86,9 +88,12 @@ class _Speech:
 
     def say(self, message):
         self.message = message
+        self.messages.append(message)
+        self.events.append(('say', message))
 
     def stop(self):
         self.stop_count += 1
+        self.events.append(('stop', None))
 
     def deleteLater(self):
         self.deleted = True
@@ -391,6 +396,153 @@ def test_hidden_owner_blocks_runtime_audio_but_direct_test_can_play(
         channel='spells', allow_hidden=True)
     assert app.events[-1] == ('Test · buff sound', 'builtin:test', 80)
     audio._ACTIVE_EFFECTS.clear()
+
+
+def test_speech_prewarm_is_silent_async_and_scheduled_only_once(monkeypatch):
+    app = _App()
+    config.data = {
+        'general': {'audio_muted': False},
+        'spells': {'audio_profiles': {}}}
+    callbacks = []
+    created = []
+    speech = _Speech()
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, '_SPEECH', None)
+    monkeypatch.setattr(audio, '_SPEECH_PREWARM_PENDING', False)
+    monkeypatch.setattr(audio, '_DEFAULT_VOICE_NAME', '')
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, 'QTimer', type('Timer', (), {
+        'singleShot': staticmethod(
+            lambda delay, callback: callbacks.append((delay, callback)))}))
+    monkeypatch.setattr(
+        audio, 'QTextToSpeech',
+        lambda parent: created.append(parent) or speech)
+
+    assert audio.prewarm_speech_engine()
+    assert audio.prewarm_speech_engine()
+    assert len(callbacks) == 1
+    assert created == []
+    assert speech.messages == []
+
+    callbacks[0][1]()
+
+    assert callbacks[0][0] == 0
+    assert created == [app]
+    assert audio._SPEECH is speech
+    assert speech.messages == []
+    assert speech.stop_count == 0
+    assert audio.prewarm_speech_engine()
+    assert len(callbacks) == 1
+
+    # The first real alert reuses the warmed backend; it does not construct a
+    # second SAPI engine or wait for another scheduled callback.
+    assert audio.speak_text('First live alert', replace_pending=True)
+    assert created == [app]
+    assert len(callbacks) == 1
+    assert speech.events[-2:] == [
+        ('stop', None), ('say', 'First live alert')]
+
+
+def test_unmute_schedules_a_fresh_silent_backend_after_queue_reset(monkeypatch):
+    app = _App()
+    config.data = {
+        'general': {'audio_muted': True},
+        'spells': {'audio_profiles': {}}}
+    callbacks = []
+    monkeypatch.setattr(audio, '_MUTED', True)
+    monkeypatch.setattr(audio, '_SPEECH', None)
+    monkeypatch.setattr(audio, '_SPEECH_PREWARM_PENDING', False)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, 'QTimer', type('Timer', (), {
+        'singleShot': staticmethod(
+            lambda delay, callback: callbacks.append((delay, callback)))}))
+
+    audio.set_audio_muted(False)
+
+    assert config.data['general']['audio_muted'] is False
+    assert audio._SPEECH_PREWARM_PENDING is True
+    assert len(callbacks) == 1
+
+
+def test_automatic_speech_replaces_stale_queue_but_explicit_false_queues(
+        monkeypatch):
+    app = _App()
+    config.data = {
+        'general': {'audio_muted': False, 'master_volume': 100},
+        'spells': {'audio_profiles': {}}}
+    speech = _Speech()
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, '_SPEECH', speech)
+
+    assert audio.speak_text('Old automatic', replace_pending=True)
+    assert audio.speak_text('Latest automatic', replace_pending=True)
+    assert speech.events[-2:] == [
+        ('stop', None), ('say', 'Latest automatic')]
+    assert speech.stop_count == 2
+
+    before = speech.stop_count
+    assert audio.speak_text('Explicit queued', interrupt=False)
+    assert speech.stop_count == before
+    assert speech.events[-1] == ('say', 'Explicit queued')
+    assert audio.speak_text('Explicit interrupt', interrupt=True)
+    assert speech.events[-2:] == [
+        ('stop', None), ('say', 'Explicit interrupt')]
+
+
+def test_automatic_replacement_requests_qt_immediate_boundary(monkeypatch):
+    app = _App()
+    config.data = {
+        'general': {'audio_muted': False, 'master_volume': 100},
+        'spells': {'audio_profiles': {}}}
+
+    class Speech(_Speech):
+        def stop(self, boundary=None):
+            self.stop_count += 1
+            self.events.append(('stop', boundary))
+
+    class SpeechApi:
+        class BoundaryHint:
+            Immediate = 'immediate'
+
+    speech = Speech()
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, 'QTextToSpeech', SpeechApi)
+    monkeypatch.setattr(audio, '_SPEECH', speech)
+
+    assert audio.speak_text('Latest event', replace_pending=True)
+    assert speech.events[:2] == [
+        ('stop', 'immediate'), ('say', 'Latest event')]
+
+
+def test_replacement_speech_still_honors_hidden_and_mute_gates(monkeypatch):
+    app = _App()
+    app.channel_visible = False
+    config.data = {
+        'general': {'audio_muted': False, 'master_volume': 100},
+        'spells': {'audio_profiles': {}}}
+    speech = _Speech()
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, '_SPEECH', speech)
+
+    assert not audio.speak_text(
+        'Blocked automatic', channel='vitals', replace_pending=True)
+    assert speech.events == []
+    assert app.blocked[-1] == (
+        'Vantage speech', 'window hidden', 'vitals')
+
+    app.channel_visible = True
+    config.data['general']['audio_muted'] = True
+    assert not audio.speak_text(
+        'Muted automatic', channel='vitals', replace_pending=True)
+    assert not any(event == ('say', 'Muted automatic') for event in speech.events)
 
 
 def test_config_reload_mute_stops_active_wav_and_flushes_speech(monkeypatch):

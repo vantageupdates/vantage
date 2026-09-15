@@ -141,11 +141,16 @@ def default_vital_bars():
 
 
 def default_vital_bar(bar_id="custom", name="Custom bar", bar_type="custom"):
+    bar_type = bar_type if bar_type in BAR_TYPES else "custom"
     return {
         "id": _identifier(bar_id, "custom"),
         "name": str(name or "Custom bar")[:80],
-        "type": bar_type if bar_type in BAR_TYPES else "custom",
+        "type": bar_type,
         "enabled": True,
+        # Changing targets commonly produces a damaged -> 100 transition. Mob
+        # overlays silence that noisy full-health alert by default while every
+        # lower threshold remains active.
+        "silence_full_alerts": bar_type == "target_hp",
         "ocr_calibrated": False,
         "rect": [],
         "stops": [],
@@ -187,6 +192,11 @@ def sanitize_vital_bar(raw, index=0):
         "name": name,
         "type": bar_type,
         "enabled": bool(raw.get("enabled", True)),
+        # A missing value is a legacy profile. Default only target/mob bars to
+        # silence; once sanitized, the explicit value survives later edits and
+        # type changes.
+        "silence_full_alerts": bool(raw.get(
+            "silence_full_alerts", bar_type == "target_hp")),
         "ocr_calibrated": bool(rect),
         "rect": rect,
         "stops": stops,

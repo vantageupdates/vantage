@@ -211,7 +211,9 @@ def test_dispatch_registers_semantics_before_exactly_one_audio(monkeypatch):
     config.data['sounds'] = {'routes': {
         'tell_message': {'delivery': 'voice', 'sound': '', 'voice': 'Amy'}}}
     monkeypatch.setattr(application, 'speak_text', lambda text, *a, **k: (
-        host.events.append(('voice', text, k.get('voice_name'))) or True))
+        host.events.append((
+            'voice', text, k.get('voice_name'),
+            k.get('replace_pending'))) or True))
     monkeypatch.setattr(application, 'play_alert', lambda *a, **k: (
         host.events.append(('sound', a[0])) or True))
     try:
@@ -222,7 +224,7 @@ def test_dispatch_registers_semantics_before_exactly_one_audio(monkeypatch):
             'voice', 'played', True)
         assert host.events == [
             ('text', 'Tell from Ayla'),
-            ('voice', 'Incoming tell from Ayla', 'Amy')]
+            ('voice', 'Incoming tell from Ayla', 'Amy', True)]
     finally:
         config.data['sounds'] = original
 

@@ -595,10 +595,22 @@ class VitalBarDialog(QDialog):
             "this bar's saved overlay area. "
             "Direct capture can continue while Vantage is in focus; safe "
             "screen capture may require EverQuest in the foreground.")
+        self.silence_full_alerts = QCheckBox(
+            "Mute sound and speech at 100%")
+        self.silence_full_alerts.setChecked(
+            self._bar["silence_full_alerts"])
+        self.silence_full_alerts.setAccessibleName(
+            "Mute sound and speech at 100%")
+        self.silence_full_alerts.setAccessibleDescription(
+            "Prevents Sound and text-to-speech when this overlay reads 100%. "
+            "Visual notifications and lower alert stops remain active.")
+        self.silence_full_label = QLabel("Full-health audio")
+        self.silence_full_label.setBuddy(self.silence_full_alerts)
         form.addRow(self.name_label, self.name)
         form.addRow("", self.name_error)
         form.addRow("Type", self.kind)
         form.addRow("Enabled", self.enabled)
+        form.addRow(self.silence_full_label, self.silence_full_alerts)
 
         stops_label = QLabel("Alert stops")
         stops_label.setObjectName("SettingsHeader")
@@ -650,6 +662,10 @@ class VitalBarDialog(QDialog):
         root = QVBoxLayout(self)
         root.addWidget(scrollable(page), 1)
         root.addWidget(buttons)
+        self.setTabOrder(self.name, self.kind)
+        self.setTabOrder(self.kind, self.enabled)
+        self.setTabOrder(self.enabled, self.silence_full_alerts)
+        self.setTabOrder(self.silence_full_alerts, self.stop_list)
 
     def keyPressEvent(self, event):
         if (event.key() == Qt.Key.Key_Delete and
@@ -715,8 +731,6 @@ class VitalBarDialog(QDialog):
             self.name_error.setText(message)
             self.name_error.setAccessibleDescription(message)
             self.name_error.show()
-            self.name.setAccessibleDescription(
-                f"Error: {message} {self._name_description}")
             self.name.setFocus(Qt.FocusReason.OtherFocusReason)
             _announce(self.name, message)
             self.name.setAccessibleDescription(
@@ -737,6 +751,7 @@ class VitalBarDialog(QDialog):
             "name": self.name.text().strip(),
             "type": self.kind.currentData(),
             "enabled": self.enabled.isChecked(),
+            "silence_full_alerts": self.silence_full_alerts.isChecked(),
             "stops": [dict(stop) for stop in self._stops],
         })
         return sanitize_vital_bar(result, 0)
@@ -1215,7 +1230,12 @@ class Vitals(ParserWindow):
             app.show_overlay_notification(
                 "Vantage · Vitals", message, msecs=5500,
                 overlay_id="alerts", quickbar_channel="vitals")
-        self._play_delivery(stop, bar["name"], percent, crossed)
+        silence_full = bool(bar.get(
+            "silence_full_alerts",
+            str(bar.get("type", "")).casefold() == "target_hp"))
+        if crossed == "full" and silence_full:
+            return False
+        return self._play_delivery(stop, bar["name"], percent, crossed)
 
     def _play_delivery(self, stop, name, percent, crossed):
         delivery = stop.get("delivery", "off")
@@ -1236,7 +1256,7 @@ class Vitals(ParserWindow):
                 character=getattr(self, "_active_character", ""),
                 server=getattr(self, "_active_server", ""), channel="vitals",
                 allow_hidden=False, voice_name=stop.get("voice", ""),
-                pitch=stop.get("pitch", 0))
+                pitch=stop.get("pitch", 0), replace_pending=True)
         return False
 
     def _test_delivery(self, stop, name, percent, crossed):

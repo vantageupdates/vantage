@@ -740,7 +740,7 @@ class TimerEditDialog(UniformScaleDialog):
                 server=getattr(owner, "_active_server", ""),
                 channel="timers", allow_hidden=True,
                 voice_name=str(self.tts_voice.currentData() or ""),
-                pitch=self.tts_pitch.value())
+                pitch=self.tts_pitch.value(), replace_pending=True)
             result = type("Result", (), {
                 "delivery": "tts", "state": (
                     "played" if played else "unavailable"), "reason": ""})()
@@ -2750,7 +2750,8 @@ class SpawnTimers(ParserWindow):
                 speech, timer.volume, source=f"Smart Timer · {message}",
                 character=common["character"], server=common["server"],
                 channel="timers", allow_hidden=False,
-                voice_name=timer.tts_voice, pitch=timer.tts_pitch)
+                voice_name=timer.tts_voice, pitch=timer.tts_pitch,
+                replace_pending=True)
         if delivery == "off":
             return app.notify_event(
                 route, message, delivery_override="off", **common)

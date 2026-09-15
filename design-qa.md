@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.97 design QA
+# Vantage Companion 1.44.98 design QA
 
 final result: passed
 
@@ -36,6 +36,14 @@ final result: passed
   unavailable saved voices remain visible and saved while the fallback is
   active. Notification routes, custom triggers, Smart Timers, and Vitals passed
   focused keyboard, status, and accessible-state review with no findings.
+- Text-to-speech now silently prewarms Qt/SAPI on the Qt application thread,
+  without speaking or taking focus. The measured Windows cold path was
+  291–311 ms and cached access was approximately 0.005 ms. Automatic routes,
+  Smart Timers, Vitals, tests, and replay replace stale queued announcements
+  at Qt's immediate boundary; an allowed background alert does not require
+  Vantage focus. Master Mute, master volume, per-window hidden-audio policy,
+  saved voices/profiles, and each custom trigger's explicit interrupt choice
+  remain authoritative.
 - Sounds adds one explicit app-wide **Starting notification style** selector
   for **Beeps** or **Text to speech**, followed by **Apply to defaults**. It is
   a preview, not a bulk overwrite: custom/portable WAVs, non-default gallery
@@ -55,6 +63,11 @@ final result: passed
   preserving the overlay ID, calibrated rectangle, thresholds, type, and
   enabled state; saving immediately rebuilds the card and persists the new
   name. Empty names remain in the dialog with a visible and announced error.
+- Every Vitals overlay now exposes **Mute sound and speech at 100%**. It
+  defaults On for Target/Mob HP so changing targets cannot repeatedly announce
+  full health, while the visible Quick Bar notice and every lower alert stop
+  remain active. The value is explicit after migration and persists through
+  editing, type changes, save/reload, and an intentional user opt-out.
 - Vitals now follows the shared parser replica contract: **Mini** produces the
   true 35% scaled replica instead of reflowing into a forced 240 px surface.
   Roll-up reduces the window to its header only, updates the accessible action

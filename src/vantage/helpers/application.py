@@ -14,7 +14,7 @@ import semver
 from vantage.helpers import config, logreader, resource_path
 from vantage.helpers.audio import (
     audio_muted, master_volume, playback_block_reason, play_alert,
-    set_audio_muted, sound_display_name, speak_text)
+    prewarm_speech_engine, set_audio_muted, sound_display_name, speak_text)
 from vantage.helpers.camp_session import CampSessionController
 from vantage.helpers.character_context import CharacterContextTracker
 from vantage.helpers.icons import WINDOW_ICONS, game_icon
@@ -57,7 +57,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=97,
+    patch=98,
     build=""
 )
 
@@ -122,6 +122,10 @@ class VantageApp(QApplication):
         self._last_update_success = ""
         self._tell_audio_cooldown = TellAudioCooldown()
         set_audio_muted(config.data['general'].get('audio_muted', False))
+        # QTextToSpeech/SAPI has a noticeable one-time startup cost. Prepare it
+        # silently once the Qt event loop starts so the first live alert is not
+        # delayed and no background thread touches Qt-owned objects.
+        prewarm_speech_engine()
 
         # Load Signals
         self._signals = {}
@@ -637,7 +641,7 @@ class VantageApp(QApplication):
                 str(voice_text or route.default_voice), volume,
                 source=source, character=character, server=server,
                 channel=owner, voice_name=saved["voice"],
-                allow_hidden=allow_hidden)
+                allow_hidden=allow_hidden, replace_pending=True)
             reason = playback_block_reason(owner, allow_hidden)
             if not reason and master_volume() <= 0:
                 reason = "master volume 0%"
@@ -1033,7 +1037,7 @@ class VantageApp(QApplication):
         if sound_path.startswith("tts:"):
             played = speak_text(
                 sound_path[4:], volume, source=f"Replay · {source}",
-                allow_hidden=True)
+                allow_hidden=True, replace_pending=True)
         else:
             played = play_alert(
                 sound_path, volume, source=f"Replay · {source}",
