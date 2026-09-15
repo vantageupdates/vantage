@@ -18,6 +18,27 @@ TIMER_MODE_COUNTDOWN = "countdown"
 TIMER_MODE_COOLDOWN = "cooldown"
 TIMER_MODES = {
     TIMER_MODE_SPAWN, TIMER_MODE_COUNTDOWN, TIMER_MODE_COOLDOWN}
+MAX_DEATH_MOBS = 24
+MAX_DEATH_MOB_NAME_LENGTH = 128
+
+
+def normalize_death_mobs(values):
+    """Return a bounded, stable list of exact mob/placeholder names."""
+    if not isinstance(values, (list, tuple)):
+        return []
+    result = []
+    seen = set()
+    for value in values:
+        name = " ".join(str(value or "").split())[
+            :MAX_DEATH_MOB_NAME_LENGTH]
+        key = name.casefold()
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        result.append(name)
+        if len(result) >= MAX_DEATH_MOBS:
+            break
+    return result
 
 
 def zone_timer_visible(timer_zone, selected_zone):
@@ -59,6 +80,9 @@ class SpawnTimerState:
     smart: bool = True
     zone: str = ""
     mob_pattern: str = ""
+    # New timers use exact names. ``mob_pattern`` remains solely so saved
+    # pre-list timers can keep their established regular-expression behavior.
+    death_mobs: list[str] = field(default_factory=list)
     # None inherits the central Smart Timer route, an empty string is an
     # explicit silent override, and a URI is this timer's sound override.
     sound_path: str | None = None
@@ -87,6 +111,7 @@ class SpawnTimerState:
         self.color = self.color if re.fullmatch(r"#[0-9a-fA-F]{6}", self.color or "") else "#B38C52"
         if self.sound_path is not None:
             self.sound_path = str(self.sound_path)[:500]
+        self.death_mobs = normalize_death_mobs(self.death_mobs)
         self.timer_mode = str(self.timer_mode or TIMER_MODE_SPAWN).casefold()
         if self.timer_mode not in TIMER_MODES:
             self.timer_mode = TIMER_MODE_SPAWN
@@ -252,9 +277,17 @@ class SpawnTimerState:
             return False
         if self.zone and zone and self.zone.casefold() != zone.casefold():
             return False
-        pattern = (self.mob_pattern or self.name).strip()
+        mob_name = " ".join(str(mob_name or "").split())
+        if self.death_mobs:
+            return any(
+                expected.casefold() == mob_name.casefold()
+                for expected in self.death_mobs)
+        pattern = self.mob_pattern.strip()
         if not pattern:
-            return False
+            # A new timer with no explicit entries still has a useful, safe
+            # default: its label matches one complete mob name, never a
+            # substring such as "Frenzy" matching "Frenzy PH".
+            return self.name.casefold() == mob_name.casefold()
         try:
             return re.search(pattern, mob_name, re.IGNORECASE) is not None
         except re.error:

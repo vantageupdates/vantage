@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QColorDialog,
     QComboBox,
+    QCompleter,
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -51,7 +53,8 @@ from vantage.helpers.responsive import (
     ResponsiveActionBar, polish_form)
 from vantage.helpers.respawn_catalog import (
     CATALOG_SOURCE, CATALOG_SOURCE_URL, NAMED_CATALOG_SOURCE,
-    NAMED_CATALOG_SOURCE_URL, RESPAWN_CATALOG, named_spawn_for,
+    NAMED_CATALOG_SOURCE_URL, NAMED_SPAWN_CATALOG, RESPAWN_CATALOG,
+    named_spawn_for,
     respawn_for_short_name)
 from vantage.helpers.safety_alerts import SafetyAlertState
 from vantage.helpers.scaled_dialog import UniformScaleDialog
@@ -64,13 +67,16 @@ from vantage.helpers.spawn_timer import (
     TIMER_MODE_COOLDOWN,
     TIMER_MODE_COUNTDOWN,
     TIMER_MODE_SPAWN,
+    MAX_DEATH_MOB_NAME_LENGTH,
+    MAX_DEATH_MOBS,
+    normalize_death_mobs,
     reset_stale_persisted_timers,
     format_seconds,
     parse_duration_input,
     zone_timer_visible,
 )
 from vantage.helpers.timer_share import (
-    TIMER_SHARE_PREFIX,
+    TIMER_SHARE_PREFIXES,
     TimerShareError,
     build_timer_share_codes,
     decode_timer_share_code,
@@ -83,6 +89,14 @@ LOG_TIMER_COMMAND = re.compile(
     r"(?:StartTimer|PigTimer)-(?P<duration>\d+(?::\d+){0,2})"
     r"(?:-(?P<label>[A-Za-z0-9_.'`-]+))?",
     re.IGNORECASE)
+
+
+NAMED_MOB_SUGGESTIONS = tuple(sorted(
+    {
+        entry.npc_name.strip().casefold(): entry.npc_name.strip()
+        for entry in NAMED_SPAWN_CATALOG.values()
+        if entry.npc_name.strip()
+    }.values(), key=str.casefold))
 
 AUTO_TIMER_COLORS = (
     "#B97252", "#9A7650", "#7B8755", "#4F8378",
@@ -279,7 +293,7 @@ class TimerProgressBar(QProgressBar):
 class TimerEditDialog(UniformScaleDialog):
     def __init__(self, timer=None, parent=None):
         super().__init__(
-            QSize(500, 420), parent, minimum_size=QSize(200, 168))
+            QSize(500, 580), parent, minimum_size=QSize(200, 232))
         self.timer = timer
         self.color = timer.color if timer else "#B38C52"
         self.setWindowTitle("Edit Smart Timer" if timer else "New Smart Timer")
@@ -345,12 +359,153 @@ class TimerEditDialog(UniformScaleDialog):
             "to use the timer in every zone")
         form.addRow("Zone", self.zone)
 
+        # ``mob_pattern`` remains hidden for saved pre-list timers. New input
+        # is always stored and matched as complete mob/placeholder names.
         self.mob_pattern = QLineEdit(timer.mob_pattern if timer else "")
-        self.mob_pattern.setPlaceholderText("Regex or mob name")
-        self.mob_pattern.setToolTip(
-            "Mob name or regular expression matched against EverQuest death "
-            "lines; blank uses the timer name")
-        form.addRow("Detect death", self.mob_pattern)
+        self.mob_pattern.hide()
+        self._death_list_changed = False
+        initial_death_mobs = normalize_death_mobs(
+            getattr(timer, "death_mobs", []) if timer else [])
+        if (timer and not initial_death_mobs and
+                not str(getattr(timer, "mob_pattern", "") or "").strip()):
+            initial_death_mobs = normalize_death_mobs([timer.name])
+
+        self.death_mob_panel = QWidget()
+        self.death_mob_panel.setMinimumHeight(164)
+        self.death_mob_panel.setAccessibleName("Detect deaths")
+        self.death_mob_panel.setAccessibleDescription(
+            "Adds exact mob or placeholder names that can restart this timer")
+        death_layout = QVBoxLayout(self.death_mob_panel)
+        death_layout.setContentsMargins(0, 0, 0, 0)
+        death_layout.setSpacing(4)
+        death_input_row = QHBoxLayout()
+        death_input_row.setContentsMargins(0, 0, 0, 0)
+        death_input_row.setSpacing(4)
+        self.death_mob_picker = QComboBox()
+        self.death_mob_picker.setEditable(True)
+        self.death_mob_picker.setInsertPolicy(
+            QComboBox.InsertPolicy.NoInsert)
+        self.death_mob_picker.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.death_mob_picker.setMinimumContentsLength(12)
+        self.death_mob_picker.addItems(NAMED_MOB_SUGGESTIONS)
+        self.death_mob_picker.setCurrentIndex(-1)
+        self.death_mob_picker.setAccessibleName(
+            "Detect deaths: named mob or custom placeholder")
+        self.death_mob_picker.setAccessibleDescription(
+            "Editable named-mob picker. Type to search all bundled P99 "
+            "nameds, use Arrow keys to choose a suggestion, or type a "
+            "custom placeholder; press Enter to add it. Save up to 24 exact "
+            "names of no more than 128 characters each.")
+        self.death_mob_input = self.death_mob_picker.lineEdit()
+        self.death_mob_input.setPlaceholderText("Named mob or custom PH")
+        self.death_mob_input.setAccessibleName(
+            "Detect deaths: mob or placeholder name to add")
+        self.death_mob_input.setAccessibleDescription(
+            "Type any exact mob or placeholder name. Suggestions search all "
+            "named mobs in Vantage's P99 catalog, regardless of selected "
+            "zone. Use Arrow keys to select a suggestion and Enter to add.")
+        self.death_mob_input.setToolTip(
+            "Add an exact death-line name. Type to search every bundled P99 "
+            "named mob, or enter a custom placeholder name; press Enter to add.")
+        self.death_mob_picker.setToolTip(self.death_mob_input.toolTip())
+        self.death_mob_completer = self.death_mob_picker.completer()
+        self.death_mob_completer.setCaseSensitivity(
+            Qt.CaseSensitivity.CaseInsensitive)
+        self.death_mob_completer.setFilterMode(
+            Qt.MatchFlag.MatchContains)
+        self.death_mob_completer.setCompletionMode(
+            QCompleter.CompletionMode.PopupCompletion)
+        self.death_mob_completer.setMaxVisibleItems(10)
+        completion_popup = self.death_mob_completer.popup()
+        completion_popup.setAccessibleName("P99 named mob suggestions")
+        completion_popup.setAccessibleDescription(
+            "Filtered suggestions from every zone; use Arrow keys and Enter "
+            "to add one to this timer.")
+        self.death_mob_input.returnPressed.connect(
+            self._death_mob_return_pressed)
+        self.death_mob_completer.activated[str].connect(
+            self._add_death_mob_suggestion)
+        self.death_mob_picker.installEventFilter(self)
+        self.death_mob_input.installEventFilter(self)
+        death_input_row.addWidget(self.death_mob_picker, 1)
+
+        self.death_mob_add = QPushButton("Add")
+        self.death_mob_add.setAccessibleName(
+            "Add exact death detection name")
+        self.death_mob_add.setAccessibleDescription(
+            "Adds the typed catalog suggestion or custom placeholder as an "
+            "exact death-line match for this timer")
+        self.death_mob_add.setToolTip(
+            "Add the typed named mob or custom placeholder to this timer")
+        self.death_mob_add.clicked.connect(self._add_death_mob)
+        death_input_row.addWidget(self.death_mob_add)
+        self.death_mob_remove = QPushButton("Remove")
+        self.death_mob_remove.setAccessibleName(
+            "Remove selected death detection name")
+        self.death_mob_remove.setAccessibleDescription(
+            "Removes the selected exact mob or placeholder name from this "
+            "timer without changing other entries")
+        self.death_mob_remove.setToolTip(
+            "Remove the selected exact name; Delete works from the list too")
+        self.death_mob_remove.clicked.connect(self._remove_death_mob)
+        death_input_row.addWidget(self.death_mob_remove)
+        death_layout.addLayout(death_input_row)
+
+        self.death_mob_list = QListWidget()
+        self.death_mob_list.setMinimumHeight(76)
+        self.death_mob_list.setMaximumHeight(88)
+        self.death_mob_list.setAccessibleName(
+            "Detect deaths: exact mob and placeholder list")
+        self.death_mob_list.setAccessibleDescription(
+            "Each complete name can restart this timer. Select a name and "
+            "press Delete or Remove to stop matching it.")
+        self.death_mob_list.setToolTip(
+            "Exact names that restart this timer from an EverQuest death line")
+        self.death_mob_list.installEventFilter(self)
+        self.death_mob_list.currentRowChanged.connect(
+            self._refresh_death_mob_actions)
+        for mob_name in initial_death_mobs:
+            self.death_mob_list.addItem(mob_name)
+        death_layout.addWidget(self.death_mob_list)
+
+        self.death_mob_help = QLabel(
+            "Exact full names · up to 24 entries · 128 characters each · "
+            "all P99 nameds or any custom PH")
+        self.death_mob_help.setWordWrap(True)
+        self.death_mob_help.setAccessibleDescription(
+            "Detect deaths instructions: exact full names; up to 24 entries; "
+            "128 characters each; all P99 nameds or any custom placeholder")
+        self.death_mob_help.setToolTip(
+            "Each saved name must exactly match an EverQuest death line")
+        death_layout.addWidget(self.death_mob_help)
+
+        self.death_mob_status = QLabel()
+        self.death_mob_status.setAccessibleName("Death detection list status")
+        self.death_mob_status.setAccessibleDescription(
+            "Reports exact-name additions, removals, duplicates, and limits")
+        self.death_mob_status.setToolTip(
+            "Status for this timer's exact death detection names")
+        death_layout.addWidget(self.death_mob_status)
+        form.addRow("Detect deaths", self.death_mob_panel)
+        detect_label = form.labelForField(self.death_mob_panel)
+        if detect_label is not None:
+            detect_label.setBuddy(self.death_mob_picker)
+        self._death_suggestion_announce_timer = QTimer(self)
+        self._death_suggestion_announce_timer.setSingleShot(True)
+        self._death_suggestion_announce_timer.setInterval(350)
+        self._death_suggestion_announce_timer.timeout.connect(
+            self._announce_death_mob_status)
+        self.finished.connect(
+            lambda _result: self._death_suggestion_announce_timer.stop())
+        self.death_mob_input.textChanged.connect(
+            self._death_mob_input_changed)
+        self._refresh_death_mob_actions()
+        if timer and str(getattr(timer, "mob_pattern", "") or "").strip():
+            self._set_death_mob_status(
+                "Legacy death pattern remains active until this list changes")
+        else:
+            self._set_death_mob_count_status()
         self.timer_mode.currentIndexChanged.connect(
             self._timer_mode_changed)
         self._timer_mode_changed()
@@ -500,6 +655,193 @@ class TimerEditDialog(UniformScaleDialog):
         if seconds > 0:
             field.setText(format_seconds(seconds))
 
+    def _death_mob_names(self):
+        return normalize_death_mobs([
+            self.death_mob_list.item(index).text()
+            for index in range(self.death_mob_list.count())])
+
+    def _set_death_mob_status(self, message, announce=False):
+        message = str(message or "").strip()
+        self.death_mob_status.setText(message)
+        self.death_mob_status.setAccessibleDescription(message)
+        if announce:
+            self._announce_death_mob_status()
+
+    def _announce_death_mob_status(self):
+        message = self.death_mob_status.text().strip()
+        if not message:
+            return
+        try:
+            QAccessible.updateAccessibility(
+                QAccessibleAnnouncementEvent(
+                    self.death_mob_status, message))
+        except (AttributeError, RuntimeError):
+            pass
+
+    def _set_death_mob_count_status(self, announce=False):
+        count = self.death_mob_list.count()
+        message = (
+            f"0 of {MAX_DEATH_MOBS} saved · the timer name matches exactly"
+            if not count else
+            f"{count} of {MAX_DEATH_MOBS} exact death "
+            f"name{'s' if count != 1 else ''} saved")
+        self._set_death_mob_status(message, announce=announce)
+
+    def _death_mob_input_changed(self, text):
+        self._refresh_death_mob_actions()
+        query = str(text or "").strip()
+        if not query:
+            self._death_suggestion_announce_timer.stop()
+            self._set_death_mob_count_status()
+            return
+        self.death_mob_completer.setCompletionPrefix(query)
+        suggestions = self.death_mob_completer.completionCount()
+        saved = self.death_mob_list.count()
+        if suggestions:
+            message = (
+                f"{suggestions} named suggestion"
+                f"{'s' if suggestions != 1 else ''} · {saved} of "
+                f"{MAX_DEATH_MOBS} saved · use Arrow keys and Enter")
+        else:
+            message = (
+                f"No catalog suggestion · {saved} of {MAX_DEATH_MOBS} "
+                "saved · Enter adds this custom PH")
+        self._set_death_mob_status(message)
+        self._death_suggestion_announce_timer.start()
+
+    def _refresh_death_mob_actions(self, *_args):
+        self.death_mob_add.setEnabled(bool(
+            self.death_mob_input.text().strip()))
+        self.death_mob_remove.setEnabled(
+            self.death_mob_list.currentRow() >= 0)
+
+    def _add_death_mob_suggestion(self, name):
+        selected = str(name or "")
+        # QCompleter writes its selected text back into the line edit after
+        # emitting activated(). Commit on the next event-loop turn so the
+        # successful add can clear the field once, after that write.
+        QTimer.singleShot(
+            0, lambda: self._commit_death_mob_suggestion(selected))
+
+    def _commit_death_mob_suggestion(self, name):
+        self.death_mob_input.setText(name)
+        return self._add_death_mob()
+
+    def _death_mob_return_pressed(self):
+        """Let an active completer selection own Enter exactly once."""
+        popup = self.death_mob_completer.popup()
+        if popup.isVisible() and popup.currentIndex().isValid():
+            return False
+        return self._add_death_mob()
+
+    def _add_death_mob(self):
+        self._death_suggestion_announce_timer.stop()
+        raw_name = " ".join(self.death_mob_input.text().split())
+        if len(raw_name) > MAX_DEATH_MOB_NAME_LENGTH:
+            self._set_death_mob_status(
+                f"Name is {len(raw_name)} characters · maximum is "
+                f"{MAX_DEATH_MOB_NAME_LENGTH}; shorten it before adding",
+                announce=True)
+            self.death_mob_input.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        values = normalize_death_mobs([raw_name])
+        if not values:
+            self._set_death_mob_status(
+                "Type a mob or placeholder name to add", announce=True)
+            self.death_mob_input.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        name = values[0]
+        existing = {
+            self.death_mob_list.item(index).text().casefold(): index
+            for index in range(self.death_mob_list.count())
+        }
+        if name.casefold() in existing:
+            row = existing[name.casefold()]
+            self.death_mob_list.setCurrentRow(row)
+            self._set_death_mob_status(
+                f"Already added: {self.death_mob_list.item(row).text()}",
+                announce=True)
+            self.death_mob_input.selectAll()
+            self.death_mob_input.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        if self.death_mob_list.count() >= MAX_DEATH_MOBS:
+            self._set_death_mob_status(
+                f"Limit reached · remove one of {MAX_DEATH_MOBS} names",
+                announce=True)
+            self.death_mob_list.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        self.death_mob_list.addItem(name)
+        self.death_mob_list.setCurrentRow(self.death_mob_list.count() - 1)
+        self.death_mob_input.clear()
+        self._death_list_changed = True
+        self._set_death_mob_count_status(announce=True)
+        self.death_mob_input.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
+
+    def _remove_death_mob(self):
+        row = self.death_mob_list.currentRow()
+        if row < 0:
+            self._set_death_mob_status(
+                "Select a death name to remove", announce=True)
+            self.death_mob_list.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        removed = self.death_mob_list.takeItem(row)
+        removed_name = removed.text() if removed is not None else ""
+        self._death_list_changed = True
+        if self.death_mob_list.count():
+            self.death_mob_list.setCurrentRow(
+                min(row, self.death_mob_list.count() - 1))
+            self.death_mob_list.setFocus(Qt.FocusReason.OtherFocusReason)
+        else:
+            self.death_mob_input.setFocus(Qt.FocusReason.OtherFocusReason)
+        self._set_death_mob_status(
+            f"Removed {removed_name} · " + (
+                f"{self.death_mob_list.count()} exact name"
+                f"{'s' if self.death_mob_list.count() != 1 else ''} remain"
+                if self.death_mob_list.count() else
+                "the timer name now matches exactly"),
+            announce=True)
+        self._refresh_death_mob_actions()
+        return True
+
+    def eventFilter(self, watched, event):
+        if (watched in (
+                getattr(self, 'death_mob_picker', None),
+                getattr(self, 'death_mob_input', None)) and
+                event.type() == QEvent.Type.KeyPress):
+            popup = self.death_mob_completer.popup()
+            if popup.isVisible() and event.key() in (
+                    Qt.Key.Key_Down, Qt.Key.Key_Up):
+                model = self.death_mob_completer.completionModel()
+                count = model.rowCount()
+                if count:
+                    current = popup.currentIndex().row()
+                    if event.key() == Qt.Key.Key_Down:
+                        row = 0 if current < 0 else min(count - 1, current + 1)
+                    else:
+                        row = count - 1 if current < 0 else max(0, current - 1)
+                    index = model.index(row, 0)
+                    popup.setCurrentIndex(index)
+                    popup.scrollTo(index)
+                return True
+            if popup.isVisible() and event.key() in (
+                    Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                index = popup.currentIndex()
+                if index.isValid():
+                    selected = str(index.data() or "")
+                    popup.hide()
+                    self._add_death_mob_suggestion(selected)
+                    return True
+            if popup.isVisible() and event.key() == Qt.Key.Key_Escape:
+                popup.hide()
+                return True
+        if (watched is getattr(self, 'death_mob_list', None) and
+                event.type() == QEvent.Type.KeyPress and
+                event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace)):
+            self._remove_death_mob()
+            return True
+        return super().eventFilter(watched, event)
+
     def _validate(self):
         if not self.name.text().strip():
             QMessageBox.warning(self, "Name Required", "Enter a name for the timer.")
@@ -531,7 +873,11 @@ class TimerEditDialog(UniformScaleDialog):
         timer.warning_seconds = self.warning.value()
         timer.smart = self.smart.isChecked()
         timer.zone = self.zone.text().strip()
-        timer.mob_pattern = self.mob_pattern.text().strip()
+        timer.death_mobs = self._death_mob_names()
+        if self._death_list_changed or timer.death_mobs:
+            timer.mob_pattern = ""
+        else:
+            timer.mob_pattern = self.mob_pattern.text().strip()
         timer.color = self.color
         selected = self.sound.currentData()
         timer.sound_path = None if self.sound.currentIndex() == 0 else str(
@@ -548,11 +894,13 @@ class TimerEditDialog(UniformScaleDialog):
         duration_label = form.labelForField(self.respawn)
         if duration_label is not None:
             duration_label.setText("Respawn time" if spawn_mode else "Duration")
-        for field in (self.kill, self.smart, self.mob_pattern):
+        for field in (
+                self.kill, self.smart, self.mob_pattern,
+                self.death_mob_panel):
             field.setEnabled(spawn_mode)
         kill_label = form.labelForField(self.kill)
         smart_label = form.labelForField(self.smart)
-        detect_label = form.labelForField(self.mob_pattern)
+        detect_label = form.labelForField(self.death_mob_panel)
         for label in (kill_label, smart_label, detect_label):
             if label is not None:
                 label.setEnabled(spawn_mode)
@@ -1037,7 +1385,8 @@ class SpawnTimers(ParserWindow):
             "logging enabled, their app detects the codes in the log, adjusts "
             "for elapsed time, and automatically adds or refreshes the timers "
             "in the correct zone without an import dialog. Codes expire after "
-            "24 hours.")
+            "24 hours. Ordinary one-name codes remain compatible with older "
+            "Vantage releases; multi-name death lists require current Vantage.")
         self.share_button.setToolTip(
             "Copy this zone's visible timers as one or more compact codes "
             "(Ctrl+Shift+S).\n"
@@ -1046,7 +1395,8 @@ class SpawnTimers(ParserWindow):
             "Their Vantage detects the codes in the log—no import dialog—then "
             "uses the creation time to adjust elapsed time and automatically "
             "adds or refreshes the timers in the correct zone. Codes expire "
-            "after 24 hours.")
+            "after 24 hours. Multi-name death lists require current Vantage; "
+            "ordinary one-name codes remain compatible with older releases.")
         self.share_button.clicked.connect(self.share_visible_timers)
         self.menu_area.addWidget(self.share_button)
         self._share_shortcut = QShortcut(
@@ -1855,7 +2205,8 @@ class SpawnTimers(ParserWindow):
         # Timing is handed off, while the receiver keeps local alert choices.
         for field in (
                 "name", "respawn_seconds", "kill_seconds", "warning_seconds",
-                "smart", "zone", "mob_pattern", "source", "automatic",
+                "smart", "zone", "mob_pattern", "death_mobs", "source",
+                "automatic",
                 "phase", "running", "phase_started_at", "deadline",
                 "paused_remaining", "cycles", "warning_sent"):
             setattr(existing, field, getattr(incoming, field))
@@ -2071,7 +2422,8 @@ class SpawnTimers(ParserWindow):
             color=automatic_timer_color(self._current_zone, mob),
             smart=False,
             zone=string.capwords(self._current_zone),
-            mob_pattern=rf"^{re.escape(mob)}$",
+            mob_pattern="",
+            death_mobs=[mob],
             sound_path=None,
             volume=config.data['timers']['volume'],
             source=NAMED_CATALOG_SOURCE,
@@ -2124,7 +2476,7 @@ class SpawnTimers(ParserWindow):
         event_time = (
             timestamp.timestamp()
             if isinstance(timestamp, datetime.datetime) else time.time())
-        if TIMER_SHARE_PREFIX in text:
+        if any(prefix in text for prefix in TIMER_SHARE_PREFIXES):
             codes = extract_timer_share_codes(text)
             if not codes:
                 self.announce(

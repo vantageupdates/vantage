@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+
+from vantage.helpers import config
 from vantage.helpers.spawn_timer import (
     PHASE_AVAILABLE,
     PHASE_COMBAT,
@@ -123,6 +126,73 @@ def test_kill_match_honors_zone_and_regex():
     timer = SpawnTimerState("Quillmane", 100, zone="South Karana", mob_pattern=r"^Quillmane$")
     assert timer.matches_kill("Quillmane", "South Karana")
     assert not timer.matches_kill("Quillmane", "North Karana")
+
+
+def test_exact_death_list_matches_multiple_phs_without_substrings():
+    timer = SpawnTimerState(
+        "Quillmane cycle", 100, zone="South Karana",
+        death_mobs=["Quillmane", "an escaped splitpaw gnoll"])
+
+    assert timer.matches_kill("quillmane", "south karana")
+    assert timer.matches_kill("An Escaped Splitpaw Gnoll", "South Karana")
+    assert not timer.matches_kill("Quillmane's pet", "South Karana")
+    assert not timer.matches_kill("an escaped splitpaw gnoll scout", "South Karana")
+    assert not timer.matches_kill("Quillmane", "North Karana")
+
+
+def test_legacy_death_regex_remains_compatible_when_no_exact_list_exists():
+    timer = SpawnTimerState(
+        "Legacy camp", 100, mob_pattern=r"^(Quillmane|a named PH \d+)$")
+
+    assert timer.matches_kill("Quillmane")
+    assert timer.matches_kill("a named PH 3")
+    assert not timer.matches_kill("Quillmane's pet")
+
+
+def test_exact_death_list_round_trips_and_deduplicates_case_insensitively():
+    timer = SpawnTimerState(
+        "Camp", 100,
+        death_mobs=["Quillmane", " quillmane ", "a custom PH"])
+
+    restored = SpawnTimerState.from_dict(timer.to_dict())
+
+    assert restored.death_mobs == ["Quillmane", "a custom PH"]
+
+
+def test_exact_death_list_is_bounded_for_safe_persistence():
+    timer = SpawnTimerState(
+        "Large camp", 100,
+        death_mobs=[f"placeholder {index}" for index in range(40)])
+
+    assert len(timer.death_mobs) == 24
+    assert timer.death_mobs[-1] == "placeholder 23"
+
+
+def test_automatic_named_timer_records_its_exact_death_name():
+    config.verify_settings()
+
+    class Host:
+        _current_zone = "South Karana"
+        _missing_zone_notified = None
+
+        def _named_respawn_entry(self, _mob):
+            return (
+                SimpleNamespace(respawn_seconds=1_920),
+                SimpleNamespace(seconds=1_920, note=""))
+
+        def _register_timer(self, timer):
+            self.timer = timer
+
+        def announce(self, message):
+            self.message = message
+
+    host = Host()
+
+    assert SpawnTimers._create_automatic_timer(host, "Quillmane", 1_000)
+    assert host.timer.death_mobs == ["Quillmane"]
+    assert host.timer.mob_pattern == ""
+    assert host.timer.matches_kill("quillmane", "South Karana")
+    assert not host.timer.matches_kill("Quillmane's pet", "South Karana")
 
 
 def test_friendly_duration_input_uses_minutes_for_bare_numbers():

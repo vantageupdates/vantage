@@ -4,14 +4,16 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QPoint, QSize, Qt
 from PySide6.QtGui import QColor, QImage, QPainter
-from PySide6.QtWidgets import QApplication, QPushButton, QSpinBox
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QComboBox, QPushButton, QSpinBox
 
 from vantage.helpers import config
 from vantage.helpers.icons import game_icon
 from vantage.helpers.spawn_timer import (
     PHASE_IDLE, PHASE_RESPAWN, SpawnTimerState, TIMER_MODE_COUNTDOWN)
 from vantage.parsers.timers import (
-    SPAWN_TIMER_WINDOW_STYLE, TimerEditDialog, TimerProgressBar, TimerRow)
+    NAMED_MOB_SUGGESTIONS, SPAWN_TIMER_WINDOW_STYLE, TimerEditDialog,
+    TimerProgressBar, TimerRow)
 
 
 class _Owner:
@@ -123,6 +125,9 @@ def test_timer_editor_supports_general_countdowns_without_mob_only_fields():
     assert dialog.kill.isEnabled() is False
     assert dialog.smart.isEnabled() is False
     assert dialog.mob_pattern.isEnabled() is False
+    assert dialog.death_mob_panel.isEnabled() is False
+    assert dialog.death_mob_input.isEnabled() is False
+    assert dialog.death_mob_list.isEnabled() is False
 
     dialog.name.setText("Port cooldown")
     dialog.respawn.setText("10m")
@@ -130,6 +135,160 @@ def test_timer_editor_supports_general_countdowns_without_mob_only_fields():
     assert timer.timer_mode == TIMER_MODE_COUNTDOWN
     assert timer.respawn_seconds == 600
     dialog.close()
+
+
+def test_timer_editor_adds_deduplicates_and_deletes_exact_death_names():
+    app = _app()
+    timer = SpawnTimerState(
+        "Quillmane cycle", 1_920, death_mobs=["Quillmane"])
+    dialog = TimerEditDialog(timer)
+    dialog.show()
+    app.processEvents()
+
+    dialog.death_mob_input.setFocus()
+    dialog.death_mob_input.setText("an escaped splitpaw gnoll")
+    QTest.keyClick(dialog.death_mob_input, Qt.Key.Key_Return)
+    app.processEvents()
+    assert dialog._death_mob_names() == [
+        "Quillmane", "an escaped splitpaw gnoll"]
+    assert dialog.death_mob_input.hasFocus()
+
+    dialog.death_mob_input.setText("QUILLMANE")
+    QTest.keyClick(dialog.death_mob_input, Qt.Key.Key_Return)
+    app.processEvents()
+    assert dialog.death_mob_list.count() == 2
+    assert "Already added" in dialog.death_mob_status.text()
+
+    dialog.death_mob_list.setCurrentRow(1)
+    dialog.death_mob_list.setFocus()
+    QTest.keyClick(dialog.death_mob_list, Qt.Key.Key_Delete)
+    app.processEvents()
+    assert dialog._death_mob_names() == ["Quillmane"]
+    assert dialog.death_mob_list.hasFocus()
+
+    dialog.apply(timer)
+    assert timer.death_mobs == ["Quillmane"]
+    assert timer.mob_pattern == ""
+    assert dialog.death_mob_input.accessibleName()
+    assert dialog.death_mob_input.accessibleDescription()
+    assert dialog.death_mob_add.toolTip()
+    assert dialog.death_mob_remove.toolTip()
+    dialog.close()
+
+
+def test_death_name_completer_searches_all_zones_and_accepts_selection():
+    app = _app()
+    timer = SpawnTimerState(
+        "Crystal Fang", 1_970, zone="Velketor's Labyrinth",
+        death_mobs=["Crystal Fang"])
+    dialog = TimerEditDialog(timer)
+    dialog.show()
+    app.processEvents()
+
+    assert tuple(NAMED_MOB_SUGGESTIONS) == tuple(sorted(
+        NAMED_MOB_SUGGESTIONS, key=str.casefold))
+    assert len(NAMED_MOB_SUGGESTIONS) == len({
+        name.casefold() for name in NAMED_MOB_SUGGESTIONS})
+    assert "Crystal Fang" in NAMED_MOB_SUGGESTIONS
+    assert "Quillmane" in NAMED_MOB_SUGGESTIONS
+    dialog.death_mob_completer.setCompletionPrefix("quill")
+    matches = [
+        dialog.death_mob_completer.completionModel().index(row, 0).data()
+        for row in range(
+            dialog.death_mob_completer.completionModel().rowCount())]
+    assert "Quillmane" in matches
+    assert dialog.death_mob_completer.popup().accessibleName()
+    assert "every zone" in dialog.death_mob_completer.popup().accessibleDescription()
+
+    dialog.death_mob_input.setFocus()
+    dialog.death_mob_input.setText("quill")
+    dialog.death_mob_completer.complete()
+    app.processEvents()
+    popup = dialog.death_mob_completer.popup()
+    quillmane_row = matches.index("Quillmane")
+    popup.setCurrentIndex(
+        dialog.death_mob_completer.completionModel().index(quillmane_row, 0))
+    assert popup.isVisible()
+    QTest.keyClick(dialog.death_mob_picker, Qt.Key.Key_Down)
+    QTest.keyClick(dialog.death_mob_picker, Qt.Key.Key_Return)
+    app.processEvents()
+    assert dialog._death_mob_names() == ["Crystal Fang", "Quillmane"]
+    assert dialog.death_mob_input.text() == ""
+    assert dialog.death_mob_status.text() == \
+        "2 of 24 exact death names saved"
+    assert dialog.death_mob_input.hasFocus()
+    assert isinstance(dialog.death_mob_picker, QComboBox)
+    assert dialog.death_mob_picker.isEditable()
+    detect_label = dialog._timer_form.labelForField(dialog.death_mob_panel)
+    assert detect_label.buddy() is dialog.death_mob_picker
+    assert dialog.death_mob_picker.accessibleName().startswith(
+        "Detect deaths")
+    assert dialog.death_mob_list.accessibleName().startswith(
+        "Detect deaths")
+    dialog.close()
+
+
+def test_legacy_pattern_is_preserved_until_exact_list_is_edited():
+    app = _app()
+    timer = SpawnTimerState(
+        "Legacy", 120, mob_pattern=r"^(named one|named two)$")
+    dialog = TimerEditDialog(timer)
+    app.processEvents()
+
+    assert dialog.death_mob_list.count() == 0
+    assert "Legacy death pattern" in dialog.death_mob_status.text()
+    dialog.apply(timer)
+    assert timer.mob_pattern == r"^(named one|named two)$"
+    assert timer.death_mobs == []
+    dialog.close()
+
+
+def test_death_name_limits_are_visible_and_long_input_is_not_truncated():
+    app = _app()
+    dialog = TimerEditDialog(SpawnTimerState("Camp", 120))
+    dialog.show()
+    app.processEvents()
+
+    assert "24 entries" in dialog.death_mob_help.text()
+    assert "128 characters" in dialog.death_mob_help.text()
+    assert dialog.death_mob_help.accessibleName() == ""
+    assert "24 entries" in dialog.death_mob_help.accessibleDescription()
+    assert "128 characters" in \
+        dialog.death_mob_picker.accessibleDescription()
+    too_long = "x" * 129
+    dialog.death_mob_input.setText(too_long)
+    assert dialog._add_death_mob() is False
+    assert dialog.death_mob_input.text() == too_long
+    assert "129 characters" in dialog.death_mob_status.text()
+    assert "maximum is 128" in dialog.death_mob_status.text()
+    assert dialog.death_mob_list.count() == 1
+    assert dialog.death_mob_list.height() >= 76
+    assert dialog._death_suggestion_announce_timer.isActive() is False
+    dialog.close()
+
+
+def test_full_death_name_list_has_non_overlapping_full_width_layout():
+    app = _app()
+    timer = SpawnTimerState(
+        "Large camp", 120,
+        death_mobs=[f"placeholder {index}" for index in range(24)])
+    dialog = TimerEditDialog(timer)
+    dialog.show()
+    app.processEvents()
+
+    panel = dialog.death_mob_panel
+    assert panel.height() >= panel.minimumSizeHint().height()
+    assert dialog.death_mob_list.geometry().bottom() < \
+        dialog.death_mob_help.geometry().top()
+    assert dialog.death_mob_help.geometry().bottom() < \
+        dialog.death_mob_status.geometry().top()
+    assert dialog.death_mob_list.width() == panel.contentsRect().width()
+
+    dialog.death_mob_input.setText("quil")
+    assert dialog._death_suggestion_announce_timer.isActive()
+    dialog.close()
+    app.processEvents()
+    assert dialog._death_suggestion_announce_timer.isActive() is False
 
 
 def test_completed_countdown_row_shows_done_and_starts_again():

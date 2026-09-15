@@ -102,7 +102,7 @@ def test_priority_dialogs_scale_as_fixed_miniatures_with_live_controls(tmp_path)
     for name in ("timer", "output", "threat", "overlays"):
         assert 0.79 <= result[name]["scale"] <= 0.81
         assert result[name]["logical_unchanged"] is True
-    assert result["timer"]["surface"] == [500, 420]
+    assert result["timer"]["surface"] == [500, 580]
     assert result["output"]["surface"] == [540, 486]
     assert result["threat"]["surface"] == [560, 590]
     assert result["overlays"]["surface"] == [830, 570]

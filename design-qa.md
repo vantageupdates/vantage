@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.87 design QA
+# Vantage Companion 1.44.88 design QA
 
 final result: passed
 
@@ -11,6 +11,11 @@ final result: passed
 
 ## Visual checks
 
+- Smart Timer death detection now exposes a compact exact-name list for each
+  spawn timer. Users can add or remove multiple named mobs and placeholders;
+  the field autocompletes from all 882 bundled P99 nameds while accepting
+  custom PH names. Device Sync, persistence, and Share Timers preserve the
+  list, and legacy regular-expression timers continue unchanged until edited.
 - Companion updates preserve the exact live buff set through a separate,
   bounded atomic handoff. The replacement process restores it only for a
   verified post-update launch, confirms the restored UI and durable config,

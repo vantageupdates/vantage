@@ -145,7 +145,9 @@ def test_smart_timers_are_an_explicit_portable_sync_category():
     source = {
         "timers": {
             "items": [{"id": "frenzy", "zone": "gukbottom",
-                       "phase": "respawn", "ends_at": 12345.0}],
+                       "phase": "respawn", "ends_at": 12345.0,
+                       "death_mobs": [
+                           "a frenzy ghoul", "a frenzy placeholder"]}],
             "view_zone": "gukbottom",
         },
         "market": {"live_watch_items": ["Manastone"]},
