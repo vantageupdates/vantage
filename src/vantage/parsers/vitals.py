@@ -26,7 +26,8 @@ from vantage.helpers.responsive import ResponsiveActionBar, polish_form, scrolla
 from vantage.helpers.vitals import (
     MIN_CONFIDENCE, VitalReading, VitalStopTracker, analyze_vital_bar,
     default_vital_bar, default_vital_stop, denormalize_rect,
-    learn_fill_color, normalize_rect, preset_percentages,
+    learn_fill_color, normalize_rect, preset_percentages, read_vital_bar,
+    read_visible_percent,
     sanitize_vital_bar, sanitize_vital_bars, sanitize_vital_stop)
 
 
@@ -42,6 +43,10 @@ DIRECTION_LABELS = {
     "above": "Rises above",
     "either": "Crosses either way",
     "full": "Becomes full",
+}
+READ_MODE_LABELS = {
+    "number": "Visible % number (recommended)",
+    "fill": "Bar fill / color (legacy fallback)",
 }
 
 
@@ -108,7 +113,8 @@ class CalibrationOverlay(QWidget):
         self._pending_announcement = (
             f"Calibration area {rect.x()}, {rect.y()}, "
             f"{rect.width()} by {rect.height()} pixels. "
-            "Arrow keys move; Alt plus arrow resizes.")
+            "Arrow keys move; Alt plus arrow resizes. "
+            "Preview invalidated; validate again before saving.")
         self._announce_timer.start()
 
     def _announce_geometry(self):
@@ -157,6 +163,7 @@ class CalibrationOverlay(QWidget):
             if "bottom" in self._resize_edges:
                 rect.setBottom(rect.bottom() + delta.y())
         self.set_calibration_geometry(rect.normalized())
+        self._schedule_geometry_announcement()
         event.accept()
 
     def mouseReleaseEvent(self, event):
@@ -216,11 +223,13 @@ class CalibrationControls(QDialog):
     """Keyboard/numeric companion to the visual calibration rectangle."""
 
     geometry_changed = Signal(QRect)
+    preview_requested = Signal(QRect)
     use_requested = Signal(QRect)
 
-    def __init__(self, bounds, initial, parent=None):
+    def __init__(self, bounds, initial, parent=None, read_mode="number"):
         super().__init__(parent)
         self._bounds = QRect(bounds)
+        self._read_mode = read_mode if read_mode in READ_MODE_LABELS else "number"
         self._syncing = False
         self._announce_timer = QTimer(self)
         self._announce_timer.setSingleShot(True)
@@ -228,12 +237,22 @@ class CalibrationControls(QDialog):
         self._announce_timer.timeout.connect(
             lambda: _announce(self.status, self.status.text()))
         self.setObjectName("VitalsCalibrationControls")
-        self.setWindowTitle("Calibrate vital bar")
+        self.setWindowTitle(
+            "Calibrate visible percentage number"
+            if self._read_mode == "number" else
+            "Calibrate bar fill fallback")
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
         self.setMinimumWidth(360)
-        intro = QLabel(
-            "Place the gold rectangle over only the filled bar. Drag it, use "
-            "arrow keys, or enter exact coordinates below.")
+        if self._read_mode == "number":
+            intro_text = (
+                "Place a compact gold rectangle around only the visible HP or "
+                "mana digits, such as 62. The percent sign is optional and may "
+                "sit outside the rectangle. Validate the preview before saving.")
+        else:
+            intro_text = (
+                "Legacy fallback: place the gold rectangle over only the filled "
+                "colored bar. Validate the preview before saving.")
+        intro = QLabel(intro_text)
         intro.setWordWrap(True)
         intro.setAccessibleDescription(intro.text())
 
@@ -263,17 +282,28 @@ class CalibrationControls(QDialog):
                 lambda _checked=False, x=dx, y=dy: self.nudge(x, y))
             nudge.addWidget(button)
 
-        self.status = QLabel("Calibration ready")
+        self.status = QLabel("Calibration ready · preview not validated")
         self.status.setObjectName("InlineStatus")
         self.status.setWordWrap(True)
         self.status.setAccessibleName("Calibration status")
+        self.status.setAccessibleDescription(self.status.text())
+        preview = QPushButton("Validate preview")
+        preview.setAccessibleName("Validate vital reading preview")
+        preview.setToolTip(
+            "Read the selected pixels and verify a percentage before saving")
+        preview.clicked.connect(
+            lambda: self.preview_requested.emit(self.absolute_rect()))
+        self.preview_button = preview
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save |
             QDialogButtonBox.StandardButton.Cancel)
         buttons.button(QDialogButtonBox.StandardButton.Save).setText(
-            "Use this area")
+            "Save calibration")
         buttons.button(QDialogButtonBox.StandardButton.Save).setToolTip(
-            "Save the rectangle and learn its fill color")
+            "Save this validated reading area")
+        self._save_button = buttons.button(
+            QDialogButtonBox.StandardButton.Save)
+        self._save_button.setEnabled(False)
         buttons.button(QDialogButtonBox.StandardButton.Cancel).setToolTip(
             "Cancel calibration without changing the saved bar")
         buttons.accepted.connect(
@@ -287,8 +317,9 @@ class CalibrationControls(QDialog):
         layout.addWidget(host)
         layout.addWidget(nudge)
         layout.addWidget(self.status)
+        layout.addWidget(preview)
         layout.addWidget(buttons)
-        self.set_absolute_rect(initial)
+        self.set_absolute_rect(initial, invalidate=False)
 
     @staticmethod
     def _spin(name, minimum=0):
@@ -304,7 +335,7 @@ class CalibrationControls(QDialog):
             self._bounds.y() + self.y.value(),
             self.width_value.value(), self.height_value.value())
 
-    def set_absolute_rect(self, rect):
+    def set_absolute_rect(self, rect, invalidate=True):
         rect = QRect(rect).intersected(self._bounds)
         if rect.width() < 8 or rect.height() < 6:
             return
@@ -317,8 +348,12 @@ class CalibrationControls(QDialog):
         message = (
             f"Area {self.x.value()}, {self.y.value()}, "
             f"{rect.width()} by {rect.height()} pixels")
+        if not invalidate:
+            message += " · preview not validated"
         self.status.setText(message)
         self.status.setAccessibleDescription(message)
+        if invalidate:
+            self.invalidate_preview()
 
     def _values_changed(self):
         if not self._syncing:
@@ -334,6 +369,19 @@ class CalibrationControls(QDialog):
         self.geometry_changed.emit(self.absolute_rect())
         self._announce_timer.stop()
         _announce(self.status, self.status.text())
+
+    def invalidate_preview(self):
+        self._save_button.setEnabled(False)
+        message = "Area changed · validate the preview before saving"
+        self.status.setText(message)
+        self.status.setAccessibleDescription(message)
+
+    def set_preview(self, message, valid):
+        message = str(message)
+        self.status.setText(message)
+        self.status.setAccessibleDescription(message)
+        self._save_button.setEnabled(bool(valid))
+        _announce(self.status, message)
 
 
 class VitalStopDialog(QDialog):
@@ -524,6 +572,16 @@ class VitalBarDialog(QDialog):
             "When checked, Vantage reads the calibrated EverQuest window. "
             "Direct capture can continue while Vantage is in focus; the safe "
             "screen fallback may require EverQuest in the foreground.")
+        self.read_mode = QComboBox()
+        for value, label in READ_MODE_LABELS.items():
+            self.read_mode.addItem(label, value)
+        self.read_mode.setCurrentIndex(max(
+            0, self.read_mode.findData(self._bar["read_mode"])))
+        self.read_mode.setAccessibleName("Vital reading method")
+        self.read_mode.setAccessibleDescription(
+            "Visible percentage digits are recommended. Bar fill and color is "
+            "the explicit fallback for older calibrations.")
+        self.read_mode.setToolTip(self.read_mode.accessibleDescription())
         self.fill_direction = QComboBox()
         self.fill_direction.addItem("Left to right", "ltr")
         self.fill_direction.addItem("Right to left", "rtl")
@@ -539,8 +597,11 @@ class VitalBarDialog(QDialog):
         form.addRow("Name", self.name)
         form.addRow("Type", self.kind)
         form.addRow("Enabled", self.enabled)
+        form.addRow("Reading method", self.read_mode)
         form.addRow("Fill", self.fill_direction)
         form.addRow("Color tolerance", self.tolerance)
+        self.read_mode.currentIndexChanged.connect(self._update_read_mode_ui)
+        self._update_read_mode_ui()
 
         stops_label = QLabel("Alert stops")
         stops_label.setObjectName("SettingsHeader")
@@ -610,6 +671,21 @@ class VitalBarDialog(QDialog):
         if self._stops:
             self.stop_list.setCurrentRow(max(0, min(selected, len(self._stops) - 1)))
 
+    def _update_read_mode_ui(self):
+        fill_mode = self.read_mode.currentData() == "fill"
+        self.fill_direction.setEnabled(fill_mode)
+        self.tolerance.setEnabled(fill_mode)
+        explanation = (
+            "Used only by the legacy bar fill / color fallback method"
+            if not fill_mode else
+            "Controls how the colored fill fallback is measured")
+        self.fill_direction.setToolTip(explanation)
+        if not fill_mode:
+            self.tolerance.setToolTip(explanation)
+        else:
+            self.tolerance.setToolTip(
+                "Higher values tolerate more shading; recalibrate before increasing")
+
     def _add_stop(self):
         stop = default_vital_stop(25, "below", len(self._stops))
         stop["id"] = "stop-" + uuid.uuid4().hex[:10]
@@ -659,6 +735,7 @@ class VitalBarDialog(QDialog):
             "name": self.name.text().strip(),
             "type": self.kind.currentData(),
             "enabled": self.enabled.isChecked(),
+            "read_mode": self.read_mode.currentData(),
             "direction": self.fill_direction.currentData(),
             "tolerance": self.tolerance.value(),
             "stops": [dict(stop) for stop in self._stops],
@@ -709,9 +786,13 @@ class VitalCard(QFrame):
             lambda value: self.enabled_changed.emit(self.bar_id, value))
         self.action_buttons["monitor"] = self.enabled
         actions.addWidget(self.enabled)
+        calibration_help = (
+            "Select the compact visible percentage number in EverQuest"
+            if bar["read_mode"] == "number" else
+            "Select this colored bar's fill pixels in EverQuest")
         for key, label, callback, description in (
                 ("calibrate", "Calibrate", self.calibrate_requested,
-                 "Select this bar's pixels in EverQuest"),
+                 calibration_help),
                 ("edit", "Edit alerts", self.edit_requested,
                  "Edit this bar and its alert stops"),
                 ("remove", "Remove", self.remove_requested,
@@ -730,7 +811,12 @@ class VitalCard(QFrame):
             value = max(0, min(1000, round(reading.percent * 10)))
             self.progress.setValue(value)
             self.progress.setFormat(f"{reading.percent:.1f}%")
-            detail = f"Live reading · confidence {reading.confidence * 100:.0f}%"
+            source = (
+                "Visible number" if reading.source == "number" else
+                "Color fallback" if reading.source in {"fill", "fill_fallback"}
+                else "Visual reading")
+            detail = (
+                f"{source} · confidence {reading.confidence * 100:.0f}%")
         else:
             message = reading.message if reading is not None else "No reading"
             self.progress.setValue(0)
@@ -759,6 +845,7 @@ class Vitals(ParserWindow):
         self._calibration_overlay = None
         self._calibration_controls = None
         self._calibration_context = None
+        self._calibration_focus_target = None
         self._last_live_frame = None
         self._last_live_rect = ()
         self._last_live_at = 0.0
@@ -981,9 +1068,7 @@ class Vitals(ParserWindow):
             if not bar["enabled"]:
                 reading = VitalReading(None, 0.0, False, "Monitoring is off")
             else:
-                reading = analyze_vital_bar(
-                    image, bar["rect"], bar["color"], bar["direction"],
-                    bar["tolerance"])
+                reading = read_vital_bar(image, bar)
             self._readings[bar["id"]] = reading
             card = self._cards.get(bar["id"])
             if card is not None:
@@ -1043,7 +1128,9 @@ class Vitals(ParserWindow):
         index = self._bar_index(bar_id)
         if index < 0:
             return
-        self._finish_calibration()
+        # Replacing one modeless calibration must not queue focus restoration
+        # to the old card after the new dialog has focused its X field.
+        self._finish_calibration(restore_focus=False)
         status, image, window_rect = self._capture.image_frame(
             require_enabled=False, require_foreground=False)
         if (not status.get("available") and self._last_live_frame is not None
@@ -1068,15 +1155,21 @@ class Vitals(ParserWindow):
                 bounds.x() + saved[0], bounds.y() + saved[1],
                 saved[2], saved[3])
         else:
+            number_mode = self._bars[index]["read_mode"] == "number"
             initial = QRect(
                 bounds.x() + round(bounds.width() * .2),
                 bounds.y() + round(bounds.height() * .2),
-                max(80, round(bounds.width() * .2)),
-                max(10, round(bounds.height() * .025)))
+                (max(46, round(bounds.width() * .08)) if number_mode else
+                 max(80, round(bounds.width() * .2))),
+                (max(14, round(bounds.height() * .035)) if number_mode else
+                 max(10, round(bounds.height() * .025))))
         overlay = CalibrationOverlay(bounds, initial)
-        controls = CalibrationControls(bounds, initial, self)
+        controls = CalibrationControls(
+            bounds, initial, self, self._bars[index]["read_mode"])
         overlay.rect_changed.connect(controls.set_absolute_rect)
         controls.geometry_changed.connect(overlay.set_calibration_geometry)
+        controls.preview_requested.connect(
+            lambda rect: self._preview_calibration(bar_id, rect))
         controls.use_requested.connect(
             lambda rect: self._apply_calibration(bar_id, rect))
         overlay.cancel_requested.connect(self._finish_calibration)
@@ -1085,6 +1178,7 @@ class Vitals(ParserWindow):
         self._calibration_overlay = overlay
         self._calibration_controls = controls
         self._calibration_context = (bar_id, image, bounds)
+        self._calibration_focus_target = (bar_id, "calibrate")
         self._set_status(f"CALIBRATING · {self._bars[index]['name']}")
         overlay.show()
         overlay.raise_()
@@ -1093,46 +1187,87 @@ class Vitals(ParserWindow):
         controls.activateWindow()
         controls.x.setFocus(Qt.FocusReason.OtherFocusReason)
 
+    def _calibration_sample(self, bar_id, absolute_rect):
+        context = self._calibration_context
+        index = self._bar_index(bar_id)
+        if context is None or index < 0:
+            return (None, [], 0.0, [])
+        _context_id, image, bounds = context
+        relative = (
+            absolute_rect.x() - bounds.x(), absolute_rect.y() - bounds.y(),
+            absolute_rect.width(), absolute_rect.height())
+        normalized = normalize_rect(relative, (bounds.width(), bounds.height()))
+        bar = self._bars[index]
+        if bar["read_mode"] == "number":
+            return (read_visible_percent(image, normalized), [], 0.0, normalized)
+        color, confidence = learn_fill_color(
+            image, normalized, bar["direction"])
+        reading = (analyze_vital_bar(
+            image, normalized, color, bar["direction"], bar["tolerance"])
+            if color else VitalReading(
+                None, 0.0, False, "Fill color is not visible", "fill"))
+        return (reading, color, confidence, normalized)
+
+    def _preview_calibration(self, bar_id, absolute_rect):
+        reading, _color, _sample_confidence, _normalized = (
+            self._calibration_sample(bar_id, absolute_rect))
+        controls = self._calibration_controls
+        if controls is None or reading is None:
+            return
+        if reading.valid:
+            source = (
+                "visible number" if reading.source == "number" else
+                "color fallback")
+            controls.set_preview(
+                f"Valid preview · {reading.percent:.0f}% from {source} · "
+                f"confidence {reading.confidence * 100:.0f}%", True)
+        else:
+            controls.set_preview(
+                f"Invalid preview · {reading.message}. "
+                "Adjust the rectangle and try again.", False)
+
     def _apply_calibration(self, bar_id, absolute_rect):
         context = self._calibration_context
         index = self._bar_index(bar_id)
         if context is None or index < 0:
             self._finish_calibration()
             return
-        _context_id, image, bounds = context
-        relative = (
-            absolute_rect.x() - bounds.x(), absolute_rect.y() - bounds.y(),
-            absolute_rect.width(), absolute_rect.height())
-        normalized = normalize_rect(relative, (bounds.width(), bounds.height()))
-        color, confidence = learn_fill_color(
-            image, normalized, self._bars[index]["direction"])
-        if not color:
+        reading, color, confidence, normalized = self._calibration_sample(
+            bar_id, absolute_rect)
+        if reading is None or not reading.valid:
             controls = self._calibration_controls
             if controls is not None:
                 message = (
-                    "No fill color found. Put the rectangle inside a visible, "
-                    "partly filled colored bar.")
-                controls.status.setText(message)
-                _announce(controls.status, message)
+                    "Calibration not saved · " +
+                    (reading.message if reading is not None else
+                     "preview unavailable"))
+                controls.set_preview(message, False)
             return
         self._bars[index]["rect"] = normalized
-        self._bars[index]["color"] = color
+        if self._bars[index]["read_mode"] == "fill":
+            self._bars[index]["color"] = color
         self._tracker.reset_bar(bar_id)
         self._persist()
         self._rebuild_cards((bar_id, "calibrate"))
         self._finish_calibration()
+        if self._bars[index]["read_mode"] == "number":
+            result = f"validated {reading.percent:.0f}% visible number"
+        else:
+            result = f"{confidence * 100:.0f}% color fallback sample"
         self._set_status(
             f"NO READING · calibrated {self._bars[index]['name']} "
-            f"({confidence * 100:.0f}% color sample); return to EverQuest")
+            f"({result}); return to EverQuest")
         QTimer.singleShot(0, self.poll_now)
 
     def _clear_calibration_refs(self):
         self._calibration_overlay = None
         self._calibration_controls = None
         self._calibration_context = None
+        self._calibration_focus_target = None
 
-    def _finish_calibration(self):
+    def _finish_calibration(self, restore_focus=True):
         had_context = self._calibration_context is not None
+        focus_target = self._calibration_focus_target
         overlay, controls = self._calibration_overlay, self._calibration_controls
         self._clear_calibration_refs()
         if overlay is not None:
@@ -1141,6 +1276,11 @@ class Vitals(ParserWindow):
         if controls is not None:
             controls.close()
             controls.deleteLater()
+        if restore_focus and focus_target and self.isVisible():
+            bar_id, action = focus_target
+            card = self._cards.get(bar_id)
+            control = card.action_buttons.get(action) if card else self._add_button
+            QTimer.singleShot(0, lambda: self._focus_embedded_control(control))
         if had_context:
             QTimer.singleShot(0, self.poll_now)
 
@@ -1151,9 +1291,9 @@ class Vitals(ParserWindow):
         self._poll_timer.setInterval(config.data["vitals"]["poll_ms"])
 
     def closeEvent(self, event):
-        self._finish_calibration()
+        self._finish_calibration(restore_focus=False)
         super().closeEvent(event)
 
     def hideEvent(self, event):
-        self._finish_calibration()
+        self._finish_calibration(restore_focus=False)
         super().hideEvent(event)

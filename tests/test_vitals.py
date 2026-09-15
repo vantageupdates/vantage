@@ -5,12 +5,14 @@ from pathlib import Path
 import subprocess
 import sys
 import threading
+from types import MethodType
 
+import pytest
 from PySide6.QtCore import QRect, Qt
-from PySide6.QtGui import QColor, QImage, QKeyEvent
+from PySide6.QtGui import QColor, QFont, QImage, QKeyEvent, QRawFont
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
-from PySide6.QtWidgets import QLabel, QMessageBox
+from PySide6.QtWidgets import QLabel, QMessageBox, QPushButton
 
 from vantage.helpers import config
 from vantage.helpers.game_capture import GameWindowCapture
@@ -19,6 +21,7 @@ from vantage.helpers.vitals import (
     MIN_CONFIDENCE, VitalStopTracker, analyze_vital_bar,
     default_vital_bars, default_vital_stop, denormalize_rect,
     learn_fill_color, normalize_rect, preset_percentages,
+    read_visible_percent, read_vital_bar, sanitize_vital_bar,
     sanitize_vital_bars)
 from vantage.parsers.vitals import (
     CalibrationControls, CalibrationOverlay, VitalBarDialog, VitalStopDialog,
@@ -37,6 +40,69 @@ def _image(width=100, height=12, fill=60, rtl=False):
     for x in range(start, end):
         for y in range(height):
             image.setPixelColor(x, y, QColor(205, 28, 35))
+    return image
+
+
+_DIGITS = {
+    "0": ("01110", "10001", "10011", "10101", "11001", "10001", "01110"),
+    "1": ("00100", "01100", "00100", "00100", "00100", "00100", "01110"),
+    "2": ("01110", "10001", "00001", "00010", "00100", "01000", "11111"),
+    "4": ("00010", "00110", "01010", "10010", "11111", "00010", "00010"),
+    "6": ("01110", "10000", "10000", "11110", "10001", "10001", "01110"),
+    "7": ("11111", "00001", "00010", "00100", "01000", "01000", "01000"),
+    "9": ("01110", "10001", "10001", "01111", "00001", "00001", "01110"),
+    "%": ("11001", "11010", "00100", "00100", "01000", "10110", "00110"),
+}
+
+
+def _number_image(value, scale=2, color="#f2cf68", include_percent=True):
+    text = str(value) + ("%" if include_percent else "")
+    glyph_width = 5 * scale
+    width = 8 + len(text) * glyph_width + max(0, len(text) - 1) * scale
+    height = 8 + 7 * scale
+    image = QImage(width, height, QImage.Format.Format_RGB32)
+    image.fill(QColor("#101820"))
+    foreground = QColor(color)
+    x_offset = 4
+    for glyph in text:
+        for row, bits in enumerate(_DIGITS[glyph]):
+            for column, bit in enumerate(bits):
+                if bit == "1":
+                    for dy in range(scale):
+                        for dx in range(scale):
+                            image.setPixelColor(
+                                x_offset + column * scale + dx,
+                                4 + row * scale + dy, foreground)
+        x_offset += glyph_width + scale
+    return image
+
+
+def _raw_font_number_image(value, font_path, size, color, include_percent=True):
+    font = QRawFont(
+        str(font_path), size, QFont.HintingPreference.PreferFullHinting)
+    text = str(value) + ("%" if include_percent else "")
+    glyphs = [font.alphaMapForGlyph(
+        index, QRawFont.AntialiasingType.PixelAntialiasing)
+        for index in font.glyphIndexesForString(text)]
+    width = 8 + sum(glyph.width() + 1 for glyph in glyphs)
+    height = 8 + max(glyph.height() for glyph in glyphs)
+    background = QColor("#101820")
+    foreground = QColor(color)
+    image = QImage(width, height, QImage.Format.Format_RGB32)
+    image.fill(background)
+    x_offset = 4
+    for glyph in glyphs:
+        y_offset = (height - glyph.height()) // 2
+        for y in range(glyph.height()):
+            for x in range(glyph.width()):
+                alpha = glyph.pixelColor(x, y).alpha() / 255.0
+                if alpha <= 0:
+                    continue
+                image.setPixelColor(x_offset + x, y_offset + y, QColor(
+                    round(background.red() * (1 - alpha) + foreground.red() * alpha),
+                    round(background.green() * (1 - alpha) + foreground.green() * alpha),
+                    round(background.blue() * (1 - alpha) + foreground.blue() * alpha)))
+        x_offset += glyph.width() + 1
     return image
 
 
@@ -97,10 +163,88 @@ def test_fill_color_learning_prefers_colored_fill_over_dark_background():
     assert confidence >= .5
 
 
+def test_visible_number_reader_handles_zero_to_100_sizes_colors_and_optional_percent():
+    _app()
+    cases = (
+        (0, 1, "#ffffff", True),
+        (7, 2, "#f2cf68", False),
+        (42, 2, "#42e2e8", True),
+        (62, 3, "#80ef6a", False),
+        (99, 3, "#ff8cc8", True),
+        (100, 2, "#ffffff", True),
+    )
+    for expected, scale, color, with_percent in cases:
+        reading = read_visible_percent(
+            _number_image(expected, scale, color, with_percent),
+            [0, 0, 1, 1])
+        assert reading.valid is True, (expected, reading)
+        assert reading.percent == float(expected)
+        assert reading.confidence >= MIN_CONFIDENCE
+        assert reading.source == "number"
+
+
+def test_visible_number_reader_handles_common_windows_font_shapes():
+    _app()
+    font_dir = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
+    cases = (
+        (font_dir / "arial.ttf", 12, 37, "#ffffff", True),
+        (font_dir / "tahomabd.ttf", 19, 85, "#f2cf68", False),
+        (font_dir / "segoeui.ttf", 26, 100, "#55e4dc", True),
+    )
+    available = [case for case in cases if case[0].is_file()]
+    if not available:
+        pytest.skip("Common Windows font files are unavailable")
+    for font_path, size, expected, color, with_percent in available:
+        reading = read_visible_percent(
+            _raw_font_number_image(
+                expected, font_path, size, color, with_percent),
+            [0, 0, 1, 1])
+        assert reading.valid is True, (font_path, expected, reading)
+        assert reading.percent == float(expected)
+
+
+def test_visible_number_reader_never_turns_unreadable_pixels_into_zero():
+    _app()
+    blank = QImage(60, 22, QImage.Format.Format_RGB32)
+    blank.fill(QColor("#101820"))
+    reading = read_visible_percent(blank, [0, 0, 1, 1])
+    assert reading.valid is False
+    assert reading.percent is None
+    assert "unreadable" in reading.message.casefold()
+
+
+def test_read_mode_defaults_new_bars_to_number_and_preserves_legacy_fill():
+    assert default_vital_bars()[0]["read_mode"] == "number"
+    legacy = sanitize_vital_bar({
+        "id": "hp", "name": "HP", "rect": [0, 0, 1, 1],
+        "color": [205, 28, 35],
+    })
+    assert legacy["read_mode"] == "fill"
+    explicit = sanitize_vital_bar({"id": "hp", "read_mode": "number"})
+    assert explicit["read_mode"] == "number"
+    corrupt = sanitize_vital_bar({"id": "hp", "read_mode": "magic"})
+    assert corrupt["read_mode"] == "fill"
+
+
+def test_explicit_fill_fallback_remains_available_and_is_identified():
+    bar = sanitize_vital_bar({
+        "id": "legacy", "name": "Legacy HP", "read_mode": "fill",
+        "rect": [0, 0, 1, 1], "color": [205, 28, 35],
+    })
+    reading = read_vital_bar(_image(fill=58), bar)
+    assert reading.valid is True and reading.percent == 58.0
+    assert reading.source == "fill"
+    numeric = dict(bar, read_mode="number")
+    unreadable = read_vital_bar(_image(fill=58), numeric)
+    assert unreadable.valid is False and unreadable.percent is None
+    assert "unreadable" in unreadable.message.casefold()
+
+
 def test_one_poll_monitors_every_enabled_saved_bar_from_the_same_frame():
     image = _image(fill=64)
     bars = default_vital_bars()
     for bar in bars:
+        bar["read_mode"] = "fill"
         bar["rect"] = [0, 0, 1, 1]
         bar["color"] = [205, 28, 35]
 
@@ -182,6 +326,7 @@ def test_vitals_config_defaults_and_corruption_are_sanitized(tmp_path, monkeypat
         assert vitals["poll_ms"] == 200
         assert vitals["sounds_when_hidden"] is True
         assert bar["type"] == "custom" and bar["rect"] == []
+        assert bar["read_mode"] == "fill"
         assert bar["direction"] == "ltr" and bar["tolerance"] == 180
         assert stop["percent"] == 0 and stop["direction"] == "below"
         assert stop["delivery"] == "tts"
@@ -192,6 +337,8 @@ def test_vitals_config_defaults_and_corruption_are_sanitized(tmp_path, monkeypat
         config.verify_settings()
         assert [bar["type"] for bar in config.data["vitals"]["bars"]] == [
             "my_hp", "my_mana", "target_hp", "group_hp"]
+        assert all(bar["read_mode"] == "number"
+                   for bar in config.data["vitals"]["bars"])
         assert config.data["vitals"]["toggled"] is False
     finally:
         config.data = original
@@ -301,6 +448,7 @@ def test_numeric_and_keyboard_calibration_are_equivalent_and_bounded(monkeypatch
     QTest.qWait(220)
     assert overlay.geometry().x() == before.x() + 1
     assert announcements and "Calibration area" in announcements[-1]
+    assert "Preview invalidated" in announcements[-1]
     overlay.keyPressEvent(QKeyEvent(
         QKeyEvent.Type.KeyPress, Qt.Key.Key_Down,
         Qt.KeyboardModifier.AltModifier))
@@ -315,6 +463,105 @@ def test_numeric_and_keyboard_calibration_are_equivalent_and_bounded(monkeypatch
     assert cancelled == [True]
     overlay.close()
     controls.close()
+
+
+def test_numeric_calibration_requires_a_valid_announced_preview_before_save(
+        monkeypatch):
+    _app()
+    announcements = []
+    monkeypatch.setattr(
+        "vantage.parsers.vitals._announce",
+        lambda _widget, message: announcements.append(message))
+    image = _number_image(62, scale=3, include_percent=False)
+    bounds = QRect(100, 200, image.width(), image.height())
+    selected = QRect(bounds)
+    bar = sanitize_vital_bar({
+        "id": "my-hp", "name": "My HP", "read_mode": "number"})
+    owner = type("Owner", (), {})()
+    owner._bars = [bar]
+    owner._bar_index = lambda bar_id: 0 if bar_id == "my-hp" else -1
+    owner._calibration_context = ("my-hp", image, bounds)
+    owner._calibration_sample = MethodType(Vitals._calibration_sample, owner)
+    controls = CalibrationControls(bounds, selected, read_mode="number")
+    owner._calibration_controls = controls
+
+    controls.show()
+    _app().processEvents()
+    controls.x.setFocus(Qt.FocusReason.TabFocusReason)
+    QTest.keyClick(controls.x, Qt.Key.Key_Tab)
+    assert controls.focusWidget() is controls.y
+    assert controls._save_button.isEnabled() is False
+    assert "percent sign is optional" in controls.findChildren(QLabel)[0].text().casefold()
+    assert controls.preview_button.accessibleName() == (
+        "Validate vital reading preview")
+    Vitals._preview_calibration(owner, "my-hp", selected)
+    assert controls._save_button.isEnabled() is True
+    assert "Valid preview · 62%" in controls.status.text()
+    assert announcements[-1] == controls.status.text()
+
+    controls.nudge(1, 0)
+    assert controls._save_button.isEnabled() is False
+    assert "validate" in controls.status.text().casefold()
+
+    blank = QImage(image.size(), image.format())
+    blank.fill(QColor("#101820"))
+    owner._calibration_context = ("my-hp", blank, bounds)
+    Vitals._preview_calibration(owner, "my-hp", selected)
+    assert controls._save_button.isEnabled() is False
+    assert "Invalid preview" in controls.status.text()
+    controls.close()
+
+
+def test_closing_calibration_restores_focus_to_invoking_bar_action():
+    _app()
+    focused = []
+    button = QPushButton("Calibrate")
+    owner = type("Owner", (), {})()
+    owner._calibration_context = ("my-hp", QImage(), QRect())
+    owner._calibration_overlay = None
+    owner._calibration_controls = None
+    owner._calibration_focus_target = ("my-hp", "calibrate")
+    owner._cards = {
+        "my-hp": type("Card", (), {
+            "action_buttons": {"calibrate": button}})()}
+    owner._add_button = QPushButton("Add")
+    owner.isVisible = lambda: True
+    owner._focus_embedded_control = lambda control: focused.append(control)
+    owner.poll_now = lambda: None
+    owner._clear_calibration_refs = MethodType(
+        Vitals._clear_calibration_refs, owner)
+
+    Vitals._finish_calibration(owner)
+    QTest.qWait(10)
+
+    assert focused == [button]
+    assert owner._calibration_focus_target is None
+
+
+def test_apply_calibration_revalidates_and_refuses_an_unreadable_number():
+    _app()
+    blank = QImage(80, 24, QImage.Format.Format_RGB32)
+    blank.fill(QColor("#101820"))
+    bounds = QRect(0, 0, blank.width(), blank.height())
+    bar = sanitize_vital_bar({
+        "id": "my-hp", "name": "My HP", "read_mode": "number"})
+    owner = type("Owner", (), {})()
+    owner._bars = [bar]
+    owner._bar_index = lambda bar_id: 0 if bar_id == "my-hp" else -1
+    owner._calibration_context = ("my-hp", blank, bounds)
+    owner._calibration_sample = MethodType(Vitals._calibration_sample, owner)
+    owner._calibration_controls = CalibrationControls(
+        bounds, bounds, read_mode="number")
+    owner._finish_calibration = lambda: None
+    owner._persist = lambda: (_ for _ in ()).throw(
+        AssertionError("invalid calibration must not persist"))
+
+    Vitals._apply_calibration(owner, "my-hp", bounds)
+
+    assert owner._bars[0]["rect"] == []
+    assert owner._calibration_controls._save_button.isEnabled() is False
+    assert "not saved" in owner._calibration_controls.status.text().casefold()
+    owner._calibration_controls.close()
 
 
 def test_stop_editor_exposes_delivery_sound_tts_off_and_tokens(monkeypatch):
@@ -350,6 +597,12 @@ def test_vital_bar_help_explains_direct_capture_and_safe_fallback():
     description = dialog.enabled.accessibleDescription()
     assert "Direct capture can continue while Vantage is in focus" in description
     assert "safe screen fallback may require EverQuest" in description
+    assert dialog.read_mode.currentText() == "Visible % number (recommended)"
+    assert dialog.read_mode.accessibleName() == "Vital reading method"
+    assert dialog.fill_direction.isEnabled() is False
+    dialog.read_mode.setCurrentIndex(dialog.read_mode.findData("fill"))
+    assert dialog.fill_direction.isEnabled() is True
+    assert "fallback" in dialog.read_mode.accessibleDescription().casefold()
     dialog.close()
 
 
@@ -427,6 +680,7 @@ class DirectEverQuestCapture:
 app = VantageApp([])
 vitals = app._parsers_dict["vitals"]
 vitals._capture = DirectEverQuestCapture()
+vitals._bars[0]["read_mode"] = "fill"
 vitals._bars[0]["rect"] = [0, 0, 1, 1]
 vitals._bars[0]["color"] = [205, 28, 35]
 for bar in vitals._bars[1:]:
@@ -440,6 +694,10 @@ calibrating = vitals.quickbar_status()
 controls_visible = vitals._calibration_controls.isVisible()
 overlay_visible = vitals._calibration_overlay.isVisible()
 focus_name = vitals._calibration_controls.focusWidget().accessibleName()
+vitals._start_calibration("my-mana")
+app.processEvents()
+replacement_bar = vitals._calibration_context[0]
+replacement_focus = vitals._calibration_controls.focusWidget().accessibleName()
 vitals._finish_calibration()
 app.processEvents()
 vitals.close()
@@ -452,6 +710,8 @@ print(json.dumps({
     "controls_visible": controls_visible,
     "overlay_visible": overlay_visible,
     "focus_name": focus_name,
+    "replacement_bar": replacement_bar,
+    "replacement_focus": replacement_focus,
 }))
 app.quit()
 '''
@@ -469,6 +729,8 @@ app.quit()
     assert result["controls_visible"] is True
     assert result["overlay_visible"] is True
     assert result["focus_name"] == "Calibration X coordinate"
+    assert result["replacement_bar"] == "my-mana"
+    assert result["replacement_focus"] == "Calibration X coordinate"
 
 
 def test_application_registers_and_quickbar_toggles_vitals(tmp_path):

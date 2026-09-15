@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.91 design QA
+# Vantage Companion 1.44.92 design QA
 
 final result: passed
 
@@ -11,6 +11,15 @@ final result: passed
 
 ## Visual checks
 
+- Vitals Monitor now reads the visible 0–100 HP/mana number as the primary
+  source for new calibrations, with an optional percent sign and no external
+  OCR executable. Unreadable pixels remain **NO READING** rather than becoming
+  a false zero; existing profiles retain their explicit bar-fill/color fallback.
+  Numeric calibration uses a compact digits-only rectangle, requires an
+  announced valid preview before Save becomes available, and revalidates on
+  save. Keyboard focus order, replacement/cancel focus restoration, dynamic
+  preview state, form labels, and narrow layout passed the final WCAG 2.4.3 and
+  4.1.2 review.
 - Vitals Monitor is a first-class Quick Bar window and reads only the pixels
   inside user-calibrated EverQuest bars. My HP, My Mana, Target/Mob HP, Group
   HP, and additional custom bars run simultaneously. Direct window capture

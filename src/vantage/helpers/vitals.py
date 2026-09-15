@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 import math
+import os
 import re
 import time
+
+from PySide6.QtGui import QFont, QGuiApplication, QRawFont
 
 
 MAX_VITAL_BARS = 32
@@ -15,6 +19,7 @@ VITALS_DEFAULTS_VERSION = 1
 BAR_TYPES = {"my_hp", "my_mana", "target_hp", "group_hp", "custom"}
 STOP_DIRECTIONS = {"below", "above", "either", "full"}
 DELIVERIES = {"sound", "tts", "off"}
+READ_MODES = {"number", "fill"}
 
 
 def _number(value, default=0.0):
@@ -148,6 +153,7 @@ def default_vital_bar(bar_id="custom", name="Custom bar", bar_type="custom"):
         "name": str(name or "Custom bar")[:80],
         "type": bar_type if bar_type in BAR_TYPES else "custom",
         "enabled": True,
+        "read_mode": "number",
         "rect": [],
         "color": [],
         "direction": "ltr",
@@ -169,6 +175,12 @@ def sanitize_vital_bar(raw, index=0):
     direction = str(raw.get("direction", "ltr") or "ltr").casefold()
     if direction not in {"ltr", "rtl"}:
         direction = "ltr"
+    # Profiles created before numeric reading existed have no mode. Preserve
+    # their proven fill calibration instead of silently reinterpreting its ROI
+    # as a percentage label. Newly created bars include ``read_mode=number``.
+    read_mode = str(raw.get("read_mode", "fill") or "fill").casefold()
+    if read_mode not in READ_MODES:
+        read_mode = "fill"
     raw_stops = raw.get("stops", [])
     if not isinstance(raw_stops, list):
         raw_stops = []
@@ -187,6 +199,7 @@ def sanitize_vital_bar(raw, index=0):
         "name": name,
         "type": bar_type,
         "enabled": bool(raw.get("enabled", True)),
+        "read_mode": read_mode,
         "rect": sanitize_normalized_rect(raw.get("rect", [])),
         "color": sanitize_color(raw.get("color", [])),
         "direction": direction,
@@ -217,6 +230,7 @@ class VitalReading:
     confidence: float
     valid: bool
     message: str
+    source: str = ""
 
 
 def _rgb(image, x, y):
@@ -254,6 +268,309 @@ def learn_fill_color(image, normalized_rect, direction="ltr"):
         return ([], 0.0)
     color, count = max(bins.items(), key=lambda item: item[1])
     return (list(color), min(1.0, count / max(1, height * sample_width * 0.35)))
+
+
+_OCR_WIDTH = 24
+_OCR_HEIGHT = 32
+_OCR_GLYPHS = "0123456789%"
+_BITMAP_GLYPHS = {
+    "0": ("01110", "10001", "10011", "10101", "11001", "10001", "01110"),
+    "1": ("00100", "01100", "00100", "00100", "00100", "00100", "01110"),
+    "2": ("01110", "10001", "00001", "00010", "00100", "01000", "11111"),
+    "3": ("11110", "00001", "00001", "01110", "00001", "00001", "11110"),
+    "4": ("00010", "00110", "01010", "10010", "11111", "00010", "00010"),
+    "5": ("11111", "10000", "10000", "11110", "00001", "00001", "11110"),
+    "6": ("01110", "10000", "10000", "11110", "10001", "10001", "01110"),
+    "7": ("11111", "00001", "00010", "00100", "01000", "01000", "01000"),
+    "8": ("01110", "10001", "10001", "01110", "10001", "10001", "01110"),
+    "9": ("01110", "10001", "10001", "01111", "00001", "00001", "01110"),
+    "%": ("11001", "11010", "00100", "00100", "01000", "10110", "00110"),
+}
+
+
+def _tight_mask(mask):
+    if not mask or not mask[0]:
+        return []
+    rows = [row for row, values in enumerate(mask) if any(values)]
+    columns = [
+        column for column in range(len(mask[0]))
+        if any(row[column] for row in mask)]
+    if not rows or not columns:
+        return []
+    top, bottom = rows[0], rows[-1] + 1
+    left, right = columns[0], columns[-1] + 1
+    return [row[left:right] for row in mask[top:bottom]]
+
+
+def _normalized_bits(mask):
+    mask = _tight_mask(mask)
+    if not mask:
+        return (0.0, ())
+    source_height, source_width = len(mask), len(mask[0])
+    aspect = source_width / max(1.0, source_height)
+    rows = []
+    for target_y in range(_OCR_HEIGHT):
+        source_y = min(
+            source_height - 1,
+            int((target_y + 0.5) * source_height / _OCR_HEIGHT))
+        bits = 0
+        for target_x in range(_OCR_WIDTH):
+            source_x = min(
+                source_width - 1,
+                int((target_x + 0.5) * source_width / _OCR_WIDTH))
+            if mask[source_y][source_x]:
+                bits |= 1 << target_x
+        rows.append(bits)
+    return (aspect, tuple(rows))
+
+
+def _render_glyph_mask(glyph, path, pixel_size):
+    font = QRawFont(
+        path, float(pixel_size), QFont.HintingPreference.PreferFullHinting)
+    indexes = font.glyphIndexesForString(glyph) if font.isValid() else []
+    if not indexes or not indexes[0]:
+        return (0.0, ())
+    image = font.alphaMapForGlyph(
+        indexes[0], QRawFont.AntialiasingType.PixelAntialiasing)
+    if image.isNull():
+        return (0.0, ())
+    mask = [
+        [image.pixelColor(x, y).alpha() >= 72 for x in range(image.width())]
+        for y in range(image.height())]
+    return _normalized_bits(mask)
+
+
+@lru_cache(maxsize=1)
+def _ocr_templates():
+    """Small in-process digit templates; no OCR executable or model needed."""
+    templates = {glyph: [] for glyph in _OCR_GLYPHS}
+    for glyph, rows in _BITMAP_GLYPHS.items():
+        templates[glyph].append(_normalized_bits([
+            [value == "1" for value in row] for row in rows]))
+    if QGuiApplication.instance() is None:
+        return templates
+    windows = os.environ.get("WINDIR", r"C:\Windows")
+    font_dir = os.path.join(windows, "Fonts")
+    # These standard Windows faces cover native EQ/VantageUI labels. QRawFont
+    # reads their glyph outlines directly, so this remains usable in packaged
+    # and offscreen builds where Qt's global font database can be unavailable.
+    paths = (
+        "arial.ttf", "arialbd.ttf", "tahoma.ttf", "tahomabd.ttf",
+        "segoeui.ttf", "segoeuib.ttf", "cour.ttf", "courbd.ttf")
+    for filename in paths:
+        path = os.path.join(font_dir, filename)
+        if not os.path.isfile(path):
+            continue
+        for pixel_size in (10, 14, 20, 28):
+            for glyph in _OCR_GLYPHS:
+                template = _render_glyph_mask(glyph, path, pixel_size)
+                if template[1] and template not in templates[glyph]:
+                    templates[glyph].append(template)
+    return templates
+
+
+def _otsu_threshold(values):
+    histogram = [0] * 256
+    for value in values:
+        histogram[max(0, min(255, int(value)))] += 1
+    total = len(values)
+    weighted_total = sum(index * count for index, count in enumerate(histogram))
+    background_weight = 0
+    background_sum = 0
+    best_variance = -1.0
+    threshold = 127
+    for level, count in enumerate(histogram):
+        background_weight += count
+        if not background_weight:
+            continue
+        foreground_weight = total - background_weight
+        if not foreground_weight:
+            break
+        background_sum += level * count
+        background_mean = background_sum / background_weight
+        foreground_mean = (
+            weighted_total - background_sum) / foreground_weight
+        variance = (background_weight * foreground_weight *
+                    (background_mean - foreground_mean) ** 2)
+        if variance > best_variance:
+            best_variance = variance
+            threshold = level
+    return threshold
+
+
+def _candidate_masks(image, x, y, width, height):
+    pixels = []
+    quantized = {}
+    for row in range(y, y + height):
+        pixel_row = []
+        for column in range(x, x + width):
+            rgb = _rgb(image, column, row)
+            luminance = round(rgb[0] * .299 + rgb[1] * .587 + rgb[2] * .114)
+            pixel_row.append((rgb, luminance))
+            key = tuple(component // 16 for component in rgb)
+            quantized[key] = quantized.get(key, 0) + 1
+        pixels.append(pixel_row)
+    if not pixels:
+        return []
+    background_key = max(quantized, key=quantized.get)
+    background = tuple(component * 16 + 8 for component in background_key)
+    flat_luminance = [value for row in pixels for _rgb_value, value in row]
+    otsu = _otsu_threshold(flat_luminance)
+    raw_candidates = []
+    for distance in (24, 38, 56):
+        raw_candidates.append([
+            [_distance(rgb, background) >= distance for rgb, _value in row]
+            for row in pixels])
+    raw_candidates.extend((
+        [[value > otsu for _rgb_value, value in row] for row in pixels],
+        [[value <= otsu for _rgb_value, value in row] for row in pixels],
+    ))
+    candidates = []
+    seen = set()
+    area = width * height
+    for mask in raw_candidates:
+        foreground = sum(sum(values) for values in mask)
+        if foreground < max(3, round(area * .012)) or foreground > area * .62:
+            continue
+        tight = _tight_mask(mask)
+        if not tight or len(tight) < 5 or len(tight[0]) < 2:
+            continue
+        signature = tuple(
+            sum((1 << column) for column, value in enumerate(row) if value)
+            for row in tight)
+        if signature not in seen:
+            seen.add(signature)
+            candidates.append(tight)
+    return candidates
+
+
+def _glyph_runs(mask):
+    """Split compact percentage text on empty columns."""
+    mask = _tight_mask(mask)
+    if not mask:
+        return []
+    occupied = [any(row[column] for row in mask)
+                for column in range(len(mask[0]))]
+    runs = []
+    start = None
+    for column, active in enumerate(occupied + [False]):
+        if active and start is None:
+            start = column
+        elif not active and start is not None:
+            glyph = _tight_mask([row[start:column] for row in mask])
+            if glyph:
+                runs.append(glyph)
+            start = None
+    # A border/noise speck should not become a digit. Keep a narrow "1" when
+    # it spans most of the text height, and keep small percent dots only as
+    # part of a percent-shaped final run.
+    text_height = len(mask)
+    return [run for run in runs
+            if len(run) >= max(4, round(text_height * .48))]
+
+
+def _glyph_similarity(observed, template):
+    observed_aspect, observed_rows = observed
+    template_aspect, template_rows = template
+    if not observed_rows or not template_rows:
+        return 0.0
+    intersection = sum(
+        (first & second).bit_count()
+        for first, second in zip(observed_rows, template_rows))
+    union = sum(
+        (first | second).bit_count()
+        for first, second in zip(observed_rows, template_rows))
+    overlap = intersection / max(1, union)
+    aspect_ratio = max(.01, observed_aspect) / max(.01, template_aspect)
+    aspect_score = math.exp(-abs(math.log(aspect_ratio)) * 1.35)
+    return overlap * .78 + aspect_score * .22
+
+
+def _recognize_mask(mask):
+    runs = _glyph_runs(mask)
+    if not runs or len(runs) > 4:
+        return (None, 0.0)
+    templates = _ocr_templates()
+    output = []
+    scores = []
+    margins = []
+    for index, run in enumerate(runs):
+        observed = _normalized_bits(run)
+        choices = []
+        allowed = _OCR_GLYPHS if index == len(runs) - 1 else _OCR_GLYPHS[:-1]
+        for glyph in allowed:
+            score = max(
+                (_glyph_similarity(observed, template)
+                 for template in templates[glyph]), default=0.0)
+            choices.append((score, glyph))
+        choices.sort(reverse=True)
+        best_score, glyph = choices[0]
+        margin = best_score - choices[1][0]
+        output.append(glyph)
+        scores.append(best_score)
+        margins.append(margin)
+    text = "".join(output)
+    if text.endswith("%"):
+        text = text[:-1]
+        scores = scores[:-1]
+        margins = margins[:-1]
+    if not text or not text.isdigit() or len(text) > 3:
+        return (None, 0.0)
+    # Leading zeroes are not emitted by the EQ labels and usually indicate a
+    # bad segmentation. The single value 0 remains a valid reading.
+    if len(text) > 1 and text.startswith("0"):
+        return (None, 0.0)
+    value = int(text)
+    if not 0 <= value <= 100 or not scores:
+        return (None, 0.0)
+    shape = sum(scores) / len(scores)
+    separation = sum(max(0.0, value) for value in margins) / len(margins)
+    confidence = min(1.0, shape * .84 + min(.16, separation * 1.8))
+    if shape < .53 or min(scores) < .46 or confidence < MIN_CONFIDENCE:
+        return (None, confidence)
+    return (value, confidence)
+
+
+def read_visible_percent(image, normalized_rect):
+    """Read a compact visible 0..100 percentage label from a saved ROI.
+
+    This deliberately returns ``percent=None`` for unreadable pixels. A valid
+    glyph for the number zero is distinguishable from an absent/invalid label.
+    """
+    rect = sanitize_normalized_rect(normalized_rect)
+    if image is None or image.isNull() or not rect:
+        return VitalReading(None, 0.0, False, "Visible number not calibrated", "number")
+    x, y, width, height = denormalize_rect(
+        rect, (image.width(), image.height()))
+    if width < 3 or height < 5:
+        return VitalReading(None, 0.0, False, "Number area is too small", "number")
+    best_value = None
+    best_confidence = 0.0
+    for mask in _candidate_masks(image, x, y, width, height):
+        value, confidence = _recognize_mask(mask)
+        if value is not None and confidence > best_confidence:
+            best_value, best_confidence = value, confidence
+    if best_value is None:
+        return VitalReading(
+            None, round(best_confidence, 3), False,
+            "Visible percentage number is unreadable; alerts paused", "number")
+    return VitalReading(
+        float(best_value), round(best_confidence, 3), True,
+        "Visible number reading", "number")
+
+
+def read_vital_bar(image, bar):
+    """Dispatch a sanitized bar to numeric OCR and/or legacy fill reading."""
+    bar = sanitize_vital_bar(bar, 0)
+    mode = bar["read_mode"]
+    if mode == "number":
+        return read_visible_percent(image, bar["rect"])
+    reading = analyze_vital_bar(
+        image, bar["rect"], bar["color"], bar["direction"], bar["tolerance"])
+    return VitalReading(
+        reading.percent, reading.confidence, reading.valid,
+        "Color fallback reading" if reading.valid else reading.message,
+        "fill")
 
 
 def analyze_vital_bar(
