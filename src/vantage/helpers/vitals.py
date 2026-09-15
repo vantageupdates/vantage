@@ -19,7 +19,6 @@ VITALS_DEFAULTS_VERSION = 1
 BAR_TYPES = {"my_hp", "my_mana", "target_hp", "group_hp", "custom"}
 STOP_DIRECTIONS = {"below", "above", "either", "full"}
 DELIVERIES = {"sound", "tts", "off"}
-READ_MODES = {"number", "fill"}
 
 
 def _number(value, default=0.0):
@@ -82,12 +81,6 @@ def denormalize_rect(rect, window_size):
     right = min(width, max(x + 1, round((rect[0] + rect[2]) * width)))
     bottom = min(height, max(y + 1, round((rect[1] + rect[3]) * height)))
     return (x, y, right - x, bottom - y)
-
-
-def sanitize_color(value):
-    if not isinstance(value, (list, tuple)) or len(value) != 3:
-        return []
-    return [_integer(component, 0, 0, 255) for component in value]
 
 
 def default_vital_stop(percent, direction="below", index=0):
@@ -153,11 +146,8 @@ def default_vital_bar(bar_id="custom", name="Custom bar", bar_type="custom"):
         "name": str(name or "Custom bar")[:80],
         "type": bar_type if bar_type in BAR_TYPES else "custom",
         "enabled": True,
-        "read_mode": "number",
+        "ocr_calibrated": False,
         "rect": [],
-        "color": [],
-        "direction": "ltr",
-        "tolerance": 64,
         "stops": [],
     }
 
@@ -172,15 +162,13 @@ def sanitize_vital_bar(raw, index=0):
         name = {"my_hp": "My HP", "my_mana": "My Mana",
                 "target_hp": "Target / Mob HP",
                 "group_hp": "Group HP"}.get(bar_type, f"Custom bar {index + 1}")
-    direction = str(raw.get("direction", "ltr") or "ltr").casefold()
-    if direction not in {"ltr", "rtl"}:
-        direction = "ltr"
-    # Profiles created before numeric reading existed have no mode. Preserve
-    # their proven fill calibration instead of silently reinterpreting its ROI
-    # as a percentage label. Newly created bars include ``read_mode=number``.
-    read_mode = str(raw.get("read_mode", "fill") or "fill").casefold()
-    if read_mode not in READ_MODES:
-        read_mode = "fill"
+    # 1.44.92 numeric profiles used ``read_mode=number``. Newer profiles keep
+    # a dedicated marker so their compact OCR rectangle survives subsequent
+    # saves without retaining the removed mode selector. A legacy fill ROI is
+    # intentionally cleared: running OCR over the long bar would be unsafe.
+    migrated_numeric = str(raw.get("read_mode", "") or "").casefold() == "number"
+    numeric_marker = raw.get("ocr_calibrated") is True or migrated_numeric
+    rect = sanitize_normalized_rect(raw.get("rect", [])) if numeric_marker else []
     raw_stops = raw.get("stops", [])
     if not isinstance(raw_stops, list):
         raw_stops = []
@@ -199,11 +187,8 @@ def sanitize_vital_bar(raw, index=0):
         "name": name,
         "type": bar_type,
         "enabled": bool(raw.get("enabled", True)),
-        "read_mode": read_mode,
-        "rect": sanitize_normalized_rect(raw.get("rect", [])),
-        "color": sanitize_color(raw.get("color", [])),
-        "direction": direction,
-        "tolerance": _integer(raw.get("tolerance", 64), 64, 10, 180),
+        "ocr_calibrated": bool(rect),
+        "rect": rect,
         "stops": stops,
     }
 
@@ -240,34 +225,6 @@ def _rgb(image, x, y):
 
 def _distance(first, second):
     return math.sqrt(sum((int(a) - int(b)) ** 2 for a, b in zip(first, second)))
-
-
-def learn_fill_color(image, normalized_rect, direction="ltr"):
-    """Learn the dominant bright/colorful fill sample near the fill origin."""
-    if image is None or image.isNull():
-        return ([], 0.0)
-    x, y, width, height = denormalize_rect(
-        normalized_rect, (image.width(), image.height()))
-    if width < 3 or height < 2:
-        return ([], 0.0)
-    sample_width = max(2, round(width * 0.35))
-    start = x if direction != "rtl" else x + width - sample_width
-    bins = {}
-    samples = 0
-    for column in range(start, start + sample_width):
-        for row in range(y, y + height):
-            rgb = _rgb(image, column, row)
-            brightness = max(rgb)
-            saturation = max(rgb) - min(rgb)
-            if brightness < 45 or saturation < 18:
-                continue
-            key = tuple(min(255, (component // 16) * 16 + 8) for component in rgb)
-            bins[key] = bins.get(key, 0) + 1
-            samples += 1
-    if not bins or samples < max(2, height // 2):
-        return ([], 0.0)
-    color, count = max(bins.items(), key=lambda item: item[1])
-    return (list(color), min(1.0, count / max(1, height * sample_width * 0.35)))
 
 
 _OCR_WIDTH = 24
@@ -560,120 +517,9 @@ def read_visible_percent(image, normalized_rect):
 
 
 def read_vital_bar(image, bar):
-    """Dispatch a sanitized bar to numeric OCR and/or legacy fill reading."""
+    """Read one sanitized vital exclusively from its visible-number ROI."""
     bar = sanitize_vital_bar(bar, 0)
-    mode = bar["read_mode"]
-    if mode == "number":
-        return read_visible_percent(image, bar["rect"])
-    reading = analyze_vital_bar(
-        image, bar["rect"], bar["color"], bar["direction"], bar["tolerance"])
-    return VitalReading(
-        reading.percent, reading.confidence, reading.valid,
-        "Color fallback reading" if reading.valid else reading.message,
-        "fill")
-
-
-def analyze_vital_bar(
-        image, normalized_rect, fill_color, direction="ltr", tolerance=64):
-    """Estimate bar fill by per-column color occupancy with confidence.
-
-    The function never extrapolates from an absent target color. Callers must
-    treat ``valid=False`` as no reading, not as zero percent.
-    """
-    rect = sanitize_normalized_rect(normalized_rect)
-    color = sanitize_color(fill_color)
-    if image is None or image.isNull() or not rect or not color:
-        return VitalReading(None, 0.0, False, "Not calibrated")
-    x, y, width, height = denormalize_rect(
-        rect, (image.width(), image.height()))
-    if width < 3 or height < 2:
-        return VitalReading(None, 0.0, False, "Calibration area is too small")
-    tolerance = _integer(tolerance, 64, 10, 180)
-    match_grid = []
-    row_totals = [0] * height
-    for column in range(x, x + width):
-        column_matches = []
-        for row_offset, row in enumerate(range(y, y + height)):
-            matched = _distance(
-                _rgb(image, column, row), color) <= tolerance
-            column_matches.append(matched)
-            row_totals[row_offset] += int(matched)
-        match_grid.append(column_matches)
-
-    # A generously drawn calibration rectangle often contains the native EQ
-    # frame above/below a thin fill stripe. Ignore full-width target-colored
-    # edge rows (frame pixels), then normalize each column against the strongest
-    # remaining vertical band instead of demanding 35% of the whole ROI.
-    edge_depth = max(1, min(height // 3, round(height * 0.2)))
-    ignored_rows = {
-        row for row, count in enumerate(row_totals)
-        if count >= math.ceil(width * 0.9) and
-        (row < edge_depth or row >= height - edge_depth)}
-    counts, runs = [], []
-    for column_matches in match_grid:
-        count = 0
-        longest = 0
-        current_run = 0
-        for row, matched in enumerate(column_matches):
-            if row in ignored_rows:
-                matched = False
-            if matched:
-                count += 1
-                current_run += 1
-                longest = max(longest, current_run)
-            else:
-                current_run = 0
-        counts.append(count)
-        runs.append(longest)
-    peak_count = max(counts, default=0)
-    peak_run = max(runs, default=0)
-    minimum_band = 3 if height >= 10 else 2
-    if peak_count < minimum_band or peak_run < minimum_band:
-        return VitalReading(None, 0.0, False, "Fill color is not visible")
-    count_floor = max(minimum_band, math.ceil(peak_count * 0.55))
-    run_floor = max(minimum_band, math.ceil(peak_run * 0.55))
-    scores = [
-        min(1.0, 0.45 * count / peak_count + 0.55 * run / peak_run)
-        for count, run in zip(counts, runs)]
-    active = [
-        count >= count_floor and run >= run_floor
-        for count, run in zip(counts, runs)]
-    if not any(active):
-        return VitalReading(None, 0.0, False, "Fill color is not visible")
-    ordered = active if direction != "rtl" else list(reversed(active))
-    # Small gaps from text/highlights are tolerated, while a detached cluster
-    # cannot make an empty bar look full.
-    gap_budget = max(1, min(4, round(width * 0.025)))
-    filled, gaps = 0, 0
-    for is_active in ordered:
-        if is_active:
-            filled += 1
-            gaps = 0
-        else:
-            gaps += 1
-            if gaps <= gap_budget:
-                filled += 1
-            else:
-                filled -= gap_budget
-                break
-    filled = max(0, min(width, filled))
-    percent = 100.0 * filled / width
-    predicted = ([index < filled for index in range(width)]
-                 if direction != "rtl" else
-                 [index >= width - filled for index in range(width)])
-    agreement = sum(
-        expected == observed for expected, observed in zip(predicted, active)) / width
-    clarity = sum(
-        score if observed else 1.0 - score
-        for score, observed in zip(scores, active)) / width
-    band_support = min(1.0, peak_run / max(
-        float(minimum_band), min(6.0, height * 0.35)))
-    confidence = max(0.0, min(
-        1.0, agreement * 0.68 + clarity * 0.20 + band_support * 0.12))
-    valid = confidence >= MIN_CONFIDENCE
-    return VitalReading(
-        round(percent, 1) if valid else None, round(confidence, 3), valid,
-        "Reading" if valid else "Low-confidence visual reading")
+    return read_visible_percent(image, bar["rect"])
 
 
 def preset_percentages(name):

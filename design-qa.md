@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.92 design QA
+# Vantage Companion 1.44.93 design QA
 
 final result: passed
 
@@ -11,22 +11,23 @@ final result: passed
 
 ## Visual checks
 
-- Vitals Monitor now reads the visible 0–100 HP/mana number as the primary
-  source for new calibrations, with an optional percent sign and no external
-  OCR executable. Unreadable pixels remain **NO READING** rather than becoming
-  a false zero; existing profiles retain their explicit bar-fill/color fallback.
-  Numeric calibration uses a compact digits-only rectangle, requires an
-  announced valid preview before Save becomes available, and revalidates on
-  save. Keyboard focus order, replacement/cancel focus restoration, dynamic
-  preview state, form labels, and narrow layout passed the final WCAG 2.4.3 and
-  4.1.2 review.
-- Vitals Monitor is a first-class Quick Bar window and reads only the pixels
-  inside user-calibrated EverQuest bars. My HP, My Mana, Target/Mob HP, Group
+- Vitals Monitor now reads only the visible 0–100 HP/mana number, with an
+  optional percent sign and no external OCR executable. The removed fill/color
+  reader, direction, tolerance, and mode controls have no runtime or persisted
+  path. A 1.44.92 numeric ROI migrates intact; an older bar-fill ROI is cleared
+  so it requests safe recalibration instead of being misread as digits.
+  Unreadable pixels remain **NO READING**, never a false zero.
+- The single calibration flow is overlay over the number → announced valid
+  preview → Save → alert stops with Sound/WAV, Text to speech, or Off. Save
+  revalidates the number and ROI changes invalidate its preview. Keyboard focus
+  order, calibration replacement/cancel focus restoration, dynamic state, form
+  labels, and narrow layout passed final WCAG 2.4.3 and 4.1.2 review.
+- Vitals Monitor is a first-class Quick Bar window and reads only the compact
+  number pixels selected in EverQuest. My HP, My Mana, Target/Mob HP, Group
   HP, and additional custom bars run simultaneously. Direct window capture
   continues while Vantage or calibration has focus; only the safe screen
-  fallback requires foreground EQ. Thin fills inside framed/tall ROIs remain
-  readable, while minimized, unavailable, or low-confidence captures never
-  become false zero values and never fire alerts.
+  fallback requires foreground EQ. Minimized, unavailable, unreadable, or
+  low-confidence captures never become false zero values and never fire alerts.
 - Every vital bar supports multiple directional thresholds, quarter/every-10%
   presets, hysteresis, cooldown, and independent Sound/WAV, Windows TTS, or Off
   delivery. Calibration supports pointer, keyboard, and exact numeric geometry;

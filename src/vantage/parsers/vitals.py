@@ -24,10 +24,9 @@ from vantage.helpers.parser import ParserWindow
 from vantage.helpers.portable import store_portable_file
 from vantage.helpers.responsive import ResponsiveActionBar, polish_form, scrollable
 from vantage.helpers.vitals import (
-    MIN_CONFIDENCE, VitalReading, VitalStopTracker, analyze_vital_bar,
-    default_vital_bar, default_vital_stop, denormalize_rect,
-    learn_fill_color, normalize_rect, preset_percentages, read_vital_bar,
-    read_visible_percent,
+    MIN_CONFIDENCE, VitalReading, VitalStopTracker, default_vital_bar,
+    default_vital_stop, denormalize_rect, normalize_rect, preset_percentages,
+    read_vital_bar, read_visible_percent,
     sanitize_vital_bar, sanitize_vital_bars, sanitize_vital_stop)
 
 
@@ -44,12 +43,6 @@ DIRECTION_LABELS = {
     "either": "Crosses either way",
     "full": "Becomes full",
 }
-READ_MODE_LABELS = {
-    "number": "Visible % number (recommended)",
-    "fill": "Bar fill / color (legacy fallback)",
-}
-
-
 def _announce(widget, message):
     widget.setAccessibleDescription(str(message))
     try:
@@ -85,10 +78,11 @@ class CalibrationOverlay(QWidget):
             Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setAccessibleName("Vitals calibration rectangle")
+        self.setAccessibleName("Visible percentage calibration overlay")
         self.setAccessibleDescription(
-            "Drag to move. Drag an edge to resize. Arrow keys move one pixel; "
-            "Shift plus arrow moves ten; Alt plus arrow resizes.")
+            "Place this overlay over the visible HP or mana number. Drag to "
+            "move; drag an edge to resize. Arrow keys move one pixel; Shift "
+            "plus arrow moves ten; Alt plus arrow resizes.")
         self.setToolTip(self.accessibleDescription())
         self.setMinimumSize(8, 6)
         self.setGeometry(self._bounded(QRect(initial)))
@@ -226,10 +220,9 @@ class CalibrationControls(QDialog):
     preview_requested = Signal(QRect)
     use_requested = Signal(QRect)
 
-    def __init__(self, bounds, initial, parent=None, read_mode="number"):
+    def __init__(self, bounds, initial, parent=None):
         super().__init__(parent)
         self._bounds = QRect(bounds)
-        self._read_mode = read_mode if read_mode in READ_MODE_LABELS else "number"
         self._syncing = False
         self._announce_timer = QTimer(self)
         self._announce_timer.setSingleShot(True)
@@ -237,22 +230,13 @@ class CalibrationControls(QDialog):
         self._announce_timer.timeout.connect(
             lambda: _announce(self.status, self.status.text()))
         self.setObjectName("VitalsCalibrationControls")
-        self.setWindowTitle(
-            "Calibrate visible percentage number"
-            if self._read_mode == "number" else
-            "Calibrate bar fill fallback")
+        self.setWindowTitle("Calibrate visible percentage number")
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
         self.setMinimumWidth(360)
-        if self._read_mode == "number":
-            intro_text = (
-                "Place a compact gold rectangle around only the visible HP or "
-                "mana digits, such as 62. The percent sign is optional and may "
-                "sit outside the rectangle. Validate the preview before saving.")
-        else:
-            intro_text = (
-                "Legacy fallback: place the gold rectangle over only the filled "
-                "colored bar. Validate the preview before saving.")
-        intro = QLabel(intro_text)
+        intro = QLabel(
+            "Place a compact gold rectangle around only the visible HP or "
+            "mana digits, such as 62. The percent sign is optional and may "
+            "sit outside the rectangle. Validate the preview before saving.")
         intro.setWordWrap(True)
         intro.setAccessibleDescription(intro.text())
 
@@ -569,39 +553,13 @@ class VitalBarDialog(QDialog):
         self.enabled = QCheckBox("Monitor this bar")
         self.enabled.setChecked(self._bar["enabled"])
         self.enabled.setAccessibleDescription(
-            "When checked, Vantage reads the calibrated EverQuest window. "
-            "Direct capture can continue while Vantage is in focus; the safe "
-            "screen fallback may require EverQuest in the foreground.")
-        self.read_mode = QComboBox()
-        for value, label in READ_MODE_LABELS.items():
-            self.read_mode.addItem(label, value)
-        self.read_mode.setCurrentIndex(max(
-            0, self.read_mode.findData(self._bar["read_mode"])))
-        self.read_mode.setAccessibleName("Vital reading method")
-        self.read_mode.setAccessibleDescription(
-            "Visible percentage digits are recommended. Bar fill and color is "
-            "the explicit fallback for older calibrations.")
-        self.read_mode.setToolTip(self.read_mode.accessibleDescription())
-        self.fill_direction = QComboBox()
-        self.fill_direction.addItem("Left to right", "ltr")
-        self.fill_direction.addItem("Right to left", "rtl")
-        self.fill_direction.setCurrentIndex(max(
-            0, self.fill_direction.findData(self._bar["direction"])))
-        self.fill_direction.setAccessibleName("Vital fill direction")
-        self.tolerance = QSpinBox()
-        self.tolerance.setRange(10, 180)
-        self.tolerance.setValue(self._bar["tolerance"])
-        self.tolerance.setAccessibleName("Fill color tolerance")
-        self.tolerance.setToolTip(
-            "Higher values tolerate more shading; recalibrate before increasing")
+            "When checked, Vantage reads the visible percentage number inside "
+            "this bar's saved overlay area. "
+            "Direct capture can continue while Vantage is in focus; safe "
+            "screen capture may require EverQuest in the foreground.")
         form.addRow("Name", self.name)
         form.addRow("Type", self.kind)
         form.addRow("Enabled", self.enabled)
-        form.addRow("Reading method", self.read_mode)
-        form.addRow("Fill", self.fill_direction)
-        form.addRow("Color tolerance", self.tolerance)
-        self.read_mode.currentIndexChanged.connect(self._update_read_mode_ui)
-        self._update_read_mode_ui()
 
         stops_label = QLabel("Alert stops")
         stops_label.setObjectName("SettingsHeader")
@@ -671,21 +629,6 @@ class VitalBarDialog(QDialog):
         if self._stops:
             self.stop_list.setCurrentRow(max(0, min(selected, len(self._stops) - 1)))
 
-    def _update_read_mode_ui(self):
-        fill_mode = self.read_mode.currentData() == "fill"
-        self.fill_direction.setEnabled(fill_mode)
-        self.tolerance.setEnabled(fill_mode)
-        explanation = (
-            "Used only by the legacy bar fill / color fallback method"
-            if not fill_mode else
-            "Controls how the colored fill fallback is measured")
-        self.fill_direction.setToolTip(explanation)
-        if not fill_mode:
-            self.tolerance.setToolTip(explanation)
-        else:
-            self.tolerance.setToolTip(
-                "Higher values tolerate more shading; recalibrate before increasing")
-
     def _add_stop(self):
         stop = default_vital_stop(25, "below", len(self._stops))
         stop["id"] = "stop-" + uuid.uuid4().hex[:10]
@@ -735,9 +678,6 @@ class VitalBarDialog(QDialog):
             "name": self.name.text().strip(),
             "type": self.kind.currentData(),
             "enabled": self.enabled.isChecked(),
-            "read_mode": self.read_mode.currentData(),
-            "direction": self.fill_direction.currentData(),
-            "tolerance": self.tolerance.value(),
             "stops": [dict(stop) for stop in self._stops],
         })
         return sanitize_vital_bar(result, 0)
@@ -772,7 +712,7 @@ class VitalCard(QFrame):
         self.progress.setAccessibleName(f"{bar['name']} percentage")
         self.progress.setAccessibleDescription("No visual reading yet")
         layout.addWidget(self.progress)
-        self.detail = QLabel("Not calibrated")
+        self.detail = QLabel("Percentage number not calibrated")
         self.detail.setObjectName("InlineStatus")
         self.detail.setWordWrap(True)
         self.detail.setAccessibleName(f"{bar['name']} reading status")
@@ -787,9 +727,7 @@ class VitalCard(QFrame):
         self.action_buttons["monitor"] = self.enabled
         actions.addWidget(self.enabled)
         calibration_help = (
-            "Select the compact visible percentage number in EverQuest"
-            if bar["read_mode"] == "number" else
-            "Select this colored bar's fill pixels in EverQuest")
+            "Place the overlay over the visible number, such as 62%")
         for key, label, callback, description in (
                 ("calibrate", "Calibrate", self.calibrate_requested,
                  calibration_help),
@@ -811,12 +749,9 @@ class VitalCard(QFrame):
             value = max(0, min(1000, round(reading.percent * 10)))
             self.progress.setValue(value)
             self.progress.setFormat(f"{reading.percent:.1f}%")
-            source = (
-                "Visible number" if reading.source == "number" else
-                "Color fallback" if reading.source in {"fill", "fill_fallback"}
-                else "Visual reading")
             detail = (
-                f"{source} · confidence {reading.confidence * 100:.0f}%")
+                "Visible number · "
+                f"confidence {reading.confidence * 100:.0f}%")
         else:
             message = reading.message if reading is not None else "No reading"
             self.progress.setValue(0)
@@ -855,22 +790,26 @@ class Vitals(ParserWindow):
         super().__init__()
         self.setWindowTitle("Vantage Vitals Monitor")
         self._title.setText("Vitals Monitor")
-        self._title.setToolTip("Read-only monitor of calibrated EverQuest bars")
+        self._title.setToolTip(
+            "Read visible HP and mana percentages and run configured alerts")
         self._status_badge = QLabel("NO READING")
         self._status_badge.setObjectName("TimerBadge")
         self._status_badge.setAccessibleName("Vitals Monitor status")
         self.menu_area.addWidget(self._status_badge)
         self._add_button = QPushButton("+ Bar")
         self._add_button.setAccessibleName("Add custom vital bar")
-        self._add_button.setToolTip("Add a visual bar and calibrate its pixels")
+        self._add_button.setToolTip(
+            "Add another visible percentage number and configure its alerts")
         self._add_button.clicked.connect(self._add_bar)
         self.menu_area.addWidget(self._add_button)
 
         intro = QLabel(
-            "All enabled bars are monitored together from one read-only EQ "
-            "frame. Calibrate one bar at a time. Alerts pause whenever "
+            "Place each calibration overlay over the visible HP or mana number, "
+            "validate the preview, then configure alert stops with Sound/WAV, "
+            "Text to speech, or Off. All enabled numbers are read together from "
+            "one read-only EQ frame. Alerts pause whenever "
             "EverQuest is minimized or unavailable. Direct window capture can "
-            "continue while Vantage is in focus; the safe screen fallback may "
+            "continue while Vantage is in focus; safe screen capture may "
             "require EverQuest in the foreground.")
         intro.setObjectName("InlineStatus")
         intro.setWordWrap(True)
@@ -1087,7 +1026,7 @@ class Vitals(ParserWindow):
         elif low_count:
             self._set_status("NO READING · low confidence; alerts paused")
         else:
-            self._set_status("NO READING · calibrate a bar")
+            self._set_status("NO READING · calibrate a percentage number")
 
     def _deliver_stop(self, bar, stop, percent, crossed):
         message = (
@@ -1155,17 +1094,13 @@ class Vitals(ParserWindow):
                 bounds.x() + saved[0], bounds.y() + saved[1],
                 saved[2], saved[3])
         else:
-            number_mode = self._bars[index]["read_mode"] == "number"
             initial = QRect(
                 bounds.x() + round(bounds.width() * .2),
                 bounds.y() + round(bounds.height() * .2),
-                (max(46, round(bounds.width() * .08)) if number_mode else
-                 max(80, round(bounds.width() * .2))),
-                (max(14, round(bounds.height() * .035)) if number_mode else
-                 max(10, round(bounds.height() * .025))))
+                max(46, round(bounds.width() * .08)),
+                max(14, round(bounds.height() * .035)))
         overlay = CalibrationOverlay(bounds, initial)
-        controls = CalibrationControls(
-            bounds, initial, self, self._bars[index]["read_mode"])
+        controls = CalibrationControls(bounds, initial, self)
         overlay.rect_changed.connect(controls.set_absolute_rect)
         controls.geometry_changed.connect(overlay.set_calibration_geometry)
         controls.preview_requested.connect(
@@ -1191,35 +1126,22 @@ class Vitals(ParserWindow):
         context = self._calibration_context
         index = self._bar_index(bar_id)
         if context is None or index < 0:
-            return (None, [], 0.0, [])
+            return (None, [])
         _context_id, image, bounds = context
         relative = (
             absolute_rect.x() - bounds.x(), absolute_rect.y() - bounds.y(),
             absolute_rect.width(), absolute_rect.height())
         normalized = normalize_rect(relative, (bounds.width(), bounds.height()))
-        bar = self._bars[index]
-        if bar["read_mode"] == "number":
-            return (read_visible_percent(image, normalized), [], 0.0, normalized)
-        color, confidence = learn_fill_color(
-            image, normalized, bar["direction"])
-        reading = (analyze_vital_bar(
-            image, normalized, color, bar["direction"], bar["tolerance"])
-            if color else VitalReading(
-                None, 0.0, False, "Fill color is not visible", "fill"))
-        return (reading, color, confidence, normalized)
+        return (read_visible_percent(image, normalized), normalized)
 
     def _preview_calibration(self, bar_id, absolute_rect):
-        reading, _color, _sample_confidence, _normalized = (
-            self._calibration_sample(bar_id, absolute_rect))
+        reading, _normalized = self._calibration_sample(bar_id, absolute_rect)
         controls = self._calibration_controls
         if controls is None or reading is None:
             return
         if reading.valid:
-            source = (
-                "visible number" if reading.source == "number" else
-                "color fallback")
             controls.set_preview(
-                f"Valid preview · {reading.percent:.0f}% from {source} · "
+                f"Valid preview · {reading.percent:.0f}% from visible number · "
                 f"confidence {reading.confidence * 100:.0f}%", True)
         else:
             controls.set_preview(
@@ -1232,7 +1154,7 @@ class Vitals(ParserWindow):
         if context is None or index < 0:
             self._finish_calibration()
             return
-        reading, color, confidence, normalized = self._calibration_sample(
+        reading, normalized = self._calibration_sample(
             bar_id, absolute_rect)
         if reading is None or not reading.valid:
             controls = self._calibration_controls
@@ -1244,16 +1166,12 @@ class Vitals(ParserWindow):
                 controls.set_preview(message, False)
             return
         self._bars[index]["rect"] = normalized
-        if self._bars[index]["read_mode"] == "fill":
-            self._bars[index]["color"] = color
+        self._bars[index]["ocr_calibrated"] = True
         self._tracker.reset_bar(bar_id)
         self._persist()
         self._rebuild_cards((bar_id, "calibrate"))
         self._finish_calibration()
-        if self._bars[index]["read_mode"] == "number":
-            result = f"validated {reading.percent:.0f}% visible number"
-        else:
-            result = f"{confidence * 100:.0f}% color fallback sample"
+        result = f"validated {reading.percent:.0f}% visible number"
         self._set_status(
             f"NO READING · calibrated {self._bars[index]['name']} "
             f"({result}); return to EverQuest")

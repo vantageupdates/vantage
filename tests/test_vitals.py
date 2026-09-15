@@ -18,11 +18,11 @@ from vantage.helpers import config
 from vantage.helpers.game_capture import GameWindowCapture
 from vantage.helpers.quickbar_items import QUICKBAR_ITEMS
 from vantage.helpers.vitals import (
-    MIN_CONFIDENCE, VitalStopTracker, analyze_vital_bar,
-    default_vital_bars, default_vital_stop, denormalize_rect,
-    learn_fill_color, normalize_rect, preset_percentages,
+    MIN_CONFIDENCE, VitalStopTracker, default_vital_bars,
+    default_vital_stop, denormalize_rect, normalize_rect, preset_percentages,
     read_visible_percent, read_vital_bar, sanitize_vital_bar,
     sanitize_vital_bars)
+import vantage.helpers.vitals as vital_helpers_module
 from vantage.parsers.vitals import (
     CalibrationControls, CalibrationOverlay, VitalBarDialog, VitalStopDialog,
     Vitals)
@@ -47,9 +47,12 @@ _DIGITS = {
     "0": ("01110", "10001", "10011", "10101", "11001", "10001", "01110"),
     "1": ("00100", "01100", "00100", "00100", "00100", "00100", "01110"),
     "2": ("01110", "10001", "00001", "00010", "00100", "01000", "11111"),
+    "3": ("11110", "00001", "00001", "01110", "00001", "00001", "11110"),
     "4": ("00010", "00110", "01010", "10010", "11111", "00010", "00010"),
+    "5": ("11111", "10000", "10000", "11110", "00001", "00001", "11110"),
     "6": ("01110", "10000", "10000", "11110", "10001", "10001", "01110"),
     "7": ("11111", "00001", "00010", "00100", "01000", "01000", "01000"),
+    "8": ("01110", "10001", "10001", "01110", "10001", "10001", "01110"),
     "9": ("01110", "10001", "10001", "01111", "00001", "00001", "01110"),
     "%": ("11001", "11010", "00100", "00100", "01000", "10110", "00110"),
 }
@@ -117,52 +120,6 @@ def test_normalized_geometry_survives_window_move_resize_and_is_bounded():
     assert denormalize_rect([.95, .95, .5, .5], (100, 100)) == (95, 95, 5, 5)
 
 
-def test_pixel_reader_reports_ltr_rtl_and_rejects_missing_fill_color():
-    ltr = analyze_vital_bar(_image(fill=62), [0, 0, 1, 1], [205, 28, 35])
-    rtl = analyze_vital_bar(
-        _image(fill=37, rtl=True), [0, 0, 1, 1], [205, 28, 35], "rtl")
-    absent = analyze_vital_bar(_image(fill=60), [0, 0, 1, 1], [30, 210, 40])
-    assert ltr.valid and ltr.percent == 62.0 and ltr.confidence >= MIN_CONFIDENCE
-    assert rtl.valid and rtl.percent == 37.0 and rtl.confidence >= MIN_CONFIDENCE
-    assert absent.valid is False and absent.percent is None
-    assert "not visible" in absent.message.casefold()
-
-
-def test_pixel_reader_finds_thin_fill_inside_tall_roi_and_ignores_frame():
-    image = QImage(100, 30, QImage.Format.Format_RGB32)
-    image.fill(QColor(12, 14, 18))
-    fill = QColor(205, 28, 35)
-    # A target-colored one-pixel frame must not become a false 100% reading.
-    for x in range(100):
-        image.setPixelColor(x, 0, fill)
-        image.setPixelColor(x, 29, fill)
-    # The actual EQ fill can be only a few pixels tall inside a loose overlay.
-    for x in range(63):
-        for y in range(12, 16):
-            image.setPixelColor(x, y, fill)
-
-    reading = analyze_vital_bar(image, [0, 0, 1, 1], [205, 28, 35])
-    assert reading.valid is True
-    assert reading.percent == 63.0
-    assert reading.confidence >= MIN_CONFIDENCE
-
-    frame_only = QImage(image.size(), image.format())
-    frame_only.fill(QColor(12, 14, 18))
-    for x in range(100):
-        frame_only.setPixelColor(x, 0, fill)
-        frame_only.setPixelColor(x, 29, fill)
-    absent = analyze_vital_bar(frame_only, [0, 0, 1, 1], [205, 28, 35])
-    assert absent.valid is False and absent.percent is None
-
-
-def test_fill_color_learning_prefers_colored_fill_over_dark_background():
-    color, confidence = learn_fill_color(
-        _image(fill=70), [0, 0, 1, 1], "ltr")
-    assert color
-    assert color[0] > color[1] * 4
-    assert confidence >= .5
-
-
 def test_visible_number_reader_handles_zero_to_100_sizes_colors_and_optional_percent():
     _app()
     cases = (
@@ -181,6 +138,10 @@ def test_visible_number_reader_handles_zero_to_100_sizes_colors_and_optional_per
         assert reading.percent == float(expected)
         assert reading.confidence >= MIN_CONFIDENCE
         assert reading.source == "number"
+    routed = read_vital_bar(_number_image(42), {
+        "id": "hp", "name": "HP", "ocr_calibrated": True,
+        "rect": [0, 0, 1, 1]})
+    assert routed.valid is True and routed.percent == 42.0
 
 
 def test_visible_number_reader_handles_common_windows_font_shapes():
@@ -213,44 +174,41 @@ def test_visible_number_reader_never_turns_unreadable_pixels_into_zero():
     assert "unreadable" in reading.message.casefold()
 
 
-def test_read_mode_defaults_new_bars_to_number_and_preserves_legacy_fill():
-    assert default_vital_bars()[0]["read_mode"] == "number"
+def test_numeric_migration_keeps_ocr_roi_and_clears_legacy_bar_roi():
+    numeric_rect = [.1, .2, .08, .04]
+    migrated = sanitize_vital_bar({
+        "id": "hp", "name": "HP", "read_mode": "number",
+        "rect": numeric_rect, "color": [205, 28, 35],
+        "direction": "rtl", "tolerance": 120,
+    })
+    assert migrated["rect"] == numeric_rect
+    assert migrated["ocr_calibrated"] is True
     legacy = sanitize_vital_bar({
-        "id": "hp", "name": "HP", "rect": [0, 0, 1, 1],
-        "color": [205, 28, 35],
+        "id": "hp-old", "name": "HP old", "read_mode": "fill",
+        "rect": [0, 0, 1, .05], "color": [205, 28, 35],
+        "direction": "ltr", "tolerance": 64,
     })
-    assert legacy["read_mode"] == "fill"
-    explicit = sanitize_vital_bar({"id": "hp", "read_mode": "number"})
-    assert explicit["read_mode"] == "number"
-    corrupt = sanitize_vital_bar({"id": "hp", "read_mode": "magic"})
-    assert corrupt["read_mode"] == "fill"
+    assert legacy["rect"] == []
+    assert legacy["ocr_calibrated"] is False
+    assert not ({"read_mode", "color", "direction", "tolerance"} & migrated.keys())
+    assert not ({"read_mode", "color", "direction", "tolerance"} & legacy.keys())
 
-
-def test_explicit_fill_fallback_remains_available_and_is_identified():
-    bar = sanitize_vital_bar({
-        "id": "legacy", "name": "Legacy HP", "read_mode": "fill",
-        "rect": [0, 0, 1, 1], "color": [205, 28, 35],
-    })
-    reading = read_vital_bar(_image(fill=58), bar)
-    assert reading.valid is True and reading.percent == 58.0
-    assert reading.source == "fill"
-    numeric = dict(bar, read_mode="number")
-    unreadable = read_vital_bar(_image(fill=58), numeric)
-    assert unreadable.valid is False and unreadable.percent is None
-    assert "unreadable" in unreadable.message.casefold()
+    persisted = sanitize_vital_bar(migrated)
+    assert persisted["rect"] == numeric_rect
+    assert persisted["ocr_calibrated"] is True
 
 
 def test_one_poll_monitors_every_enabled_saved_bar_from_the_same_frame():
-    image = _image(fill=64)
+    image = _number_image(64, scale=3)
     bars = default_vital_bars()
     for bar in bars:
-        bar["read_mode"] = "fill"
+        bar["ocr_calibrated"] = True
         bar["rect"] = [0, 0, 1, 1]
-        bar["color"] = [205, 28, 35]
 
     class Capture:
         def image_frame(self, **_kwargs):
-            return ({"available": True, "message": "Reading"}, image, (0, 0, 100, 12))
+            return ({"available": True, "message": "Reading"}, image,
+                    (0, 0, image.width(), image.height()))
 
     class Tracker:
         def __init__(self):
@@ -326,8 +284,8 @@ def test_vitals_config_defaults_and_corruption_are_sanitized(tmp_path, monkeypat
         assert vitals["poll_ms"] == 200
         assert vitals["sounds_when_hidden"] is True
         assert bar["type"] == "custom" and bar["rect"] == []
-        assert bar["read_mode"] == "fill"
-        assert bar["direction"] == "ltr" and bar["tolerance"] == 180
+        assert bar["ocr_calibrated"] is False
+        assert not ({"read_mode", "color", "direction", "tolerance"} & bar.keys())
         assert stop["percent"] == 0 and stop["direction"] == "below"
         assert stop["delivery"] == "tts"
         assert stop["volume"] == 100 and stop["pitch"] == -10
@@ -337,7 +295,7 @@ def test_vitals_config_defaults_and_corruption_are_sanitized(tmp_path, monkeypat
         config.verify_settings()
         assert [bar["type"] for bar in config.data["vitals"]["bars"]] == [
             "my_hp", "my_mana", "target_hp", "group_hp"]
-        assert all(bar["read_mode"] == "number"
+        assert all(bar["ocr_calibrated"] is False
                    for bar in config.data["vitals"]["bars"])
         assert config.data["vitals"]["toggled"] is False
     finally:
@@ -417,6 +375,17 @@ def test_vitals_contains_no_game_input_automation_path():
     assert all(token not in source for token in forbidden)
 
 
+def test_vitals_has_no_fill_reader_or_obsolete_reading_mode_route():
+    helper_source = inspect.getsource(vital_helpers_module)
+    parser_source = inspect.getsource(vitals_module)
+    assert "def analyze_vital_bar" not in helper_source
+    assert "def learn_fill_color" not in helper_source
+    assert "READ_MODES" not in helper_source
+    assert "READ_MODE_LABELS" not in parser_source
+    assert "fill_direction" not in parser_source
+    assert "color tolerance" not in parser_source.casefold()
+
+
 def test_quickbar_catalog_exposes_independent_vitals_action_with_unique_icon():
     matches = [item for item in QUICKBAR_ITEMS if item[0] == "vitals"]
     assert matches == [("vitals", "Vitals Monitor", "ph-vitals", "windows")]
@@ -476,13 +445,13 @@ def test_numeric_calibration_requires_a_valid_announced_preview_before_save(
     bounds = QRect(100, 200, image.width(), image.height())
     selected = QRect(bounds)
     bar = sanitize_vital_bar({
-        "id": "my-hp", "name": "My HP", "read_mode": "number"})
+        "id": "my-hp", "name": "My HP"})
     owner = type("Owner", (), {})()
     owner._bars = [bar]
     owner._bar_index = lambda bar_id: 0 if bar_id == "my-hp" else -1
     owner._calibration_context = ("my-hp", image, bounds)
     owner._calibration_sample = MethodType(Vitals._calibration_sample, owner)
-    controls = CalibrationControls(bounds, selected, read_mode="number")
+    controls = CalibrationControls(bounds, selected)
     owner._calibration_controls = controls
 
     controls.show()
@@ -544,14 +513,14 @@ def test_apply_calibration_revalidates_and_refuses_an_unreadable_number():
     blank.fill(QColor("#101820"))
     bounds = QRect(0, 0, blank.width(), blank.height())
     bar = sanitize_vital_bar({
-        "id": "my-hp", "name": "My HP", "read_mode": "number"})
+        "id": "my-hp", "name": "My HP"})
     owner = type("Owner", (), {})()
     owner._bars = [bar]
     owner._bar_index = lambda bar_id: 0 if bar_id == "my-hp" else -1
     owner._calibration_context = ("my-hp", blank, bounds)
     owner._calibration_sample = MethodType(Vitals._calibration_sample, owner)
     owner._calibration_controls = CalibrationControls(
-        bounds, bounds, read_mode="number")
+        bounds, bounds)
     owner._finish_calibration = lambda: None
     owner._persist = lambda: (_ for _ in ()).throw(
         AssertionError("invalid calibration must not persist"))
@@ -561,6 +530,36 @@ def test_apply_calibration_revalidates_and_refuses_an_unreadable_number():
     assert owner._bars[0]["rect"] == []
     assert owner._calibration_controls._save_button.isEnabled() is False
     assert "not saved" in owner._calibration_controls.status.text().casefold()
+    owner._calibration_controls.close()
+
+
+def test_apply_valid_numeric_calibration_marks_and_persists_ocr_roi():
+    _app()
+    image = _number_image(75, scale=2)
+    bounds = QRect(20, 30, image.width(), image.height())
+    bar = sanitize_vital_bar({"id": "my-hp", "name": "My HP"})
+    calls = []
+    owner = type("Owner", (), {})()
+    owner._bars = [bar]
+    owner._bar_index = lambda bar_id: 0 if bar_id == "my-hp" else -1
+    owner._calibration_context = ("my-hp", image, bounds)
+    owner._calibration_sample = MethodType(Vitals._calibration_sample, owner)
+    owner._calibration_controls = CalibrationControls(bounds, bounds)
+    owner._tracker = type("Tracker", (), {
+        "reset_bar": lambda _self, bar_id: calls.append(("reset", bar_id))})()
+    owner._persist = lambda: calls.append(("persist", None))
+    owner._rebuild_cards = lambda target: calls.append(("rebuild", target))
+    owner._finish_calibration = lambda: calls.append(("finish", None))
+    owner._set_status = lambda status: calls.append(("status", status))
+    owner.poll_now = lambda: None
+
+    Vitals._apply_calibration(owner, "my-hp", bounds)
+
+    assert owner._bars[0]["rect"] == [0.0, 0.0, 1.0, 1.0]
+    assert owner._bars[0]["ocr_calibrated"] is True
+    assert ("persist", None) in calls
+    assert any(call[0] == "status" and "validated 75% visible number" in call[1]
+               for call in calls)
     owner._calibration_controls.close()
 
 
@@ -591,18 +590,19 @@ def test_stop_editor_exposes_delivery_sound_tts_off_and_tokens(monkeypatch):
     dialog.close()
 
 
-def test_vital_bar_help_explains_direct_capture_and_safe_fallback():
+def test_vital_bar_has_one_numeric_reading_flow_and_no_obsolete_controls():
     _app()
     dialog = VitalBarDialog(default_vital_bars()[0])
     description = dialog.enabled.accessibleDescription()
     assert "Direct capture can continue while Vantage is in focus" in description
-    assert "safe screen fallback may require EverQuest" in description
-    assert dialog.read_mode.currentText() == "Visible % number (recommended)"
-    assert dialog.read_mode.accessibleName() == "Vital reading method"
-    assert dialog.fill_direction.isEnabled() is False
-    dialog.read_mode.setCurrentIndex(dialog.read_mode.findData("fill"))
-    assert dialog.fill_direction.isEnabled() is True
-    assert "fallback" in dialog.read_mode.accessibleDescription().casefold()
+    assert "safe screen capture may require EverQuest" in description
+    assert not hasattr(dialog, "read_mode")
+    assert not hasattr(dialog, "fill_direction")
+    assert not hasattr(dialog, "tolerance")
+    visible_copy = " ".join(
+        label.text() for label in dialog.findChildren(QLabel)).casefold()
+    assert all(term not in visible_copy
+               for term in ("bar fill", "color tolerance", "legacy", "fallback"))
     dialog.close()
 
 
@@ -666,9 +666,22 @@ class DirectEverQuestCapture:
     def __init__(self):
         self.image = QImage(100, 30, QImage.Format.Format_RGB32)
         self.image.fill(QColor(12, 14, 18))
-        for x in range(64):
-            for y in range(12, 16):
-                self.image.setPixelColor(x, y, QColor(205, 28, 35))
+        glyphs = {
+            "6": ("01110", "10000", "10000", "11110", "10001", "10001", "01110"),
+            "4": ("00010", "00110", "01010", "10010", "11111", "00010", "00010"),
+            "%": ("11001", "11010", "00100", "00100", "01000", "10110", "00110"),
+        }
+        x_offset = 6
+        for glyph in "64%":
+            for row, bits in enumerate(glyphs[glyph]):
+                for column, bit in enumerate(bits):
+                    if bit == "1":
+                        for dy in range(2):
+                            for dx in range(2):
+                                self.image.setPixelColor(
+                                    x_offset + column * 2 + dx,
+                                    7 + row * 2 + dy, QColor(242, 207, 104))
+            x_offset += 12
     def image_frame(self, **_kwargs):
         # Models PrintWindow/window-DC success while the Vantage panel owns
         # foreground focus.
@@ -680,9 +693,8 @@ class DirectEverQuestCapture:
 app = VantageApp([])
 vitals = app._parsers_dict["vitals"]
 vitals._capture = DirectEverQuestCapture()
-vitals._bars[0]["read_mode"] = "fill"
+vitals._bars[0]["ocr_calibrated"] = True
 vitals._bars[0]["rect"] = [0, 0, 1, 1]
-vitals._bars[0]["color"] = [205, 28, 35]
 for bar in vitals._bars[1:]:
     bar["enabled"] = False
 vitals.poll_now()
