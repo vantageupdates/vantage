@@ -1,5 +1,20 @@
 # VantageUI releases
 
+## 1.44.87
+
+Install folder: `VantageUI-v1.44.87`.
+
+- Added twenty native 5-percent visual states to the existing Player mana
+  gauge, keeping most of its range blue, transitioning through violet near
+  critical mana, and reserving red for 0 through 10 percent.
+- Preserved the native `PlayerMana` EQType 2 binding, 240-by-11-pixel geometry,
+  Pieces ordering and `ManaLabel` EQType 20 numeric readout.
+- Kept both fill length and the numeric value available, so the threshold color
+  remains a supplemental cue rather than the only representation of mana.
+
+Load with `/loadskin VantageUI-v1.44.87 1`. The live threshold transition,
+client loading and native rendering remain unverified until an in-game reload.
+
 ## 1.44.86
 
 Install folder: `VantageUI-v1.44.86`.
