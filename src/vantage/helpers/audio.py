@@ -292,6 +292,7 @@ def _speech_engine():
         return None
     if _SPEECH is None:
         _SPEECH = QTextToSpeech(app)
+    if not _DEFAULT_VOICE_NAME:
         try:
             _DEFAULT_VOICE_NAME = _SPEECH.voice().name()
         except (AttributeError, RuntimeError):
@@ -312,17 +313,32 @@ def speech_voice_names():
         return []
 
 
-def _apply_speech_profile(speech, settings):
-    wanted = str(settings.get("voice_name", "") or _DEFAULT_VOICE_NAME)
+def _apply_speech_profile(speech, settings, voice_name="", pitch=0):
+    """Apply every mutable voice setting for one isolated utterance.
+
+    The Qt speech engine is shared, so leaving one setting untouched leaks it
+    into the next alert.  Resolve voice from the trigger first, then the
+    character profile, and finally the engine's startup voice; rate and pitch
+    are deliberately reset on every call as well.
+    """
+    wanted = str(
+        voice_name or settings.get("voice_name", "") or
+        _DEFAULT_VOICE_NAME).strip()
     try:
         voices = list(speech.availableVoices())
         selected = next((
             voice for voice in voices
             if str(voice.name()).casefold() == wanted.casefold()), None)
+        if selected is None and _DEFAULT_VOICE_NAME:
+            selected = next((
+                voice for voice in voices
+                if str(voice.name()).casefold() ==
+                _DEFAULT_VOICE_NAME.casefold()), None)
         if selected is not None:
             speech.setVoice(selected)
         speech.setRate(max(-1.0, min(
             1.0, int(settings.get("voice_speed", 0)) / 10.0)))
+        speech.setPitch(max(-1.0, min(1.0, int(pitch or 0) / 10.0)))
     except (AttributeError, RuntimeError, TypeError, ValueError):
         pass
 
@@ -453,7 +469,7 @@ def play_alert(
 def speak_text(
         text, volume=80, interrupt=False, source="Vantage speech",
         character="", server="", channel="", allow_hidden=False,
-        voice_name=""):
+        voice_name="", pitch=0):
     """Speak resolved trigger text through the built-in Windows voice."""
     message = str(text or "").strip()
     app = QApplication.instance()
@@ -463,8 +479,6 @@ def speak_text(
         return False
     volume = max(0, min(100, int(volume)))
     profile = profile_audio_settings(character, server)
-    if str(voice_name or "").strip():
-        profile = dict(profile, voice_name=str(voice_name).strip())
     volume = round(volume * int(profile.get("volume", 100)) / 100)
     volume = round(volume * master_volume() / 100)
     speech = _speech_engine()
@@ -472,7 +486,9 @@ def speak_text(
         return False
     if interrupt:
         speech.stop()
-    _apply_speech_profile(speech, profile)
+    _apply_speech_profile(
+        speech, profile, voice_name=str(voice_name or "").strip(),
+        pitch=pitch)
     speech.setVolume(volume / 100.0)
     blocked = _playback_block_reason(app, channel, allow_hidden)
     if blocked:

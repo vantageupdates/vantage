@@ -49,6 +49,13 @@ def panel_hover_tooltip(panel, control):
 
 
 def dialog_tooltip(dialog, control):
+    # Some priority dialogs now keep full-size controls in a scrollable
+    # logical canvas instead of compressing them into an overlap. Reveal the
+    # requested control before synthesizing the real tooltip event.
+    scroll = getattr(dialog, '_form_scroll', None)
+    if scroll is not None:
+        scroll.ensureWidgetVisible(control)
+        QApplication.processEvents()
     logical = control.mapTo(dialog.scaled_surface, control.rect().center())
     scene = dialog._dialog_proxy.mapToScene(QPointF(logical))
     point = dialog._dialog_view.mapFromScene(scene)

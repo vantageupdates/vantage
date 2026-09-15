@@ -64,6 +64,11 @@ def test_trigger_round_trip_preserves_gina_style_routing_and_behavior():
         timer_ending_tts='Charm ending soon',
         timer_ending_interrupt=True,
         timer_ended_tts='Charm finished', timer_ended_interrupt=False,
+        delivery='tts', tts_voice='Voice A', tts_volume=73, tts_pitch=4,
+        timer_ending_delivery='tts', timer_ending_voice='Voice B',
+        timer_ending_volume=61, timer_ending_pitch=-3,
+        timer_ended_delivery='off', timer_ended_voice='Voice A',
+        timer_ended_volume=52, timer_ended_pitch=8,
         timer_name='Charm · {target}',
         restart_based_on_timer_name=True,
         end_patterns=[
@@ -90,9 +95,36 @@ def test_trigger_round_trip_preserves_gina_style_routing_and_behavior():
     assert restored.timer_ending_tts == 'Charm ending soon'
     assert restored.timer_ending_interrupt is True
     assert restored.timer_ended_tts == 'Charm finished'
+    assert restored.delivery == 'tts'
+    assert restored.tts_voice == 'Voice A'
+    assert restored.tts_volume == 73
+    assert restored.tts_pitch == 4
+    assert restored.timer_ending_delivery == 'tts'
+    assert restored.timer_ending_voice == 'Voice B'
+    assert restored.timer_ending_volume == 61
+    assert restored.timer_ending_pitch == -3
+    assert restored.timer_ended_delivery == 'off'
+    assert restored.timer_ended_volume == 52
+    assert restored.timer_ended_pitch == 8
     assert restored.timer_name == 'Charm · {target}'
     assert restored.restart_based_on_timer_name is True
     assert len(restored.end_patterns) == 2
+
+
+def test_legacy_trigger_row_keeps_wav_first_delivery_priority():
+    legacy = CustomTrigger(
+        name='Legacy', sound_path='builtin:crystal-ping',
+        tts_text='Old speech', timer_ending_tts='Ending speech')
+    old_row = legacy.to_list()[:34]
+
+    restored = CustomTrigger(*old_row)
+
+    assert restored.delivery == 'legacy'
+    assert restored.audio_delivery('basic') == 'sound'
+    assert restored.audio_delivery('ending') == 'tts'
+    assert restored.audio_delivery('ended') == 'off'
+    assert restored.speech_settings('basic') == {
+        'voice_name': '', 'volume': 100, 'pitch': 0}
 
 
 def test_first_run_seeds_the_essential_p99_alerts():

@@ -41,7 +41,8 @@ from PySide6.QtWidgets import (
 
 from vantage.helpers import config
 from vantage.helpers.audio import (
-    add_custom_sound_to_combo, play_alert, set_sound_combo_value)
+    add_custom_sound_to_combo, play_alert, set_sound_combo_value, speak_text,
+    speech_voice_names)
 from vantage.helpers.icons import game_icon
 from vantage.helpers.log_events import extract_killed_mob
 from vantage.helpers.encounter_events import (
@@ -51,7 +52,7 @@ from vantage.helpers.eq_clipboard import set_eq_clipboard
 from vantage.helpers.parser import ParserWindow
 from vantage.helpers.portable import store_portable_file
 from vantage.helpers.responsive import (
-    ResponsiveActionBar, polish_form)
+    ResponsiveActionBar, polish_form, scrollable)
 from vantage.helpers.respawn_catalog import (
     CATALOG_SOURCE, CATALOG_SOURCE_URL, NAMED_CATALOG_SOURCE,
     NAMED_CATALOG_SOURCE_URL, NAMED_SPAWN_CATALOG, RESPAWN_CATALOG,
@@ -68,9 +69,11 @@ from vantage.helpers.spawn_timer import (
     TIMER_MODE_COOLDOWN,
     TIMER_MODE_COUNTDOWN,
     TIMER_MODE_SPAWN,
+    TIMER_TTS_DEFAULT,
     MAX_DEATH_MOB_NAME_LENGTH,
     MAX_DEATH_MOBS,
     normalize_death_mobs,
+    render_timer_notification_text,
     reset_stale_persisted_timers,
     format_seconds,
     parse_duration_input,
@@ -295,7 +298,7 @@ class TimerProgressBar(QProgressBar):
 class TimerEditDialog(UniformScaleDialog):
     def __init__(self, timer=None, parent=None):
         super().__init__(
-            QSize(500, 580), parent, minimum_size=QSize(200, 232))
+            QSize(560, 660), parent, minimum_size=QSize(200, 232))
         self.timer = timer
         self.color = timer.color if timer else "#B38C52"
         self.setWindowTitle("Edit Smart Timer" if timer else "New Smart Timer")
@@ -374,7 +377,12 @@ class TimerEditDialog(UniformScaleDialog):
             initial_death_mobs = normalize_death_mobs([timer.name])
 
         self.death_mob_panel = QWidget()
-        self.death_mob_panel.setMinimumHeight(164)
+        # QFormLayout's WrapLongRows policy otherwise bases the following
+        # row on the panel's pre-wrap size hint while this nested list expands
+        # to its minimum height.  A fixed logical-canvas height keeps the
+        # compact editor deterministic and prevents later notification rows
+        # from painting through the death-name list.
+        self.death_mob_panel.setFixedHeight(164)
         self.death_mob_panel.setAccessibleName("Detect deaths")
         self.death_mob_panel.setAccessibleDescription(
             "Adds full mob or placeholder names, or distinctive multi-word "
@@ -498,10 +506,14 @@ class TimerEditDialog(UniformScaleDialog):
         self.death_mob_status.setToolTip(
             "Status for this timer's death detection names and phrases")
         death_layout.addWidget(self.death_mob_status)
-        form.addRow("Detect deaths", self.death_mob_panel)
-        detect_label = form.labelForField(self.death_mob_panel)
-        if detect_label is not None:
-            detect_label.setBuddy(self.death_mob_picker)
+        # Tall, responsive compound controls are spanning rows.  Qt's
+        # WrapLongRows bookkeeping can otherwise position the following row
+        # using the panel's unwrapped hint while the panel paints at its full
+        # height, causing visible overlap at normal dialog widths.
+        self._death_mob_label = QLabel("Detect deaths")
+        self._death_mob_label.setBuddy(self.death_mob_picker)
+        form.addRow(self._death_mob_label)
+        form.addRow(self.death_mob_panel)
         self._death_suggestion_announce_timer = QTimer(self)
         self._death_suggestion_announce_timer.setSingleShot(True)
         self._death_suggestion_announce_timer.setInterval(350)
@@ -531,7 +543,28 @@ class TimerEditDialog(UniformScaleDialog):
         form.addRow("Color", color_row)
         self._update_color_preview()
 
+        self.delivery = QComboBox()
+        self.delivery.addItem(
+            "Use Smart Timer route (legacy)", "legacy")
+        self.delivery.addItem("Sound / WAV", "sound")
+        self.delivery.addItem("Text to speech", "tts")
+        self.delivery.addItem("Off", "off")
+        current_delivery = (
+            getattr(timer, "delivery", "legacy") if timer else "sound")
+        self.delivery.setCurrentIndex(max(
+            0, self.delivery.findData(current_delivery)))
+        self.delivery.setAccessibleName("Timer notification delivery")
+        self.delivery.setAccessibleDescription(
+            "Choose one notification output for warning and ready events: "
+            "the existing shared Smart Timer route, a sound or custom WAV, "
+            "Windows text to speech, or no audio.")
+        self.delivery.setToolTip(
+            "Applies to ending-soon, spawn-ready, complete, and cooldown-ready "
+            "events; visual notices remain available when audio is Off")
+        form.addRow("Delivery", self.delivery)
+
         sound_panel = QWidget()
+        self._sound_panel = sound_panel
         sound_row = QVBoxLayout(sound_panel)
         sound_row.setContentsMargins(0, 0, 0, 0)
         sound_row.setSpacing(5)
@@ -546,7 +579,9 @@ class TimerEditDialog(UniformScaleDialog):
         if configured_sound is None:
             self.sound.setCurrentIndex(0)
         browse = QPushButton("WAV…")
+        self._sound_browse = browse
         browse.setIcon(game_icon("copy"))
+        browse.setAccessibleName("Choose WAV for this timer")
         browse.setToolTip(
             "Add a royalty-free WAV file to Vantage's portable sound gallery")
         browse.clicked.connect(self._browse_sound)
@@ -568,7 +603,55 @@ class TimerEditDialog(UniformScaleDialog):
             "blocked, or is unavailable")
         self.sound_test_status.setWordWrap(True)
         sound_row.addWidget(self.sound_test_status)
-        form.addRow("Alarm gallery", sound_panel)
+        self._sound_panel_label = QLabel("Alarm gallery")
+        self._sound_panel_label.setBuddy(self.sound)
+        form.addRow(self._sound_panel_label)
+        form.addRow(sound_panel)
+
+        tts_panel = QWidget()
+        self._tts_panel = tts_panel
+        tts_form = polish_form(QFormLayout(tts_panel))
+        tts_form.setContentsMargins(0, 0, 0, 0)
+        tts_form.setSpacing(4)
+        self.tts_text = QLineEdit(
+            getattr(timer, "tts_text", TIMER_TTS_DEFAULT)
+            if timer else TIMER_TTS_DEFAULT)
+        self.tts_text.setMaxLength(300)
+        self.tts_text.setAccessibleName("Timer speech message")
+        self.tts_text.setAccessibleDescription(
+            "Speech used for all timer notifications. Tokens are timer, state, "
+            "zone, event, seconds, and the name alias.")
+        self.tts_text.setToolTip(
+            "Tokens: {timer} or {name}, {state}, {zone}, {event}, {seconds}")
+        self.tts_voice = QComboBox()
+        self.tts_voice.addItem("Character profile / Windows default", "")
+        for voice in speech_voice_names():
+            self.tts_voice.addItem(voice, voice)
+        configured_voice = str(getattr(timer, "tts_voice", "") or "")
+        voice_index = self.tts_voice.findData(configured_voice)
+        if configured_voice and voice_index < 0:
+            self.tts_voice.addItem(configured_voice, configured_voice)
+            voice_index = self.tts_voice.count() - 1
+        self.tts_voice.setCurrentIndex(max(0, voice_index))
+        self.tts_voice.setAccessibleName("Timer Windows voice")
+        self.tts_voice.setAccessibleDescription(
+            "Choose an installed Windows voice. The first option inherits the "
+            "active character audio profile and Windows default voice.")
+        self.tts_voice.setToolTip(
+            "Voice for this timer; character profile and master volume still apply")
+        self.tts_pitch = QSpinBox()
+        self.tts_pitch.setRange(-10, 10)
+        self.tts_pitch.setValue(getattr(timer, "tts_pitch", 0) if timer else 0)
+        self.tts_pitch.setAccessibleName("Timer speech pitch")
+        self.tts_pitch.setToolTip(
+            "Pitch from -10 to 10 for this timer's Windows speech")
+        tts_form.addRow("Message", self.tts_text)
+        tts_form.addRow("Voice", self.tts_voice)
+        tts_form.addRow("Pitch", self.tts_pitch)
+        self._tts_panel_label = QLabel("Text to speech")
+        self._tts_panel_label.setBuddy(self.tts_text)
+        form.addRow(self._tts_panel_label)
+        form.addRow(tts_panel)
 
         self.volume = QSpinBox()
         self.volume.setRange(0, 100)
@@ -580,6 +663,9 @@ class TimerEditDialog(UniformScaleDialog):
             "Volume for this timer only; 0 mutes its alarm")
         test.clicked.connect(self._test_notification)
         form.addRow("This timer's volume", self.volume)
+        self.delivery.currentIndexChanged.connect(
+            self._notification_delivery_changed)
+        self._notification_delivery_changed()
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
@@ -599,7 +685,15 @@ class TimerEditDialog(UniformScaleDialog):
         layout.setSpacing(5)
         form_host = QWidget()
         form_host.setLayout(form)
-        layout.addWidget(form_host, 1)
+        # Keep every focusable editor control at its natural logical height.
+        # The body scrolls at shorter displays instead of letting QFormLayout
+        # compress compound rows until they overlap one another.
+        form_host.setMinimumHeight(720)
+        self._form_scroll = scrollable(form_host, "TimerEditScroll")
+        self._form_scroll.setAccessibleName("Smart Timer editor fields")
+        self._form_scroll.setAccessibleDescription(
+            "Scrollable timer fields, death matches, and notification options")
+        layout.addWidget(self._form_scroll, 1)
         layout.addWidget(buttons)
 
     def _pick_color(self):
@@ -625,14 +719,38 @@ class TimerEditDialog(UniformScaleDialog):
         app = QApplication.instance()
         selected = (None if self.sound.currentIndex() == 0 else
                     str(self.sound.currentData() or ""))
+        delivery = str(self.delivery.currentData() or "off")
         result = None
-        if app is not None and hasattr(app, "notify_event"):
+        if delivery == "tts":
+            sample = SpawnTimerState(
+                self.name.text().strip() or "Smart Timer",
+                max(1, parse_duration_input(self.respawn.text()) or 1),
+                zone=self.zone.text().strip())
+            speech = render_timer_notification_text(
+                self.tts_text.text(), sample, "ready", 0)
+            owner = self.parent()
+            played = speak_text(
+                speech, self.volume.value(),
+                source=f"Test · timer {sample.name}",
+                character=getattr(owner, "_active_character", ""),
+                server=getattr(owner, "_active_server", ""),
+                channel="timers", allow_hidden=True,
+                voice_name=str(self.tts_voice.currentData() or ""),
+                pitch=self.tts_pitch.value())
+            result = type("Result", (), {
+                "delivery": "tts", "state": (
+                    "played" if played else "unavailable"), "reason": ""})()
+        elif app is not None and hasattr(app, "notify_event"):
             result = app.notify_event(
                 "smart_timer", "Smart Timer test",
                 voice_text="Smart Timer test", overlay=False, register=False,
-                sound_override=selected, volume=self.volume.value(), repeat=2,
-                channel="timers", allow_hidden=True)
-        elif selected:
+                sound_override=(
+                    selected if delivery in ("legacy", "sound") else None),
+                volume=self.volume.value(), repeat=2,
+                channel="timers", allow_hidden=True,
+                delivery_override=(
+                    None if delivery == "legacy" else delivery))
+        elif delivery in ("legacy", "sound") and selected:
             played = play_alert(
                 selected, self.volume.value(), 2,
                 source=f"Test · timer {self.name.text().strip() or 'new'}",
@@ -653,12 +771,30 @@ class TimerEditDialog(UniformScaleDialog):
         else:
             message = f"Test status · {delivery} unavailable"
         self.sound_test_status.setText(message)
+        self.sound_test_status.setAccessibleName(message)
+        self.sound_test_status.setAccessibleDescription(
+            f"Latest timer notification test result: {message}")
         try:
             QAccessible.updateAccessibility(
                 QAccessibleAnnouncementEvent(self.sound_test_status, message))
         except (AttributeError, RuntimeError):
             pass
         return result
+
+    def _notification_delivery_changed(self, *_args):
+        mode = str(self.delivery.currentData() or "off")
+        sound_enabled = mode in ("legacy", "sound")
+        speech_enabled = mode == "tts"
+        self.sound.setEnabled(sound_enabled)
+        self._sound_browse.setEnabled(sound_enabled)
+        self._tts_panel.setEnabled(speech_enabled)
+        description = {
+            "legacy": "The saved Smart Timer route and optional timer WAV are active.",
+            "sound": "Sound or WAV is active; text to speech is inactive.",
+            "tts": "Text to speech is active; sound or WAV is inactive.",
+            "off": "Audio is off for this timer; visual notifications remain active.",
+        }.get(mode, "Audio is off for this timer.")
+        self.delivery.setAccessibleDescription(description)
 
     @staticmethod
     def _normalize_duration(field):
@@ -894,6 +1030,10 @@ class TimerEditDialog(UniformScaleDialog):
         timer.sound_path = None if self.sound.currentIndex() == 0 else str(
             selected or "")
         timer.volume = self.volume.value()
+        timer.delivery = str(self.delivery.currentData() or "off")
+        timer.tts_text = self.tts_text.text().strip()[:300]
+        timer.tts_voice = str(self.tts_voice.currentData() or "")[:160]
+        timer.tts_pitch = self.tts_pitch.value()
         return timer
 
     def _timer_mode_changed(self, *_args):
@@ -911,8 +1051,9 @@ class TimerEditDialog(UniformScaleDialog):
             field.setEnabled(spawn_mode)
         kill_label = form.labelForField(self.kill)
         smart_label = form.labelForField(self.smart)
-        detect_label = form.labelForField(self.death_mob_panel)
-        for label in (kill_label, smart_label, detect_label):
+        for label in (
+                kill_label, smart_label,
+                getattr(self, "_death_mob_label", None)):
             if label is not None:
                 label.setEnabled(spawn_mode)
         self.respawn.setToolTip(
@@ -2581,6 +2722,40 @@ class SpawnTimers(ParserWindow):
             row.refresh()
         self._schedule_timer_canvas()
 
+    def _deliver_timer_event(self, timer, event, message, route, repeat):
+        """Register one visual event and deliver the timer's selected audio."""
+        app = QApplication.instance()
+        common = {
+            "title": "Vantage",
+            "overlay_id": "timers",
+            "volume": timer.volume,
+            "repeat": repeat,
+            "character": getattr(self, "_active_character", ""),
+            "server": getattr(self, "_active_server", ""),
+            "channel": "timers",
+        }
+        delivery = str(getattr(timer, "delivery", "legacy") or "legacy")
+        if delivery == "tts":
+            # notify_event owns the single visual/rail entry; the per-timer
+            # voice settings then bypass the global route's voice selection.
+            app.notify_event(
+                route, message, delivery_override="off", **common)
+            speech = render_timer_notification_text(
+                timer.tts_text, timer, event.kind, timer.remaining())
+            return speak_text(
+                speech, timer.volume, source=f"Smart Timer · {message}",
+                character=common["character"], server=common["server"],
+                channel="timers", allow_hidden=False,
+                voice_name=timer.tts_voice, pitch=timer.tts_pitch)
+        if delivery == "off":
+            return app.notify_event(
+                route, message, delivery_override="off", **common)
+        return app.notify_event(
+            route, message,
+            sound_override=timer.sound_path,
+            delivery_override=("sound" if delivery == "sound" else None),
+            **common)
+
     def _tick(self):
         changed = False
         completed_schedule_ids = []
@@ -2604,14 +2779,11 @@ class SpawnTimers(ParserWindow):
                         "raid_encounter" if
                         timer.source == RING_WAR_SCHEDULE_SOURCE else
                         "smart_timer")
-                    QApplication.instance().notify_event(
-                        route, message, title="Vantage",
-                        overlay_id="timers",
-                        sound_override=timer.sound_path,
-                        volume=timer.volume,
-                        repeat=2 if event.kind in (
-                            "spawn", "complete", "ready") else 1,
-                        channel="timers")
+                    SpawnTimers._deliver_timer_event(
+                        self,
+                        timer, event, message, route,
+                        2 if event.kind in (
+                            "spawn", "complete", "ready") else 1)
                 else:
                     self.announce(message)
                 if schedule_due:

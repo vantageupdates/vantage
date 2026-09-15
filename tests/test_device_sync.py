@@ -145,8 +145,10 @@ def test_smart_timers_are_an_explicit_portable_sync_category():
     source = {
         "timers": {
             "items": [{"id": "frenzy", "zone": "gukbottom",
-                       "phase": "respawn", "ends_at": 12345.0,
-                       "death_mobs": [
+                        "phase": "respawn", "ends_at": 12345.0,
+                        "delivery": "tts", "tts_text": "{timer} {state}",
+                        "tts_voice": "Narrator", "tts_pitch": -2,
+                        "death_mobs": [
                            "a frenzy ghoul", "a frenzy placeholder"]}],
             "view_zone": "gukbottom",
         },

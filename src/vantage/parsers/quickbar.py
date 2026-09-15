@@ -70,6 +70,7 @@ class QuickBarNotificationRail(QFrame):
             "chat": "CHAT",
             "combat": "COMBAT",
             "heals": "HEAL CHAIN",
+            "vitals": "VITALS",
         }.get(str(channel or "").casefold(), "SYSTEM")
 
     def present(self, notice_id, text, reduce_motion=False, available=True,
@@ -259,6 +260,9 @@ class QuickBar(ParserWindow):
             QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         for target in self._window_targets.values():
             target.installEventFilter(self)
+            status_changed = getattr(target, "status_changed", None)
+            if status_changed is not None and hasattr(status_changed, "connect"):
+                status_changed.connect(self.refresh_state)
         tick = self._window_targets.get("tick")
         if tick is not None and hasattr(tick, "tray_state_changed"):
             tick.tray_state_changed.connect(self._server_tick_update)
@@ -314,6 +318,17 @@ class QuickBar(ParserWindow):
             self.action_layout.addWidget(button, 0)
             if key == "tick":
                 self._setup_tick_readout()
+
+        self._vitals_badge = QLabel("—", self._buttons["vitals"])
+        self._vitals_badge.setObjectName("QuickBarProductBadge")
+        self._vitals_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._vitals_badge.setGeometry(15, 1, 8, 9)
+        self._vitals_badge.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._vitals_badge.show()
+        vitals_dot = self._enabled_dots.get("vitals")
+        if vitals_dot is not None:
+            vitals_dot.move(2, 16)
 
         self._update_badge = QLabel("!", self._buttons["updates"])
         self._update_badge.setObjectName("QuickBarAlertBadge")
@@ -819,8 +834,26 @@ class QuickBar(ParserWindow):
             label = str(button.property("BaseLabel") or
                         button.accessibleName())
             state = "open" if visible else "hidden"
-            button.setToolTip(f"{label} is {state} · click to toggle")
-            button.setAccessibleDescription(f"Currently {state}")
+            detail_getter = getattr(target, "quickbar_status", None)
+            detail = str(detail_getter() if callable(detail_getter) else "").strip()
+            if detail:
+                button.setToolTip(
+                    f"{label}: {detail} · window is {state} · click to toggle")
+                button.setAccessibleDescription(
+                    f"{detail}. Window is currently {state}")
+                button.setProperty(
+                    "MonitorState", detail.split(" ·", 1)[0].casefold())
+                button.setStyle(button.style())
+                if name == "vitals":
+                    monitor_state = detail.split(" ·", 1)[0].upper()
+                    self._vitals_badge.setText(
+                        "✓" if monitor_state == "ACTIVE" else
+                        "C" if monitor_state == "CALIBRATING" else "—")
+                    self._vitals_badge.setToolTip(detail)
+                    self._vitals_badge.raise_()
+            else:
+                button.setToolTip(f"{label} is {state} · click to toggle")
+                button.setAccessibleDescription(f"Currently {state}")
 
         for key, (attribute, _opener) in self._DIALOG_ACTIONS.items():
             button = self._buttons.get(key)

@@ -7,7 +7,8 @@ from PySide6.QtGui import QColor, QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QFormLayout, QFrame,
                              QHeaderView, QHBoxLayout, QLabel, QListWidget,
                              QListWidgetItem, QInputDialog,
-                             QSlider, QSpinBox, QStackedWidget, QPushButton,
+                             QDoubleSpinBox, QSlider, QSpinBox, QStackedWidget,
+                             QPushButton,
                              QSplitter, QTableWidget, QTableWidgetItem,
                              QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
                              QTreeWidgetItemIterator, QVBoxLayout,
@@ -188,9 +189,10 @@ class GinaImportPreviewDialog(UniformScaleDialog):
             actions = []
             if trigger.alert_text:
                 actions.append('Text')
-            if trigger.tts_text:
+            delivery = trigger.audio_delivery('basic')
+            if delivery == 'tts' and trigger.tts_text:
                 actions.append('TTS')
-            if trigger.sound_path:
+            if delivery == 'sound' and trigger.sound_path:
                 actions.append(
                     'Pack WAV' if (
                         hasattr(triggers, 'has_embedded_audio') and
@@ -1958,6 +1960,20 @@ class CustomTriggerSettings(UniformScaleDialog):
             'For advanced or imported patterns only; normal triggers do not need it')
         trigger_layout.addRow('Pattern mode', self._trigger_regex)
 
+        self._trigger_match_cooldown = QDoubleSpinBox()
+        self._trigger_match_cooldown.setRange(0.0, 300.0)
+        self._trigger_match_cooldown.setDecimals(2)
+        self._trigger_match_cooldown.setSingleStep(0.25)
+        self._trigger_match_cooldown.setSuffix(' s')
+        self._trigger_match_cooldown.setAccessibleName(
+            'Trigger repeat guard duration')
+        self._trigger_match_cooldown.setAccessibleDescription(
+            'Suppress the same trigger for this many seconds. The Mob is '
+            'casting alert applies the guard independently to each actor.')
+        self._trigger_match_cooldown.setToolTip(
+            'Short duplicate guard after a match; set 0 to allow every line')
+        trigger_layout.addRow('Repeat guard', self._trigger_match_cooldown)
+
         self._trigger_source = QLabel('Vantage')
         self._trigger_source.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -2095,12 +2111,15 @@ class CustomTriggerSettings(UniformScaleDialog):
         trigger_sound_browse.setIcon(game_icon('copy'))
         trigger_sound_browse.setToolTip(
             'Copy a custom WAV into the portable Vantage sound gallery')
+        trigger_sound_browse.setAccessibleName(
+            'Choose WAV for basic trigger sound')
         trigger_sound_browse.clicked.connect(self._choose_trigger_sound)
         trigger_sound_actions.addWidget(trigger_sound_browse)
         trigger_sound_test = QPushButton('Test')
         trigger_sound_test.setIcon(game_icon('play'))
         trigger_sound_test.setToolTip(
             'Play the selected trigger sound at the configured trigger volume')
+        trigger_sound_test.setAccessibleName('Test basic trigger sound')
         trigger_sound_test.clicked.connect(
             lambda: play_alert(
                 self._trigger_sound.currentData(),
@@ -2177,55 +2196,153 @@ class CustomTriggerSettings(UniformScaleDialog):
             'Optional speech when the timer reaches zero')
         self._trigger_ended_interrupt = QCheckBox('Interrupt current speech')
 
-        def speech_panel(editor, interrupt, source):
+        def delivery_combo(label):
+            combo = QComboBox()
+            combo.addItem('Sound / WAV', 'sound')
+            combo.addItem('Text to speech', 'tts')
+            combo.addItem('Off', 'off')
+            combo.setAccessibleName(f'{label} audio delivery')
+            combo.setAccessibleDescription(
+                f'Choose one audio output for {label.casefold()}: '
+                'a gallery or custom WAV, Windows text to speech, or no audio.')
+            combo.setToolTip(
+                'Choose exactly one audio action; visual display text is configured separately')
+            return combo
+
+        def voice_combo(label):
+            combo = QComboBox()
+            combo.addItem('Character profile / Windows default', '')
+            for voice in speech_voice_names():
+                combo.addItem(voice, voice)
+            combo.setAccessibleName(f'{label} Windows voice')
+            combo.setAccessibleDescription(
+                'Installed Windows voices. The first option uses the current '
+                'character audio profile, then the Windows default voice.')
+            combo.setToolTip(
+                'Choose an installed Windows voice for this trigger phase')
+            return combo
+
+        def speech_spin(label, kind, minimum, maximum, value, suffix):
+            spin = QSpinBox()
+            spin.setRange(minimum, maximum)
+            spin.setValue(value)
+            spin.setSuffix(suffix)
+            spin.setAccessibleName(f'{label} speech {kind}')
+            spin.setAccessibleDescription(
+                f'{kind.title()} applied only to {label.casefold()} text to speech')
+            spin.setToolTip(
+                f'Set {kind} for this phase; Master Volume and character '
+                'profile volume are still applied')
+            return spin
+
+        self._trigger_delivery = delivery_combo('Basic trigger')
+        self._trigger_ending_delivery = delivery_combo('Timer ending')
+        self._trigger_ended_delivery = delivery_combo('Timer ended')
+        self._trigger_tts_voice = voice_combo('Basic trigger')
+        self._trigger_ending_voice = voice_combo('Timer ending')
+        self._trigger_ended_voice = voice_combo('Timer ended')
+        self._trigger_tts_volume = speech_spin(
+            'Basic trigger', 'volume', 0, 100, 100, '%')
+        self._trigger_ending_volume = speech_spin(
+            'Timer ending', 'volume', 0, 100, 100, '%')
+        self._trigger_ended_volume = speech_spin(
+            'Timer ended', 'volume', 0, 100, 100, '%')
+        self._trigger_tts_pitch = speech_spin(
+            'Basic trigger', 'pitch', -10, 10, 0, '')
+        self._trigger_ending_pitch = speech_spin(
+            'Timer ending', 'pitch', -10, 10, 0, '')
+        self._trigger_ended_pitch = speech_spin(
+            'Timer ended', 'pitch', -10, 10, 0, '')
+
+        def speech_panel(
+                editor, interrupt, voice, volume, pitch, source, label):
             panel = QWidget()
-            panel_layout = QVBoxLayout(panel)
+            panel_layout = polish_form(QFormLayout(panel))
+            # This compound editor is often displayed in the narrow action
+            # side of a splitter.  Stack labels above controls so fields keep
+            # a useful width, then let the enclosing tab scroll vertically.
+            panel_layout.setRowWrapPolicy(
+                QFormLayout.RowWrapPolicy.WrapAllRows)
             panel_layout.setContentsMargins(0, 0, 0, 0)
             panel_layout.setSpacing(3)
+            for control in (editor, voice, volume, pitch):
+                control.setMinimumHeight(34)
+                # The application stylesheet is applied after construction
+                # and otherwise replaces QWidget's minimum with its generic
+                # 24 px rule.  Keep these scaled-dialog fields at a readable
+                # physical height at the normal 80% dialog scale.
+                control.setStyleSheet('min-height: 30px;')
+            interrupt.setMinimumHeight(30)
             editor.setToolTip(
                 'Resolved tokens are spoken by the built-in Windows voice')
-            panel_layout.addWidget(editor)
+            editor.setAccessibleName(f'{label} speech message')
+            panel_layout.addRow('Message', editor)
+            panel_layout.addRow('Voice', voice)
+            panel_layout.addRow('Volume', volume)
+            panel_layout.addRow('Pitch', pitch)
             row = QHBoxLayout()
             interrupt.setToolTip(
                 'Stop current Vantage speech before speaking this action')
             test = QPushButton('Test voice')
+            test.setMinimumHeight(30)
             test.setIcon(game_icon('play'))
             test.setToolTip('Speak this text now using the Windows voice')
-            test.clicked.connect(lambda: speak_text(
-                editor.text(), config.data['spells']['fade_sound_volume'],
-                interrupt.isChecked(), source=source))
+            test.setAccessibleName(f'Test {label.casefold()} speech')
+            status = QLabel('')
+            status.setWordWrap(True)
+            status.setVisible(False)
+            status.setAccessibleName(f'{label} speech test: no result yet')
+            status.setAccessibleDescription(
+                f'Live result of the {label.casefold()} speech test.')
+            test.clicked.connect(lambda: self._test_trigger_speech(
+                editor, interrupt, voice, volume, pitch, source, label,
+                status))
             row.addWidget(interrupt)
             row.addWidget(test)
-            panel_layout.addLayout(row)
+            panel_layout.addRow('Speech action', row)
+            panel_layout.addRow('Test status', status)
+            panel._speech_status = status
+            panel._speech_test = test
             return panel
 
         basic_speech_panel = speech_panel(
             self._trigger_tts, self._trigger_interrupt_speech,
-            'Test · trigger speech')
+            self._trigger_tts_voice, self._trigger_tts_volume,
+            self._trigger_tts_pitch, 'Test · trigger speech',
+            'Basic trigger')
         ending_speech_panel = speech_panel(
             self._trigger_ending_tts, self._trigger_ending_interrupt,
-            'Test · timer ending speech')
+            self._trigger_ending_voice, self._trigger_ending_volume,
+            self._trigger_ending_pitch, 'Test · timer ending speech',
+            'Timer ending')
         ended_speech_panel = speech_panel(
             self._trigger_ended_tts, self._trigger_ended_interrupt,
-            'Test · timer ended speech')
+            self._trigger_ended_voice, self._trigger_ended_volume,
+            self._trigger_ended_pitch, 'Test · timer ended speech',
+            'Timer ended')
 
-        def stage_sound_panel(combo, source):
+        def stage_sound_panel(combo, source, label):
             panel = QWidget()
             panel_layout = QVBoxLayout(panel)
             panel_layout.setContentsMargins(0, 0, 0, 0)
             panel_layout.setSpacing(3)
             combo.setToolTip(
                 'Choose No sound, a built-in sound, or a portable custom WAV')
+            combo.setAccessibleName(f'{label} sound gallery')
+            combo.setAccessibleDescription(
+                f'Choose a built-in or custom WAV for {label.casefold()}.')
             panel_layout.addWidget(combo)
             actions = ResponsiveActionBar(96)
             choose = QPushButton('Choose WAV…')
             choose.setIcon(game_icon('copy'))
             choose.setToolTip('Copy a custom WAV into Vantage portable data')
+            choose.setAccessibleName(f'Choose WAV for {label.casefold()}')
             choose.clicked.connect(lambda: self._choose_stage_sound(combo))
             actions.addWidget(choose)
             test = QPushButton('Test')
             test.setIcon(game_icon('play'))
             test.setToolTip('Play this stage sound at the configured volume')
+            test.setAccessibleName(f'Test {label.casefold()} sound')
             test.clicked.connect(lambda: play_alert(
                 combo.currentData(),
                 config.data['spells']['fade_sound_volume'], 1,
@@ -2235,9 +2352,26 @@ class CustomTriggerSettings(UniformScaleDialog):
             return panel
 
         ending_sound_panel = stage_sound_panel(
-            self._trigger_ending_sound, 'Test · timer ending sound')
+            self._trigger_ending_sound, 'Test · timer ending sound',
+            'Timer ending')
         ended_sound_panel = stage_sound_panel(
-            self._trigger_ended_sound, 'Test · timer ended sound')
+            self._trigger_ended_sound, 'Test · timer ended sound',
+            'Timer ended')
+
+        self._trigger_delivery_panels = (
+            (self._trigger_delivery, trigger_sound_panel,
+             basic_speech_panel),
+            (self._trigger_ending_delivery, ending_sound_panel,
+             ending_speech_panel),
+            (self._trigger_ended_delivery, ended_sound_panel,
+             ended_speech_panel),
+        )
+        for delivery, sound_panel, speech_widget in \
+                self._trigger_delivery_panels:
+            delivery.currentIndexChanged.connect(
+                lambda _index, selector=delivery, sound=sound_panel,
+                speech=speech_widget: self._trigger_delivery_changed(
+                    selector, sound, speech))
 
         action_tabs = QTabWidget()
         self._action_tabs = action_tabs
@@ -2250,10 +2384,16 @@ class CustomTriggerSettings(UniformScaleDialog):
         basic_layout.addRow('Display text', self._trigger_alert)
         basic_layout.addRow('Text color', self._trigger_color)
         basic_layout.addRow('Overlay route', self._trigger_overlay)
+        basic_layout.addRow('Delivery', self._trigger_delivery)
         basic_layout.addRow('Sound', trigger_sound_panel)
         basic_layout.addRow('Text-to-speech', basic_speech_panel)
         basic_layout.addRow('Copy to clipboard', self._trigger_clipboard)
-        action_tabs.addTab(basic_page, 'Basic')
+        trigger_sound_panel._delivery_label = \
+            basic_layout.labelForField(trigger_sound_panel)
+        trigger_sound_panel._delivery_label.setBuddy(self._trigger_sound)
+        basic_speech_panel._delivery_label = \
+            basic_layout.labelForField(basic_speech_panel)
+        basic_speech_panel._delivery_label.setBuddy(self._trigger_tts)
 
         timer_page = QWidget()
         timer_layout = polish_form(QFormLayout(timer_page))
@@ -2265,22 +2405,61 @@ class CustomTriggerSettings(UniformScaleDialog):
         timer_layout.addRow('Restart scope', self._trigger_restart_name)
         timer_layout.addRow('Early enders', ender_host)
         timer_layout.addRow('Counter reset', self._trigger_counter_reset)
-        action_tabs.addTab(timer_page, 'Timer')
 
         ending_page = QWidget()
         ending_layout = polish_form(QFormLayout(ending_page))
         ending_layout.addRow('Threshold', self._trigger_ending_seconds)
         ending_layout.addRow('Display text', self._trigger_ending_alert)
+        ending_layout.addRow('Delivery', self._trigger_ending_delivery)
         ending_layout.addRow('Sound', ending_sound_panel)
         ending_layout.addRow('Text-to-speech', ending_speech_panel)
-        action_tabs.addTab(ending_page, 'Timer Ending')
+        ending_sound_panel._delivery_label = \
+            ending_layout.labelForField(ending_sound_panel)
+        ending_sound_panel._delivery_label.setBuddy(
+            self._trigger_ending_sound)
+        ending_speech_panel._delivery_label = \
+            ending_layout.labelForField(ending_speech_panel)
+        ending_speech_panel._delivery_label.setBuddy(
+            self._trigger_ending_tts)
 
         ended_page = QWidget()
         ended_layout = polish_form(QFormLayout(ended_page))
         ended_layout.addRow('Display text', self._trigger_ended_alert)
+        ended_layout.addRow('Delivery', self._trigger_ended_delivery)
         ended_layout.addRow('Sound', ended_sound_panel)
         ended_layout.addRow('Text-to-speech', ended_speech_panel)
-        action_tabs.addTab(ended_page, 'Timer Ended')
+        ended_sound_panel._delivery_label = \
+            ended_layout.labelForField(ended_sound_panel)
+        ended_sound_panel._delivery_label.setBuddy(
+            self._trigger_ended_sound)
+        ended_speech_panel._delivery_label = \
+            ended_layout.labelForField(ended_speech_panel)
+        ended_speech_panel._delivery_label.setBuddy(
+            self._trigger_ended_tts)
+
+        # Reclaim inactive delivery space instead of compressing two complete
+        # editors into the same short tab.  Every page is independently
+        # scrollable, so keyboard focus can reveal all controls at a readable
+        # height even when the dialog is at its minimum/default size.
+        self._refresh_trigger_delivery_panels()
+
+        def add_action_page(page, label, object_name):
+            page.setMinimumHeight(max(600, page.minimumSizeHint().height()))
+            area = scrollable(page, object_name)
+            area.setAccessibleName(f'{label} trigger action settings')
+            area.setAccessibleDescription(
+                f'Scrollable {label.casefold()} controls for this trigger')
+            action_tabs.addTab(area, label)
+            return area
+
+        self._basic_action_scroll = add_action_page(
+            basic_page, 'Basic', 'TriggerBasicActionScroll')
+        self._timer_action_scroll = add_action_page(
+            timer_page, 'Timer', 'TriggerTimerActionScroll')
+        self._ending_action_scroll = add_action_page(
+            ending_page, 'Timer Ending', 'TriggerEndingActionScroll')
+        self._ended_action_scroll = add_action_page(
+            ended_page, 'Timer Ended', 'TriggerEndedActionScroll')
         ensure_tab_tooltips(action_tabs, {
             'Basic': 'Configure the actions fired when this trigger matches',
             'Timer': 'Configure timer type, duration, restart, and early ending',
@@ -2311,6 +2490,71 @@ class CustomTriggerSettings(UniformScaleDialog):
         layout.addItem(button_layout)
 
         self.scaled_surface.setLayout(layout)
+
+    @staticmethod
+    def _trigger_delivery_changed(delivery, sound_panel, speech_panel):
+        mode = str(delivery.currentData() or 'off')
+        sound_active = mode == 'sound'
+        speech_active = mode == 'tts'
+        sound_panel.setEnabled(sound_active)
+        sound_panel.setVisible(sound_active)
+        speech_panel.setEnabled(speech_active)
+        speech_panel.setVisible(speech_active)
+        for panel, visible in (
+                (sound_panel, sound_active),
+                (speech_panel, speech_active)):
+            label = getattr(panel, '_delivery_label', None)
+            if label is not None:
+                label.setVisible(visible)
+        description = {
+            'sound': 'Sound or WAV is active; text to speech is inactive.',
+            'tts': 'Text to speech is active; sound or WAV is inactive.',
+            'off': 'Audio delivery is off for this trigger phase.',
+        }.get(mode, 'Audio delivery is off for this trigger phase.')
+        delivery.setAccessibleDescription(description)
+
+    def _refresh_trigger_delivery_panels(self):
+        for delivery, sound_panel, speech_panel in \
+                self._trigger_delivery_panels:
+            self._trigger_delivery_changed(
+                delivery, sound_panel, speech_panel)
+
+    @staticmethod
+    def _set_voice_combo(combo, voice_name):
+        wanted = str(voice_name or '')
+        index = combo.findData(wanted)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+
+    def _test_trigger_speech(
+            self, editor, interrupt, voice, volume, pitch, source, label,
+            status):
+        message = editor.text().strip()
+        if not message:
+            result = f'{label} speech test: enter a message first'
+        elif audio_muted():
+            result = f'{label} speech test: blocked by Master Mute'
+        elif master_volume() == 0:
+            result = f'{label} speech test: silent at 0% Master Volume'
+        else:
+            played = speak_text(
+                message, volume.value(), interrupt.isChecked(),
+                source=source, allow_hidden=True,
+                voice_name=str(voice.currentData() or ''),
+                pitch=pitch.value())
+            result = (
+                f'{label} speech test: voice played' if played else
+                f'{label} speech test: Windows voice unavailable')
+        status.setText(result)
+        status.setAccessibleName(result)
+        status.setAccessibleDescription(
+            f'Latest speech test result: {result}')
+        status.setVisible(True)
+        try:
+            QAccessible.updateAccessibility(
+                QAccessibleAnnouncementEvent(status, result))
+        except (AttributeError, RuntimeError, TypeError):
+            pass
+        return result
 
     def _timer_type_changed(self, *_):
         timer_type = self._trigger_timer_type.currentData()
@@ -2650,6 +2894,8 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_time.setText(trigger.time)
         self._trigger_enabled.setChecked(trigger.enabled)
         self._trigger_regex.setChecked(trigger.regex)
+        self._trigger_match_cooldown.setValue(
+            trigger.match_cooldown_seconds)
         self._trigger_source.setText(trigger.source)
         self._trigger_category.setCurrentText(trigger.category)
         self._category_enabled.setChecked(
@@ -2675,6 +2921,11 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_clipboard.setText(trigger.clipboard_text)
         self._trigger_tts.setText(trigger.tts_text)
         self._trigger_interrupt_speech.setChecked(trigger.interrupt_speech)
+        self._set_combo_data(
+            self._trigger_delivery, trigger.audio_delivery('basic'))
+        self._set_voice_combo(self._trigger_tts_voice, trigger.tts_voice)
+        self._trigger_tts_volume.setValue(trigger.tts_volume)
+        self._trigger_tts_pitch.setValue(trigger.tts_pitch)
         self._trigger_ending_seconds.setValue(trigger.timer_ending_seconds)
         self._trigger_ending_alert.setText(trigger.timer_ending_alert)
         set_sound_combo_value(
@@ -2682,12 +2933,26 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_ending_tts.setText(trigger.timer_ending_tts)
         self._trigger_ending_interrupt.setChecked(
             trigger.timer_ending_interrupt)
+        self._set_combo_data(
+            self._trigger_ending_delivery,
+            trigger.audio_delivery('ending'))
+        self._set_voice_combo(
+            self._trigger_ending_voice, trigger.timer_ending_voice)
+        self._trigger_ending_volume.setValue(trigger.timer_ending_volume)
+        self._trigger_ending_pitch.setValue(trigger.timer_ending_pitch)
         self._trigger_ended_alert.setText(trigger.timer_ended_alert)
         set_sound_combo_value(
             self._trigger_ended_sound, trigger.timer_ended_sound)
         self._trigger_ended_tts.setText(trigger.timer_ended_tts)
         self._trigger_ended_interrupt.setChecked(
             trigger.timer_ended_interrupt)
+        self._set_combo_data(
+            self._trigger_ended_delivery, trigger.audio_delivery('ended'))
+        self._set_voice_combo(
+            self._trigger_ended_voice, trigger.timer_ended_voice)
+        self._trigger_ended_volume.setValue(trigger.timer_ended_volume)
+        self._trigger_ended_pitch.setValue(trigger.timer_ended_pitch)
+        self._refresh_trigger_delivery_panels()
 
     def _add_trigger(self):
         category = self._selected_group_path()
@@ -2830,6 +3095,7 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_time.clear()
         self._trigger_enabled.setChecked(True)
         self._trigger_regex.setChecked(False)
+        self._trigger_match_cooldown.setValue(0.75)
         self._trigger_source.setText('Vantage')
         self._trigger_category.setCurrentText('Default')
         self._category_enabled.setChecked(True)
@@ -2858,19 +3124,34 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_clipboard.clear()
         self._trigger_tts.clear()
         self._trigger_interrupt_speech.setChecked(False)
+        self._set_combo_data(self._trigger_delivery, 'sound')
+        self._set_voice_combo(self._trigger_tts_voice, '')
+        self._trigger_tts_volume.setValue(100)
+        self._trigger_tts_pitch.setValue(0)
         self._trigger_ending_seconds.setValue(0)
         self._trigger_ending_alert.clear()
         set_sound_combo_value(self._trigger_ending_sound, '')
         self._trigger_ending_tts.clear()
         self._trigger_ending_interrupt.setChecked(False)
+        self._set_combo_data(self._trigger_ending_delivery, 'off')
+        self._set_voice_combo(self._trigger_ending_voice, '')
+        self._trigger_ending_volume.setValue(100)
+        self._trigger_ending_pitch.setValue(0)
         self._trigger_ended_alert.clear()
         set_sound_combo_value(self._trigger_ended_sound, '')
         self._trigger_ended_tts.clear()
         self._trigger_ended_interrupt.setChecked(False)
+        self._set_combo_data(self._trigger_ended_delivery, 'off')
+        self._set_voice_combo(self._trigger_ended_voice, '')
+        self._trigger_ended_volume.setValue(100)
+        self._trigger_ended_pitch.setValue(0)
+        self._refresh_trigger_delivery_panels()
 
     def _apply_extra_fields(self, trigger):
         trigger.enabled = self._trigger_enabled.isChecked()
         trigger.regex = self._trigger_regex.isChecked()
+        trigger.match_cooldown_seconds = (
+            self._trigger_match_cooldown.value())
         trigger.zone = self._trigger_zone.text().strip()
         trigger.alert_text = self._trigger_alert.text().strip()
         trigger.text_color = self._trigger_color.value()
@@ -2893,6 +3174,12 @@ class CustomTriggerSettings(UniformScaleDialog):
         trigger.clipboard_text = self._trigger_clipboard.text().strip()
         trigger.tts_text = self._trigger_tts.text().strip()
         trigger.interrupt_speech = self._trigger_interrupt_speech.isChecked()
+        trigger.delivery = str(
+            self._trigger_delivery.currentData() or 'off')
+        trigger.tts_voice = str(
+            self._trigger_tts_voice.currentData() or '')
+        trigger.tts_volume = self._trigger_tts_volume.value()
+        trigger.tts_pitch = self._trigger_tts_pitch.value()
         trigger.timer_ending_seconds = self._trigger_ending_seconds.value()
         trigger.timer_ending_alert = self._trigger_ending_alert.text().strip()
         trigger.timer_ending_sound = str(
@@ -2900,12 +3187,24 @@ class CustomTriggerSettings(UniformScaleDialog):
         trigger.timer_ending_tts = self._trigger_ending_tts.text().strip()
         trigger.timer_ending_interrupt = (
             self._trigger_ending_interrupt.isChecked())
+        trigger.timer_ending_delivery = str(
+            self._trigger_ending_delivery.currentData() or 'off')
+        trigger.timer_ending_voice = str(
+            self._trigger_ending_voice.currentData() or '')
+        trigger.timer_ending_volume = self._trigger_ending_volume.value()
+        trigger.timer_ending_pitch = self._trigger_ending_pitch.value()
         trigger.timer_ended_alert = self._trigger_ended_alert.text().strip()
         trigger.timer_ended_sound = str(
             self._trigger_ended_sound.currentData() or '')
         trigger.timer_ended_tts = self._trigger_ended_tts.text().strip()
         trigger.timer_ended_interrupt = (
             self._trigger_ended_interrupt.isChecked())
+        trigger.timer_ended_delivery = str(
+            self._trigger_ended_delivery.currentData() or 'off')
+        trigger.timer_ended_voice = str(
+            self._trigger_ended_voice.currentData() or '')
+        trigger.timer_ended_volume = self._trigger_ended_volume.value()
+        trigger.timer_ended_pitch = self._trigger_ended_pitch.value()
         set_group_enabled(
             config.data['spells'], trigger.category,
             self._category_enabled.isChecked(),

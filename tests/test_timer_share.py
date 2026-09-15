@@ -223,6 +223,10 @@ count_after_duplicate = len(panel._states)
 shared.color = "#123456"
 shared.sound_path = "builtin:quiet-chime"
 shared.volume = 17
+shared.delivery = "tts"
+shared.tts_text = "{timer} {state}"
+shared.tts_voice = "Narrator"
+shared.tts_pitch = 3
 newer = SpawnTimerState(
     "A Frost Giant Scout", 120, kill_seconds=15, zone="Kael Drakkel",
     color="#ABCDEF",
@@ -263,7 +267,8 @@ print(json.dumps({
     "fresh_share_merged": count_after_fresh == count_after_import,
     "merged_remaining": merged.remaining(received_at + 5),
     "local_alerts_preserved": [
-        merged.color, merged.sound_path, merged.volume],
+        merged.color, merged.sound_path, merged.volume, merged.delivery,
+        merged.tts_text, merged.tts_voice, merged.tts_pitch],
     "merged_death_mobs": merged.death_mobs,
     "invalid_rejected": invalid_rejected,
 }))
@@ -312,7 +317,8 @@ def test_timer_panel_share_button_and_automatic_log_import(tmp_path):
     assert result["fresh_share_merged"] is True
     assert result["merged_remaining"] == 105
     assert result["local_alerts_preserved"] == [
-        "#123456", "builtin:quiet-chime", 17]
+        "#123456", "builtin:quiet-chime", 17, "tts",
+        "{timer} {state}", "Narrator", 3]
     assert result["merged_death_mobs"] == [
         "A Frost Giant Scout", "an ice giant placeholder"]
     assert result["invalid_rejected"] is True

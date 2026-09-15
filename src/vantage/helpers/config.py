@@ -11,6 +11,9 @@ import tempfile
 from vantage.helpers.trigger_groups import normalize_trigger_groups
 from vantage.helpers.quickbar_items import QUICKBAR_ITEM_KEYS
 from vantage.helpers.timer_sync import sanitize_timer_sync_meta
+from vantage.helpers.vitals import (
+    MAX_VITAL_BARS, VITALS_DEFAULTS_VERSION, default_vital_bar,
+    sanitize_vital_bars)
 
 data = {}
 _filename = ''
@@ -27,7 +30,7 @@ QUEST_CHECKLIST_MAX_TOTAL_BYTES = 384 * 1024
 UI_PRESENTATION_DEFAULTS = {
     ('general', 'startup_window_state'): 'rolled',
     ('general', 'table_column_widths'): {},
-    ('quickbar', 'geometry'): [10, 10, 754, 67],
+    ('quickbar', 'geometry'): [10, 10, 779, 67],
     ('quickbar', 'toggled'): True,
     ('quickbar', 'auto_hide_menu'): False,
     ('quickbar', 'always_on_top'): True,
@@ -73,6 +76,14 @@ UI_PRESENTATION_DEFAULTS = {
     ('timers', 'frameless'): True,
     ('timers', 'collapsed'): False,
     ('timers', 'compact'): False,
+    ('vitals', 'geometry'): [650, 80, 560, 460],
+    ('vitals', 'toggled'): False,
+    ('vitals', 'opacity'): 94,
+    ('vitals', 'clickthrough'): False,
+    ('vitals', 'auto_hide_menu'): False,
+    ('vitals', 'always_on_top'): True,
+    ('vitals', 'frameless'): True,
+    ('vitals', 'collapsed'): False,
     ('combat', 'geometry'): [620, 380, 520, 300],
     ('combat', 'toggled'): False,
     ('combat', 'opacity'): 94,
@@ -256,7 +267,7 @@ def _normalize_quest_checklist_steps(value):
         total_bytes += size
     return normalized
 
-BASIC_ALERTS_VERSION = 2
+BASIC_ALERTS_VERSION = 3
 BASIC_ALERTS = (
     ["Invisibility Fading", "You feel yourself starting to appear*", "00:00:00", "",
      "builtin:danger-double", "INVISIBILITY FADING", True, False, "Vantage · Basics"],
@@ -283,6 +294,17 @@ BASIC_ALERTS = (
      "builtin:danger-double", "MOB ENRAGED", True, False, "Vantage · Basics"],
     ["Critical hit", "{c} scores a critical hit!", "00:00:00", "",
      "builtin:warden-bell", "CRITICAL HIT", False, False, "Vantage · Basics"],
+    # Positional fields after source mirror CustomTrigger.to_list(). Keeping
+    # them at the tail preserves old trigger rows while giving this predefined
+    # P99 alert the common Sound/WAV, TTS, Off, voice, volume, pitch, and Test UI.
+    ["Mob is casting", "{mob} begins to cast a spell.", "00:00:00", "",
+     "builtin:warden-bell", "{mob} is casting", True, False,
+     "Vantage · Basics", "Vantage · Basics", "alerts", "restart", "", "",
+     "Classic P99 external cast-start line; ambiguous player-like names are ignored.",
+     "none", 0, 0, "", "", "", "", 0, "", [],
+     "{mob} is casting", False, "", False, "", False, "", "", False,
+     "sound", "", 85, 0, "off", "", 100, 0, "off", "", 100, 0,
+     "external_npc_cast", 2.0],
 )
 
 
@@ -612,8 +634,8 @@ def verify_settings():
     # interactive and never creates another normal Windows taskbar entry.
     data['quickbar'] = data.get('quickbar', {})
     data['quickbar']['geometry'] = get_setting(
-        data['quickbar'].get('geometry', [10, 10, 754, 67]),
-        [10, 10, 754, 67],
+        data['quickbar'].get('geometry', [10, 10, 779, 67]),
+        [10, 10, 779, 67],
         lambda value: isinstance(value, list) and len(value) == 4)
     for key, default in (
             ('toggled', True), ('auto_hide_menu', False),
@@ -1116,6 +1138,47 @@ def verify_settings():
     data['timers']['death_loop_seconds'] = _bounded_int(
         data['timers'].get('death_loop_seconds', 120), 120, 30, 600)
 
+    # Read-only pixel Vitals Monitor. Runtime readings and crossing state are
+    # intentionally not persisted; only calibration and notification rules
+    # survive restarts.
+    raw_vitals = data.get('vitals', {})
+    data['vitals'] = raw_vitals if isinstance(raw_vitals, dict) else {}
+    data['vitals']['geometry'] = get_setting(
+        data['vitals'].get('geometry', [650, 80, 560, 460]),
+        [650, 80, 560, 460],
+        lambda value: isinstance(value, list) and len(value) == 4 and
+        all(isinstance(item, int) and not isinstance(item, bool)
+            for item in value))
+    for key, default in (
+            ('toggled', False), ('clickthrough', False),
+            ('auto_hide_menu', False), ('always_on_top', True),
+            ('frameless', True), ('collapsed', False),
+            ('sounds_when_hidden', True)):
+        data['vitals'][key] = get_setting(
+            data['vitals'].get(key, default), default,
+            lambda value: isinstance(value, bool))
+    data['vitals']['opacity'] = _bounded_int(
+        data['vitals'].get('opacity', 94), 94, 25, 100)
+    data['vitals']['poll_ms'] = _bounded_int(
+        data['vitals'].get('poll_ms', 500), 500, 200, 5000)
+    raw_vital_bars = data['vitals'].get('bars')
+    data['vitals']['bars'] = sanitize_vital_bars(raw_vital_bars)
+    try:
+        vital_defaults_version = int(
+            data['vitals'].get('defaults_version', 0))
+    except (TypeError, ValueError):
+        vital_defaults_version = 0
+    # The target bar was added after the original three defaults. Seed it once
+    # for existing profiles, then remember the migration so an intentional
+    # later removal stays removed.
+    if (vital_defaults_version < VITALS_DEFAULTS_VERSION and
+            not any(bar['type'] == 'target_hp'
+                    for bar in data['vitals']['bars']) and
+            len(data['vitals']['bars']) < MAX_VITAL_BARS):
+        data['vitals']['bars'].append(default_vital_bar(
+            'target-hp', 'Target / Mob HP', 'target_hp'))
+    data['vitals']['defaults_version'] = VITALS_DEFAULTS_VERSION
+
     # Multi-view combat parser workspace.
     data['combat'] = data.get('combat', {})
     data['combat']['geometry'] = get_setting(
@@ -1588,8 +1651,12 @@ def verify_settings():
             'eq_root': pending_root, 'skin_folder': pending_skin}
     data['vantage_ui']['pending_profile_sync'] = pending_profile_sync
 
-    # Local, read-only EverQuest view. Enabling is intentionally per-session.
+    # Private mobile companion and local, read-only EverQuest view.  The LAN
+    # credential is deliberately persisted so an installed Home Screen app can
+    # reconnect without placing a secret in its manifest or scanning the LAN.
     data['mobile'] = data.get('mobile', {})
+    if not isinstance(data['mobile'], dict):
+        data['mobile'] = {}
     data['mobile']['eq_executable'] = get_setting(
         data['mobile'].get('eq_executable', ''), '')
     data['mobile']['game_fps'] = get_setting(
@@ -1598,6 +1665,17 @@ def verify_settings():
     data['mobile']['game_image_quality'] = get_setting(
         data['mobile'].get('game_image_quality', 'hd'), 'hd',
         lambda x: x in ('efficient', 'hd', 'native'))
+    data['mobile']['game_enabled'] = get_setting(
+        data['mobile'].get('game_enabled', True), True)
+    data['mobile']['auto_start'] = get_setting(
+        data['mobile'].get('auto_start', False), False)
+    mobile_token = str(data['mobile'].get('lan_token') or '')
+    data['mobile']['lan_token'] = (
+        mobile_token if re.fullmatch(r'[A-Za-z0-9_-]{43}', mobile_token)
+        else '')
+    data['mobile']['preferred_port'] = get_setting(
+        data['mobile'].get('preferred_port', 8765), 8765,
+        lambda value: 1024 <= value <= 65535)
 
     # Account-free multi-PC sync. Device identity, group key and transport API
     # stay local; only Vantage's allowlisted snapshot enters the shared folder.

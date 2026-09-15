@@ -47,6 +47,7 @@ from vantage.parsers.quickbar import QuickBar
 from vantage.parsers.spells import Spells
 from vantage.parsers.tick import ServerTick
 from vantage.parsers.timers import SpawnTimers
+from vantage.parsers.vitals import Vitals
 
 _config_dir = data_dir()
 config.load(str(_config_dir / 'vantage.config.json'))
@@ -56,7 +57,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=89,
+    patch=90,
     build=""
 )
 
@@ -218,6 +219,8 @@ class VantageApp(QApplication):
         self._about_dialog_instance = None
         if config.data.get("device_sync", {}).get("enabled", False):
             QTimer.singleShot(0, self._auto_start_device_sync)
+        if config.data.get("mobile", {}).get("auto_start", False):
+            QTimer.singleShot(0, self._auto_start_mobile_share)
         self._splash.step("Finishing tray and log monitoring…", 91)
 
         # Tray Icon
@@ -289,6 +292,7 @@ class VantageApp(QApplication):
         maps = Maps()
         self._splash.step("Indexing buffs, icons, and triggers…", 42)
         spells = Spells()
+        vitals = Vitals()
         self._splash.step("Restoring Smart Timers and Server Tick…", 58)
         tick = ServerTick()
         spells.spell_faded.connect(tick.spell_faded)
@@ -309,6 +313,7 @@ class VantageApp(QApplication):
         self._parsers_dict = {
             "maps": maps,
             "spells": spells,
+            "vitals": vitals,
             "tick": tick,
             "timers": timers,
             "combat": combat,
@@ -327,6 +332,7 @@ class VantageApp(QApplication):
             self._parsers_dict["quickbar"],
             self._parsers_dict["maps"],
             self._parsers_dict["spells"],
+            self._parsers_dict["vitals"],
             self._parsers_dict["tick"],
             self._parsers_dict["timers"],
             self._parsers_dict["combat"],
@@ -401,7 +407,11 @@ class VantageApp(QApplication):
             parent=self)
         self._mobile_dialog_instance = MobileShareDialog(
             self._mobile_share_instance)
-        self.aboutToQuit.connect(self._mobile_share_instance.stop)
+        self.aboutToQuit.connect(self._mobile_share_instance.shutdown)
+
+    def _auto_start_mobile_share(self):
+        self._ensure_mobile_share()
+        self._mobile_share_instance.start()
 
     def _ensure_device_sync(self):
         if self._device_sync_instance is not None:

@@ -1,13 +1,18 @@
 import json
+import socket
 import threading
+from types import SimpleNamespace
 from urllib.error import HTTPError
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 import vantage.helpers.mobile_share as mobile_share_module
+from vantage.helpers import config
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton
 from vantage.helpers.mobile_share import (
     MobileShareController, MobileShareDialog, _MOBILE_PAGE, _ShareHTTPServer,
-    parse_mobile_spell_detail)
+    _safe_p99_url, load_mobile_item_detail, parse_mobile_spell_detail)
+from vantage.parsers.market import GearItem, GreenMarket
 
 
 class _FakeGameCapture:
@@ -28,6 +33,23 @@ class _WaitingGameCapture(_FakeGameCapture):
         status["available"] = False
         status["message"] = "WinEQ2 detected · bring EverQuest to the foreground to continue."
         return status, b""
+
+
+class _PersistentGameCapture:
+    def __init__(self, executable="", fps=5, profile="hd"):
+        self.executable = executable
+        self.fps = fps
+        self.profile = profile
+        self.enabled = False
+
+    def set_enabled(self, enabled):
+        self.enabled = bool(enabled)
+
+    def status(self):
+        return {
+            "enabled": self.enabled, "available": False,
+            "message": "Ready", "fps": self.fps,
+        }
 
 
 def _snapshot():
@@ -253,6 +275,125 @@ def test_mobile_page_restores_cached_data_and_retains_it_on_fetch_failure():
     assert "saved buff data remains visible" in _MOBILE_PAGE
 
 
+def test_mobile_config_defaults_and_validates_persistent_session_settings():
+    original = config.data
+    try:
+        config.data = {}
+        config.verify_settings()
+        assert config.data["mobile"]["game_enabled"] is True
+        assert config.data["mobile"]["auto_start"] is False
+        assert config.data["mobile"]["preferred_port"] == 8765
+        assert config.data["mobile"]["lan_token"] == ""
+
+        config.data["mobile"] = {
+            "game_enabled": False, "auto_start": "yes",
+            "preferred_port": 80, "lan_token": "unsafe-token",
+        }
+        config.verify_settings()
+        assert config.data["mobile"]["game_enabled"] is False
+        assert config.data["mobile"]["auto_start"] is False
+        assert config.data["mobile"]["preferred_port"] == 8765
+        assert config.data["mobile"]["lan_token"] == ""
+    finally:
+        config.data = original
+
+
+def test_mobile_controller_reuses_lan_session_and_preserves_choices_on_shutdown(
+        monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    original = config.data
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.bind(("127.0.0.1", 0))
+    preferred_port = probe.getsockname()[1]
+    probe.close()
+    token = "A" * 43
+    saves = []
+    try:
+        config.data = {"mobile": {
+            "game_enabled": False, "auto_start": False,
+            "preferred_port": preferred_port, "lan_token": token,
+        }}
+        monkeypatch.setattr(
+            mobile_share_module, "GameWindowCapture", _PersistentGameCapture)
+        monkeypatch.setattr(config, "save", lambda: saves.append(True))
+        monkeypatch.setattr(
+            MobileShareController, "_cloudflared_path", lambda self: None)
+
+        first = MobileShareController(_snapshot)
+        assert first.game_capture.enabled is False
+        first.set_game_enabled(True)
+        assert config.data["mobile"]["game_enabled"] is True
+        first.start()
+        first_url = urlsplit(first.local_url)
+        assert first_url.port == preferred_port
+        assert first_url.fragment == token
+        assert config.data["mobile"]["auto_start"] is True
+        first.shutdown()
+        assert config.data["mobile"]["auto_start"] is True
+        assert first.game_capture.enabled is True
+        first._snapshot_timer.stop()
+
+        second = MobileShareController(_snapshot)
+        second.start()
+        second_url = urlsplit(second.local_url)
+        assert second_url.port == preferred_port
+        assert second_url.fragment == token
+        second.stop()
+        assert config.data["mobile"]["auto_start"] is False
+        assert second.game_capture.enabled is True
+        second._snapshot_timer.stop()
+        assert len(saves) >= 4
+        assert app is not None
+    finally:
+        config.data = original
+
+
+def test_mobile_controller_falls_back_when_saved_port_is_busy(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    original = config.data
+    occupied = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    occupied.bind(("0.0.0.0", 0))
+    occupied.listen(1)
+    busy_port = occupied.getsockname()[1]
+    statuses = []
+    try:
+        config.data = {"mobile": {
+            "game_enabled": True, "auto_start": True,
+            "preferred_port": busy_port, "lan_token": "B" * 43,
+        }}
+        monkeypatch.setattr(
+            mobile_share_module, "GameWindowCapture", _PersistentGameCapture)
+        monkeypatch.setattr(config, "save", lambda: None)
+        monkeypatch.setattr(
+            MobileShareController, "_cloudflared_path", lambda self: None)
+        controller = MobileShareController(_snapshot)
+        controller.status_changed.connect(statuses.append)
+        controller.start()
+        assert urlsplit(controller.local_url).port != busy_port
+        assert config.data["mobile"]["preferred_port"] == urlsplit(
+            controller.local_url).port
+        assert any("saved port was busy" in status for status in statuses)
+        controller.shutdown()
+        assert config.data["mobile"]["auto_start"] is True
+        controller._snapshot_timer.stop()
+        assert app is not None
+    finally:
+        occupied.close()
+        config.data = original
+
+
+def test_application_mobile_autostart_invokes_the_saved_controller():
+    from vantage.helpers.application import VantageApp
+
+    calls = []
+    controller = SimpleNamespace(start=lambda: calls.append("start"))
+    host = SimpleNamespace(
+        _mobile_share_instance=controller,
+        _ensure_mobile_share=lambda: calls.append("ensure"))
+    VantageApp._auto_start_mobile_share(host)
+    assert calls == ["ensure", "start"]
+
+
 def test_mobile_dialog_keeps_the_phone_flow_qr_first_and_explicit():
     app = QApplication.instance() or QApplication([])
     controller = MobileShareController(_snapshot)
@@ -372,6 +513,187 @@ def test_mobile_market_filters_effect_drop_era_and_sorts_stats():
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_mobile_item_detail_fetches_once_and_reuses_bounded_cache(
+        monkeypatch, tmp_path):
+    wiki = """
+{{Itembox
+| itemname = Jade Mace
+| statsblock = MAGIC ITEM LORE ITEM<br>Slot: PRIMARY<br>AC: 9<br>
+Effect: [[Light Strike]] (Combat)
+| dropsfrom = West Commonlands
+* [[Kizdean Gix]]
+| relatedquests = [[Test Quest]]
+| notes = A useful weapon.
+}}
+"""
+    payload = json.dumps({
+        "parse": {"wikitext": {"*": wiki}}}).encode("utf-8")
+    calls = []
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def read(self, limit):
+            assert limit == mobile_share_module.MAX_WIKI_RESPONSE + 1
+            return payload
+
+    monkeypatch.setattr(
+        mobile_share_module, "_mobile_item_detail_path",
+        lambda name: tmp_path / "jade-mace.json")
+    monkeypatch.setattr(
+        mobile_share_module, "urlopen",
+        lambda request, timeout: calls.append(request.full_url) or _Response())
+    item = {
+        "name": "Jade Mace", "price": 5000, "posts": 12,
+        "stats": {"ac": 15}, "class_names": ("Shaman",),
+        "race_names": ("Iksar",), "slot_names": ("Primary",),
+        "gear_id": 101, "peq_id": 202,
+    }
+
+    first = load_mobile_item_detail(item)
+    monkeypatch.setattr(
+        mobile_share_module, "urlopen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("cache should prevent a second request")))
+    second = load_mobile_item_detail(item)
+
+    assert len(calls) == 1
+    assert first["status"] == "complete"
+    assert first["stats"]["ac"] == 15
+    assert "MAGIC ITEM" in first["stats_text"]
+    assert first["restrictions"]["classes"] == ["Shaman"]
+    assert first["effects"][0]["name"] == "Light Strike"
+    assert first["drops"][0]["npc"] == "Kizdean Gix"
+    assert first["related_quests"][0]["name"] == "Test Quest"
+    assert first["notes"] == "A useful weapon."
+    assert first["ids"] == {"market": "", "item": 101, "peq": 202}
+    assert second["drops"] == first["drops"]
+
+
+def test_market_mobile_snapshot_includes_readable_restrictions_and_ids():
+    gear = GearItem(
+        name="Jade Mace", id=101, peqId=202, classes=512,
+        races=4096, slots=8192, ac=15, procName="Light Strike")
+    host = SimpleNamespace(
+        _proxy=SimpleNamespace(gear={"jade mace": gear}),
+        _model=SimpleNamespace(items=[{
+            "n": "Jade Mace", "a30": 5000, "t30": 12,
+            "l": "today", "i": "market-1",
+        }]),
+        _mobile_items=(), _mobile_revision=0)
+
+    GreenMarket._rebuild_mobile_items(host)
+
+    item = host._mobile_items[0]
+    assert item["class_names"] == ("Shaman",)
+    assert item["race_names"] == ("Iksar",)
+    assert item["slot_names"] == ("Primary",)
+    assert item["gear_id"] == 101
+    assert item["peq_id"] == 202
+
+
+def test_mobile_item_detail_endpoint_is_authenticated_allowlisted_and_falls_back(
+        monkeypatch):
+    calls = []
+
+    def load_detail(item):
+        calls.append(item["name"])
+        return {
+            "status": "complete", "name": item["name"],
+            "stats": {"ac": 15}, "stats_text": "MAGIC ITEM",
+            "effects": [{"type": "Proc", "name": "Light Strike",
+                         "url": "https://wiki.project1999.com/Light_Strike"}],
+            "restrictions": {"binding": "Droppable", "era": "Kunark",
+                             "classes": ["Shaman"], "races": ["Iksar"],
+                             "slots": ["Primary"]},
+            "ids": {"market": "1", "item": 2, "peq": 3},
+            "drops": [{"npc": "Kizdean Gix", "zone": "West Commonlands",
+                       "npc_url": "https://wiki.project1999.com/Kizdean_Gix",
+                       "zone_url": "https://wiki.project1999.com/West_Commonlands"}],
+            "related_quests": [{"name": "Test Quest",
+                                "url": "https://wiki.project1999.com/Test_Quest"}],
+            "notes": "Useful", "wiki_url": item.get("wiki_url", ""),
+            "price": item.get("price", 0), "posts": item.get("posts", 0),
+            "source": "Project 1999 Wiki",
+        }
+
+    monkeypatch.setattr(
+        mobile_share_module, "load_mobile_item_detail", load_detail)
+    server = _ShareHTTPServer(("127.0.0.1", 0), "secret", _snapshot)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        try:
+            _request(base, "/api/item-detail?name=Jade%20Mace")
+            assert False, "item detail must require the private token"
+        except HTTPError as error:
+            assert error.code == 403
+
+        _, payload, _ = _request(
+            base, "/api/item-detail?name=Jade%20Mace", "secret")
+        detail = json.loads(payload)
+        assert detail["drops"][0]["zone"] == "West Commonlands"
+        assert detail["related_quests"][0]["name"] == "Test Quest"
+
+        _, payload, _ = _request(
+            base, "/api/item-detail?name=Dragoon%20Dirk", "secret")
+        assert json.loads(payload)["name"] == "Dragoon Dirk"
+        assert calls == ["Jade Mace", "Dragoon Dirk"]
+
+        for path, code in (
+                ("/api/item-detail?name=Unknown", 404),
+                ("/api/item-detail?name=" + "x" * 161, 400),
+                ("/api/item-detail?" + "x" * 513, 400)):
+            try:
+                _request(base, path, "secret")
+                assert False, f"{path} should be rejected"
+            except HTTPError as error:
+                assert error.code == code
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_mobile_item_detail_ui_uses_safe_links_live_status_and_offline_fallback():
+    assert "/api/item-detail?name=" in _MOBILE_PAGE
+    assert "Loading complete Project 1999 Wiki item details" in _MOBILE_PAGE
+    assert "Saved item data and the Wiki link remain available" in _MOBILE_PAGE
+    assert "function safeWikiUrl" in _MOBILE_PAGE
+    assert "url.hostname.toLowerCase()==='wiki.project1999.com'" in _MOBILE_PAGE
+    assert "effect.url,effect.name" in _MOBILE_PAGE
+    assert "drop.npc_url,drop.npc" in _MOBILE_PAGE
+    assert "quest.url,quest.name" in _MOBILE_PAGE
+    assert "detailReturnFocus" in _MOBILE_PAGE
+    assert "byId('detailClose').focus" in _MOBILE_PAGE
+    assert "detailDialog.addEventListener('close'" in _MOBILE_PAGE
+    assert "tabs.find(tab=>tab.getAttribute('aria-selected')==='true')" in (
+        _MOBILE_PAGE)
+    assert 'id="detailStatus" class="sr-only" role="status"' in _MOBILE_PAGE
+    assert 'aria-live="polite" aria-atomic="true"' in _MOBILE_PAGE
+    assert "requestAnimationFrame(()=>announce(detailStatus" in _MOBILE_PAGE
+    assert "label+'; opens in a new tab'" in _MOBILE_PAGE
+    assert ".innerHTML" not in _MOBILE_PAGE
+    assert "restarts this saved Wi-Fi session automatically" in _MOBILE_PAGE
+    assert "An explicit Stop Phone QR keeps saved data" in _MOBILE_PAGE
+    assert _safe_p99_url(
+        "javascript:alert(1)", fallback_name="Jade Mace") == (
+            "https://wiki.project1999.com/Jade_Mace")
+    assert _safe_p99_url(
+        "https://evil.example/?next=https://wiki.project1999.com/Jade_Mace",
+        fallback_name="Jade Mace") == (
+            "https://wiki.project1999.com/Jade_Mace")
+    assert _safe_p99_url(
+        "https://wiki.project1999.com:8443/Jade_Mace",
+        fallback_name="Jade Mace") == (
+            "https://wiki.project1999.com/Jade_Mace")
 
 
 def test_mobile_timer_controls_require_wifi_key_and_queue_action():

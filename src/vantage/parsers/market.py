@@ -4489,7 +4489,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(requested.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.89")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.90")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_finished(
             reply, requested, cached_path))
@@ -4629,7 +4629,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(target.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.89")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.90")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_npc_drops_finished(
             reply, mob, target, key, cache_path))
@@ -4957,7 +4957,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.89")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.90")
         reply = self._network.get(request)
         timer = QTimer(self)
         timer.setSingleShot(True)
@@ -5042,7 +5042,7 @@ class GreenMarket(ParserWindow):
             return None
         request = QNetworkRequest(QUrl(safe_url))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.89")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.90")
         reply = self._network.get(request)
         timer = QTimer(self)
         timer.setSingleShot(True)
@@ -5174,7 +5174,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.89")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.90")
         request.setTransferTimeout(P99_ENTITY_TIMEOUT_MS)
         reply = self._network.get(request)
         context = {
@@ -5288,7 +5288,7 @@ class GreenMarket(ParserWindow):
                     filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.89")
+                    "Vantage/1.44.90")
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
                     lambda: self._wiki_icon_finished(
@@ -5476,8 +5476,10 @@ class GreenMarket(ParserWindow):
             stats = {}
             effects = []
             gear_id = 0
+            peq_id = 0
             if isinstance(metadata, GearItem):
                 gear_id = metadata.id
+                peq_id = metadata.peqId
                 stats = {
                     key: metadata.stat(key) for key in (
                         "ac", "hp", "mana", "astr", "asta", "adex",
@@ -5498,11 +5500,15 @@ class GreenMarket(ParserWindow):
                 "classes": classes,
                 "races": races,
                 "slots": slots,
+                "class_names": _gear_mask_labels(classes, CLASS_BITS),
+                "race_names": _gear_mask_labels(races, RACE_BITS),
+                "slot_names": _gear_mask_labels(slots, SLOT_BITS),
                 "nodrop": bool(metadata.nodrop) if isinstance(
                     metadata, GearItem) else False,
                 "era": metadata.era if isinstance(metadata, GearItem) else "",
                 "id": item.get("i"),
                 "gear_id": gear_id,
+                "peq_id": peq_id,
                 "stats": stats,
                 "effects": effects,
                 "wiki_url": _wiki_target_url(name),
@@ -5541,7 +5547,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.89")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.90")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -5564,7 +5570,7 @@ class GreenMarket(ParserWindow):
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
                 QNetworkRequest.KnownHeaders.UserAgentHeader,
-                "Vantage/1.44.89")
+                "Vantage/1.44.90")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -5925,7 +5931,7 @@ class GreenMarket(ParserWindow):
         self.status.setText(f"Refreshing PigParse {server}…")
         request = QNetworkRequest(QUrl(market_endpoint(server)))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.89")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.90")
         reply = self._network.get(request)
         reply.setProperty("market_server", server)
         reply.finished.connect(lambda: self._finished(reply))
@@ -6053,7 +6059,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(market_detail_api(server).format(
             item_name=quote(name, safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.89")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.90")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.setProperty("market_server", server)

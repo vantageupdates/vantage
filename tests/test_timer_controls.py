@@ -220,7 +220,7 @@ def test_death_name_completer_searches_all_zones_and_accepts_selection():
     assert dialog.death_mob_input.hasFocus()
     assert isinstance(dialog.death_mob_picker, QComboBox)
     assert dialog.death_mob_picker.isEditable()
-    detect_label = dialog._timer_form.labelForField(dialog.death_mob_panel)
+    detect_label = dialog._death_mob_label
     assert detect_label.buddy() is dialog.death_mob_picker
     assert dialog.death_mob_picker.accessibleName().startswith(
         "Detect deaths")

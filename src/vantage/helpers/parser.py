@@ -24,6 +24,7 @@ DESIGN_SIZES = {
     # The 260 px logical width fits every authored header control. Physical
     # resizing still scales the entire replica down uniformly.
     "spells": QSize(260, 400),
+    "vitals": QSize(560, 460),
     "tick": QSize(260, 142),
     "timers": QSize(520, 360),
     "combat": QSize(520, 300),
@@ -1197,7 +1198,13 @@ class ParserWindow(QWidget):
                 ("Original · 100%", 1.00)):
             size_action = size_menu.addAction(label)
             size_action.setCheckable(True)
+            # Responsive panels keep a readable width and reflow vertically.
+            # Their height still represents the selected replica preset even
+            # when the width is clamped, so use it to expose the correct
+            # checked state in the menu.
             current_scale = (
+                self.height() / max(1, self._design_size.height())
+                if self._minimum_readable_width else
                 self.width() / max(1, self._design_size.width()))
             size_action.setChecked(
                 not self._collapsed and abs(current_scale - scale) < 0.015)
@@ -1282,7 +1289,7 @@ class ParserWindow(QWidget):
             clickthrough.setToolTip(
                 "Let mouse input pass through this window to EverQuest")
         background_audio = None
-        if self.name in {"spells", "timers"}:
+        if self.name in {"spells", "timers", "vitals"}:
             background_audio = menu.addAction("Sound while Window Is Hidden")
             background_audio.setCheckable(True)
             background_audio.setChecked(bool(
@@ -1383,13 +1390,9 @@ class ParserWindow(QWidget):
         if self._collapsed:
             self._set_collapsed(False)
         scale = max(self._effective_minimum_scale(), min(1.0, float(scale)))
-        if self._minimum_readable_width:
-            scale = max(scale, min(
-                1.0,
-                self._minimum_readable_width /
-                max(1, self._design_size.width())))
         self.resize(
-            round(self._design_size.width() * scale),
+            max(round(self._design_size.width() * scale),
+                int(self._minimum_readable_width)),
             round(self._design_size.height() * scale))
         self._fit_to_available_screen()
         self._save_geometry()

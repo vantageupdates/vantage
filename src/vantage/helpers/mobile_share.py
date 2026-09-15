@@ -47,6 +47,13 @@ TUNNEL_URL_RX = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com", re.I)
 P99_SPELL_DETAIL_API = (
     "https://wiki.project1999.com/api.php?action=parse&page={slug}"
     "&prop=wikitext&format=json")
+P99_ITEM_DETAIL_API = (
+    "https://wiki.project1999.com/api.php?action=parse&page={slug}"
+    "&prop=wikitext&format=json")
+P99_WIKI_ORIGIN = "https://wiki.project1999.com"
+MAX_ITEM_NAME = 160
+MAX_WIKI_RESPONSE = 2_000_000
+MAX_ITEM_CACHE_BYTES = 256_000
 
 
 def parse_mobile_spell_detail(wikitext):
@@ -99,7 +106,7 @@ def load_mobile_spell_detail(name):
     request = Request(
         P99_SPELL_DETAIL_API.format(
             slug=quote(str(name).strip().replace(" ", "_"), safe="")),
-        headers={"User-Agent": "Vantage/1.44.89"})
+        headers={"User-Agent": "Vantage/1.44.90"})
     with urlopen(request, timeout=8) as response:
         payload_bytes = response.read(2_000_001)
     if len(payload_bytes) > 2_000_000:
@@ -120,6 +127,222 @@ def load_mobile_spell_detail(name):
     except OSError:
         pass
     return detail
+
+
+def _mobile_item_detail_path(name):
+    digest = hashlib.sha256(
+        str(name).strip().casefold().encode("utf-8")).hexdigest()[:20]
+    return data_dir("cache", "mobile-item-details") / f"{digest}.json"
+
+
+def _bounded_text(value, limit=2000):
+    return " ".join(str(value or "").split())[:limit]
+
+
+def _safe_p99_url(value="", *, fallback_name=""):
+    """Return only a canonical Project 1999 Wiki HTTPS URL."""
+    candidate = str(value or "").strip()
+    if candidate:
+        try:
+            parsed = urlsplit(candidate)
+            allowed_port = parsed.port in (None, 443)
+        except ValueError:
+            parsed = None
+            allowed_port = False
+        if (parsed is not None and parsed.scheme.casefold() == "https" and
+                parsed.hostname and parsed.hostname.casefold() ==
+                "wiki.project1999.com" and allowed_port and
+                not parsed.username and not parsed.password):
+            return candidate
+    name = _bounded_text(fallback_name, MAX_ITEM_NAME)
+    if not name:
+        return ""
+    return P99_WIKI_ORIGIN + "/" + quote(
+        name.replace(" ", "_"), safe="")
+
+
+def _basic_mobile_item_detail(item, message=""):
+    """Build a bounded offline-safe detail from the local market snapshot."""
+    item = item if isinstance(item, dict) else {}
+    name = _bounded_text(item.get("name"), MAX_ITEM_NAME) or "Item"
+    stats = item.get("stats") if isinstance(item.get("stats"), dict) else {}
+    clean_stats = {}
+    for key, value in list(stats.items())[:40]:
+        try:
+            clean_stats[_bounded_text(key, 32)] = int(value)
+        except (TypeError, ValueError):
+            continue
+    effects = []
+    raw_effects = item.get("effects", ())
+    if not isinstance(raw_effects, (list, tuple)):
+        raw_effects = ()
+    for effect in raw_effects[:24]:
+        if not isinstance(effect, dict):
+            continue
+        effect_name = _bounded_text(effect.get("name"), MAX_ITEM_NAME)
+        if effect_name:
+            effects.append({
+                "type": _bounded_text(effect.get("type") or "Effect", 40),
+                "name": effect_name,
+                "url": _safe_p99_url(
+                    effect.get("url"), fallback_name=effect_name),
+            })
+
+    def readable(key):
+        values = item.get(key, ())
+        if not isinstance(values, (list, tuple)):
+            return []
+        return [_bounded_text(value, 60) for value in values[:32]
+                if _bounded_text(value, 60)]
+
+    def number(key):
+        try:
+            return max(0, int(item.get(key, 0) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    return {
+        "status": "fallback",
+        "message": _bounded_text(
+            message or "Showing saved item data while Wiki details are unavailable.",
+            300),
+        "name": name,
+        "price": number("price"),
+        "posts": number("posts"),
+        "quality": _bounded_text(item.get("quality"), 30),
+        "stats": clean_stats,
+        "stats_text": "",
+        "effects": effects,
+        "restrictions": {
+            "binding": "NO DROP" if bool(item.get("nodrop")) else "Droppable",
+            "era": _bounded_text(item.get("era"), 40) or "Not listed",
+            "classes": readable("class_names"),
+            "races": readable("race_names"),
+            "slots": readable("slot_names"),
+        },
+        "ids": {
+            "market": _bounded_text(item.get("id"), 64),
+            "item": number("gear_id"),
+            "peq": number("peq_id"),
+        },
+        "drops": [],
+        "related_quests": [],
+        "notes": "",
+        "wiki_url": _safe_p99_url(
+            item.get("wiki_url"), fallback_name=name),
+        "source": "Saved P99 item index",
+    }
+
+
+def _merge_mobile_item_detail(item, wiki_detail):
+    detail = _basic_mobile_item_detail(item)
+    wiki_detail = wiki_detail if isinstance(wiki_detail, dict) else {}
+    effects = list(detail["effects"])
+    known_effects = {entry["name"].casefold() for entry in effects}
+    wiki_effects = wiki_detail.get("effects", ())
+    if not isinstance(wiki_effects, (list, tuple)):
+        wiki_effects = ()
+    for effect in wiki_effects[:24]:
+        if not isinstance(effect, dict):
+            continue
+        name = _bounded_text(effect.get("name"), MAX_ITEM_NAME)
+        target = _bounded_text(effect.get("target") or name, MAX_ITEM_NAME)
+        if name and name.casefold() not in known_effects:
+            effects.append({
+                "type": "Effect", "name": name,
+                "url": _safe_p99_url(fallback_name=target),
+            })
+            known_effects.add(name.casefold())
+
+    drops = []
+    wiki_drops = wiki_detail.get("drops", ())
+    if not isinstance(wiki_drops, (list, tuple)):
+        wiki_drops = ()
+    for row in wiki_drops[:100]:
+        if not isinstance(row, dict):
+            continue
+        npc = _bounded_text(row.get("npc"), MAX_ITEM_NAME)
+        zone = _bounded_text(row.get("zone"), MAX_ITEM_NAME)
+        if npc or zone:
+            drops.append({
+                "npc": npc or "NPC not listed",
+                "npc_url": _safe_p99_url(
+                    row.get("npc_url"), fallback_name=npc),
+                "zone": zone or "Zone not listed",
+                "zone_url": _safe_p99_url(
+                    row.get("zone_url"), fallback_name=zone),
+            })
+    quests = []
+    wiki_quests = wiki_detail.get("related_quests", ())
+    if not isinstance(wiki_quests, (list, tuple)):
+        wiki_quests = ()
+    for row in wiki_quests[:80]:
+        if not isinstance(row, dict):
+            continue
+        name = _bounded_text(row.get("name"), MAX_ITEM_NAME)
+        if name:
+            quests.append({
+                "name": name,
+                "url": _safe_p99_url(row.get("url"), fallback_name=name),
+            })
+    detail.update({
+        "status": "complete",
+        "message": "",
+        "name": _bounded_text(
+            wiki_detail.get("name"), MAX_ITEM_NAME) or detail["name"],
+        "stats_text": _bounded_text(wiki_detail.get("stats"), 6000),
+        "effects": effects,
+        "drops": drops,
+        "related_quests": quests,
+        "notes": _bounded_text(wiki_detail.get("notes"), 2000),
+        "source": "Project 1999 Wiki · saved P99 item index",
+    })
+    return detail
+
+
+def load_mobile_item_detail(item):
+    """Load one bounded cached Wiki card, fetching only on an explicit tap."""
+    item = item if isinstance(item, dict) else {}
+    name = _bounded_text(item.get("name"), MAX_ITEM_NAME)
+    if not name or len(str(item.get("name") or "")) > MAX_ITEM_NAME:
+        raise ValueError("Invalid item name")
+    cache_path = _mobile_item_detail_path(name)
+    try:
+        if cache_path.stat().st_size <= MAX_ITEM_CACHE_BYTES:
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            if isinstance(cached, dict) and cached.get("name"):
+                return _merge_mobile_item_detail(item, cached)
+    except (OSError, ValueError, json.JSONDecodeError):
+        pass
+    request = Request(
+        P99_ITEM_DETAIL_API.format(
+            slug=quote(name.replace(" ", "_"), safe="")),
+        headers={"User-Agent": "Vantage/1.44.90"})
+    with urlopen(request, timeout=8) as response:
+        payload_bytes = response.read(MAX_WIKI_RESPONSE + 1)
+    if len(payload_bytes) > MAX_WIKI_RESPONSE:
+        raise ValueError("Wiki response is larger than the safe limit")
+    payload = json.loads(payload_bytes.decode("utf-8"))
+    parsed = payload.get("parse")
+    if not isinstance(parsed, dict):
+        raise ValueError("Project 1999 Wiki does not have this item page")
+    wikitext = parsed.get("wikitext", {})
+    if isinstance(wikitext, dict):
+        wikitext = wikitext.get("*", "")
+    from vantage.parsers.market import parse_wiki_item_wikitext
+    wiki_detail = parse_wiki_item_wikitext(wikitext, name)
+    if not isinstance(wiki_detail, dict) or not wiki_detail.get("name"):
+        raise ValueError("No item detail was found")
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        pending = cache_path.with_suffix(cache_path.suffix + ".part")
+        serialized = json.dumps(wiki_detail, ensure_ascii=False)
+        if len(serialized.encode("utf-8")) <= MAX_ITEM_CACHE_BYTES:
+            pending.write_text(serialized, encoding="utf-8")
+            os.replace(pending, cache_path)
+    except OSError:
+        pass
+    return _merge_mobile_item_detail(item, wiki_detail)
 
 
 def _mobile_market_identity(market):
@@ -218,9 +441,9 @@ dialog{width:min(92vw,620px);max-height:84vh;overflow:auto;border:1px solid #6e6
 <section id="guildPage" class="page" role="tabpanel" aria-labelledby="tabGuild" tabindex="0" hidden><h2 id="guildHeading" class="panel-title">Guild DKP &amp; More</h2><p id="guildNote" class="market-note">Choose one of the guilds saved in Vantage.</p><div class="browser-tools"><label class="wide">Guild<select id="guildSelect"><option value="">Choose a saved guild…</option></select></label><label>View<select id="guildView"><option value="standings">Standings / DKP</option><option value="loot">Loot</option><option value="raids">Raids</option><option value="auctions">Live auctions</option><option value="sheets">Guild sheets</option></select></label><label>Search DKP, player or item<input id="guildSearch" type="search" placeholder="Search this view…" autocomplete="off"></label></div><div id="guildStatus" class="sr-only" role="status" aria-live="polite"></div><ul id="guildRows" class="card-list" aria-labelledby="guildHeading" aria-busy="false"></ul></section>
 <section id="zonesPage" class="page" role="tabpanel" aria-labelledby="tabZones" tabindex="0" hidden><h2 class="panel-title">Zones</h2><div class="browser-tools"><label class="wide">Zone<select id="zoneSelect"><option value="">Choose a zone…</option></select></label><label>View<select id="zoneView"><option value="items">Items</option><option value="mobs">Mobs</option><option value="nameds">Nameds</option></select></label><label>Filter<input id="zoneSearch" type="search" placeholder="Filter this zone…" autocomplete="off"></label><button id="zoneReload" class="tool-button wide" type="button">RELOAD SELECTED ZONE</button></div><p id="zoneNote" class="market-note">Choose a zone; information loads automatically from the P99 Wiki.</p><div id="zoneStatus" class="sr-only" role="status" aria-live="polite"></div><ul id="zoneRows" class="card-list" aria-label="Selected zone information" aria-busy="false"></ul></section>
 <section id="questsPage" class="page" role="tabpanel" aria-labelledby="tabQuests" tabindex="0" hidden><h2 class="panel-title">Quests</h2><div class="browser-tools"><label class="wide">Search quest titles<input id="questSearch" type="search" placeholder="Search included and cached P99 quests…" autocomplete="off"></label></div><p id="questNote" class="market-note">Select a quest for its summary and step-by-step checklist.</p><div id="questStatus" class="sr-only" role="status" aria-live="polite"></div><div id="questDetail" class="quest-detail" hidden></div><ul id="questRows" class="card-list" aria-label="Quest search results" aria-busy="false"></ul></section>
-<section id="gamePage" class="page" role="tabpanel" aria-labelledby="tabGame" tabindex="0" hidden><h2 class="panel-title">EVERQUEST LIVE <span class="game-badge">READ ONLY</span></h2><p id="gameState" class="game-state" role="status" aria-live="polite">Waiting for the local view…</p><div class="game-tools"><button id="gameSize" class="tool-button" type="button" title="Switch between screen fit and exact image pixels">FIT TO SCREEN</button><button id="zoomLock" class="tool-button" type="button" aria-pressed="true" title="Prevent accidental pinch zoom while viewing EverQuest">ZOOM LOCKED</button></div><div id="gameShell" class="game-shell zoom-locked"><p id="gameHelp" class="game-help">Enable “EverQuest Live” in Vantage and keep your phone on the same Wi-Fi network.</p><img id="gameFrame" alt="Live read-only view of the EverQuest window" hidden></div><p class="wifi-note">Privacy: the live image works only on your local Wi-Fi. It cannot control EverQuest.</p></section>
+<section id="gamePage" class="page" role="tabpanel" aria-labelledby="tabGame" tabindex="0" hidden><h2 class="panel-title">EVERQUEST LIVE <span class="game-badge">READ ONLY</span></h2><p id="gameState" class="game-state" role="status" aria-live="polite">Waiting for the local view…</p><div class="game-tools"><button id="gameSize" class="tool-button" type="button" title="Switch between screen fit and exact image pixels">FIT TO SCREEN</button><button id="zoomLock" class="tool-button" type="button" aria-pressed="true" title="Prevent accidental pinch zoom while viewing EverQuest">ZOOM LOCKED</button></div><div id="gameShell" class="game-shell zoom-locked"><p id="gameHelp" class="game-help">EverQuest Live is included until you turn it off in Vantage. Keep your phone on the same Wi-Fi network.</p><img id="gameFrame" alt="Live read-only view of the EverQuest window" hidden></div><p class="wifi-note">Privacy: the live image works only on your local Wi-Fi. It cannot control EverQuest.</p></section>
 </main>
-<dialog id="detailDialog" aria-labelledby="detailTitle"><div class="dialog-head"><h2 id="detailTitle">Details</h2><button id="detailClose" class="dialog-close" type="button" aria-label="Close details">Close</button></div><div id="detailBody" class="dialog-body"></div></dialog>
+<dialog id="detailDialog" aria-labelledby="detailTitle"><div class="dialog-head"><h2 id="detailTitle">Details</h2><button id="detailClose" class="dialog-close" type="button" aria-label="Close details">Close</button></div><div id="detailBody" class="dialog-body"></div><div id="detailStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div></dialog>
 <script>
 const byId=id=>document.getElementById(id),sessionTokenKey='vantageMobileSessionToken',dataCachePrefix='vantageMobileData:',dataCacheIndexKey='vantageMobileDataIndex';
 let token=location.hash.slice(1);try{if(token){localStorage.setItem(sessionTokenKey,token);history.replaceState(null,'',location.pathname+location.search)}else token=localStorage.getItem(sessionTokenKey)||''}catch(_){}
@@ -229,14 +452,17 @@ const marketPanel=byId('marketPage'),marketHeading=byId('marketHeading'),marketR
 const buffsPanel=byId('buffsPage'),buffRoot=byId('buffRows'),buffNote=byId('buffNote'),buffStatus=byId('buffStatus'),guildPanel=byId('guildPage'),guildRoot=byId('guildRows'),guildNote=byId('guildNote'),guildStatus=byId('guildStatus'),guildSelect=byId('guildSelect');
 const zonesPanel=byId('zonesPage'),zoneRoot=byId('zoneRows'),zoneNote=byId('zoneNote'),zoneStatus=byId('zoneStatus'),zoneSelect=byId('zoneSelect'),zoneReload=byId('zoneReload'),questsPanel=byId('questsPage'),questRoot=byId('questRows'),questNote=byId('questNote'),questStatus=byId('questStatus'),questDetail=byId('questDetail');
 const gamePanel=byId('gamePage'),gameState=byId('gameState'),gameHelp=byId('gameHelp'),gameFrame=byId('gameFrame'),gameShell=byId('gameShell'),gameSize=byId('gameSize'),zoomLock=byId('zoomLock');
-const state=byId('state'),installApp=byId('installApp'),connectionStatus=byId('connectionStatus'),connectionAlert=byId('connectionAlert'),detailDialog=byId('detailDialog'),detailTitle=byId('detailTitle'),detailBody=byId('detailBody');
+const state=byId('state'),installApp=byId('installApp'),connectionStatus=byId('connectionStatus'),connectionAlert=byId('connectionAlert'),detailDialog=byId('detailDialog'),detailTitle=byId('detailTitle'),detailBody=byId('detailBody'),detailStatus=byId('detailStatus');
 const tabTimers=byId('tabTimers'),tabBuffs=byId('tabBuffs'),tabMarket=byId('tabMarket'),tabSpells=byId('tabSpells'),tabGuild=byId('tabGuild'),tabZones=byId('tabZones'),tabQuests=byId('tabQuests'),tabGame=byId('tabGame'),tabs=[tabTimers,tabBuffs,tabMarket,tabSpells,tabGuild,tabZones,tabQuests,tabGame];
 const phases={idle:'READY',respawn:'RESPAWN',combat:'COMBAT',available:'AVAILABLE'},statLabels={ac:'AC',hp:'HP',mana:'Mana',astr:'STR',asta:'STA',adex:'DEX',aagi:'AGI',aint:'INT',awis:'WIS',acha:'CHA',mr:'MR',fr:'FR',cr:'CR',dr:'DR',pr:'PR',attack:'ATK',haste:'Haste',regen:'Regen',manaregen:'Mana regen'};
 function timerMode(t){return ['countdown','cooldown'].includes(t.timer_mode)?t.timer_mode:'spawn'}
 function timerPhaseText(t,pn){const mode=timerMode(t),complete=mode!=='spawn'&&pn==='available';if(t.running===false&&pn!=='idle'&&!complete)return'PAUSED';if(mode==='countdown')return pn==='respawn'?'COUNTDOWN':pn==='available'?'DONE':phases[pn];if(mode==='cooldown')return pn==='respawn'?'COOLDOWN':pn==='available'?'READY':phases[pn];return phases[pn]}
 function timerToggleText(t,pn){if(t.running)return'Pause';if(timerMode(t)!=='spawn'&&pn==='available')return'Start again';return pn==='idle'?'Start':'Resume'}
-let timerUid=0,lastConnection='',lastPoliteConnection='',pendingPoliteConnection='',lastPoliteConnectionAt=0,connectionAnnouncementDelay,polling=false,marketDelay,marketRequest=0,spellDelay,spellRequest=0,gameLoading=false,gameObjectUrl='',gameDelay,timerListWasEmpty=null,buffRoster=null,buffRosterSignature='',syncingZone=false,syncingGuild=false,pendingZone='',pendingGuild='',zoneRefreshDelay,guildRefreshDelay,guildData={},zoneData={},questDelay,deferredInstallPrompt=null;let timerStates=new Map();
+let timerUid=0,lastConnection='',lastPoliteConnection='',pendingPoliteConnection='',lastPoliteConnectionAt=0,connectionAnnouncementDelay,polling=false,marketDelay,marketRequest=0,spellDelay,spellRequest=0,gameLoading=false,gameObjectUrl='',gameDelay,timerListWasEmpty=null,buffRoster=null,buffRosterSignature='',syncingZone=false,syncingGuild=false,pendingZone='',pendingGuild='',zoneRefreshDelay,guildRefreshDelay,guildData={},zoneData={},questDelay,deferredInstallPrompt=null,detailReturnFocus=null;let timerStates=new Map();
 function node(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n}function announce(root,text){if(root.textContent!==text)root.textContent=text}
+function safeWikiUrl(value,name=''){try{const url=new URL(String(value||''),'https://wiki.project1999.com/');if(url.protocol==='https:'&&url.hostname.toLowerCase()==='wiki.project1999.com'&&(!url.port||url.port==='443')&&!url.username&&!url.password)return url.href}catch(_){}return name?'https://wiki.project1999.com/'+encodeURIComponent(String(name).trim().replaceAll(' ','_')):''}
+function wikiLink(label,value,name){const url=safeWikiUrl(value,name);if(!url)return node('span','',label);const link=node('a','item-link',label);link.href=url;link.target='_blank';link.rel='noopener noreferrer';link.setAttribute('aria-label',label+'; opens in a new tab');return link}
+function showDetailDialog(){detailReturnFocus=document.activeElement;if(!detailDialog.open)detailDialog.showModal();requestAnimationFrame(()=>byId('detailClose').focus({preventScroll:true}))}
 function cacheKey(path){return dataCachePrefix+path}function readCached(path){try{const saved=JSON.parse(localStorage.getItem(cacheKey(path))||'null');return saved&&saved.data!==undefined?saved:null}catch(_){return null}}function writeCached(path,data){try{const key=cacheKey(path);let index=JSON.parse(localStorage.getItem(dataCacheIndexKey)||'[]');if(!Array.isArray(index))index=[];index=index.filter(item=>item!==key);while(index.length>=24)localStorage.removeItem(index.shift());localStorage.setItem(key,JSON.stringify({savedAt:Date.now(),data}));index.push(key);localStorage.setItem(dataCacheIndexKey,JSON.stringify(index))}catch(_){}}
 async function get(path){const r=await fetch(path,{cache:'no-store',headers:{Authorization:'Bearer '+token}});if(!r.ok)throw Error(String(r.status));const data=await r.json();writeCached(path,data);return data}
 function restoreCached(path,root,render){const cached=readCached(path);if(!cached||root.children.length)return false;render(cached.data,{cached:true,savedAt:Number(cached.savedAt)||0});return true}function retainOrExplain(root,status,message){if(root.children.length){announce(status,message+' Showing the last saved data.');return}showListMessage(root,message);announce(status,message)}
@@ -245,7 +471,7 @@ function saved(key,fallback){try{const value=localStorage.getItem(key);return va
 let zoomLocked=saved('vantageZoomLock',true),nativeSize=saved('vantageNativeSize',false);function applyGameView(){gameShell.classList.toggle('zoom-locked',zoomLocked);gameShell.classList.toggle('native',nativeSize);zoomLock.textContent=zoomLocked?'EQ VIEW LOCKED':'EQ VIEW FREE';zoomLock.setAttribute('aria-pressed',String(zoomLocked));zoomLock.setAttribute('aria-label',zoomLocked?'Unlock pinch gestures inside the EverQuest live image':'Lock pinch gestures inside the EverQuest live image');gameSize.textContent=nativeSize?'1:1 PIXELS':'FIT TO SCREEN'}applyGameView();
 window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();deferredInstallPrompt=event;installApp.textContent='INSTALL APP'});
 if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js',{scope:'/'}).catch(()=>{}));
-function showInstallHelp(){detailTitle.textContent='Save Vantage to your Home Screen';detailBody.replaceChildren();const intro=node('p','summary','Keep this mobile view one tap away. Its last successful data stays visible while Vantage reconnects.');const steps=node('ol','install-steps');const ios=/iphone|ipad|ipod/i.test(navigator.userAgent);for(const text of (ios?['Open this page in Safari.','Tap Share.','Choose Add to Home Screen, then tap Add.']:['Open your browser menu.','Choose Add to Home screen or Install app.','Confirm Add.']))steps.append(node('li','',text));const limit=node('p','limitation','If Vantage creates a different private address after restarting, the saved app keeps its previous data but cannot reconnect to the new address. Scan the new QR to reconnect.');detailBody.append(intro,steps,limit);detailDialog.showModal()}
+function showInstallHelp(){detailDialog.setAttribute('aria-busy','false');detailStatus.textContent='';detailTitle.textContent='Save Vantage to your Home Screen';detailBody.replaceChildren();const intro=node('p','summary','Keep this mobile view one tap away. Its last successful data stays visible while Vantage reconnects.');const steps=node('ol','install-steps');const ios=/iphone|ipad|ipod/i.test(navigator.userAgent);for(const text of (ios?['Open this page in Safari.','Tap Share.','Choose Add to Home Screen, then tap Add.']:['Open your browser menu.','Choose Add to Home screen or Install app.','Confirm Add.']))steps.append(node('li','',text));const limit=node('p','limitation','Vantage restarts this saved Wi-Fi session automatically. If the saved port is busy, Vantage shows a refreshed QR; scan that new QR once. An explicit Stop Phone QR keeps saved data but pauses reconnection until you start it again.');detailBody.append(intro,steps,limit);showDetailDialog()}
 installApp.addEventListener('click',async()=>{if(deferredInstallPrompt){deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null;installApp.textContent='SAVE TO HOME';return}showInstallHelp()});
 zoomLock.addEventListener('click',()=>{zoomLocked=!zoomLocked;save('vantageZoomLock',zoomLocked);applyGameView()});gameSize.addEventListener('click',()=>{nativeSize=!nativeSize;save('vantageNativeSize',nativeSize);applyGameView()});gameShell.addEventListener('touchmove',event=>{if(zoomLocked&&event.touches.length>1)event.preventDefault()},{passive:false});for(const eventName of ['gesturestart','gesturechange','gestureend'])gameShell.addEventListener(eventName,event=>{if(zoomLocked)event.preventDefault()},{passive:false});
 async function loadGame(){clearTimeout(gameDelay);if(gamePanel.hidden||document.hidden)return;if(gameLoading){gameDelay=setTimeout(loadGame,180);return}gameLoading=true;let delay=500;try{const status=await get('/api/game/status');delay=Math.max(100,Math.round(1000/(Number(status.fps)||5)));announce(gameState,(status.title?status.title+' · ':'')+String(status.message||'')+(status.image_quality_label?' · '+status.image_quality_label:''));if(!status.enabled||!status.available){gameFrame.hidden=true;gameHelp.hidden=false;gameHelp.textContent=String(status.message||'View unavailable.');return}const response=await fetch('/api/game/frame',{cache:'no-store',headers:{Authorization:'Bearer '+token}});if(!response.ok){let failure={};try{failure=await response.json()}catch(_){}const message=String(failure.message||(response.status===403?'EverQuest Live is available only through the local Wi-Fi link.':'The EverQuest window could not be captured.'));gameFrame.hidden=true;gameHelp.hidden=false;gameHelp.textContent=message;announce(gameState,(failure.title?String(failure.title)+' · ':'')+message);delay=1000;return}const blob=await response.blob(),next=URL.createObjectURL(blob),old=gameObjectUrl;gameObjectUrl=next;gameFrame.onload=()=>{if(old)URL.revokeObjectURL(old)};gameFrame.src=next;gameFrame.hidden=false;gameHelp.hidden=true}catch(_){gameFrame.hidden=true;gameHelp.hidden=false;gameHelp.textContent='Local connection to Vantage was lost. Retrying…';announce(gameState,gameHelp.textContent);delay=1000}finally{gameLoading=false;if(!gamePanel.hidden&&!document.hidden)gameDelay=setTimeout(loadGame,delay)}}
@@ -264,14 +490,15 @@ function drawBuffs(data,provenance={}){const rows=Array.isArray(data.timers)?dat
 async function loadBuffs(){const path='/api/buffs';restoreCached(path,buffRoot,drawBuffs);buffRoot.setAttribute('aria-busy','true');try{drawBuffs(await get(path))}catch(_){retainOrExplain(buffRoot,buffStatus,'Buff timers could not be refreshed; saved buff data remains visible.')}finally{buffRoot.setAttribute('aria-busy','false')}}
 timerZone.addEventListener('change',async()=>{if(syncingZone)return;timerZone.disabled=true;try{await post('/api/timers/action',{action:'zone',target:timerZone.value});setTimeout(poll,120)}catch(error){announce(timerStatus,String(error.message)==='403'?'Zone sync requires the local Wi-Fi QR link.':'Zone could not be changed.')}finally{setTimeout(()=>timerZone.disabled=false,350)}});
 function statSummary(item){const stats=item.stats||{},values=Object.entries(stats).slice(0,7).map(([key,value])=>(statLabels[key]||key.toUpperCase())+' '+(Number(value)>0?'+':'')+String(value));return values.join(' · ')}
-function openMarketDetail(item){detailTitle.textContent=String(item.name||'Item');detailBody.replaceChildren();const top=node('div','top');top.append(node('span','source','PIGPARSE PRICE REFERENCE'),node('span','chip',item.nodrop?'NO DROP':'DROPPABLE'),node('span','chip',item.era?String(item.era).toUpperCase():'ERA UNKNOWN'));detailBody.append(top,node('p','price',item.price?Number(item.price).toLocaleString()+' pp':'No current price'),node('p','meta',String(Number(item.posts)||0)+' price observations in 30 days'));const stats=item.stats||{},keys=Object.keys(stats);if(keys.length){detailBody.append(node('h3','detail-section','ITEM STATS'));const grid=node('div','detail-grid');for(const key of keys){const cell=node('div','detail-cell');cell.append(node('b','',statLabels[key]||key.toUpperCase()),node('span','',((Number(stats[key])>0)?'+':'')+String(stats[key])));grid.append(cell)}detailBody.append(grid)}const effects=Array.isArray(item.effects)?item.effects:[];if(effects.length){detailBody.append(node('h3','detail-section','CLICK / PROC / WORN EFFECTS'));for(const effect of effects)detailBody.append(node('div','effect',String(effect.type||'Effect')+' · '+String(effect.name||'')))}const link=node('a','source-link','Open Project 1999 Wiki source');link.setAttribute('aria-label','Open Project 1999 Wiki source in a new tab');link.href=String(item.wiki_url||'#');link.target='_blank';link.rel='noreferrer noopener';detailBody.append(link);detailDialog.showModal()}
+function appendItemDetail(item,statusNode){const stats=item.stats&&typeof item.stats==='object'?item.stats:{},keys=Object.keys(stats);if(keys.length){detailBody.append(node('h3','detail-section','ITEM STATS'));const grid=node('div','detail-grid');for(const key of keys){const cell=node('div','detail-cell'),value=Number(stats[key]);cell.append(node('b','',statLabels[key]||String(key).toUpperCase()),node('span','',(value>0?'+':'')+String(stats[key])));grid.append(cell)}detailBody.append(grid)}if(item.stats_text)detailBody.append(node('p','summary',String(item.stats_text)));const restrictions=item.restrictions||{},restrictionRows=[['Binding',restrictions.binding],['Era',restrictions.era],['Classes',Array.isArray(restrictions.classes)?restrictions.classes.join(', '):''],['Races',Array.isArray(restrictions.races)?restrictions.races.join(', '):''],['Slots',Array.isArray(restrictions.slots)?restrictions.slots.join(', '):'']].filter(row=>row[1]);if(restrictionRows.length){detailBody.append(node('h3','detail-section','RESTRICTIONS AND USE'));for(const row of restrictionRows)detailBody.append(node('div','effect',row[0]+' · '+String(row[1])))}const effects=Array.isArray(item.effects)?item.effects:[];if(effects.length){detailBody.append(node('h3','detail-section','CLICK / PROC / WORN EFFECTS'));for(const effect of effects){const row=node('div','effect');row.append(node('span','',String(effect.type||'Effect')+' · '),wikiLink(String(effect.name||'Effect'),effect.url,effect.name));detailBody.append(row)}}const drops=Array.isArray(item.drops)?item.drops:[];if(drops.length){detailBody.append(node('h3','detail-section','DROPS FROM'));for(const drop of drops){const row=node('div','effect');row.append(wikiLink(String(drop.npc||'NPC'),drop.npc_url,drop.npc),node('span','',' · '),wikiLink(String(drop.zone||'Zone'),drop.zone_url,drop.zone));detailBody.append(row)}}const quests=Array.isArray(item.related_quests)?item.related_quests:[];if(quests.length){detailBody.append(node('h3','detail-section','RELATED QUESTS'));for(const quest of quests){const row=node('div','effect');row.append(wikiLink(String(quest.name||'Quest'),quest.url,quest.name));detailBody.append(row)}}if(item.notes)detailBody.append(node('h3','detail-section','NOTES'),node('p','summary',String(item.notes)));const ids=item.ids||{},idText=Object.entries(ids).filter(([,value])=>value!==null&&value!==undefined&&String(value)!=='0'&&String(value)!=='').map(([key,value])=>key.toUpperCase()+' '+String(value)).join(' · ');if(idText)detailBody.append(node('p','meta','IDs · '+idText));const link=wikiLink('Open complete Project 1999 Wiki item page',item.wiki_url,item.name);link.classList.add('source-link');link.setAttribute('aria-label','Open complete Project 1999 Wiki item page in a new tab');detailBody.append(link);statusNode.textContent=item.status==='complete'?'Complete Project 1999 Wiki item details loaded.':String(item.message||'Showing saved item details.')}
+async function openMarketDetail(item){const name=String(item.name||'Item');detailDialog.setAttribute('aria-busy','true');detailStatus.textContent='';detailTitle.textContent=name;detailBody.replaceChildren();const top=node('div','top');top.append(node('span','source','PIGPARSE PRICE REFERENCE'),node('span','chip',item.nodrop?'NO DROP':'DROPPABLE'),node('span','chip',item.era?String(item.era).toUpperCase():'ERA UNKNOWN'));const statusNode=node('p','meta','Loading complete Project 1999 Wiki item details…');detailBody.append(top,node('p','price',item.price?Number(item.price).toLocaleString()+' pp':'No current price'),node('p','meta',String(Number(item.posts)||0)+' price observations in 30 days'),statusNode);showDetailDialog();requestAnimationFrame(()=>announce(detailStatus,'Loading complete Project 1999 Wiki item details.'));try{const detail=await get('/api/item-detail?name='+encodeURIComponent(name));if(!detailDialog.open)return;detailTitle.textContent=String(detail.name||name);detailBody.replaceChildren();const loadedStatus=node('p','meta','');const loadedTop=node('div','top');loadedTop.append(node('span','source',String(detail.source||'P99 ITEM DATA')),node('span','chip',(detail.restrictions||{}).binding||'BINDING UNKNOWN'),node('span','chip',((detail.restrictions||{}).era||'ERA UNKNOWN').toUpperCase()));detailBody.append(loadedTop,node('p','price',detail.price?Number(detail.price).toLocaleString()+' pp':'No current price'),node('p','meta',String(Number(detail.posts)||0)+' price observations in 30 days'),loadedStatus);appendItemDetail(detail,loadedStatus);detailDialog.setAttribute('aria-busy','false');requestAnimationFrame(()=>announce(detailStatus,loadedStatus.textContent))}catch(_){if(!detailDialog.open)return;statusNode.textContent='Complete Wiki details are unavailable. Saved item data and the Wiki link remain available.';const fallback=Object.assign({},item,{wiki_url:safeWikiUrl(item.wiki_url,name)});appendItemDetail(fallback,statusNode);detailDialog.setAttribute('aria-busy','false');requestAnimationFrame(()=>announce(detailStatus,statusNode.textContent))}}
 function createMarketRow(key){const row=node('li','card');row.dataset.key=key;const button=node('button','card-button');button.type='button';const top=node('div','top'),name=node('h3','name'),source=node('span','source','PIGPARSE');top.append(name,source);const priceLine=node('div','top'),price=node('span','price'),quality=node('span','quality');priceLine.append(price,quality);const meta=node('p','meta'),summary=node('p','stat-line');button.append(top,priceLine,meta,summary);button.addEventListener('click',()=>openMarketDetail(button._item));row.append(button);row._parts={button,name,price,quality,meta,summary};return row}
 function updateMarketRow(row,item){const p=row._parts,quality=String(item.quality||'Low'),summary=statSummary(item);p.button._item=item;p.name.textContent=String(item.name||'Item');p.price.textContent=item.price?Number(item.price).toLocaleString()+' pp':'—';p.quality.className='quality '+quality;p.quality.textContent=quality;p.meta.textContent=String(Number(item.posts)||0)+' price observations · '+(item.nodrop?'NO DROP':'Droppable')+(item.era?' · '+String(item.era).toUpperCase():'');p.summary.textContent=summary;p.summary.hidden=!summary}
 function stableReplace(root,signature,...children){signature=String(signature);if(root.dataset.renderSignature===signature)return false;const active=root.contains(document.activeElement)?document.activeElement:null,focusText=active?active.textContent:'';root.replaceChildren(...children);root.dataset.renderSignature=signature;if(focusText){const next=Array.from(root.querySelectorAll('button,a,input,select')).find(control=>control.textContent===focusText);if(next)next.focus({preventScroll:true})}return true}
 function showListMessage(root,text){stableReplace(root,'message:'+text,node('li','empty',text))}
 function reconcileMarketRows(items){const existing=new Map(Array.from(marketRoot.children).map(row=>[row.dataset.key,row])),used=new Set();let anchor=marketRoot.firstElementChild;for(const item of items){const key='item:'+String(item.id??item.name);let row=existing.get(key);if(!row||!row._parts)row=createMarketRow(key);updateMarketRow(row,item);used.add(key);if(row!==anchor)marketRoot.insertBefore(row,anchor);anchor=row.nextElementSibling}for(const row of Array.from(marketRoot.children))if(!used.has(row.dataset.key))row.remove()}
 function drawMarket(data){const rows=Array.isArray(data.items)?data.items:[],total=Number(data.total)||0,server=String(data.server||'Green');marketHeading.textContent='PIGPARSE '+server.toUpperCase()+' · ITEM STATS';marketNote.textContent=(data.source||('PigParse API · '+server))+' · '+String(total)+' matches · tap an item for full stats';if(!rows.length){showListMessage(marketRoot,'No items match these filters.');return}reconcileMarketRows(rows)}
-async function openLinkedItem(name,url){try{const data=await get('/api/market?q='+encodeURIComponent(name));const item=(data.items||[]).find(row=>String(row.name||'').toLowerCase()===String(name).toLowerCase());if(item){openMarketDetail(item);return}}catch(_){}window.open(url,'_blank','noopener,noreferrer')}
+async function openLinkedItem(name,url){const basic={name:String(name||'Item'),wiki_url:safeWikiUrl(url,name)};try{const data=await get('/api/market?q='+encodeURIComponent(name));const item=(data.items||[]).find(row=>String(row.name||'').toLowerCase()===String(name).toLowerCase());if(item){openMarketDetail(item);return}}catch(_){}openMarketDetail(basic)}
 function syncGuildOptions(data){const profiles=Array.isArray(data.profiles)?data.profiles:[],wanted=String(pendingGuild||data.slug||''),next=profiles.map(profile=>String(profile.slug||'')),current=Array.from(guildSelect.options).slice(1).map(option=>option.value);syncingGuild=true;if(JSON.stringify(current)!==JSON.stringify(next)){const placeholder=node('option','','Choose a saved guild…');placeholder.value='';guildSelect.replaceChildren(placeholder,...profiles.map(profile=>{const option=node('option','',String(profile.name||profile.slug));option.value=String(profile.slug||'');return option}))}guildSelect.value=Array.from(guildSelect.options).some(option=>option.value===wanted)?wanted:'';guildSelect.disabled=!profiles.length;syncingGuild=false}
 function renderGuild(){syncGuildOptions(guildData);const view=byId('guildView').value,query=byId('guildSearch').value.trim().toLowerCase(),rows=Array.isArray(guildData[view])?guildData[view]:[];const filtered=rows.filter(row=>JSON.stringify(row).toLowerCase().includes(query));guildNote.textContent=String(guildData.guild||'No guild selected')+' · '+String(guildData.status||'Public guild data');if(!filtered.length){showListMessage(guildRoot,guildData.loading?'Loading DKP and guild records…':guildData.connected?'No rows match this view.':'Choose a saved guild above. Add guilds first in Vantage on the PC.');return}stableReplace(guildRoot,'guild:'+JSON.stringify([view,filtered]),...filtered.slice(0,250).map(item=>{const row=node('li','card data-card'),title=node('h3','');if(view==='loot'){const link=node('button','card-button item-link',String(item.item||'Item'));link.type='button';link.addEventListener('click',()=>openLinkedItem(item.item,item.wiki_url));row.append(link);title.textContent=String(item.character||'—')+' · '+String(item.dkp||'—')+' DKP';row.append(title,node('p','meta',[item.date,item.raid].filter(Boolean).join(' · ')));return row}title.textContent=String(item.name||item.item||'Guild record');row.append(title);const grid=node('div','data-grid');for(const [key,value] of Object.entries(item)){if(['name','item','wiki_url','url'].includes(key))continue;grid.append(node('span','',key.toUpperCase()+' · '+String(value)))}row.append(grid);if(item.url){const link=node('a','source-link','Open guild sheet');link.href=item.url;link.target='_blank';link.rel='noopener noreferrer';link.setAttribute('aria-label','Open '+String(item.name||'guild sheet')+' in a new tab');row.append(link)}return row}));announce(guildStatus,filtered.length+' guild rows')}
 async function loadGuild(){const path='/api/guild',cached=readCached(path);if(cached&&!guildRoot.children.length){guildData=cached.data;renderGuild()}guildRoot.setAttribute('aria-busy','true');try{guildData=await get(path);renderGuild();return true}catch(_){retainOrExplain(guildRoot,guildStatus,'Guild data could not be refreshed.');return false}finally{guildRoot.setAttribute('aria-busy','false')}}
@@ -289,7 +516,7 @@ async function poll(){if(polling)return;if(!token){setConnection('INVALID QR',tr
 function params(ids){const p=new URLSearchParams();for(const [key,id] of Object.entries(ids))p.set(key,byId(id).value);return p}
 async function loadMarket(announceLoading=true){const request=++marketRequest,p=params({q:'mq',class:'mc',race:'mr',slot:'ms',effect:'me',drop:'md',era:'mera',sort:'mso'}),path='/api/market?'+p;restoreCached(path,marketRoot,drawMarket);marketRoot.setAttribute('aria-busy','true');if(announceLoading)announce(marketStatus,'Loading market and item stats.');try{const data=await get(path);if(request!==marketRequest)return;drawMarket(data);announce(marketStatus,(Number(data.total)||0)+' matches')}catch(_){if(request!==marketRequest)return;retainOrExplain(marketRoot,marketStatus,'Market data could not be refreshed.')}finally{if(request===marketRequest)marketRoot.setAttribute('aria-busy','false')}}
 function marketChanged(){clearTimeout(marketDelay);marketDelay=setTimeout(()=>loadMarket(true),220)}for(const id of ['mq','mc','mr','ms','me','md','mera','mso'])byId(id).addEventListener(id==='mq'?'input':'change',marketChanged);byId('marketFilters').addEventListener('submit',event=>{event.preventDefault();clearTimeout(marketDelay);loadMarket(true)});
-async function openSpellDetail(spell){detailTitle.textContent=String(spell.name||'Spell');detailBody.replaceChildren();const top=node('div','top');top.append(node('span','source','P99 CLASSIC DATA'),node('span','chip','SPELL ID '+String(spell.spell_id||'—')));const effectBox=node('div','');effectBox.append(node('h3','detail-section','WHAT IT DOES'),node('p','summary',String(spell.effect_hint||'Loading the exact Project 1999 Wiki description…')));detailBody.append(top,effectBox,node('h3','detail-section','CLASSES AND LEVELS'));for(const profile of spell.class_levels||[])detailBody.append(node('div','effect',String(profile[0])+' · Level '+String(profile[1])));if(spell.price)detailBody.append(node('h3','detail-section','PIGPARSE GREEN PRICE'),node('p','price',Number(spell.price).toLocaleString()+' pp'),node('p','meta',String(Number(spell.posts)||0)+' price observations in 30 days · '+String(spell.quality||'Low')+' confidence'));const link=node('a','source-link','Open complete Project 1999 Wiki spell page');link.setAttribute('aria-label','Open complete Project 1999 Wiki spell page in a new tab');link.href=String(spell.wiki_url||'#');link.target='_blank';link.rel='noreferrer noopener';detailBody.append(link);detailDialog.showModal();try{const detail=await get('/api/spell-detail?name='+encodeURIComponent(String(spell.name||'')));effectBox.replaceChildren(node('h3','detail-section','WHAT IT DOES'));effectBox.append(node('p','summary',String(detail.description||spell.effect_hint||'No description available.')));for(const effect of detail.effects||[])effectBox.append(node('div','effect',String(effect)));effectBox.append(node('p','meta','Source · '+String(detail.source||'Project 1999 Wiki')))}catch(_){effectBox.append(node('p','meta','Exact Wiki description is unavailable; showing bundled spell text.'))}}
+async function openSpellDetail(spell){detailTitle.textContent=String(spell.name||'Spell');detailBody.replaceChildren();const top=node('div','top');top.append(node('span','source','P99 CLASSIC DATA'),node('span','chip','SPELL ID '+String(spell.spell_id||'—')));const effectBox=node('div','');effectBox.append(node('h3','detail-section','WHAT IT DOES'),node('p','summary',String(spell.effect_hint||'Loading the exact Project 1999 Wiki description…')));detailBody.append(top,effectBox,node('h3','detail-section','CLASSES AND LEVELS'));for(const profile of spell.class_levels||[])detailBody.append(node('div','effect',String(profile[0])+' · Level '+String(profile[1])));if(spell.price)detailBody.append(node('h3','detail-section','PIGPARSE GREEN PRICE'),node('p','price',Number(spell.price).toLocaleString()+' pp'),node('p','meta',String(Number(spell.posts)||0)+' price observations in 30 days · '+String(spell.quality||'Low')+' confidence'));const link=wikiLink('Open complete Project 1999 Wiki spell page',spell.wiki_url,spell.name);link.classList.add('source-link');link.setAttribute('aria-label','Open complete Project 1999 Wiki spell page in a new tab');detailBody.append(link);showDetailDialog();try{const detail=await get('/api/spell-detail?name='+encodeURIComponent(String(spell.name||'')));effectBox.replaceChildren(node('h3','detail-section','WHAT IT DOES'));effectBox.append(node('p','summary',String(detail.description||spell.effect_hint||'No description available.')));for(const effect of detail.effects||[])effectBox.append(node('div','effect',String(effect)));effectBox.append(node('p','meta','Source · '+String(detail.source||'Project 1999 Wiki')))}catch(_){effectBox.append(node('p','meta','Exact Wiki description is unavailable; showing bundled spell text.'))}}
 function drawSpells(data){const items=Array.isArray(data.items)?data.items:[];spellNote.textContent=String(Number(data.total)||0)+' matches · local class/level index · tap for exact effects';if(!items.length){showListMessage(spellRoot,'No spells match these filters.');return}spellRoot.replaceChildren(...items.map(spell=>{const row=node('li','card'),button=node('button','card-button');button.type='button';const top=node('div','top'),name=node('h3','name',String(spell.name)),level=node('span','chip',String(spell.selected_class||'ALL')+' '+String(spell.selected_level||''));top.append(name,level);button.append(top,node('p','summary',String(spell.effect_hint||(spell.class_levels||[]).map(profile=>profile[0]+' '+profile[1]).join(' · '))));if(spell.price)button.append(node('p','stat-line','PigParse · '+Number(spell.price).toLocaleString()+' pp'));button.addEventListener('click',()=>openSpellDetail(spell));row.append(button);return row}))}
 function syncSpellLevels(levels){const select=byId('sl'),current=select.value,available=(Array.isArray(levels)?levels:[]).map(Number).filter(level=>level>=1&&level<=60);select.replaceChildren();const any=node('option','','Any level');any.value='0';select.append(any,...available.map(level=>{const option=node('option','',`Level ${level}`);option.value=String(level);return option}));select.value=available.includes(Number(current))?current:'0'}
 async function loadSpells(announceLoading=true){const request=++spellRequest,p=params({q:'sq',class:'sc',level:'sl'}),path='/api/spells?'+p,cached=readCached(path);if(cached&&!spellRoot.children.length){syncSpellLevels(cached.data.available_levels);drawSpells(cached.data)}spellRoot.setAttribute('aria-busy','true');if(announceLoading)announce(spellStatus,'Loading spells.');try{const data=await get(path);if(request!==spellRequest)return;syncSpellLevels(data.available_levels);drawSpells(data);announce(spellStatus,(Number(data.total)||0)+' spell matches')}catch(_){if(request!==spellRequest)return;retainOrExplain(spellRoot,spellStatus,'Spell library could not be refreshed.')}finally{if(request===spellRequest)spellRoot.setAttribute('aria-busy','false')}}
@@ -297,7 +524,7 @@ function spellChanged(){clearTimeout(spellDelay);spellDelay=setTimeout(()=>loadS
 guildSelect.addEventListener('change',()=>chooseGuild(guildSelect.value));byId('guildView').addEventListener('change',renderGuild);byId('guildSearch').addEventListener('input',renderGuild);byId('zoneView').addEventListener('change',renderZones);byId('zoneSearch').addEventListener('input',renderZones);zoneSelect.addEventListener('change',()=>chooseZone(zoneSelect.value));zoneReload.addEventListener('click',()=>chooseZone(zoneSelect.value));byId('questSearch').addEventListener('input',()=>{clearTimeout(questDelay);questDelay=setTimeout(loadQuests,180)});
 function selectTab(selected,focus=false){const panels=new Map([[tabTimers,timersPanel],[tabBuffs,buffsPanel],[tabMarket,marketPanel],[tabSpells,spellsPanel],[tabGuild,guildPanel],[tabZones,zonesPanel],[tabQuests,questsPanel],[tabGame,gamePanel]]);for(const tab of tabs){const active=tab===selected;tab.classList.toggle('on',active);tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;panels.get(tab).hidden=!active}if(focus)selected.focus();if(selected===tabBuffs)loadBuffs();if(selected===tabMarket)loadMarket(true);if(selected===tabSpells)loadSpells(true);if(selected===tabGuild)loadGuild();if(selected===tabZones)loadZones();if(selected===tabQuests)loadQuests();if(selected===tabGame)loadGame();else clearTimeout(gameDelay)}
 for(const tab of tabs){tab.addEventListener('click',()=>selectTab(tab));tab.addEventListener('keydown',event=>{let next;if(event.key==='ArrowRight')next=tabs[(tabs.indexOf(tab)+1)%tabs.length];else if(event.key==='ArrowLeft')next=tabs[(tabs.indexOf(tab)-1+tabs.length)%tabs.length];else if(event.key==='Home')next=tabs[0];else if(event.key==='End')next=tabs[tabs.length-1];else return;event.preventDefault();selectTab(next,true)})}
-byId('detailClose').addEventListener('click',()=>detailDialog.close());detailDialog.addEventListener('click',event=>{if(event.target===detailDialog)detailDialog.close()});skipLink.addEventListener('click',event=>{event.preventDefault();mainContent.focus({preventScroll:true});mainContent.scrollIntoView({block:'start',behavior:'auto'})});document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!gamePanel.hidden)loadGame();else clearTimeout(gameDelay)});
+byId('detailClose').addEventListener('click',()=>detailDialog.close());detailDialog.addEventListener('click',event=>{if(event.target===detailDialog)detailDialog.close()});detailDialog.addEventListener('close',()=>{detailDialog.setAttribute('aria-busy','false');detailStatus.textContent='';let target=detailReturnFocus;if(!target||!document.contains(target)||typeof target.focus!=='function')target=tabs.find(tab=>tab.getAttribute('aria-selected')==='true')||mainContent;target.focus({preventScroll:true});detailReturnFocus=null});skipLink.addEventListener('click',event=>{event.preventDefault();mainContent.focus({preventScroll:true});mainContent.scrollIntoView({block:'start',behavior:'auto'})});document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!gamePanel.hidden)loadGame();else clearTimeout(gameDelay)});
 const savedState=readCached('/api/state');if(savedState){drawTimers(savedState.data);setConnection('RECONNECTING · SAVED',true,'Showing saved data while Vantage reconnects.')}else setConnection('CONNECTING',false,'');window.addEventListener('online',()=>{setConnection('RECONNECTING · SAVED',true,'Network restored. Reconnecting to Vantage.');poll()});window.addEventListener('offline',()=>setConnection('OFFLINE · SAVED',true,'Network unavailable. Showing saved data.'));
 poll();setInterval(poll,2000);setInterval(()=>{if(!buffsPanel.hidden)loadBuffs();if(!marketPanel.hidden)loadMarket(false);if(!guildPanel.hidden&&!guildPanel.contains(document.activeElement))loadGuild();if(!zonesPanel.hidden&&!zonesPanel.contains(document.activeElement))loadZones();if(!questsPanel.hidden&&!questsPanel.contains(document.activeElement))loadQuests()},5000);
 </script>
@@ -323,7 +550,7 @@ class _ShareHTTPServer(ThreadingHTTPServer):
 
 
 class _ShareHandler(BaseHTTPRequestHandler):
-    server_version = "VantageMobile/1.44.89"
+    server_version = "VantageMobile/1.44.90"
 
     def log_message(self, *_):
         # Do not write access paths or the user's network details to disk.
@@ -520,6 +747,57 @@ class _ShareHandler(BaseHTTPRequestHandler):
                 separators=(",", ":")).encode("utf-8")
             self._send(200, payload, "application/json; charset=utf-8")
             return
+        if path == "/api/item-detail":
+            if len(request_url.query) > 512:
+                self._send(
+                    400, b'{"error":"invalid_query"}',
+                    "application/json; charset=utf-8")
+                return
+            query = parse_qs(request_url.query, keep_blank_values=True)
+            requested_name = query.get("name", [""])[0].strip()
+            if (not requested_name or len(requested_name) > MAX_ITEM_NAME or
+                    any(ord(character) < 32 for character in requested_name)):
+                self._send(
+                    400, b'{"error":"invalid_item"}',
+                    "application/json; charset=utf-8")
+                return
+            snapshot = self.server.snapshot_provider()
+            item = next((
+                row for row in snapshot.get("market", {}).get("items", ())
+                if isinstance(row, dict) and
+                str(row.get("name", "")).casefold() ==
+                requested_name.casefold()), None)
+            linked_names = set()
+            zones = snapshot.get("zones", {})
+            zone_data = zones.get("data", {}) if isinstance(zones, dict) else {}
+            for linked in zone_data.get("unique_items", ()):
+                linked_names.add(str(linked).strip().casefold())
+            guild = snapshot.get("guild", {})
+            if isinstance(guild, dict):
+                for linked in guild.get("loot", ()):
+                    if isinstance(linked, dict):
+                        linked_names.add(
+                            str(linked.get("item") or "").strip().casefold())
+            if item is None and requested_name.casefold() in linked_names:
+                item = {
+                    "name": requested_name,
+                    "wiki_url": _safe_p99_url(fallback_name=requested_name),
+                }
+            if item is None:
+                self._send(
+                    404, b'{"error":"unknown_item"}',
+                    "application/json; charset=utf-8")
+                return
+            try:
+                detail = load_mobile_item_detail(item)
+            except (OSError, UnicodeError, ValueError,
+                    json.JSONDecodeError):
+                detail = _basic_mobile_item_detail(item)
+            payload = json.dumps(
+                detail, ensure_ascii=False,
+                separators=(",", ":")).encode("utf-8")
+            self._send(200, payload, "application/json; charset=utf-8")
+            return
         if path == "/api/market":
             snapshot = self.server.snapshot_provider()
             market = snapshot.get("market", {})
@@ -704,6 +982,8 @@ class MobileShareController(QObject):
         self._server_thread = None
         self._token = ""
         self._lan_token = ""
+        self._preferred_port = 8765
+        self._port_notice = ""
         self._process = None
         self._process_buffer = ""
         self._public_url = ""
@@ -712,11 +992,24 @@ class MobileShareController(QObject):
         self._download_pending = ""
         self._snapshot_lock = threading.Lock()
         self._snapshot_cache = {}
-        mobile_settings = config.data.get("mobile", {})
+        mobile_settings = config.data.setdefault("mobile", {})
+        saved_lan_token = str(mobile_settings.get("lan_token") or "")
+        if not re.fullmatch(r"[A-Za-z0-9_-]{43}", saved_lan_token):
+            saved_lan_token = secrets.token_urlsafe(32)
+            mobile_settings["lan_token"] = saved_lan_token
+        self._lan_token = saved_lan_token
+        try:
+            preferred_port = int(mobile_settings.get("preferred_port", 8765))
+        except (TypeError, ValueError):
+            preferred_port = 8765
+        self._preferred_port = (
+            preferred_port if 1024 <= preferred_port <= 65535 else 8765)
         self.game_capture = GameWindowCapture(
             mobile_settings.get("eq_executable", ""),
             fps=mobile_settings.get("game_fps", 5),
             profile=mobile_settings.get("game_image_quality", "hd"))
+        self.game_capture.set_enabled(
+            bool(mobile_settings.get("game_enabled", True)))
         self._spell_items = tuple({
             "spell_id": entry.spell_id,
             "name": entry.name,
@@ -764,18 +1057,35 @@ class MobileShareController(QObject):
                 self.link_changed.emit(self._local_url, False)
             return
         self._token = secrets.token_urlsafe(32)
-        self._lan_token = secrets.token_urlsafe(32)
         self._process_buffer = ""
+        self._port_notice = ""
         try:
             self._server = _ShareHTTPServer(
-                ("0.0.0.0", 0), self._token, self._snapshot,
+                ("0.0.0.0", self._preferred_port), self._token, self._snapshot,
                 self.game_capture, self._lan_token,
                 self._queue_timer_action, self._queue_browse_action,
                 self._spell_items)
-        except OSError as error:
-            self.status_changed.emit(f"The mobile view could not be opened: {error}")
-            return
+        except OSError:
+            try:
+                self._server = _ShareHTTPServer(
+                    ("0.0.0.0", 0), self._token, self._snapshot,
+                    self.game_capture, self._lan_token,
+                    self._queue_timer_action, self._queue_browse_action,
+                    self._spell_items)
+            except OSError as error:
+                self.status_changed.emit(
+                    f"The mobile view could not be opened: {error}")
+                return
+            self._port_notice = (
+                " The saved port was busy, so Vantage chose a new one; "
+                "scan the refreshed QR once.")
         port = self._server.server_address[1]
+        self._preferred_port = int(port)
+        mobile_settings = config.data.setdefault("mobile", {})
+        mobile_settings["preferred_port"] = self._preferred_port
+        mobile_settings["lan_token"] = self._lan_token
+        mobile_settings["auto_start"] = True
+        config.save()
         self._server_thread = threading.Thread(
             target=self._server.serve_forever,
             kwargs={"poll_interval": 0.2}, daemon=True)
@@ -788,10 +1098,20 @@ class MobileShareController(QObject):
             self._start_tunnel(binary, port)
         else:
             self.status_changed.emit(
-                "Wi-Fi ready. To open it away from home, install the free official component.")
+                "Wi-Fi ready. To open it away from home, install the free "
+                "official component." + self._port_notice)
             self.binary_required.emit()
 
     def stop(self):
+        config.data.setdefault("mobile", {})["auto_start"] = False
+        config.save()
+        self._shutdown_session(explicit=True)
+
+    def shutdown(self):
+        """Close process resources without changing saved reconnect choices."""
+        self._shutdown_session(explicit=False)
+
+    def _shutdown_session(self, *, explicit):
         if self._process:
             process = self._process
             self._process = None
@@ -806,18 +1126,20 @@ class MobileShareController(QObject):
             self._server = None
         self._server_thread = None
         self._token = ""
-        self._lan_token = ""
         self._public_url = ""
         self._local_url = ""
         self._process_buffer = ""
-        self.game_capture.set_enabled(False)
-        self.game_enabled_changed.emit(False)
-        self.status_changed.emit("Session stopped. The previous link no longer works.")
+        self._port_notice = ""
+        self.status_changed.emit(
+            "Session stopped. Start Phone QR to reconnect the saved Home "
+            "Screen app." if explicit else "Mobile session closed with Vantage.")
         self.link_changed.emit("", False)
         self.running_changed.emit(False)
 
     def set_game_enabled(self, enabled):
         self.game_capture.set_enabled(enabled)
+        config.data.setdefault("mobile", {})["game_enabled"] = bool(enabled)
+        config.save()
         self.game_enabled_changed.emit(bool(enabled))
         status = self.game_capture.status()
         self.game_status_changed.emit(status["message"])
@@ -966,7 +1288,8 @@ class MobileShareController(QObject):
     def _start_tunnel(self, binary, port):
         if self._process:
             return
-        self.status_changed.emit("Creating a private temporary link…")
+        self.status_changed.emit(
+            "Creating a private temporary link…" + self._port_notice)
         process = QProcess(self)
         process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         process.setProgram(binary)
@@ -989,7 +1312,8 @@ class MobileShareController(QObject):
         if match and not self._public_url:
             self._public_url = f"{match.group(0)}/#{self._token}"
             self.status_changed.emit(
-                "Live · free individual link. It shuts down when the session stops.")
+                "Live · free individual link. It shuts down when the session "
+                "stops." + self._port_notice)
             if not self.game_capture.enabled:
                 self.link_changed.emit(self._public_url, True)
 
@@ -1170,8 +1494,8 @@ class MobileShareDialog(UniformScaleDialog):
         heading.setObjectName("MobileShareTitle")
         layout.addWidget(heading)
         note = QLabel(
-            "One private QR opens your Timers, Market, Spells, and optional "
-            "EverQuest Live view. Keep Vantage running while you use it.")
+            "One private QR opens your Timers, Market, Spells, and EverQuest "
+            "Live view. Keep Vantage running while you use it.")
         note.setWordWrap(True)
         note.setAccessibleName(
             "The private QR includes Timers, Market, Spells, and EverQuest Live")
@@ -1229,11 +1553,12 @@ class MobileShareDialog(UniformScaleDialog):
 
         included = QLabel(
             "QR INCLUDES · TIMERS · BUFFS · MARKET · SPELLS · GUILD · "
-            "ZONES · QUESTS · EQ LIVE (OPTIONAL)")
+            "ZONES · QUESTS · EQ LIVE")
         included.setObjectName("MobileShareTerms")
         included.setWordWrap(True)
         included.setAccessibleName(
-            "The QR includes Timers, Market, Spells, and optional EverQuest Live")
+            "The QR includes Timers, Buffs, Market, Spells, Guild, Zones, "
+            "Quests, and EverQuest Live")
         layout.addWidget(included)
 
         link_row = QHBoxLayout()
@@ -1254,11 +1579,11 @@ class MobileShareDialog(UniformScaleDialog):
         live_box = QWidget()
         live_layout = QVBoxLayout(live_box)
         live_layout.setContentsMargins(8, 8, 8, 8)
-        live_title = QLabel("OPTIONAL · EVERQUEST LIVE")
+        live_title = QLabel("INCLUDED · EVERQUEST LIVE")
         live_title.setObjectName("SettingsHeader")
         live_layout.addWidget(live_title)
         self.game_summary = QLabel(
-            "Optional · local read-only view · sends no controls")
+            "Included by default · turn off any time · sends no controls")
         self.game_summary.setWordWrap(True)
         self.game_summary.setToolTip(
             "Open the setup guide to detect eqgame.exe and configure quality")

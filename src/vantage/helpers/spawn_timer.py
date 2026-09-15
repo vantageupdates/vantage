@@ -18,6 +18,10 @@ TIMER_MODE_COUNTDOWN = "countdown"
 TIMER_MODE_COOLDOWN = "cooldown"
 TIMER_MODES = {
     TIMER_MODE_SPAWN, TIMER_MODE_COUNTDOWN, TIMER_MODE_COOLDOWN}
+TIMER_DELIVERIES = {"legacy", "sound", "tts", "off"}
+TIMER_TTS_DEFAULT = "{timer}: {state}"
+TIMER_NOTIFICATION_TOKEN_RX = re.compile(
+    r"\{(timer|name|state|zone|event|seconds)\}", re.IGNORECASE)
 MAX_DEATH_MOBS = 24
 MAX_DEATH_MOB_NAME_LENGTH = 128
 
@@ -114,6 +118,13 @@ class SpawnTimerState:
     # explicit silent override, and a URI is this timer's sound override.
     sound_path: str | None = None
     volume: int = 85
+    # Legacy rows keep the historical Smart Timer route and sound override.
+    # Newly edited rows can choose exactly one per-timer delivery. A single
+    # state-aware template stays compact while covering warning and ready/end.
+    delivery: str = "legacy"
+    tts_text: str = TIMER_TTS_DEFAULT
+    tts_voice: str = ""
+    tts_pitch: int = 0
     source: str = ""
     automatic: bool = False
     # ``spawn`` keeps the original kill/respawn cycle. ``countdown`` is a
@@ -138,6 +149,17 @@ class SpawnTimerState:
         self.color = self.color if re.fullmatch(r"#[0-9a-fA-F]{6}", self.color or "") else "#B38C52"
         if self.sound_path is not None:
             self.sound_path = str(self.sound_path)[:500]
+        self.delivery = str(self.delivery or "legacy").strip().casefold()
+        if self.delivery == "voice":
+            self.delivery = "tts"
+        if self.delivery not in TIMER_DELIVERIES:
+            self.delivery = "legacy"
+        self.tts_text = str(self.tts_text or "")[:300]
+        self.tts_voice = str(self.tts_voice or "")[:160]
+        try:
+            self.tts_pitch = max(-10, min(10, int(self.tts_pitch)))
+        except (TypeError, ValueError):
+            self.tts_pitch = 0
         self.death_mobs = normalize_death_mobs(self.death_mobs)
         self.timer_mode = str(self.timer_mode or TIMER_MODE_SPAWN).casefold()
         if self.timer_mode not in TIMER_MODES:
@@ -319,6 +341,31 @@ class SpawnTimerState:
             return re.search(pattern, mob_name, re.IGNORECASE) is not None
         except re.error:
             return pattern.casefold() in mob_name.casefold()
+
+
+def timer_notification_state(event_kind):
+    """Return concise user-facing state text for a timer event."""
+    return {
+        "warning": "ending soon",
+        "spawn": "spawn ready",
+        "complete": "complete",
+        "ready": "ready",
+    }.get(str(event_kind or "").casefold(), str(event_kind or "timer event"))
+
+
+def render_timer_notification_text(template, timer, event_kind, seconds=None):
+    """Resolve bounded Smart Timer speech tokens without executing content."""
+    values = {
+        "timer": str(getattr(timer, "name", "Timer") or "Timer"),
+        "name": str(getattr(timer, "name", "Timer") or "Timer"),
+        "state": timer_notification_state(event_kind),
+        "zone": str(getattr(timer, "zone", "") or "all zones"),
+        "event": str(event_kind or "timer event"),
+        "seconds": str(max(0, int(seconds or 0))),
+    }
+    source = str(template or TIMER_TTS_DEFAULT)[:300]
+    return TIMER_NOTIFICATION_TOKEN_RX.sub(
+        lambda match: values[match.group(1).casefold()], source).strip()
 
 
 def format_seconds(value):

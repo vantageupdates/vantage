@@ -60,6 +60,7 @@ class _Speech:
         self.voices = [_Voice('Voice A'), _Voice('Voice B')]
         self.selected = None
         self.rate = None
+        self.pitch = None
         self.volume = None
         self.message = None
         self.stop_count = 0
@@ -73,6 +74,9 @@ class _Speech:
 
     def setRate(self, rate):
         self.rate = rate
+
+    def setPitch(self, pitch):
+        self.pitch = pitch
 
     def setVolume(self, volume):
         self.volume = volume
@@ -163,11 +167,36 @@ def test_profile_volume_voice_and_speed_are_applied_to_trigger_audio(
         character='Gandalf', server='Green')
     assert speech.selected == 'Voice B'
     assert speech.rate == 0.7
+    assert speech.pitch == 0.0
     assert speech.volume == 0.4
     assert speech.message == 'Charm broke'
     assert app.events[-1] == (
         'Trigger speech', 'tts:Charm broke', 40)
     audio._ACTIVE_EFFECTS.clear()
+
+
+def test_per_trigger_voice_and_pitch_are_applied_then_reset_next_call(
+        monkeypatch):
+    app = _App()
+    config.data = {
+        'general': {'audio_muted': False, 'master_volume': 80},
+        'spells': {'audio_profiles': {}}}
+    speech = _Speech()
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, '_SPEECH', speech)
+    monkeypatch.setattr(audio, '_DEFAULT_VOICE_NAME', 'Voice A')
+
+    assert audio.speak_text(
+        'Ending soon', 50, voice_name='Voice B', pitch=7)
+    assert speech.selected == 'Voice B'
+    assert speech.pitch == 0.7
+    assert speech.volume == 0.4  # phase 50% x master 80%
+
+    assert audio.speak_text('Ready again', 100, pitch=0)
+    assert speech.selected == 'Voice A'
+    assert speech.pitch == 0.0
+    assert speech.volume == 0.8
 
 
 def test_master_volume_scales_wav_and_speech_after_profile_volume(

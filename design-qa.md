@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.89 design QA
+# Vantage Companion 1.44.90 design QA
 
 final result: passed
 
@@ -11,6 +11,25 @@ final result: passed
 
 ## Visual checks
 
+- Vitals Monitor is a first-class Quick Bar window and reads only the pixels
+  inside user-calibrated EverQuest bars. My HP, My Mana, Target/Mob HP, Group
+  HP, and additional custom bars run simultaneously from one foreground frame;
+  normalized calibration survives window movement and resizing. Low-confidence,
+  minimized, background, or unavailable captures never become false zero values
+  and never fire alerts.
+- Every vital bar supports multiple directional thresholds, quarter/every-10%
+  presets, hysteresis, cooldown, and independent Sound/WAV, Windows TTS, or Off
+  delivery. Calibration supports pointer, keyboard, and exact numeric geometry;
+  its temporary overlay closes safely and never controls EverQuest.
+- The built-in **Mob is casting** trigger recognizes the classic P99
+  `<actor> begins to cast a spell.` line conservatively, excludes the player's
+  own cast form, rate-limits each actor, and exposes the same Sound/WAV, TTS,
+  voice, volume, pitch, and Test controls as other Basic triggers.
+- Smart Timers now choose Sound/WAV, Text to speech, or Off per timer. Speech
+  templates support timer, state, zone, and remaining-time tokens; saved and
+  synced legacy timers retain their previous inherited sound behavior. The
+  editor uses scrolling/reflow rather than allowing death-detection and audio
+  controls to overlap.
 - Smart Timer zone views now isolate timers by their exact saved zone;
   unassigned rows remain in **All saved timers** instead of leaking into every
   zone. Each timer window adds a searchable **Watch timers** checklist for
@@ -130,7 +149,10 @@ final result: passed
 - Native About window: `work/v14469-brand-about.png`
 - Mini replica captures: `work/v14469-spells-mini.png`, `work/v14469-timers-mini.png`, `work/v14469-market-mini.png`, and `work/v14469-combat-mini.png`
 - The selected logo remains identifiable from 16 through 256 px on dark and light backgrounds.
-- Exact 25%, 35%, 50%, and 75% panel presets were measured across every main window. Headers and controls remain in their authored lanes with no responsive reflow or overlap.
+- Exact 25%, 35%, 50%, and 75% panel presets were measured across every main
+  window. Standard overlays preserve their authored replica geometry; Vitals
+  keeps a readable 240 px width at its two smallest presets while varying the
+  viewport height and reflowing without overlap.
 - Roll-up uses a compact 1:1 header, and expanding or restoring from the tray returns to the exact previous replica size.
 - Self-buff rows are owned by the exact character and server that produced
   them. Selecting a character hides unowned legacy rows, while a new verified

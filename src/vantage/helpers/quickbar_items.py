@@ -6,6 +6,7 @@ QUICKBAR_ITEMS = (
     ("maps", "Maps", "ph-map", "windows"),
     ("spells", "Buffs & Triggers", "ph-wand", "windows"),
     ("timers", "Smart Timers", "ph-countdown", "windows"),
+    ("vitals", "Vitals Monitor", "ph-vitals", "windows"),
     ("tick", "Server Tick", "ph-gauge", "windows"),
     ("combat", "Combat Parser", "ph-sword", "windows"),
     ("heals", "Heal Chain", "ph-heal", "windows"),

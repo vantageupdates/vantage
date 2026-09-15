@@ -6,6 +6,7 @@ from vantage.helpers.spawn_timer import (
     PHASE_COMBAT,
     PHASE_RESPAWN,
     SpawnTimerState,
+    render_timer_notification_text,
     TIMER_MODE_COOLDOWN,
     TIMER_MODE_COUNTDOWN,
     reset_stale_persisted_timers,
@@ -171,6 +172,44 @@ def test_exact_death_list_round_trips_and_deduplicates_case_insensitively():
     restored = SpawnTimerState.from_dict(timer.to_dict())
 
     assert restored.death_mobs == ["Quillmane", "a custom PH"]
+
+
+def test_timer_tts_settings_round_trip_and_corrupt_values_are_bounded():
+    timer = SpawnTimerState(
+        "Frenzy", 100, zone="Lower Guk", delivery="tts",
+        tts_text="{timer} is {state} in {zone}", tts_voice="Narrator",
+        tts_pitch=7, volume=43)
+    restored = SpawnTimerState.from_dict(timer.to_dict())
+    assert restored.delivery == "tts"
+    assert restored.tts_text == "{timer} is {state} in {zone}"
+    assert restored.tts_voice == "Narrator"
+    assert restored.tts_pitch == 7 and restored.volume == 43
+    assert render_timer_notification_text(
+        restored.tts_text, restored, "warning", 12) == \
+        "Frenzy is ending soon in Lower Guk"
+    assert render_timer_notification_text(
+        "{name} · {event} · {seconds}", restored, "ready", 0) == \
+        "Frenzy · ready · 0"
+
+    restored = SpawnTimerState.from_dict({
+        "name": "Bad", "respawn_seconds": 1, "delivery": "carrier pigeon",
+        "tts_text": "x" * 500, "tts_voice": "v" * 500,
+        "tts_pitch": 999,
+    })
+    assert restored.delivery == "legacy"
+    assert len(restored.tts_text) == 300
+    assert len(restored.tts_voice) == 160
+    assert restored.tts_pitch == 10
+
+
+def test_legacy_timer_dict_keeps_existing_route_and_defaults_safely():
+    restored = SpawnTimerState.from_dict({
+        "name": "Legacy", "respawn_seconds": 60,
+        "sound_path": "builtin:quiet-chime", "volume": 31,
+    })
+    assert restored.delivery == "legacy"
+    assert restored.sound_path == "builtin:quiet-chime"
+    assert restored.volume == 31
 
 
 def test_exact_death_list_is_bounded_for_safe_persistence():

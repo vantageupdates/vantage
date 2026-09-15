@@ -12,6 +12,7 @@ WINDOW_ICONS = {
     "quickbar": "compact",
     "maps": "ph-map",
     "spells": "ph-wand",
+    "vitals": "ph-vitals",
     "tick": "ph-gauge",
     "timers": "ph-countdown",
     "combat": "ph-sword",

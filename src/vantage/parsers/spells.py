@@ -8,6 +8,7 @@ import re
 import sqlite3
 import time
 from collections import deque
+from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
@@ -31,7 +32,7 @@ from vantage.helpers.boats import (
 from vantage.helpers.icons import game_icon, game_pixmap
 from vantage.helpers.log_events import extract_killed_mob
 from vantage.helpers.portable import data_dir, store_portable_file
-from vantage.helpers.respawn_catalog import named_spawn_for
+from vantage.helpers.respawn_catalog import NAMED_SPAWN_CATALOG, named_spawn_for
 from vantage.helpers.spell_icons import (
     spell_icon_pixmap, spell_icon_coordinates)
 from vantage.helpers.timer_sync import (
@@ -42,6 +43,9 @@ from vantage.helpers.trigger_groups import (
 
 TOKEN_RX = re.compile(r"\{([A-Za-z][A-Za-z0-9_]*)\}")
 GROUP_REF_RX = re.compile(r"\$(?:\{(\d+)\}|(\d+))")
+EXTERNAL_CAST_RX = re.compile(
+    r"^(?P<mob>[A-Za-z0-9'` .-]{1,80}?) begins to cast a spell\.$",
+    re.IGNORECASE)
 DISCIPLINE_COOLDOWN_RX = re.compile(
     r"^You can use the ability (?P<name>[\w` ]+) again in "
     r"(?P<minutes>\d+) (?:minute\(s\)|minutes?) "
@@ -347,6 +351,78 @@ def render_trigger_text(template, match, trigger):
             return ''
 
     return GROUP_REF_RX.sub(numeric_group, rendered) if match else rendered
+
+
+@functools.lru_cache(maxsize=1)
+def _bundled_p99_npc_names():
+    """Return conservative external-caster evidence shipped with Vantage.
+
+    Classic EQ's cast line does not identify whether a single title-cased name
+    belongs to a player or NPC. The P99 named-spawn catalog and in-game map
+    labels provide a bounded local allow-list for those ambiguous names.
+    Lowercase/common multiword NPC names are handled without this scan.
+    """
+    names = {
+        entry.npc_name.strip().casefold()
+        for entry in NAMED_SPAWN_CATALOG.values()
+        if entry.npc_name.strip()
+    }
+    try:
+        map_root = Path(resource_path('data/maps/map_files'))
+        for path in map_root.glob('*.txt'):
+            try:
+                lines = path.read_text(
+                    encoding='utf-8', errors='ignore').splitlines()
+            except OSError:
+                continue
+            for line in lines:
+                if not line.startswith('P '):
+                    continue
+                fields = line.split(',', 7)
+                if len(fields) != 8:
+                    continue
+                label = fields[-1].strip().replace('_', ' ')
+                label = re.sub(r'\s*\([^)]*\)\s*$', '', label).strip()
+                if 0 < len(label) <= 80:
+                    names.add(label.casefold())
+    except (OSError, TypeError, ValueError):
+        pass
+    return frozenset(names)
+
+
+def external_npc_cast_actor(text, active_character=''):
+    """Extract a safely attributable NPC from a classic P99 cast-start line.
+
+    ``You begin casting <spell>.`` is the player's distinct self-cast form and
+    can never match. For the ambiguous external ``begins to cast a spell``
+    form, lowercase/common multiword names are strong NPC evidence. A lone
+    title-cased name must exist in Vantage's bundled P99 NPC/map catalog.
+    """
+    match = EXTERNAL_CAST_RX.fullmatch(str(text or '').strip())
+    if not match:
+        return ''
+    actor = ' '.join(match.group('mob').split())
+    folded = actor.casefold()
+    character = ' '.join(str(active_character or '').split()).casefold()
+    if (not actor or folded == 'you' or folded.startswith('your ') or
+            (character and character != 'configureme' and
+             (folded == character or folded.startswith(character + ' ')))):
+        return ''
+    if (actor[0].islower() or ' ' in actor or
+            folded in _bundled_p99_npc_names()):
+        return actor
+    return ''
+
+
+def trigger_match_allowed(trigger, match, text, active_character=''):
+    """Apply narrow safety filters used by predefined trigger definitions."""
+    if not match:
+        return False
+    if getattr(trigger, 'match_filter', '') == 'external_npc_cast':
+        actor = external_npc_cast_actor(text, active_character)
+        captured = str(match.groupdict().get('mob') or '').strip()
+        return bool(actor and actor.casefold() == captured.casefold())
+    return True
 
 
 def dynamic_timer_seconds(match):
@@ -691,10 +767,15 @@ class Spells(ParserWindow):
             config.data.get('sharing', {}).get('player_name', ''))
         for rx, _end_rxs, trigger in self._custom_timers:
             match = rx.match(text)
+            if not trigger_match_allowed(
+                    trigger, match, text, active_character):
+                continue
             captured_character = (
                 match.groupdict().get('c') if match else '')
             if (match and trigger.enabled and
-                    (trigger.sound_path or trigger.tts_text) and
+                    self._custom_trigger_has_audio(
+                        trigger, 'basic', trigger.sound_path,
+                        trigger.tts_text) and
                     group_enabled(
                         config.data['spells'], trigger.category,
                         active_character) and
@@ -1096,7 +1177,8 @@ class Spells(ParserWindow):
                     config.data['sharing'].get('player_name', ''))
                 captured_character = (
                     match.groupdict().get('c') if match else '')
-                if (match and ct.enabled and
+                if (match and trigger_match_allowed(
+                            ct, match, text, active_character) and ct.enabled and
                         group_enabled(
                             config.data['spells'], ct.category,
                             active_character) and
@@ -1107,12 +1189,25 @@ class Spells(ParserWindow):
                          active_character.casefold()) and
                         (not ct.zone or ct.zone.casefold() == self._current_zone.casefold())):
                     now = time.monotonic()
-                    if now - ct.last_fired < 0.75:
+                    match_key = (
+                        str(match.groupdict().get('mob') or '').casefold()
+                        if ct.match_filter == 'external_npc_cast' else '')
+                    last_fired = (
+                        ct.last_fired_by_key.get(match_key, 0.0)
+                        if match_key else ct.last_fired)
+                    if now - last_fired < ct.match_cooldown_seconds:
                         continue
                     if (ct.counter_reset_seconds and ct.last_fired and
                             now - ct.last_fired > ct.counter_reset_seconds):
                         ct.counter = 0
                     ct.last_fired = now
+                    if match_key:
+                        ct.last_fired_by_key[match_key] = now
+                        if len(ct.last_fired_by_key) > 128:
+                            oldest = min(
+                                ct.last_fired_by_key,
+                                key=ct.last_fired_by_key.get)
+                            ct.last_fired_by_key.pop(oldest, None)
                     ct.counter += 1
                     ct.runtime_character = active_character
                     timer_name = render_trigger_text(
@@ -1174,7 +1269,10 @@ class Spells(ParserWindow):
                         else:
                             output.append("Existing timer kept")
                     app = QApplication.instance()
-                    has_audio = bool(ct.sound_path or ct.tts_text)
+                    rendered_speech = render_trigger_text(
+                        ct.tts_text, match, ct)
+                    has_audio = self._custom_trigger_has_audio(
+                        ct, 'basic', ct.sound_path, rendered_speech)
                     outcome_already_registered = bool(
                         faded or
                         SPELL_WORN_OFF_RX.match(str(text or '').strip()) or
@@ -1184,26 +1282,13 @@ class Spells(ParserWindow):
                         app._queue_quickbar_notice(
                             render_trigger_text(ct.alert_text, match, ct)
                             if ct.alert_text else f'{timer_name} matched')
-                    if ct.sound_path:
-                        play_alert(
-                            ct.sound_path,
-                            config.data['spells']['fade_sound_volume'], 1,
-                            source=f"Trigger · {timer_name}",
-                            character=active_character,
-                            server=getattr(self, '_active_server', ''),
-                            channel='spells')
-                        output.append(
-                            f"Sound · {sound_display_name(ct.sound_path)}")
-                    elif ct.tts_text:
-                        speak_text(
-                            render_trigger_text(ct.tts_text, match, ct),
-                            config.data['spells']['fade_sound_volume'],
-                            ct.interrupt_speech,
-                            source=f"Trigger · {timer_name} · speech",
-                            character=active_character,
-                            server=getattr(self, '_active_server', ''),
-                            channel='spells')
-                        output.append("Text-to-speech")
+                    audio_output = self._deliver_custom_trigger_audio(
+                        ct, 'basic', ct.sound_path, rendered_speech,
+                        ct.interrupt_speech, f"Trigger · {timer_name}",
+                        active_character,
+                        getattr(self, '_active_server', ''))
+                    if audio_output:
+                        output.append(audio_output)
                     if ct.clipboard_text:
                         QApplication.clipboard().setText(
                             render_trigger_text(ct.clipboard_text, match, ct))
@@ -1607,6 +1692,42 @@ class Spells(ParserWindow):
             text_color=self._trigger_text_color(
                 trigger, run.get('character', '')))
 
+    @staticmethod
+    def _custom_trigger_has_audio(trigger, stage, sound, speech):
+        mode = trigger.audio_delivery(stage)
+        return bool(
+            (mode == 'sound' and str(sound or '').strip()) or
+            (mode == 'tts' and str(speech or '').strip()))
+
+    def _deliver_custom_trigger_audio(
+            self, trigger, stage, sound, speech, interrupt, source,
+            character='', server=''):
+        """Deliver exactly one explicitly selected audio action."""
+        mode = trigger.audio_delivery(stage)
+        if mode == 'sound' and str(sound or '').strip():
+            play_alert(
+                sound, config.data['spells']['fade_sound_volume'], 1,
+                source=source, character=character, server=server,
+                channel='spells')
+            return f"Sound · {sound_display_name(sound)}"
+        if mode != 'tts' or not str(speech or '').strip():
+            return ''
+        settings = trigger.speech_settings(stage)
+        configured_mode = (
+            trigger.delivery if stage == 'basic' else
+            getattr(trigger, f'timer_{stage}_delivery', 'legacy'))
+        # Old trigger rows inherit the historical trigger-volume slider.
+        # Once Delivery is explicitly saved, the phase owns its TTS volume.
+        volume = (
+            config.data['spells']['fade_sound_volume']
+            if configured_mode == 'legacy' else settings['volume'])
+        speak_text(
+            speech, volume, interrupt,
+            source=f'{source} · speech', character=character,
+            server=server, channel='spells',
+            voice_name=settings['voice_name'], pitch=settings['pitch'])
+        return 'Text-to-speech'
+
     def _fire_trigger_stage(self, run, stage):
         trigger = run['trigger']
         if stage == 'ending':
@@ -1623,24 +1744,17 @@ class Spells(ParserWindow):
             label = 'Timer ended'
         outputs = []
         app = QApplication.instance()
-        has_audio = bool(sound or speech)
+        has_audio = self._custom_trigger_has_audio(
+            trigger, stage, sound, speech)
         semantic = text or f"{run['name']} · {label}"
         if has_audio:
             app._queue_quickbar_notice(semantic)
-        if sound:
-            play_alert(
-                sound, config.data['spells']['fade_sound_volume'], 1,
-                source=f"Trigger · {run['name']} · {label}",
-                character=run.get('character', ''),
-                server=run.get('server', ''), channel='spells')
-            outputs.append(f"Sound · {sound_display_name(sound)}")
-        elif speech:
-            speak_text(
-                speech, config.data['spells']['fade_sound_volume'], interrupt,
-                source=f"Trigger · {run['name']} · {label} speech",
-                character=run.get('character', ''),
-                server=run.get('server', ''), channel='spells')
-            outputs.append('Text-to-speech')
+        audio_output = self._deliver_custom_trigger_audio(
+            trigger, stage, sound, speech, interrupt,
+            f"Trigger · {run['name']} · {label}",
+            run.get('character', ''), run.get('server', ''))
+        if audio_output:
+            outputs.append(audio_output)
         if text and trigger.overlay_id != 'none':
             app.show_overlay_notification(
                 f"{run['name']} · {label}", text, msecs=4500,
@@ -2185,11 +2299,14 @@ class Spells(ParserWindow):
                     match_us=match_us)
                 matches += 1
                 continue
-            if not match:
-                continue
-            trigger.runtime_character = (
+            active_character = (
                 self._active_character or
                 config.data.get('sharing', {}).get('player_name', ''))
+            if not trigger_match_allowed(
+                    trigger, match, line, active_character):
+                continue
+            trigger.runtime_character = (
+                active_character)
             rendered_name = render_trigger_text(trigger.name, match, trigger)
             outputs = []
             if trigger.timer_type != 'none':
@@ -2203,10 +2320,11 @@ class Spells(ParserWindow):
             if trigger.alert_text:
                 outputs.append(
                     f"overlay: {render_trigger_text(trigger.alert_text, match, trigger)}")
-            if trigger.tts_text:
+            delivery = trigger.audio_delivery('basic')
+            if delivery == 'tts' and trigger.tts_text:
                 outputs.append(
                     f"speech: {render_trigger_text(trigger.tts_text, match, trigger)}")
-            if trigger.sound_path:
+            if delivery == 'sound' and trigger.sound_path:
                 outputs.append(f"sound: {sound_display_name(trigger.sound_path)}")
             if trigger.clipboard_text:
                 outputs.append(
@@ -2279,7 +2397,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.89')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.90')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -4503,7 +4621,14 @@ class CustomTrigger:
                  timer_ending_tts='', timer_ending_interrupt=False,
                  timer_ended_tts='', timer_ended_interrupt=False,
                  text_color='', timer_name='',
-                 restart_based_on_timer_name=False, **_):
+                 restart_based_on_timer_name=False,
+                 delivery='legacy', tts_voice='', tts_volume=100,
+                 tts_pitch=0, timer_ending_delivery='legacy',
+                 timer_ending_voice='', timer_ending_volume=100,
+                 timer_ending_pitch=0, timer_ended_delivery='legacy',
+                 timer_ended_voice='', timer_ended_volume=100,
+                 timer_ended_pitch=0, match_filter='',
+                 match_cooldown_seconds=0.75, **_):
         self.name, self.text, self.time = name, text, time
         self.zone = zone
         self.sound_path = sound_path
@@ -4575,9 +4700,50 @@ class CustomTrigger:
         self.timer_ending_interrupt = bool(timer_ending_interrupt)
         self.timer_ended_tts = str(timer_ended_tts or '')
         self.timer_ended_interrupt = bool(timer_ended_interrupt)
+        def delivery_mode(value):
+            value = str(value or 'legacy').strip().casefold()
+            return value if value in ('legacy', 'sound', 'tts', 'off') \
+                else 'legacy'
+
+        def percent(value):
+            try:
+                return max(0, min(100, int(value)))
+            except (TypeError, ValueError):
+                return 100
+
+        def speech_pitch(value):
+            try:
+                return max(-10, min(10, int(value)))
+            except (TypeError, ValueError):
+                return 0
+
+        self.delivery = delivery_mode(delivery)
+        self.tts_voice = str(tts_voice or '')[:160]
+        self.tts_volume = percent(tts_volume)
+        self.tts_pitch = speech_pitch(tts_pitch)
+        self.timer_ending_delivery = delivery_mode(timer_ending_delivery)
+        self.timer_ending_voice = str(timer_ending_voice or '')[:160]
+        self.timer_ending_volume = percent(timer_ending_volume)
+        self.timer_ending_pitch = speech_pitch(timer_ending_pitch)
+        self.timer_ended_delivery = delivery_mode(timer_ended_delivery)
+        self.timer_ended_voice = str(timer_ended_voice or '')[:160]
+        self.timer_ended_volume = percent(timer_ended_volume)
+        self.timer_ended_pitch = speech_pitch(timer_ended_pitch)
+        match_filter = str(match_filter or '').strip().casefold()
+        self.match_filter = (
+            match_filter if match_filter in {'external_npc_cast'} else '')
+        try:
+            match_cooldown_seconds = float(match_cooldown_seconds)
+        except (TypeError, ValueError):
+            match_cooldown_seconds = 0.75
+        if not math.isfinite(match_cooldown_seconds):
+            match_cooldown_seconds = 0.75
+        self.match_cooldown_seconds = max(
+            0.0, min(300.0, match_cooldown_seconds))
         self.text_color = normalize_trigger_color(text_color)
         self.counter = 0
         self.last_fired = 0.0
+        self.last_fired_by_key = {}
         self.active_names = []
         self.runtime_character = ''
 
@@ -4595,7 +4761,39 @@ class CustomTrigger:
             self.interrupt_speech, self.timer_ending_tts,
             self.timer_ending_interrupt, self.timer_ended_tts,
             self.timer_ended_interrupt, self.text_color, self.timer_name,
-            self.restart_based_on_timer_name]
+            self.restart_based_on_timer_name, self.delivery, self.tts_voice,
+            self.tts_volume, self.tts_pitch, self.timer_ending_delivery,
+            self.timer_ending_voice, self.timer_ending_volume,
+            self.timer_ending_pitch, self.timer_ended_delivery,
+            self.timer_ended_voice, self.timer_ended_volume,
+            self.timer_ended_pitch, self.match_filter,
+            self.match_cooldown_seconds]
+
+    def audio_delivery(self, stage='basic'):
+        """Resolve explicit delivery while preserving the old WAV-first rule."""
+        prefix = '' if stage == 'basic' else f'timer_{stage}_'
+        mode = getattr(self, f'{prefix}delivery', 'legacy')
+        if mode != 'legacy':
+            return mode
+        sound = self.sound_path if stage == 'basic' else getattr(
+            self, f'timer_{stage}_sound', '')
+        speech = self.tts_text if stage == 'basic' else getattr(
+            self, f'timer_{stage}_tts', '')
+        return 'sound' if sound else 'tts' if speech else 'off'
+
+    def speech_settings(self, stage='basic'):
+        if stage == 'basic':
+            return {
+                'voice_name': self.tts_voice,
+                'volume': self.tts_volume,
+                'pitch': self.tts_pitch,
+            }
+        prefix = f'timer_{stage}_'
+        return {
+            'voice_name': getattr(self, f'{prefix}voice', ''),
+            'volume': getattr(self, f'{prefix}volume', 100),
+            'pitch': getattr(self, f'{prefix}pitch', 0),
+        }
 
     def __str__(self):
         return '{},{},{}'.format(
