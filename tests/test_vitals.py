@@ -80,6 +80,27 @@ def _number_image(value, scale=2, color="#f2cf68", include_percent=True):
     return image
 
 
+def _padded_number_image(
+        value, canvas=(150, 64), offset=(42, 21), scale=2,
+        include_percent=True, frame=True):
+    token = _number_image(value, scale=scale, include_percent=include_percent)
+    image = QImage(canvas[0], canvas[1], QImage.Format.Format_RGB32)
+    image.fill(QColor("#101820"))
+    left, top = offset
+    for y in range(token.height()):
+        for x in range(token.width()):
+            image.setPixelColor(left + x, top + y, token.pixelColor(x, y))
+    if frame:
+        frame_color = QColor("#55606a")
+        for x in range(3, image.width() - 3):
+            image.setPixelColor(x, 5, frame_color)
+            image.setPixelColor(x, image.height() - 6, frame_color)
+        for y in range(5, image.height() - 5):
+            image.setPixelColor(3, y, frame_color)
+            image.setPixelColor(image.width() - 4, y, frame_color)
+    return image, token
+
+
 def _raw_font_number_image(value, font_path, size, color, include_percent=True):
     font = QRawFont(
         str(font_path), size, QFont.HintingPreference.PreferFullHinting)
@@ -172,6 +193,34 @@ def test_visible_number_reader_never_turns_unreadable_pixels_into_zero():
     assert reading.valid is False
     assert reading.percent is None
     assert "unreadable" in reading.message.casefold()
+
+
+def test_visible_number_reader_auto_finds_offset_token_inside_padded_framed_roi():
+    _app()
+    image, token = _padded_number_image(62)
+    reading = read_visible_percent(image, [0, 0, 1, 1])
+    assert reading.valid is True
+    assert reading.percent == 62.0
+    assert reading.token_rect
+    left, top, width, height = reading.token_rect
+    assert 42 <= left < 42 + token.width()
+    assert 21 <= top < 21 + token.height()
+    assert width < image.width() / 2
+    assert height < image.height() / 2
+
+
+def test_visible_number_reader_rejects_two_plausible_percentages_as_ambiguous():
+    _app()
+    first, _token = _padded_number_image(
+        62, canvas=(190, 64), offset=(18, 21), frame=False)
+    second = _number_image(48, scale=2)
+    for y in range(second.height()):
+        for x in range(second.width()):
+            first.setPixelColor(123 + x, 21 + y, second.pixelColor(x, y))
+    reading = read_visible_percent(first, [0, 0, 1, 1])
+    assert reading.valid is False
+    assert reading.percent is None
+    assert "multiple" in reading.message.casefold()
 
 
 def test_numeric_migration_keeps_ocr_roi_and_clears_legacy_bar_roi():
@@ -456,16 +505,23 @@ def test_numeric_calibration_requires_a_valid_announced_preview_before_save(
 
     controls.show()
     _app().processEvents()
+    controls.fine_tune_button.setChecked(True)
+    _app().processEvents()
     controls.x.setFocus(Qt.FocusReason.TabFocusReason)
     QTest.keyClick(controls.x, Qt.Key.Key_Tab)
     assert controls.focusWidget() is controls.y
     assert controls._save_button.isEnabled() is False
-    assert "percent sign is optional" in controls.findChildren(QLabel)[0].text().casefold()
+    assert "loosely around one visible" in controls.findChildren(QLabel)[0].text().casefold()
+    assert controls.fine_tune_button.accessibleName() == (
+        "Fine position (optional)")
+    assert "Toggle coordinates" in (
+        controls.fine_tune_button.accessibleDescription())
     assert controls.preview_button.accessibleName() == (
         "Validate vital reading preview")
     Vitals._preview_calibration(owner, "my-hp", selected)
     assert controls._save_button.isEnabled() is True
-    assert "Valid preview · 62%" in controls.status.text()
+    assert "Detected 62%" in controls.status.text()
+    assert "fitted reading area" in controls.status.text()
     assert announcements[-1] == controls.status.text()
 
     controls.nudge(1, 0)
@@ -555,11 +611,46 @@ def test_apply_valid_numeric_calibration_marks_and_persists_ocr_roi():
 
     Vitals._apply_calibration(owner, "my-hp", bounds)
 
-    assert owner._bars[0]["rect"] == [0.0, 0.0, 1.0, 1.0]
+    saved = owner._bars[0]["rect"]
+    assert saved != [0.0, 0.0, 1.0, 1.0]
+    assert 0 < saved[2] < 1 and 0 < saved[3] < 1
+    assert read_vital_bar(image, owner._bars[0]).percent == 75.0
     assert owner._bars[0]["ocr_calibrated"] is True
     assert ("persist", None) in calls
     assert any(call[0] == "status" and "validated 75% visible number" in call[1]
                for call in calls)
+    owner._calibration_controls.close()
+
+
+def test_loose_calibration_persists_a_fitted_offset_token_rect():
+    _app()
+    image, _token = _padded_number_image(
+        83, canvas=(180, 72), offset=(68, 25), frame=True)
+    bounds = QRect(300, 400, image.width(), image.height())
+    bar = sanitize_vital_bar({"id": "my-hp", "name": "My HP"})
+    owner = type("Owner", (), {})()
+    owner._bars = [bar]
+    owner._bar_index = lambda bar_id: 0 if bar_id == "my-hp" else -1
+    owner._calibration_context = ("my-hp", image, bounds)
+    owner._calibration_sample = MethodType(Vitals._calibration_sample, owner)
+    owner._calibration_controls = CalibrationControls(bounds, bounds)
+    owner._tracker = type("Tracker", (), {"reset_bar": lambda *_args: None})()
+    owner._persist = lambda: None
+    owner._rebuild_cards = lambda _target: None
+    owner._finish_calibration = lambda: None
+    owner._set_status = lambda _status: None
+    owner.poll_now = lambda: None
+
+    Vitals._apply_calibration(owner, "my-hp", bounds)
+
+    saved = owner._bars[0]["rect"]
+    x, y, width, height = denormalize_rect(
+        saved, (image.width(), image.height()))
+    assert x > 0 and y > 0
+    assert width < image.width() / 2 and height < image.height() / 2
+    assert x <= 68 + 4 and y <= 25 + 4
+    reading = read_vital_bar(image, owner._bars[0])
+    assert reading.valid is True and reading.percent == 83.0
     owner._calibration_controls.close()
 
 
@@ -740,17 +831,17 @@ app.quit()
     assert result["calibrating"] == "CALIBRATING · My HP"
     assert result["controls_visible"] is True
     assert result["overlay_visible"] is True
-    assert result["focus_name"] == "Calibration X coordinate"
+    assert result["focus_name"] == "Validate vital reading preview"
     assert result["replacement_bar"] == "my-mana"
-    assert result["replacement_focus"] == "Calibration X coordinate"
+    assert result["replacement_focus"] == "Validate vital reading preview"
 
 
 def test_application_registers_and_quickbar_toggles_vitals(tmp_path):
     script = r'''
 import json
-from PySide6.QtGui import QImage
+from PySide6.QtGui import QFont, QImage
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QMessageBox, QProgressBar
 from vantage.helpers.application import VantageApp
 
 class NoReading:
@@ -769,14 +860,52 @@ before = vitals.isVisible()
 bar._trigger("vitals")
 app.processEvents()
 opened = (vitals.isVisible(), bar._buttons["vitals"].isChecked())
-vitals.resize(240, 180)
+vitals.resize(240, 600)
 app.processEvents()
 vitals._update_uniform_scale()
+card = vitals._cards["my-hp"]
+large_font = QFont(card.font())
+large_font.setPointSize(15)
+for control in [vitals._add_button, *card.action_buttons.values()]:
+    control.setFont(large_font)
+app.processEvents()
+card_actions = card.action_buttons
+action_rects = [control.geometry() for control in card_actions.values()]
+actions_do_not_overlap = all(
+    not first.intersects(second)
+    for index, first in enumerate(action_rects)
+    for second in action_rects[index + 1:])
+text_fits = all(
+    control.width() >= control.fontMetrics().horizontalAdvance(control.text()) + 12
+    for control in [vitals._add_button, *card_actions.values()])
+visible_copy = " ".join(
+    label.text() for label in vitals._surface.findChildren(type(vitals._status_badge)))
+vitals._focus_embedded_control(vitals._add_button)
+vitals._surface.focusNextChild()
+tab_after_add = vitals._surface.focusWidget().accessibleName()
 responsive = {
     "width": vitals.width(),
     "surface_width": vitals._surface.width(),
     "scale": vitals._scale_view.transform().m11(),
     "button_height": vitals._cards["my-hp"].action_buttons["edit"].height(),
+}
+hierarchy = {
+    "add_in_header": vitals.menu_area.indexOf(vitals._add_button) >= 0,
+    "add_in_content": vitals._content_actions.isAncestorOf(vitals._add_button),
+    "add_visible": vitals._add_button.isVisibleTo(vitals._surface),
+    "add_text": vitals._add_button.text(),
+    "guide": [label.text() for label in vitals._guide.step_labels],
+    "guide_columns": vitals._guide.step_bar._columns,
+    "has_long_copy": "All enabled numbers are read together" in visible_copy,
+    "has_progress": bool(card.findChildren(QProgressBar)),
+    "value_object": card.value_label.objectName(),
+    "state": card.state_label.text(),
+    "detail": card.detail.text(),
+    "actions": [control.text() for control in card_actions.values()],
+    "card_count": len(vitals._cards),
+    "actions_do_not_overlap": actions_do_not_overlap,
+    "text_fits": text_fits,
+    "tab_after_add": tab_after_add,
 }
 edit = vitals._cards["my-hp"].action_buttons["edit"]
 vitals._focus_embedded_control(edit)
@@ -806,6 +935,7 @@ print(json.dumps({
     "tooltip": bar._buttons["vitals"].toolTip(),
     "status": vitals.quickbar_status(),
     "responsive": responsive,
+    "hierarchy": hierarchy,
     "restored_focus": restored_focus,
     "remove_focus": remove_focus,
     "calibration_focus": calibration_focus,
@@ -827,7 +957,28 @@ app.quit()
     assert "NO READING" in result["tooltip"]
     assert result["responsive"] == {
         "width": 240, "surface_width": 240,
-        "scale": 1.0, "button_height": 30}
-    assert result["restored_focus"] == "Edit alerts My HP"
+        "scale": 1.0, "button_height": result["responsive"]["button_height"]}
+    assert result["responsive"]["button_height"] >= 30
+    assert result["hierarchy"] == {
+        "add_in_header": False,
+        "add_in_content": True,
+        "add_visible": True,
+        "add_text": "Add monitor",
+        "guide": [
+            "Place overlay over %", "Validate reading", "Set alert stops"],
+        "guide_columns": 1,
+        "has_long_copy": False,
+        "has_progress": False,
+        "value_object": "SpawnTimerTime",
+        "state": "SETUP",
+        "detail": "Next: place the overlay over the visible % number",
+        "actions": [
+            "Monitoring on", "Calibrate", "Alert stops", "Remove"],
+        "card_count": 4,
+        "actions_do_not_overlap": True,
+        "text_fits": True,
+        "tab_after_add": "Monitor My HP",
+    }
+    assert result["restored_focus"] == "Alert stops My HP"
     assert result["remove_focus"] == "Monitor My Mana"
     assert result["calibration_focus"] == "Calibrate My Mana"

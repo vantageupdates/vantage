@@ -12,8 +12,8 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
     QFileDialog, QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QMessageBox, QProgressBar, QPushButton,
-    QScrollArea, QSpinBox, QStackedWidget, QVBoxLayout, QWidget)
+    QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea,
+    QSizePolicy, QSpinBox, QStackedWidget, QVBoxLayout, QWidget)
 
 from vantage.helpers import config
 from vantage.helpers.audio import (
@@ -234,9 +234,9 @@ class CalibrationControls(QDialog):
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
         self.setMinimumWidth(360)
         intro = QLabel(
-            "Place a compact gold rectangle around only the visible HP or "
-            "mana digits, such as 62. The percent sign is optional and may "
-            "sit outside the rectangle. Validate the preview before saving.")
+            "Place the gold rectangle loosely around one visible HP or mana "
+            "percentage. Vantage will find the digits, with or without the % "
+            "sign, and fit the saved area automatically.")
         intro.setWordWrap(True)
         intro.setAccessibleDescription(intro.text())
 
@@ -296,12 +296,25 @@ class CalibrationControls(QDialog):
 
         layout = QVBoxLayout(self)
         layout.addWidget(intro)
-        host = QWidget()
-        host.setLayout(form)
-        layout.addWidget(host)
-        layout.addWidget(nudge)
         layout.addWidget(self.status)
         layout.addWidget(preview)
+        self.fine_tune_button = QPushButton("Fine position (optional)")
+        self.fine_tune_button.setCheckable(True)
+        self.fine_tune_button.setAccessibleName(
+            "Fine position (optional)")
+        self.fine_tune_button.setAccessibleDescription(
+            "Toggle coordinates, size, and one-pixel nudge buttons for keyboard adjustment")
+        layout.addWidget(self.fine_tune_button)
+        self.fine_tune_host = QWidget()
+        fine_layout = QVBoxLayout(self.fine_tune_host)
+        fine_layout.setContentsMargins(0, 0, 0, 0)
+        host = QWidget()
+        host.setLayout(form)
+        fine_layout.addWidget(host)
+        fine_layout.addWidget(nudge)
+        self.fine_tune_host.hide()
+        self.fine_tune_button.toggled.connect(self.fine_tune_host.setVisible)
+        layout.addWidget(self.fine_tune_host)
         layout.addWidget(buttons)
         self.set_absolute_rect(initial, invalidate=False)
 
@@ -683,6 +696,64 @@ class VitalBarDialog(QDialog):
         return sanitize_vital_bar(result, 0)
 
 
+class VitalsActionBar(ResponsiveActionBar):
+    """Responsive actions that never impose their wide layout on a scroll page."""
+
+    def minimumSizeHint(self):
+        hint = super().minimumSizeHint()
+        return QSize(0, hint.height())
+
+    def sizeHint(self):
+        hint = super().sizeHint()
+        return QSize(self._min_cell_width, hint.height())
+
+
+class VitalsSetupGuide(QFrame):
+    """A short three-step guide that reflows instead of clipping."""
+
+    STEPS = (
+        ("1", "Place overlay over %"),
+        ("2", "Validate reading"),
+        ("3", "Set alert stops"),
+    )
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("SpawnTimerRow")
+        self.setAccessibleName("Vitals setup: three steps")
+        self.setAccessibleDescription(
+            "; ".join(f"Step {number}: {text}"
+                      for number, text in self.STEPS))
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(7, 6, 7, 6)
+        layout.setSpacing(4)
+        title = QLabel("QUICK SETUP")
+        title.setObjectName("TimerBadge")
+        layout.addWidget(title, 0, Qt.AlignmentFlag.AlignLeft)
+        self.step_bar = ResponsiveActionBar(150, spacing=4)
+        self.step_labels = []
+        for number, text in self.STEPS:
+            step = QFrame()
+            step.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            row = QHBoxLayout(step)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(5)
+            badge = QLabel(number)
+            badge.setObjectName("TimerBadge")
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            badge.setMinimumWidth(22)
+            label = QLabel(text)
+            label.setWordWrap(True)
+            label.setAccessibleName(f"Step {number}: {text}")
+            label.setAccessibleDescription(f"Vitals setup step {number} of 3")
+            row.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
+            row.addWidget(label, 1)
+            self.step_labels.append(label)
+            self.step_bar.addWidget(step)
+        layout.addWidget(self.step_bar)
+
+
 class VitalCard(QFrame):
     calibrate_requested = Signal(str)
     edit_requested = Signal(str)
@@ -692,74 +763,122 @@ class VitalCard(QFrame):
     def __init__(self, bar, parent=None):
         super().__init__(parent)
         self.bar_id = bar["id"]
-        self.setObjectName("TimerCard")
+        self._bar = dict(bar)
+        self.setObjectName("SpawnTimerRow")
         self.setAccessibleName(f"{bar['name']} vital bar")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(7, 6, 7, 6)
-        layout.setSpacing(4)
+        layout.setContentsMargins(8, 7, 8, 7)
+        layout.setSpacing(5)
         heading = QHBoxLayout()
         self.name_label = QLabel(bar["name"])
-        self.name_label.setObjectName("TimerName")
+        self.name_label.setObjectName("SpawnTimerName")
         self.type_label = QLabel(TYPE_LABELS.get(bar["type"], "Custom").upper())
-        self.type_label.setObjectName("TimerBadge")
+        self.type_label.setObjectName("SpawnTimerPhase")
         heading.addWidget(self.name_label, 1)
         heading.addWidget(self.type_label)
         layout.addLayout(heading)
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 1000)
-        self.progress.setValue(0)
-        self.progress.setFormat("NO READING")
-        self.progress.setAccessibleName(f"{bar['name']} percentage")
-        self.progress.setAccessibleDescription("No visual reading yet")
-        layout.addWidget(self.progress)
-        self.detail = QLabel("Percentage number not calibrated")
-        self.detail.setObjectName("InlineStatus")
+
+        reading_row = QHBoxLayout()
+        reading_row.setSpacing(7)
+        self.value_label = QLabel("—%")
+        self.value_label.setObjectName("SpawnTimerTime")
+        self.value_label.setAccessibleName(f"{bar['name']} current percentage")
+        self.state_label = QLabel("SETUP")
+        self.state_label.setObjectName("SpawnTimerPhase")
+        self.state_label.setAccessibleName(f"{bar['name']} monitor state")
+        reading_row.addWidget(self.value_label)
+        reading_row.addWidget(self.state_label)
+        reading_row.addStretch(1)
+        layout.addLayout(reading_row)
+
+        self.detail = QLabel("Next: place the overlay over the visible % number")
+        self.detail.setObjectName("SpawnTimerDetail")
         self.detail.setWordWrap(True)
-        self.detail.setAccessibleName(f"{bar['name']} reading status")
+        self.detail.setAccessibleName(f"{bar['name']} reading details")
         layout.addWidget(self.detail)
-        actions = ResponsiveActionBar(92)
+        actions = VitalsActionBar(120)
         self.action_buttons = {}
-        self.enabled = QCheckBox("Monitor")
+        self.enabled = QCheckBox()
         self.enabled.setChecked(bar["enabled"])
         self.enabled.setAccessibleName(f"Monitor {bar['name']}")
-        self.enabled.toggled.connect(
-            lambda value: self.enabled_changed.emit(self.bar_id, value))
+        self.enabled.setToolTip(
+            "Turn read-only monitoring and alert stops on or off for this value")
+        self.enabled.toggled.connect(self._enabled_toggled)
+        self._sync_enabled_text(self.enabled.isChecked())
         self.action_buttons["monitor"] = self.enabled
         actions.addWidget(self.enabled)
         calibration_help = (
-            "Place the overlay over the visible number, such as 62%")
+            "Place the overlay loosely around the visible number; Vantage "
+            "will find and fit the percentage")
+        calibration_label = (
+            "Reposition overlay" if bar.get("rect") else "Calibrate")
         for key, label, callback, description in (
-                ("calibrate", "Calibrate", self.calibrate_requested,
+                ("calibrate", calibration_label, self.calibrate_requested,
                  calibration_help),
-                ("edit", "Edit alerts", self.edit_requested,
-                 "Edit this bar and its alert stops"),
+                ("edit", "Alert stops", self.edit_requested,
+                 "Configure thresholds and Sound/WAV, Text to speech, or Off"),
                 ("remove", "Remove", self.remove_requested,
                  "Remove this saved vital bar after confirmation")):
             button = QPushButton(label)
             button.setAccessibleName(f"{label} {bar['name']}")
+            button.setAccessibleDescription(description)
             button.setToolTip(description)
             button.clicked.connect(
                 lambda _checked=False, signal=callback: signal.emit(self.bar_id))
+            if key == "calibrate":
+                button.setObjectName("PrimaryAction")
+            elif key == "remove":
+                # Destructive but visually tertiary; confirmation remains.
+                button.setFlat(True)
             self.action_buttons[key] = button
             actions.addWidget(button)
         layout.addWidget(actions)
+        QWidget.setTabOrder(self.enabled, self.action_buttons["calibrate"])
+        QWidget.setTabOrder(
+            self.action_buttons["calibrate"], self.action_buttons["edit"])
+        QWidget.setTabOrder(
+            self.action_buttons["edit"], self.action_buttons["remove"])
+        self.set_reading(None)
+
+    def minimumSizeHint(self):
+        hint = super().minimumSizeHint()
+        return QSize(0, hint.height())
+
+    def _sync_enabled_text(self, enabled):
+        self.enabled.setText("Monitoring on" if enabled else "Monitoring off")
+
+    def _enabled_toggled(self, enabled):
+        self._sync_enabled_text(enabled)
+        self.enabled_changed.emit(self.bar_id, enabled)
 
     def set_reading(self, reading):
         if reading is not None and reading.valid:
-            value = max(0, min(1000, round(reading.percent * 10)))
-            self.progress.setValue(value)
-            self.progress.setFormat(f"{reading.percent:.1f}%")
+            value = f"{reading.percent:.0f}%"
+            state = "LIVE"
             detail = (
                 "Visible number · "
                 f"confidence {reading.confidence * 100:.0f}%")
         else:
             message = reading.message if reading is not None else "No reading"
-            self.progress.setValue(0)
-            self.progress.setFormat("NO READING")
-            detail = message
+            value = "—%"
+            if not self.enabled.isChecked():
+                state = "PAUSED"
+                detail = "Monitoring is off · turn it on to read and alert"
+            elif not self._bar.get("rect"):
+                state = "SETUP"
+                detail = "Next: place the overlay over the visible % number"
+            else:
+                state = "NO READING"
+                detail = message
+        self.value_label.setText(value)
+        self.state_label.setText(state)
         self.detail.setText(detail)
         self.detail.setAccessibleDescription(detail)
-        self.progress.setAccessibleDescription(detail)
+        self.value_label.setAccessibleDescription(
+            f"{state}. {detail}")
+        self.state_label.setAccessibleDescription(detail)
+        self.setAccessibleDescription(
+            f"{self.name_label.text()}, {value}, {state}. {detail}")
 
 
 class Vitals(ParserWindow):
@@ -789,32 +908,45 @@ class Vitals(ParserWindow):
             profile="native")
         super().__init__()
         self.setWindowTitle("Vantage Vitals Monitor")
-        self._title.setText("Vitals Monitor")
+        self._title.setText("Vitals")
         self._title.setToolTip(
             "Read visible HP and mana percentages and run configured alerts")
-        self._status_badge = QLabel("NO READING")
+        self._status_badge = QLabel("WAIT")
         self._status_badge.setObjectName("TimerBadge")
         self._status_badge.setAccessibleName("Vitals Monitor status")
         self.menu_area.addWidget(self._status_badge)
-        self._add_button = QPushButton("+ Bar")
-        self._add_button.setAccessibleName("Add custom vital bar")
+
+        self._guide = VitalsSetupGuide()
+        self.content.addWidget(self._guide)
+        self._capture_hint = QLabel(
+            "Read-only EQ capture · Alerts pause if EverQuest is minimized "
+            "or unavailable.")
+        self._capture_hint.setObjectName("InlineStatus")
+        self._capture_hint.setWordWrap(True)
+        self._capture_hint.setAccessibleDescription(self._capture_hint.text())
+        self.content.addWidget(self._capture_hint)
+
+        content_actions = VitalsActionBar(135, spacing=4)
+        self._add_button = QPushButton("Add monitor")
+        self._add_button.setObjectName("PrimaryAction")
+        self._add_button.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._add_button.setMaximumWidth(220)
+        self._add_button.setAccessibleName("Add vital monitor")
+        self._add_button.setAccessibleDescription(
+            "Add another visible percentage and configure its alert stops")
         self._add_button.setToolTip(
             "Add another visible percentage number and configure its alerts")
         self._add_button.clicked.connect(self._add_bar)
-        self.menu_area.addWidget(self._add_button)
+        content_actions.addWidget(self._add_button)
+        self._monitor_count = QLabel()
+        self._monitor_count.setObjectName("InlineStatus")
+        self._monitor_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._monitor_count.setAccessibleName("Configured monitor count")
+        content_actions.addWidget(self._monitor_count)
+        self._content_actions = content_actions
+        self.content.addWidget(content_actions)
 
-        intro = QLabel(
-            "Place each calibration overlay over the visible HP or mana number, "
-            "validate the preview, then configure alert stops with Sound/WAV, "
-            "Text to speech, or Off. All enabled numbers are read together from "
-            "one read-only EQ frame. Alerts pause whenever "
-            "EverQuest is minimized or unavailable. Direct window capture can "
-            "continue while Vantage is in focus; safe screen capture may "
-            "require EverQuest in the foreground.")
-        intro.setObjectName("InlineStatus")
-        intro.setWordWrap(True)
-        intro.setAccessibleDescription(intro.text())
-        self.content.addWidget(intro)
         self._bar_page = QWidget()
         self._bar_layout = QVBoxLayout(self._bar_page)
         self._bar_layout.setContentsMargins(5, 5, 5, 5)
@@ -869,7 +1001,12 @@ class Vitals(ParserWindow):
         if value == self._status_text:
             return
         self._status_text = value
-        self._status_badge.setText(value.split(" ·", 1)[0])
+        state = value.split(" ·", 1)[0].strip().upper()
+        self._status_badge.setText({
+            "NO READING": "WAIT",
+            "ACTIVE": "LIVE",
+            "CALIBRATING": "SETUP",
+        }.get(state, state[:8]))
         self._status_badge.setToolTip(value)
         _announce(self._status_badge, value)
         self.status_changed.emit()
@@ -892,8 +1029,28 @@ class Vitals(ParserWindow):
             item = self._bar_layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                widget.hide()
                 widget.deleteLater()
         self._cards = {}
+        self._monitor_count.setText(
+            f"{len(self._bars)} monitor" + ("s" if len(self._bars) != 1 else ""))
+        self._monitor_count.setAccessibleDescription(self._monitor_count.text())
+        if not self._bars:
+            empty = QFrame()
+            empty.setObjectName("SpawnTimerRow")
+            empty.setAccessibleName("No vital monitors configured")
+            empty_layout = QVBoxLayout(empty)
+            empty_layout.setContentsMargins(10, 12, 10, 12)
+            title = QLabel("No monitors yet")
+            title.setObjectName("SpawnTimerName")
+            detail = QLabel(
+                "Choose Add monitor, then place the overlay loosely around an "
+                "HP or mana percentage.")
+            detail.setObjectName("SpawnTimerDetail")
+            detail.setWordWrap(True)
+            empty_layout.addWidget(title)
+            empty_layout.addWidget(detail)
+            self._bar_layout.insertWidget(0, empty)
         for bar in self._bars:
             card = VitalCard(bar)
             card.calibrate_requested.connect(self._start_calibration)
@@ -903,6 +1060,9 @@ class Vitals(ParserWindow):
             self._bar_layout.insertWidget(self._bar_layout.count() - 1, card)
             self._cards[bar["id"]] = card
             card.set_reading(self._readings.get(bar["id"]))
+        if self._bars:
+            first_card = self._cards[self._bars[0]["id"]]
+            QWidget.setTabOrder(self._add_button, first_card.enabled)
         if focus_target:
             def restore_focus():
                 bar_id, action = focus_target
@@ -1120,7 +1280,7 @@ class Vitals(ParserWindow):
         controls.show()
         controls.raise_()
         controls.activateWindow()
-        controls.x.setFocus(Qt.FocusReason.OtherFocusReason)
+        controls.preview_button.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _calibration_sample(self, bar_id, absolute_rect):
         context = self._calibration_context
@@ -1132,7 +1292,19 @@ class Vitals(ParserWindow):
             absolute_rect.x() - bounds.x(), absolute_rect.y() - bounds.y(),
             absolute_rect.width(), absolute_rect.height())
         normalized = normalize_rect(relative, (bounds.width(), bounds.height()))
-        return (read_visible_percent(image, normalized), normalized)
+        reading = read_visible_percent(image, normalized)
+        if not reading.valid or not reading.token_rect:
+            return (reading, normalized)
+        token_x, token_y, token_width, token_height = reading.token_rect
+        margin = max(2, min(6, round(token_height * .16)))
+        left = max(0, token_x - margin)
+        top = max(0, token_y - margin)
+        right = min(image.width(), token_x + token_width + margin)
+        bottom = min(image.height(), token_y + token_height + margin)
+        fitted = normalize_rect(
+            (left, top, right - left, bottom - top),
+            (image.width(), image.height()))
+        return (reading, fitted)
 
     def _preview_calibration(self, bar_id, absolute_rect):
         reading, _normalized = self._calibration_sample(bar_id, absolute_rect)
@@ -1141,12 +1313,14 @@ class Vitals(ParserWindow):
             return
         if reading.valid:
             controls.set_preview(
-                f"Valid preview · {reading.percent:.0f}% from visible number · "
-                f"confidence {reading.confidence * 100:.0f}%", True)
+                f"Detected {reading.percent:.0f}% · confidence "
+                f"{reading.confidence * 100:.0f}% · fitted reading area ready to save",
+                True)
         else:
             controls.set_preview(
                 f"Invalid preview · {reading.message}. "
-                "Adjust the rectangle and try again.", False)
+                "Place the rectangle loosely around only one percentage and try again.",
+                False)
 
     def _apply_calibration(self, bar_id, absolute_rect):
         context = self._calibration_context

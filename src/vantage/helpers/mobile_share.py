@@ -114,7 +114,7 @@ def load_mobile_spell_detail(name):
     request = Request(
         P99_SPELL_DETAIL_API.format(
             slug=quote(str(name).strip().replace(" ", "_"), safe="")),
-        headers={"User-Agent": "Vantage/1.44.93"})
+        headers={"User-Agent": "Vantage/1.44.94"})
     with urlopen(request, timeout=8) as response:
         payload_bytes = response.read(2_000_001)
     if len(payload_bytes) > 2_000_000:
@@ -353,7 +353,7 @@ def load_mobile_item_detail(item):
     request = Request(
         P99_ITEM_DETAIL_API.format(
             slug=quote(name.replace(" ", "_"), safe="")),
-        headers={"User-Agent": "Vantage/1.44.93"})
+        headers={"User-Agent": "Vantage/1.44.94"})
     with urlopen(request, timeout=8) as response:
         payload_bytes = response.read(MAX_WIKI_RESPONSE + 1)
     if len(payload_bytes) > MAX_WIKI_RESPONSE:
@@ -585,7 +585,7 @@ class _ShareHTTPServer(ThreadingHTTPServer):
 
 
 class _ShareHandler(BaseHTTPRequestHandler):
-    server_version = "VantageMobile/1.44.93"
+    server_version = "VantageMobile/1.44.94"
 
     def log_message(self, *_):
         # Do not write access paths or the user's network details to disk.

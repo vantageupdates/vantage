@@ -216,6 +216,10 @@ class VitalReading:
     valid: bool
     message: str
     source: str = ""
+    # Absolute image-pixel bounds of the recognized token.  Runtime callers
+    # can ignore this; calibration uses it to turn a loosely placed rectangle
+    # into a small, stable saved ROI.
+    token_rect: tuple[int, int, int, int] = ()
 
 
 def _rgb(image, x, y):
@@ -355,6 +359,57 @@ def _otsu_threshold(values):
     return threshold
 
 
+def _mask_bounds(mask):
+    if not mask or not mask[0]:
+        return ()
+    rows = [row for row, values in enumerate(mask) if any(values)]
+    columns = [
+        column for column in range(len(mask[0]))
+        if any(row[column] for row in mask)]
+    if not rows or not columns:
+        return ()
+    return (columns[0], rows[0], columns[-1] - columns[0] + 1,
+            rows[-1] - rows[0] + 1)
+
+
+def _without_frame_lines(mask):
+    """Remove long one-pixel frame rules without erasing digit strokes."""
+    if not mask or not mask[0]:
+        return []
+    cleaned = [list(row) for row in mask]
+    height, width = len(cleaned), len(cleaned[0])
+    for row in range(height):
+        if sum(cleaned[row]) >= max(8, round(width * .72)):
+            cleaned[row] = [False] * width
+    for column in range(width):
+        if sum(cleaned[row][column] for row in range(height)) >= max(
+                8, round(height * .78)):
+            for row in range(height):
+                cleaned[row][column] = False
+    return cleaned
+
+
+def _column_spans(mask):
+    """Return occupied column runs tall enough to be a percentage glyph."""
+    if not mask or not mask[0]:
+        return []
+    height = len(mask)
+    occupied = [any(row[column] for row in mask)
+                for column in range(len(mask[0]))]
+    spans = []
+    start = None
+    for column, active in enumerate(occupied + [False]):
+        if active and start is None:
+            start = column
+        elif not active and start is not None:
+            submask = [row[start:column] for row in mask]
+            bounds = _mask_bounds(submask)
+            if bounds and bounds[3] >= max(4, round(height * .16)):
+                spans.append((start, column))
+            start = None
+    return spans
+
+
 def _candidate_masks(image, x, y, width, height):
     pixels = []
     quantized = {}
@@ -389,15 +444,41 @@ def _candidate_masks(image, x, y, width, height):
         foreground = sum(sum(values) for values in mask)
         if foreground < max(3, round(area * .012)) or foreground > area * .62:
             continue
-        tight = _tight_mask(mask)
-        if not tight or len(tight) < 5 or len(tight[0]) < 2:
-            continue
-        signature = tuple(
-            sum((1 << column) for column, value in enumerate(row) if value)
-            for row in tight)
-        if signature not in seen:
-            seen.add(signature)
-            candidates.append(tight)
+        cleaned = _without_frame_lines(mask)
+        spans = _column_spans(cleaned)
+        # Examine up to four neighboring glyph runs.  This finds a percentage
+        # token within a padded rectangle while keeping polling work bounded.
+        gaps = [spans[index + 1][0] - spans[index][1]
+                for index in range(max(0, len(spans) - 1))]
+        compact = (
+            1 <= len(spans) <= 4 and
+            all(gap <= max(5, round(height * .35)) for gap in gaps))
+        sequences = ([(0, len(spans) - 1)] if compact else [
+            (first, last)
+            for first in range(len(spans))
+            for last in range(first, min(len(spans), first + 4))])
+        for first, last in sequences:
+                left, right = spans[first][0], spans[last][1]
+                sliced = [row[left:right] for row in cleaned]
+                local = _mask_bounds(sliced)
+                if not local:
+                    continue
+                local_x, top, local_width, local_height = local
+                if local_height < 5 or local_width < 1:
+                    continue
+                candidate = [
+                    row[local_x:local_x + local_width]
+                    for row in sliced[top:top + local_height]]
+                bounds = (x + left + local_x, y + top,
+                          local_width, local_height)
+                signature = (bounds, tuple(
+                    sum((1 << column) for column, value in enumerate(row)
+                        if value)
+                    for row in candidate))
+                if signature in seen:
+                    continue
+                seen.add(signature)
+                candidates.append((candidate, bounds, last - first + 1))
     return candidates
 
 
@@ -489,10 +570,12 @@ def _recognize_mask(mask):
 
 
 def read_visible_percent(image, normalized_rect):
-    """Read a compact visible 0..100 percentage label from a saved ROI.
+    """Find and read one visible 0..100 percentage label inside an ROI.
 
     This deliberately returns ``percent=None`` for unreadable pixels. A valid
     glyph for the number zero is distinguishable from an absent/invalid label.
+    Padding and simple UI frame lines are tolerated.  Two plausible numbers
+    are rejected as ambiguous rather than guessing which one is a vital.
     """
     rect = sanitize_normalized_rect(normalized_rect)
     if image is None or image.isNull() or not rect:
@@ -501,19 +584,63 @@ def read_visible_percent(image, normalized_rect):
         rect, (image.width(), image.height()))
     if width < 3 or height < 5:
         return VitalReading(None, 0.0, False, "Number area is too small", "number")
-    best_value = None
+    recognized = []
     best_confidence = 0.0
-    for mask in _candidate_masks(image, x, y, width, height):
+    for mask, bounds, glyph_count in _candidate_masks(
+            image, x, y, width, height):
         value, confidence = _recognize_mask(mask)
-        if value is not None and confidence > best_confidence:
-            best_value, best_confidence = value, confidence
-    if best_value is None:
+        best_confidence = max(best_confidence, confidence)
+        if value is not None:
+            # Prefer a complete multi-glyph token over a contained single
+            # digit.  Confidence remains the primary OCR quality measure.
+            rank = confidence + min(3, max(0, glyph_count - 1)) * .025
+            recognized.append((rank, confidence, value, bounds, glyph_count))
+    if not recognized:
         return VitalReading(
             None, round(best_confidence, 3), False,
             "Visible percentage number is unreadable; alerts paused", "number")
+
+    # Deduplicate threshold variants that found the same value and region.
+    unique = {}
+    for candidate in recognized:
+        _rank, _confidence, value, bounds, _glyph_count = candidate
+        key = (value, bounds)
+        if key not in unique or candidate[0] > unique[key][0]:
+            unique[key] = candidate
+    recognized = list(unique.values())
+
+    # A valid wider token supersedes readings of its individual digits.
+    filtered = []
+    for candidate in recognized:
+        rank, confidence, _value, bounds, glyph_count = candidate
+        left, top, width_value, height_value = bounds
+        right, bottom = left + width_value, top + height_value
+        contained = False
+        for other in recognized:
+            if other is candidate or other[4] <= glyph_count:
+                continue
+            o_left, o_top, o_width, o_height = other[3]
+            if (o_left <= left and o_top <= top and
+                    o_left + o_width >= right and
+                    o_top + o_height >= bottom and
+                    other[1] >= confidence - .10):
+                contained = True
+                break
+        if not contained:
+            filtered.append(candidate)
+    recognized = sorted(filtered or recognized, reverse=True)
+    best_rank, best_confidence, best_value, best_bounds, _count = recognized[0]
+    alternatives = [
+        candidate for candidate in recognized[1:]
+        if candidate[2] != best_value and candidate[0] >= best_rank - .065]
+    if alternatives:
+        return VitalReading(
+            None, round(best_confidence, 3), False,
+            "Multiple percentage numbers detected; use a smaller area",
+            "number")
     return VitalReading(
         float(best_value), round(best_confidence, 3), True,
-        "Visible number reading", "number")
+        "Visible number reading", "number", tuple(best_bounds))
 
 
 def read_vital_bar(image, bar):

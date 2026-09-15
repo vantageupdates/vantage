@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.93 design QA
+# Vantage Companion 1.44.94 design QA
 
 final result: passed
 
@@ -11,6 +11,13 @@ final result: passed
 
 ## Visual checks
 
+- Vitals Monitor now keeps the title bar compact, places **Add monitor** in
+  the content area, and presents setup as three short steps. Each responsive
+  card prioritizes the current percentage, textual state, confidence, and next
+  action without a scrollbar-like progress bar. Calibration accepts a loosely
+  placed rectangle, finds one unambiguous percentage within it, and saves a
+  fitted ROI; padded, framed, ambiguous, 240 px, large-font, keyboard, focus,
+  and screen-reader states passed focused and accessibility review.
 - Vitals Monitor now reads only the visible 0–100 HP/mana number, with an
   optional percent sign and no external OCR executable. The removed fill/color
   reader, direction, tolerance, and mode controls have no runtime or persisted
