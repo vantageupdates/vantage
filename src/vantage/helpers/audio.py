@@ -313,27 +313,105 @@ def speech_voice_names():
         return []
 
 
+def select_vantage_command_voice(voice_names, startup_voice=""):
+    """Choose the best installed voice for the Vantage Command preset.
+
+    Selection is deliberately name-only and deterministic so it remains a
+    legal local Windows preset: Vantage neither downloads nor imitates a
+    third-party character voice.
+    """
+    names = []
+    seen = set()
+    for value in voice_names or ():
+        name = str(value or "").strip()
+        folded = name.casefold()
+        if name and folded not in seen:
+            names.append(name)
+            seen.add(folded)
+
+    def first_matching(*needles):
+        return next((
+            name for name in names
+            if any(needle in name.casefold() for needle in needles)), "")
+
+    # Mark is the preferred calm/lower Windows voice, with David as the most
+    # broadly available equivalent on supported Windows versions.
+    preferred = first_matching("microsoft mark")
+    if preferred:
+        return preferred
+    preferred = first_matching("microsoft david")
+    if preferred:
+        return preferred
+    preferred = first_matching(
+        "microsoft guy", "microsoft george", "microsoft ryan",
+        "microsoft james", "microsoft richard", "microsoft sean",
+        "male", "masculine")
+    if preferred:
+        return preferred
+    startup = str(startup_voice or "").strip()
+    if startup:
+        current = next((
+            name for name in names if name.casefold() == startup.casefold()), "")
+        if current:
+            return current
+    return names[0] if names else ""
+
+
+def vantage_command_voice_name():
+    """Return the installed voice currently backing Vantage Command."""
+    return select_vantage_command_voice(
+        speech_voice_names(), _DEFAULT_VOICE_NAME)
+
+
+def vantage_command_voice_label():
+    """Return honest user-facing text for the local default voice preset."""
+    resolved = vantage_command_voice_name()
+    return (f"Vantage Command · {resolved}" if resolved else
+            "Vantage Command · local Windows voice")
+
+
+def unavailable_voice_label(voice_name):
+    """Describe a preserved, currently unavailable explicit voice."""
+    return (f"{str(voice_name or '').strip()} · unavailable; "
+            "Vantage Command fallback active")
+
+
+def vantage_command_voice_description(unavailable_voice=""):
+    """Shared accessible help for blank/default voice choices."""
+    description = (
+        "Vantage Command uses a calm installed Windows voice and falls back "
+        "locally if that voice is unavailable. A saved character profile or "
+        "an explicitly selected installed voice takes priority.")
+    missing = str(unavailable_voice or "").strip()
+    if missing:
+        description += (
+            f" The saved voice {missing} is unavailable; it remains saved, "
+            "and Vantage Command is active until that voice is available.")
+    return description
+
+
 def _apply_speech_profile(speech, settings, voice_name="", pitch=0):
     """Apply every mutable voice setting for one isolated utterance.
 
     The Qt speech engine is shared, so leaving one setting untouched leaks it
     into the next alert.  Resolve voice from the trigger first, then the
-    character profile, and finally the engine's startup voice; rate and pitch
-    are deliberately reset on every call as well.
+    character profile, and finally the local Vantage Command preset; rate and
+    pitch are deliberately reset on every call as well.
     """
-    wanted = str(
-        voice_name or settings.get("voice_name", "") or
-        _DEFAULT_VOICE_NAME).strip()
     try:
         voices = list(speech.availableVoices())
+        voice_names = [str(voice.name()).strip() for voice in voices]
+        requested = str(
+            voice_name or settings.get("voice_name", "") or "").strip()
+        wanted = requested
+        requested_is_installed = bool(requested) and any(
+            name.casefold() == requested.casefold() for name in voice_names)
+        if not requested_is_installed:
+            wanted = select_vantage_command_voice(
+                voice_names, _DEFAULT_VOICE_NAME)
         selected = next((
             voice for voice in voices
             if str(voice.name()).casefold() == wanted.casefold()), None)
-        if selected is None and _DEFAULT_VOICE_NAME:
-            selected = next((
-                voice for voice in voices
-                if str(voice.name()).casefold() ==
-                _DEFAULT_VOICE_NAME.casefold()), None)
         if selected is not None:
             speech.setVoice(selected)
         speech.setRate(max(-1.0, min(

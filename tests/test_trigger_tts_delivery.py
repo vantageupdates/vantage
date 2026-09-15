@@ -128,6 +128,9 @@ result = {
     'ended_sound_enabled': ended_sound.isEnabled(),
     'ended_speech_enabled': ended_speech.isEnabled(),
     'voice': dialog._trigger_tts_voice.currentData(),
+    'default_voice_data': dialog._trigger_tts_voice.itemData(0),
+    'default_voice_label': dialog._trigger_tts_voice.itemText(0),
+    'default_voice_description': dialog._trigger_tts_voice.accessibleDescription(),
     'voice_count': dialog._trigger_tts_voice.count(),
     'volume': dialog._trigger_tts_volume.value(),
     'volume_range': [dialog._trigger_tts_volume.minimum(),
@@ -190,6 +193,10 @@ def test_trigger_editor_exposes_accessible_delivery_and_speech_controls(
     assert result['ended_speech_enabled'] is True
     assert result['voice'] == 'Voice B'
     assert result['voice_count'] == 3
+    assert result['default_voice_data'] == ''
+    assert result['default_voice_label'].startswith('Vantage Command')
+    assert 'calm installed Windows voice' in \
+        result['default_voice_description']
     assert result['volume'] == 74
     assert result['volume_range'] == [0, 100]
     assert result['pitch'] == -2

@@ -34,6 +34,105 @@ def _spell(name="Fetter", **values):
     return Spell(**fields)
 
 
+REALISTIC_BLANK_KEY_BUFFS = (
+    ("Grim Aura", 3600),
+    ("Focus of Spirit", 4200),
+    ("Enlightenment", 7200),
+    ("Riotous Health", 3900),
+)
+
+
+def test_live_blank_runtime_key_self_buffs_coexist_for_spiritflux():
+    _app()
+    container = SpellContainer()
+    started = datetime.datetime.now()
+
+    for name, duration in REALISTIC_BLANK_KEY_BUFFS:
+        container.add_spell(
+            _spell(name, runtime_key="", type=1,
+                   duration_seconds=duration),
+            started, "__you__", "Spiritflux", "P1999Green")
+
+    target = container.get_spell_target_by_name("__you__")
+    assert sorted(widget.spell.name for widget in target.spell_widgets()) == [
+        "Enlightenment", "Focus of Spirit", "Grim Aura", "Riotous Health"]
+    snapshot = container.snapshot_runtime_state(
+        now_epoch=1_000, now_datetime=started)
+    assert {row["spell"]["runtime_key"] for row in snapshot} == {
+        "enlightenment", "focus of spirit", "grim aura", "riotous health"}
+
+
+def test_restore_preserves_four_blank_key_rows_deadlines_and_profile():
+    _app()
+    now_epoch = 10_000
+    now_datetime = datetime.datetime.now()
+    saved = []
+    expected_deadlines = {}
+    for index, (name, duration) in enumerate(REALISTIC_BLANK_KEY_BUFFS, 1):
+        deadline = now_epoch + duration
+        expected_deadlines[name] = deadline
+        saved.append({
+            "deadline": deadline,
+            "target": "__you__",
+            "target_created_order": 1,
+            "character": "Spiritflux",
+            "server": "P1999Green",
+            "spell": {
+                "name": name,
+                "runtime_key": "",
+                "duration_seconds": duration,
+                "duration": duration // 6,
+                "duration_formula": 0,
+                "type": 1,
+                "spell_icon": index,
+            },
+        })
+
+    restored = SpellContainer()
+    assert restored.restore_runtime_state(
+        saved, {}, now_epoch=now_epoch,
+        now_datetime=now_datetime) == 4
+    rows = restored.snapshot_runtime_state(
+        now_epoch=now_epoch, now_datetime=now_datetime)
+
+    assert {row["spell"]["name"] for row in rows} == set(expected_deadlines)
+    assert {row["spell"]["name"]: row["deadline"] for row in rows} == \
+        expected_deadlines
+    assert {(row["character"], row["server"]) for row in rows} == {
+        ("Spiritflux", "P1999Green")}
+
+
+def test_blank_key_recast_replaces_only_the_same_named_buff():
+    _app()
+    container = SpellContainer()
+    started = datetime.datetime.now()
+    for name, duration in REALISTIC_BLANK_KEY_BUFFS:
+        container.add_spell(
+            _spell(name, runtime_key="", type=1,
+                   duration_seconds=duration),
+            started, "__you__", "Spiritflux", "P1999Green")
+    target = container.get_spell_target_by_name("__you__")
+    before = {widget.spell.name: (widget, widget.end_time)
+              for widget in target.spell_widgets()}
+
+    recast_at = started + datetime.timedelta(seconds=30)
+    container.add_spell(
+        _spell("Riotous Health", runtime_key="", type=1,
+               duration_seconds=3900),
+        recast_at, "__you__", "Spiritflux", "P1999Green")
+    after = {widget.spell.name: (widget, widget.end_time)
+             for widget in target.spell_widgets()}
+
+    assert set(after) == set(before)
+    assert len(after) == 4
+    for name in after:
+        assert after[name][0] is before[name][0]
+        if name == "Riotous Health":
+            assert after[name][1] == recast_at + datetime.timedelta(seconds=3900)
+        else:
+            assert after[name][1] == before[name][1]
+
+
 def test_authoritative_widget_removal_captures_identity_before_detach():
     _app()
     container = SpellContainer()

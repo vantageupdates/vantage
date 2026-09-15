@@ -126,6 +126,31 @@ def _shared_self_buff_family(spell):
     return ''
 
 
+def _spell_runtime_key(spell):
+    """Return the stable, non-empty identity used for a rendered spell row.
+
+    P99 spell records commonly carry an existing but empty ``runtime_key``.
+    ``getattr(..., spell.name)`` does not apply its fallback in that case, so
+    every ordinary buff previously compared as the same empty key. Explicit
+    keys retain their exact semantics; only blank keys fall back to the
+    normalized visible spell name.
+    """
+    explicit = str(getattr(spell, 'runtime_key', '') or '').strip()
+    if explicit:
+        return explicit
+    return str(getattr(spell, 'name', '') or '').strip().casefold()
+
+
+def _spell_runtime_key_matches(spell, value):
+    """Match an external lookup without changing explicit-key case rules."""
+    requested = str(value or '').strip()
+    if not requested:
+        return False
+    explicit = str(getattr(spell, 'runtime_key', '') or '').strip()
+    return (_spell_runtime_key(spell) == requested if explicit else
+            _spell_runtime_key(spell) == requested.casefold())
+
+
 def _spell_duration_seconds(spell, level):
     """Calculate a spell's live duration using the active character level."""
     try:
@@ -2423,7 +2448,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.94')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.95')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -2816,7 +2841,9 @@ class SpellContainer(QFrame):
             'external_detection_note')
         payload = {}
         for field_name in fields:
-            value = getattr(spell, field_name, None)
+            value = (_spell_runtime_key(spell)
+                     if field_name == 'runtime_key' else
+                     getattr(spell, field_name, None))
             if isinstance(value, (str, int, float, bool)) or value is None:
                 payload[field_name] = value
         return payload
@@ -3012,7 +3039,7 @@ class SpellContainer(QFrame):
         if (named or str(target).startswith('__') or
                 not _spell_targets_enemy(spell)):
             return instances[0]
-        spell_key = str(getattr(spell, 'runtime_key', spell.name))
+        spell_key = _spell_runtime_key(spell)
         matching = []
         for instance in instances:
             widget = instance.spell_widget(spell_key)
@@ -3169,8 +3196,7 @@ class SpellContainer(QFrame):
         if (destination is source or
                 destination.name.casefold() != source.name.casefold()):
             return destination
-        spell_key = str(getattr(
-            widget.spell, 'runtime_key', widget.spell.name))
+        spell_key = _spell_runtime_key(widget.spell)
         existing = destination.spell_widget(spell_key)
         if existing and existing is not widget:
             return destination
@@ -3210,11 +3236,9 @@ class SpellContainer(QFrame):
             return False
         removed = False
         for widget in list(target.spell_widgets()):
-            widget_key = str(getattr(
-                widget.spell, 'runtime_key', widget.spell.name))
             matches = (
-                widget_key == str(runtime_key)
-                if runtime_key else
+                _spell_runtime_key_matches(widget.spell, runtime_key)
+                if str(runtime_key or '').strip() else
                 widget.spell.name.casefold() == str(name).casefold())
             if matches:
                 widget._remove()
@@ -3306,10 +3330,8 @@ class SpellTarget(QFrame):
         return self.findChildren(SpellWidget)
 
     def spell_widget(self, spell_key):
-        spell_key = str(spell_key)
         for widget in self.spell_widgets():
-            if str(getattr(
-                    widget.spell, 'runtime_key', widget.spell.name)) == spell_key:
+            if _spell_runtime_key_matches(widget.spell, spell_key):
                 return widget
         return None
 
@@ -3459,11 +3481,10 @@ class SpellTarget(QFrame):
     def add_spell(self, spell, timestamp, character='', server=''):
         target_type = 0 if _spell_targets_enemy(spell) else 1
         matching = []
-        spell_key = str(getattr(spell, 'runtime_key', spell.name))
+        spell_key = _spell_runtime_key(spell)
         for sw in self.findChildren(SpellWidget):
             target_type *= 0 if _spell_targets_enemy(sw.spell) else 1
-            widget_key = str(getattr(
-                sw.spell, 'runtime_key', sw.spell.name))
+            widget_key = _spell_runtime_key(sw.spell)
             # Self buffs describe one active effect per character.  Old saved
             # rows and item-click aliases may use a different runtime key for
             # the same visible buff, so their canonical identity is the spell
@@ -4003,8 +4024,8 @@ class SpellWidget(QFrame):
             assign_menu.setToolTipsVisible(True)
             for candidate in owner.get_spell_targets_by_name(target.name):
                 label = candidate.alias or candidate.instance_marker
-                candidate_has_effect = bool(candidate.spell_widget(str(getattr(
-                    self.spell, 'runtime_key', self.spell.name))))
+                candidate_has_effect = bool(candidate.spell_widget(
+                    _spell_runtime_key(self.spell)))
                 action = assign_menu.addAction(
                     f'{candidate.title.title()} · {label}' +
                     (' · current' if candidate is target else ''))

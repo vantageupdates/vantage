@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.94 design QA
+# Vantage Companion 1.44.95 design QA
 
 final result: passed
 
@@ -11,6 +11,20 @@ final result: passed
 
 ## Visual checks
 
+- Blank spell runtime keys now fall back to the spell name before widget,
+  persistence, recast, or update-handoff identity comparisons. Multiple real
+  P99 buffs such as Grim Aura, Focus of Spirit, Enlightenment, and Riotous
+  Health coexist after update restore; a same-name recast replaces only itself.
+- Numeric Vitals OCR accepts the real EverQuest `100` maximum without requiring
+  a percent glyph, while unreadable or ambiguous pixels still remain **NO
+  READING**. The forgiving overlay preview and fitted ROI were rechecked with
+  real-sized EQ-style digits as well as synthetic 0–100 coverage.
+- Text-to-speech now defaults centrally to the legal local **Vantage Command**
+  preset: Microsoft Mark, then David, another suitable installed voice, or the
+  startup Windows voice. Explicit trigger/profile voices remain authoritative;
+  unavailable saved voices remain visible and saved while the fallback is
+  active. Notification routes, custom triggers, Smart Timers, and Vitals passed
+  focused keyboard, status, and accessible-state review with no findings.
 - Vitals Monitor now keeps the title bar compact, places **Add monitor** in
   the content area, and presents setup as three short steps. Each responsive
   card prioritizes the current percentage, textual state, confidence, and next

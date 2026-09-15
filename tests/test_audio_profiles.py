@@ -69,6 +69,9 @@ class _Speech:
     def availableVoices(self):
         return self.voices
 
+    def voice(self):
+        return self.voices[0]
+
     def setVoice(self, voice):
         self.selected = voice.name()
 
@@ -197,6 +200,75 @@ def test_per_trigger_voice_and_pitch_are_applied_then_reset_next_call(
     assert speech.selected == 'Voice A'
     assert speech.pitch == 0.0
     assert speech.volume == 0.8
+
+
+def test_vantage_command_voice_selection_is_deterministic():
+    voices = [
+        'Microsoft Zira Desktop', 'Microsoft David Desktop',
+        'Microsoft Mark Desktop']
+    assert audio.select_vantage_command_voice(
+        voices, 'Microsoft David Desktop') == 'Microsoft Mark Desktop'
+    assert audio.select_vantage_command_voice(
+        ['Microsoft Zira', 'Microsoft David'], 'Microsoft Zira') == (
+            'Microsoft David')
+    assert audio.select_vantage_command_voice(
+        ['Microsoft Zira', 'Acme Male Voice'], 'Microsoft Zira') == (
+            'Acme Male Voice')
+    assert audio.select_vantage_command_voice(
+        ['Microsoft Zira', 'Voice B'], 'Voice B') == 'Voice B'
+    assert audio.select_vantage_command_voice([], 'Microsoft David') == ''
+
+
+def test_vantage_command_is_central_default_and_missing_voice_fallback(
+        monkeypatch):
+    app = _App()
+    config.data = {
+        'general': {'audio_muted': False, 'master_volume': 100},
+        'spells': {'audio_profiles': {}}}
+    speech = _Speech()
+    speech.voices = [
+        _Voice('Microsoft David'), _Voice('Microsoft Mark'),
+        _Voice('Microsoft Zira')]
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, '_SPEECH', speech)
+    monkeypatch.setattr(audio, '_DEFAULT_VOICE_NAME', 'Microsoft David')
+
+    assert audio.speak_text('Default command')
+    assert speech.selected == 'Microsoft Mark'
+    assert audio.speak_text('Explicit voice', voice_name='Microsoft Zira')
+    assert speech.selected == 'Microsoft Zira'
+    assert audio.speak_text('Missing saved voice', voice_name='Removed Voice')
+    assert speech.selected == 'Microsoft Mark'
+
+
+def test_character_profile_voice_wins_then_missing_profile_falls_back(
+        monkeypatch):
+    app = _App()
+    config.data = {
+        'general': {'audio_muted': False, 'master_volume': 100},
+        'spells': {'audio_profiles': {
+            'druid@green': {
+                'character': 'Druid', 'server': 'Green',
+                'voice_name': 'Microsoft Zira', 'voice_speed': 0,
+                'volume': 100},
+            'cleric@green': {
+                'character': 'Cleric', 'server': 'Green',
+                'voice_name': 'No Longer Installed', 'voice_speed': 0,
+                'volume': 100}}}}
+    speech = _Speech()
+    speech.voices = [
+        _Voice('Microsoft David'), _Voice('Microsoft Mark'),
+        _Voice('Microsoft Zira')]
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, '_SPEECH', speech)
+    monkeypatch.setattr(audio, '_DEFAULT_VOICE_NAME', 'Microsoft David')
+
+    assert audio.speak_text('Profile', character='Druid', server='Green')
+    assert speech.selected == 'Microsoft Zira'
+    assert audio.speak_text('Fallback', character='Cleric', server='Green')
+    assert speech.selected == 'Microsoft Mark'
 
 
 def test_master_volume_scales_wav_and_speech_after_profile_volume(

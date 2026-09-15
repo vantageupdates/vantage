@@ -20,7 +20,9 @@ from vantage.helpers import config, text_time_to_seconds
 from vantage.helpers.audio import (
     DEFAULT_SOUND, add_custom_sound_to_combo, play_alert,
     audio_muted, master_volume, set_audio_muted, set_master_volume,
-    set_sound_combo_value, speak_text, speech_voice_names)
+    set_sound_combo_value, speak_text, speech_voice_names,
+    unavailable_voice_label, vantage_command_voice_description,
+    vantage_command_voice_label)
 from vantage.helpers.notification_routes import (
     DELIVERY_CHOICES, NOTIFICATION_ROUTES, normalized_route_settings)
 from vantage.helpers.icons import game_icon
@@ -529,22 +531,38 @@ class SettingsWindow(UniformScaleDialog):
                 if index >= 0:
                     picker.setCurrentIndex(index)
             picker.setAccessibleName(f'{route.label} sound')
-            picker.setToolTip(f'Choose the sound for {route.label.casefold()}')
+            sound_help = (
+                f'Choose the gallery or custom WAV sound for '
+                f'{route.label.casefold()}.')
+            picker.setAccessibleDescription(sound_help)
+            picker.setToolTip(sound_help)
         elif mode == 'voice':
-            picker.addItem('Windows default voice', '')
+            picker.addItem(vantage_command_voice_label(), '')
             for voice in speech_voice_names():
                 picker.addItem(voice, voice)
             wanted = previous if previous and not previous.startswith(
                 ('builtin:', 'portable:')) else values['voice']
             index = picker.findData(wanted)
+            missing_voice = str(wanted or '').strip() if index < 0 else ''
+            if missing_voice:
+                picker.addItem(
+                    unavailable_voice_label(missing_voice), missing_voice)
+                index = picker.count() - 1
             picker.setCurrentIndex(max(0, index))
             picker.setAccessibleName(f'{route.label} Windows voice')
+            picker.setAccessibleDescription(
+                vantage_command_voice_description(missing_voice))
             picker.setToolTip(
-                f'Choose an installed Windows voice for {route.label.casefold()}')
+                f'Choose an installed Windows voice for {route.label.casefold()}. '
+                + vantage_command_voice_description(missing_voice))
         else:
             picker.addItem('No audio delivery', '')
             picker.setAccessibleName(f'{route.label} audio is off')
-            picker.setToolTip('Select Sound or Voice to choose an audio output')
+            off_help = (
+                'Audio delivery is off. Select Sound or Voice to choose an '
+                'audio output.')
+            picker.setAccessibleDescription(off_help)
+            picker.setToolTip(off_help)
         picker.setEnabled(mode != 'off')
         picker.blockSignals(False)
 
@@ -2211,15 +2229,15 @@ class CustomTriggerSettings(UniformScaleDialog):
 
         def voice_combo(label):
             combo = QComboBox()
-            combo.addItem('Character profile / Windows default', '')
+            combo.addItem(vantage_command_voice_label(), '')
             for voice in speech_voice_names():
                 combo.addItem(voice, voice)
             combo.setAccessibleName(f'{label} Windows voice')
             combo.setAccessibleDescription(
-                'Installed Windows voices. The first option uses the current '
-                'character audio profile, then the Windows default voice.')
+                vantage_command_voice_description())
             combo.setToolTip(
-                'Choose an installed Windows voice for this trigger phase')
+                'Choose an installed Windows voice for this trigger phase. '
+                + vantage_command_voice_description())
             return combo
 
         def speech_spin(label, kind, minimum, maximum, value, suffix):
@@ -2523,7 +2541,14 @@ class CustomTriggerSettings(UniformScaleDialog):
     def _set_voice_combo(combo, voice_name):
         wanted = str(voice_name or '')
         index = combo.findData(wanted)
+        missing_voice = wanted if wanted and index < 0 else ''
+        if missing_voice:
+            combo.addItem(
+                unavailable_voice_label(missing_voice), missing_voice)
+            index = combo.count() - 1
         combo.setCurrentIndex(index if index >= 0 else 0)
+        combo.setAccessibleDescription(
+            vantage_command_voice_description(missing_voice))
 
     def _test_trigger_speech(
             self, editor, interrupt, voice, volume, pitch, source, label,

@@ -247,6 +247,14 @@ _BITMAP_GLYPHS = {
     "9": ("01110", "10001", "10001", "01111", "00001", "00001", "01110"),
     "%": ("11001", "11010", "00100", "00100", "01000", "10110", "00110"),
 }
+# Exact eight-pixel P99/EverQuest bitmap shapes observed in the compact target
+# and player percentage labels.  Keeping these alongside the generic 5x7 set
+# avoids depending on a desktop font database during startup or helper tests.
+_EQ_BITMAP_GLYPHS = {
+    "0": ("01110", "10001", "10001", "10001",
+          "10001", "10001", "10001", "01110"),
+    "1": ("001", "111", "001", "001", "001", "001", "001", "001"),
+}
 
 
 def _tight_mask(mask):
@@ -305,9 +313,10 @@ def _render_glyph_mask(glyph, path, pixel_size):
 def _ocr_templates():
     """Small in-process digit templates; no OCR executable or model needed."""
     templates = {glyph: [] for glyph in _OCR_GLYPHS}
-    for glyph, rows in _BITMAP_GLYPHS.items():
-        templates[glyph].append(_normalized_bits([
-            [value == "1" for value in row] for row in rows]))
+    for glyph_set in (_BITMAP_GLYPHS, _EQ_BITMAP_GLYPHS):
+        for glyph, rows in glyph_set.items():
+            templates[glyph].append(_normalized_bits([
+                [value == "1" for value in row] for row in rows]))
     if QGuiApplication.instance() is None:
         return templates
     windows = os.environ.get("WINDIR", r"C:\Windows")
@@ -382,8 +391,12 @@ def _without_frame_lines(mask):
         if sum(cleaned[row]) >= max(8, round(width * .72)):
             cleaned[row] = [False] * width
     for column in range(width):
-        if sum(cleaned[row][column] for row in range(height)) >= max(
-                8, round(height * .78)):
+        # An EQ bitmap "1" has an eight-pixel vertical stem.  Only treat a
+        # near-full-height column as framing when the ROI is taller than a
+        # compact glyph; otherwise a tightly fitted 100 would lose its 1.
+        if height >= 12 and sum(
+                cleaned[row][column] for row in range(height)) >= max(
+                    8, round(height * .78)):
             for row in range(height):
                 cleaned[row][column] = False
     return cleaned
@@ -408,6 +421,56 @@ def _column_spans(mask):
                 spans.append((start, column))
             start = None
     return spans
+
+
+def _component_text_bands(mask):
+    """Return bounded row bands suggested by glyph-sized components.
+
+    EQ's bitmap digits are often beside a bright bar of the same color.  A
+    column projection alone then treats the label and bar as one object even
+    though the individual digits form small, aligned components.  Component
+    bounds give us the digit-height band without making color assumptions.
+    """
+    if not mask or not mask[0]:
+        return []
+    height, width = len(mask), len(mask[0])
+    visited = [[False] * width for _row in range(height)]
+    bands = set()
+    for start_y in range(height):
+        for start_x in range(width):
+            if visited[start_y][start_x] or not mask[start_y][start_x]:
+                continue
+            visited[start_y][start_x] = True
+            pending = [(start_x, start_y)]
+            cursor = 0
+            left = right = start_x
+            top = bottom = start_y
+            pixels = 0
+            while cursor < len(pending):
+                column, row = pending[cursor]
+                cursor += 1
+                pixels += 1
+                left, right = min(left, column), max(right, column)
+                top, bottom = min(top, row), max(bottom, row)
+                for near_y in range(max(0, row - 1), min(height, row + 2)):
+                    for near_x in range(
+                            max(0, column - 1), min(width, column + 2)):
+                        if (not visited[near_y][near_x] and
+                                mask[near_y][near_x]):
+                            visited[near_y][near_x] = True
+                            pending.append((near_x, near_y))
+            component_width = right - left + 1
+            component_height = bottom - top + 1
+            # A percent digit may be only three pixels wide, while a health
+            # bar is much wider than it is tall.  Requiring five rows also
+            # ignores isolated antialiasing and frame specks.
+            if (pixels >= 3 and component_height >= 5 and
+                    component_height <= min(36, height) and
+                    component_width <= max(12, round(component_height * 2.0))):
+                bands.add((top, bottom + 1))
+    # The cap keeps polling predictable even when a loose calibration covers
+    # a noisy scene.  Short glyph bands are the most useful suggestions.
+    return sorted(bands, key=lambda band: (band[1] - band[0], band[0]))[:16]
 
 
 def _candidate_masks(image, x, y, width, height):
@@ -445,21 +508,23 @@ def _candidate_masks(image, x, y, width, height):
         if foreground < max(3, round(area * .012)) or foreground > area * .62:
             continue
         cleaned = _without_frame_lines(mask)
-        spans = _column_spans(cleaned)
-        # Examine up to four neighboring glyph runs.  This finds a percentage
-        # token within a padded rectangle while keeping polling work bounded.
-        gaps = [spans[index + 1][0] - spans[index][1]
-                for index in range(max(0, len(spans) - 1))]
-        compact = (
-            1 <= len(spans) <= 4 and
-            all(gap <= max(5, round(height * .35)) for gap in gaps))
-        sequences = ([(0, len(spans) - 1)] if compact else [
-            (first, last)
-            for first in range(len(spans))
-            for last in range(first, min(len(spans), first + 4))])
-        for first, last in sequences:
+        # Scan the complete mask plus glyph-height bands.  The latter separate
+        # tiny EQ text from an adjacent same-color health/mana bar.
+        bands = _component_text_bands(cleaned)
+        if (0, len(cleaned)) not in bands:
+            bands.append((0, len(cleaned)))
+        for band_top, band_bottom in bands:
+            band_mask = cleaned[band_top:band_bottom]
+            spans = _column_spans(band_mask)
+            # Examine up to four neighboring runs. This is linear in the
+            # number of spans and the total candidate cap bounds OCR work.
+            sequences = [
+                (first, first + count - 1)
+                for count in range(min(4, len(spans)), 0, -1)
+                for first in range(len(spans) - count + 1)]
+            for first, last in sequences:
                 left, right = spans[first][0], spans[last][1]
-                sliced = [row[left:right] for row in cleaned]
+                sliced = [row[left:right] for row in band_mask]
                 local = _mask_bounds(sliced)
                 if not local:
                     continue
@@ -469,7 +534,7 @@ def _candidate_masks(image, x, y, width, height):
                 candidate = [
                     row[local_x:local_x + local_width]
                     for row in sliced[top:top + local_height]]
-                bounds = (x + left + local_x, y + top,
+                bounds = (x + left + local_x, y + band_top + top,
                           local_width, local_height)
                 signature = (bounds, tuple(
                     sum((1 << column) for column, value in enumerate(row)
@@ -479,6 +544,8 @@ def _candidate_masks(image, x, y, width, height):
                     continue
                 seen.add(signature)
                 candidates.append((candidate, bounds, last - first + 1))
+                if len(candidates) >= 384:
+                    return candidates
     return candidates
 
 
@@ -532,14 +599,17 @@ def _recognize_mask(mask):
     output = []
     scores = []
     margins = []
+    aspects = []
     for index, run in enumerate(runs):
         observed = _normalized_bits(run)
         choices = []
         allowed = _OCR_GLYPHS if index == len(runs) - 1 else _OCR_GLYPHS[:-1]
         for glyph in allowed:
-            score = max(
-                (_glyph_similarity(observed, template)
-                 for template in templates[glyph]), default=0.0)
+            score = 0.0
+            for template in templates[glyph]:
+                score = max(score, _glyph_similarity(observed, template))
+                if score >= .999:
+                    break
             choices.append((score, glyph))
         choices.sort(reverse=True)
         best_score, glyph = choices[0]
@@ -547,8 +617,14 @@ def _recognize_mask(mask):
         output.append(glyph)
         scores.append(best_score)
         margins.append(margin)
+        aspects.append(observed[0])
     text = "".join(output)
     if text.endswith("%"):
+        # A neighboring filled bar can look vaguely like a percent glyph to
+        # outline-font templates.  Real bitmap/font percent signs stay near
+        # square; reject conspicuously thin or wide final runs.
+        if not .45 <= aspects[-1] <= 1.60:
+            return (None, sum(scores) / len(scores))
         text = text[:-1]
         scores = scores[:-1]
         margins = margins[:-1]
@@ -569,6 +645,21 @@ def _recognize_mask(mask):
     return (value, confidence)
 
 
+def _same_token_region(first, second):
+    """Whether two OCR bounds are threshold variants of one label."""
+    first_left, first_top, first_width, first_height = first
+    second_left, second_top, second_width, second_height = second
+    intersection_width = max(
+        0, min(first_left + first_width, second_left + second_width) -
+        max(first_left, second_left))
+    intersection_height = max(
+        0, min(first_top + first_height, second_top + second_height) -
+        max(first_top, second_top))
+    intersection = intersection_width * intersection_height
+    smaller = min(first_width * first_height, second_width * second_height)
+    return bool(smaller and intersection / smaller >= .72)
+
+
 def read_visible_percent(image, normalized_rect):
     """Find and read one visible 0..100 percentage label inside an ROI.
 
@@ -586,15 +677,32 @@ def read_visible_percent(image, normalized_rect):
         return VitalReading(None, 0.0, False, "Number area is too small", "number")
     recognized = []
     best_confidence = 0.0
+    recognition_cache = {}
+    perfect_tokens = []
     for mask, bounds, glyph_count in _candidate_masks(
             image, x, y, width, height):
-        value, confidence = _recognize_mask(mask)
+        left, top, token_width, token_height = bounds
+        if any(
+                outer_left <= left and outer_top <= top and
+                outer_left + outer_width >= left + token_width and
+                outer_top + outer_height >= top + token_height
+                for outer_left, outer_top, outer_width, outer_height
+                in perfect_tokens):
+            continue
+        signature = (len(mask), len(mask[0]), tuple(
+            sum((1 << column) for column, value in enumerate(row) if value)
+            for row in mask))
+        if signature not in recognition_cache:
+            recognition_cache[signature] = _recognize_mask(mask)
+        value, confidence = recognition_cache[signature]
         best_confidence = max(best_confidence, confidence)
         if value is not None:
             # Prefer a complete multi-glyph token over a contained single
             # digit.  Confidence remains the primary OCR quality measure.
             rank = confidence + min(3, max(0, glyph_count - 1)) * .025
             recognized.append((rank, confidence, value, bounds, glyph_count))
+            if confidence >= .999 and glyph_count >= 2:
+                perfect_tokens.append(bounds)
     if not recognized:
         return VitalReading(
             None, round(best_confidence, 3), False,
@@ -608,6 +716,16 @@ def read_visible_percent(image, normalized_rect):
         if key not in unique or candidate[0] > unique[key][0]:
             unique[key] = candidate
     recognized = list(unique.values())
+
+    # Merge slightly different threshold masks for the same physical label.
+    clustered = []
+    for candidate in sorted(recognized, reverse=True):
+        if any(candidate[2] == kept[2] and
+               _same_token_region(candidate[3], kept[3])
+               for kept in clustered):
+            continue
+        clustered.append(candidate)
+    recognized = clustered
 
     # A valid wider token supersedes readings of its individual digits.
     filtered = []
@@ -632,7 +750,8 @@ def read_visible_percent(image, normalized_rect):
     best_rank, best_confidence, best_value, best_bounds, _count = recognized[0]
     alternatives = [
         candidate for candidate in recognized[1:]
-        if candidate[2] != best_value and candidate[0] >= best_rank - .065]
+        if (not _same_token_region(candidate[3], best_bounds) and
+            candidate[0] >= best_rank - .065)]
     if alternatives:
         return VitalReading(
             None, round(best_confidence, 3), False,

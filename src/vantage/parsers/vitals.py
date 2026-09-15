@@ -18,7 +18,9 @@ from PySide6.QtWidgets import (
 from vantage.helpers import config
 from vantage.helpers.audio import (
     add_custom_sound_to_combo, play_alert, set_sound_combo_value,
-    speak_text, speech_voice_names)
+    speak_text, speech_voice_names, unavailable_voice_label,
+    vantage_command_voice_description,
+    vantage_command_voice_label)
 from vantage.helpers.game_capture import GameWindowCapture
 from vantage.helpers.parser import ParserWindow
 from vantage.helpers.portable import store_portable_file
@@ -455,12 +457,23 @@ class VitalStopDialog(QDialog):
         self.tts_text.setToolTip(
             "Tokens: {name}, {percent}, and {direction}")
         self.voice = QComboBox()
-        self.voice.addItem("Default Windows voice", "")
+        self.voice.addItem(vantage_command_voice_label(), "")
         for name in speech_voice_names():
             self.voice.addItem(name, name)
-        wanted_voice = self.voice.findData(self._stop["voice"])
+        configured_voice = str(self._stop["voice"] or "")
+        wanted_voice = self.voice.findData(configured_voice)
+        missing_voice = configured_voice if configured_voice and \
+            wanted_voice < 0 else ""
+        if missing_voice:
+            self.voice.addItem(
+                unavailable_voice_label(missing_voice), missing_voice)
+            wanted_voice = self.voice.count() - 1
         self.voice.setCurrentIndex(max(0, wanted_voice))
         self.voice.setAccessibleName("Windows speech voice")
+        self.voice.setAccessibleDescription(
+            vantage_command_voice_description(missing_voice))
+        self.voice.setToolTip(
+            vantage_command_voice_description(missing_voice))
         self.pitch = QSpinBox()
         self.pitch.setRange(-10, 10)
         self.pitch.setValue(self._stop["pitch"])

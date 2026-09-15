@@ -167,6 +167,10 @@ def test_timer_editor_exposes_compact_accessible_tts_controls(monkeypatch):
     assert "{timer}" in dialog.tts_text.toolTip()
     assert dialog.tts_voice.accessibleName() == "Timer Windows voice"
     assert dialog.tts_voice.currentData() == "Voice One"
+    assert dialog.tts_voice.itemData(0) == ""
+    assert dialog.tts_voice.itemText(0).startswith("Vantage Command")
+    assert "calm installed Windows voice" in \
+        dialog.tts_voice.accessibleDescription()
     assert dialog.tts_pitch.accessibleName() == "Timer speech pitch"
     assert dialog.tts_pitch.value() == 4
     assert dialog.tts_text.isEnabled() and not dialog.sound.isEnabled()

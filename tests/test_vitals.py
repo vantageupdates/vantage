@@ -57,6 +57,39 @@ _DIGITS = {
     "%": ("11001", "11010", "00100", "00100", "01000", "10110", "00110"),
 }
 
+_EQ_BITMAP_100 = (
+    "..#..###...###.",
+    "###.#...#.#...#",
+    "..#.#...#.#...#",
+    "..#.#...#.#...#",
+    "..#.#...#.#...#",
+    "..#.#...#.#...#",
+    "..#.#...#.#...#",
+    "..#..###...###.",
+)
+
+
+def _eq_bitmap_100_image(
+        canvas, offset, color, bars=(), frame_lines=()):
+    """Build privacy-safe fixtures from the exact screenshot glyph mask."""
+    image = QImage(canvas[0], canvas[1], QImage.Format.Format_RGB32)
+    image.fill(QColor(10, 14, 16))
+    for left, top, width, height, bar_color in bars:
+        for y in range(top, min(image.height(), top + height)):
+            for x in range(left, min(image.width(), left + width)):
+                image.setPixelColor(x, y, QColor(bar_color))
+    for left, top, width, height, line_color in frame_lines:
+        for y in range(top, min(image.height(), top + height)):
+            for x in range(left, min(image.width(), left + width)):
+                image.setPixelColor(x, y, QColor(line_color))
+    left, top = offset
+    foreground = QColor(color)
+    for y, row in enumerate(_EQ_BITMAP_100):
+        for x, pixel in enumerate(row):
+            if pixel == "#":
+                image.setPixelColor(left + x, top + y, foreground)
+    return image
+
 
 def _number_image(value, scale=2, color="#f2cf68", include_percent=True):
     text = str(value) + ("%" if include_percent else "")
@@ -183,6 +216,72 @@ def test_visible_number_reader_handles_common_windows_font_shapes():
             [0, 0, 1, 1])
         assert reading.valid is True, (font_path, expected, reading)
         assert reading.percent == float(expected)
+
+
+def test_real_eq_bitmap_100_is_available_without_desktop_font_templates(
+        monkeypatch):
+    class NoGuiApplication:
+        @staticmethod
+        def instance():
+            return None
+
+    monkeypatch.setattr(
+        vital_helpers_module, "QGuiApplication", NoGuiApplication)
+    vital_helpers_module._ocr_templates.cache_clear()
+    try:
+        fixtures = (
+            _eq_bitmap_100_image(
+                (34, 28), (9, 9), "#eceae1",
+                bars=((27, 5, 7, 18, "#00e600"),),
+                frame_lines=((0, 4, 2, 20, "#e8b83e"),)),
+            _eq_bitmap_100_image(
+                (30, 26), (7, 11), "#f0f3f7",
+                bars=((24, 8, 6, 13, "#00e600"),),
+                frame_lines=((0, 22, 30, 2, "#343a3e"),)),
+        )
+        for image, offset in zip(fixtures, ((9, 9), (7, 11))):
+            left, top = offset
+            rois = ((0, 0, image.width(), image.height()),
+                    (left - 2, top - 2, 19, 12),
+                    (left, top, 15, 8))
+            for roi in rois:
+                reading = read_visible_percent(
+                    image,
+                    normalize_rect(roi, (image.width(), image.height())))
+                assert reading.valid is True, (roi, reading)
+                assert reading.percent == 100.0
+                assert reading.token_rect == (left, top, 15, 8)
+    finally:
+        # Do not leave the process-wide template cache in the simulated
+        # no-GUI state for later font-rendering tests.
+        vital_helpers_module._ocr_templates.cache_clear()
+
+
+def test_real_eq_blue_and_green_labels_ignore_adjacent_bars_and_stay_ambiguous():
+    image = _eq_bitmap_100_image(
+        (32, 55), (2, 17), "#45d483",
+        bars=((20, 15, 12, 16, "#00df00"),
+              (20, 36, 12, 10, "#1a9fff")),
+        frame_lines=((0, 47, 32, 2, "#626466"),))
+    blue = QColor("#1a9fff")
+    for y, row in enumerate(_EQ_BITMAP_100):
+        for x, pixel in enumerate(row):
+            if pixel == "#":
+                image.setPixelColor(2 + x, 38 + y, blue)
+
+    top = read_visible_percent(
+        image, normalize_rect((0, 0, 32, 27), (32, 55)))
+    bottom = read_visible_percent(
+        image, normalize_rect((0, 28, 32, 27), (32, 55)))
+    assert top.valid is True and top.percent == 100.0
+    assert top.token_rect == (2, 17, 15, 8)
+    assert bottom.valid is True and bottom.percent == 100.0
+    assert bottom.token_rect == (2, 38, 15, 8)
+
+    combined = read_visible_percent(image, [0, 0, 1, 1])
+    assert combined.valid is False
+    assert combined.percent is None
+    assert "multiple" in combined.message.casefold()
 
 
 def test_visible_number_reader_never_turns_unreadable_pixels_into_zero():

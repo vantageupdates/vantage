@@ -42,7 +42,9 @@ from PySide6.QtWidgets import (
 from vantage.helpers import config
 from vantage.helpers.audio import (
     add_custom_sound_to_combo, play_alert, set_sound_combo_value, speak_text,
-    speech_voice_names)
+    speech_voice_names, unavailable_voice_label,
+    vantage_command_voice_description,
+    vantage_command_voice_label)
 from vantage.helpers.icons import game_icon
 from vantage.helpers.log_events import extract_killed_mob
 from vantage.helpers.encounter_events import (
@@ -624,21 +626,23 @@ class TimerEditDialog(UniformScaleDialog):
         self.tts_text.setToolTip(
             "Tokens: {timer} or {name}, {state}, {zone}, {event}, {seconds}")
         self.tts_voice = QComboBox()
-        self.tts_voice.addItem("Character profile / Windows default", "")
+        self.tts_voice.addItem(vantage_command_voice_label(), "")
         for voice in speech_voice_names():
             self.tts_voice.addItem(voice, voice)
         configured_voice = str(getattr(timer, "tts_voice", "") or "")
         voice_index = self.tts_voice.findData(configured_voice)
-        if configured_voice and voice_index < 0:
-            self.tts_voice.addItem(configured_voice, configured_voice)
+        missing_voice = configured_voice if configured_voice and \
+            voice_index < 0 else ""
+        if missing_voice:
+            self.tts_voice.addItem(
+                unavailable_voice_label(missing_voice), missing_voice)
             voice_index = self.tts_voice.count() - 1
         self.tts_voice.setCurrentIndex(max(0, voice_index))
         self.tts_voice.setAccessibleName("Timer Windows voice")
         self.tts_voice.setAccessibleDescription(
-            "Choose an installed Windows voice. The first option inherits the "
-            "active character audio profile and Windows default voice.")
+            vantage_command_voice_description(missing_voice))
         self.tts_voice.setToolTip(
-            "Voice for this timer; character profile and master volume still apply")
+            "Voice for this timer. " + vantage_command_voice_description())
         self.tts_pitch = QSpinBox()
         self.tts_pitch.setRange(-10, 10)
         self.tts_pitch.setValue(getattr(timer, "tts_pitch", 0) if timer else 0)

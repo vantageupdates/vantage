@@ -30,12 +30,21 @@ app = VantageApp([])
 spells = app._parsers_dict['spells']
 container = spells._spell_container
 started = datetime.datetime.now()
-self_buff = Spell(
-    name='Update Self Buff', runtime_key='spell:update-self',
-    duration_seconds=300, duration=50, duration_formula=0, type=1,
-    spell_icon=42, skill=4, effect_text_you='You feel updated.',
-    effect_text_other=' feels updated.',
-    effect_text_worn_off='Your update fades.')
+blank_key_buffs = [
+    Spell(
+        name=name, runtime_key='', duration_seconds=seconds,
+        duration=seconds // 6, duration_formula=0, type=1,
+        spell_icon=42 + index, skill=4,
+        effect_text_you=f'You feel {name}.',
+        effect_text_other=f' feels {name}.',
+        effect_text_worn_off=f'Your {name} fades.')
+    for index, (name, seconds) in enumerate((
+        ('Grim Aura', 3600),
+        ('Focus of Spirit', 4200),
+        ('Enlightenment', 7200),
+        ('Riotous Health', 3900),
+    ))
+]
 mob_debuff = Spell(
     name='Update Mob Debuff', runtime_key='spell:update-mob',
     duration_seconds=240, duration=40, duration_formula=0, type=0,
@@ -48,16 +57,17 @@ faded = Spell(
 expired = Spell(
     name='Already Expired', runtime_key='spell:expired',
     duration_seconds=600, duration=100, duration_formula=0, type=1)
+for buff in blank_key_buffs:
+    container.add_spell(
+        buff, started, '__you__', 'Spiritflux', 'P1999Green')
 container.add_spell(
-    self_buff, started, '__you__', 'Mindflux', 'Green')
-container.add_spell(
-    mob_debuff, started, 'a crystalline devourer', 'Mindflux', 'Green')
+    mob_debuff, started, 'a crystalline devourer', 'Spiritflux', 'P1999Green')
 mob = container.get_spell_target_by_name('a crystalline devourer')
 mob.instance_marker = 'B'
 mob.alias = 'West ramp'
 mob.is_named = True
-container.add_spell(faded, started, '__you__', 'Mindflux', 'Green')
-container.add_spell(expired, started, '__you__', 'Mindflux', 'Green')
+container.add_spell(faded, started, '__you__', 'Spiritflux', 'P1999Green')
+container.add_spell(expired, started, '__you__', 'Spiritflux', 'P1999Green')
 self_target = container.get_spell_target_by_name('__you__')
 next(widget for widget in self_target.spell_widgets()
      if widget.spell.name == 'Already Faded').mark_faded(
@@ -188,7 +198,8 @@ def test_real_update_dialog_quit_and_fresh_process_restore_all_active_spells(
     assert installed['spawned'] == 1
     assert installed['open_ui_flag'] is True
     assert installed['names_after_quit'] == [
-        'Update Mob Debuff', 'Update Self Buff']
+        'Enlightenment', 'Focus of Spirit', 'Grim Aura', 'Riotous Health',
+        'Update Mob Debuff']
     assert {row['target'] for row in installed['rows_after_quit']} == {
         '__you__', 'a crystalline devourer'}
 
@@ -206,15 +217,22 @@ def test_real_update_dialog_quit_and_fresh_process_restore_all_active_spells(
     restored = _run(
         RESTORE_SCRIPT, profile, updated_from='1.44.85')
 
-    assert restored['names'] == ['Update Mob Debuff', 'Update Self Buff']
-    assert restored['targets'] == ['__you__', 'a crystalline devourer']
-    assert restored['characters'] == ['Mindflux']
-    assert restored['servers'] == ['Green']
+    assert restored['names'] == [
+        'Enlightenment', 'Focus of Spirit', 'Grim Aura', 'Riotous Health',
+        'Update Mob Debuff']
+    assert restored['targets'] == [
+        '__you__', '__you__', '__you__', '__you__',
+        'a crystalline devourer']
+    assert restored['characters'] == ['Spiritflux']
+    assert restored['servers'] == ['P1999Green']
     assert restored['mob_marker'] == 'B'
     assert restored['mob_alias'] == 'West ramp'
     assert restored['mob_named'] is True
     assert restored['handoff_consumed'] is True
-    assert 0 < restored['remaining']['Update Self Buff'] < 300
+    assert 0 < restored['remaining']['Grim Aura'] < 3600
+    assert 0 < restored['remaining']['Focus of Spirit'] < 4200
+    assert 0 < restored['remaining']['Enlightenment'] < 7200
+    assert 0 < restored['remaining']['Riotous Health'] < 3900
     assert 0 < restored['remaining']['Update Mob Debuff'] < 240
 
 
