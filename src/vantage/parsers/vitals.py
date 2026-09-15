@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 import uuid
 
-from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QAccessible, QAccessibleAnnouncementEvent, QColor, QKeyEvent, QPainter,
     QPen)
@@ -565,12 +565,24 @@ class VitalBarDialog(QDialog):
         self._bar = sanitize_vital_bar(bar or default_vital_bar(), 0)
         self._stops = [dict(stop) for stop in self._bar["stops"]]
         self._test_callback = test_callback
-        self.setWindowTitle("Edit vital bar")
+        self.setWindowTitle("Edit overlay")
         self.setMinimumSize(460, 470)
         form = polish_form(QFormLayout())
         self.name = QLineEdit(self._bar["name"])
         self.name.setMaxLength(80)
-        self.name.setAccessibleName("Vital bar name")
+        self.name.setAccessibleName("Overlay name")
+        self._name_description = (
+            "Required. This name identifies the overlay in Vitals alerts and "
+            "on its monitor card.")
+        self.name.setAccessibleDescription(self._name_description)
+        self.name.textChanged.connect(self._clear_name_error)
+        self.name_label = QLabel("Overlay name")
+        self.name_label.setBuddy(self.name)
+        self.name_error = QLabel()
+        self.name_error.setObjectName("InlineStatus")
+        self.name_error.setAccessibleName("Overlay name error")
+        self.name_error.setWordWrap(True)
+        self.name_error.hide()
         self.kind = QComboBox()
         for value, label in TYPE_LABELS.items():
             self.kind.addItem(label, value)
@@ -583,7 +595,8 @@ class VitalBarDialog(QDialog):
             "this bar's saved overlay area. "
             "Direct capture can continue while Vantage is in focus; safe "
             "screen capture may require EverQuest in the foreground.")
-        form.addRow("Name", self.name)
+        form.addRow(self.name_label, self.name)
+        form.addRow("", self.name_error)
         form.addRow("Type", self.kind)
         form.addRow("Enabled", self.enabled)
 
@@ -617,7 +630,12 @@ class VitalBarDialog(QDialog):
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save |
             QDialogButtonBox.StandardButton.Cancel)
-        buttons.button(QDialogButtonBox.StandardButton.Save).setText("Save bar")
+        save_button = buttons.button(QDialogButtonBox.StandardButton.Save)
+        save_button.setText("Save overlay")
+        save_button.setAccessibleName("Save overlay")
+        buttons.button(
+            QDialogButtonBox.StandardButton.Cancel).setAccessibleName(
+                "Cancel overlay changes")
         buttons.accepted.connect(self._validate)
         buttons.rejected.connect(self.reject)
 
@@ -693,10 +711,25 @@ class VitalBarDialog(QDialog):
 
     def _validate(self):
         if not self.name.text().strip():
+            message = "Enter an overlay name."
+            self.name_error.setText(message)
+            self.name_error.setAccessibleDescription(message)
+            self.name_error.show()
+            self.name.setAccessibleDescription(
+                f"Error: {message} {self._name_description}")
             self.name.setFocus(Qt.FocusReason.OtherFocusReason)
-            _announce(self.name, "Enter a name for this vital bar")
+            _announce(self.name, message)
+            self.name.setAccessibleDescription(
+                f"Error: {message} {self._name_description}")
             return
         self.accept()
+
+    def _clear_name_error(self, text):
+        if not str(text).strip() or not self.name_error.isVisible():
+            return
+        self.name_error.clear()
+        self.name_error.hide()
+        self.name.setAccessibleDescription(self._name_description)
 
     def value(self):
         result = dict(self._bar)
@@ -828,8 +861,9 @@ class VitalCard(QFrame):
         for key, label, callback, description in (
                 ("calibrate", calibration_label, self.calibrate_requested,
                  calibration_help),
-                ("edit", "Alert stops", self.edit_requested,
-                 "Configure thresholds and Sound/WAV, Text to speech, or Off"),
+                ("edit", "Edit overlay", self.edit_requested,
+                 "Rename this overlay and configure its alert thresholds and "
+                 "Sound/WAV, Text to speech, or Off delivery"),
                 ("remove", "Remove", self.remove_requested,
                  "Remove this saved vital bar after confirmation")):
             button = QPushButton(label)
@@ -899,7 +933,6 @@ class Vitals(ParserWindow):
 
     name = "vitals"
     _allow_clickthrough = False
-    _minimum_readable_width = 240
     status_changed = Signal()
 
     def __init__(self):
@@ -978,33 +1011,6 @@ class Vitals(ParserWindow):
 
     def parse(self, _timestamp, _text):
         """Vitals intentionally ignores log text and never controls the game."""
-
-    def _update_uniform_scale(self):
-        """Reflow Vitals at 240 px instead of shrinking controls to 43%."""
-        if self._collapsed:
-            return super()._update_uniform_scale()
-        scale_view = getattr(self, "_scale_view", None)
-        scale_proxy = getattr(self, "_scale_proxy", None)
-        if scale_view is None or scale_proxy is None:
-            return
-        viewport = scale_view.viewport().size()
-        logical_width = max(240, viewport.width())
-        logical_height = max(1, viewport.height())
-        if (logical_width != self._logical_surface_width or
-                logical_height != self._logical_surface_height):
-            self._logical_surface_width = logical_width
-            self._logical_surface_height = logical_height
-            self._surface.setFixedSize(logical_width, logical_height)
-            self._resize_scale_proxy(logical_width, logical_height)
-        self._scale_scene.setSceneRect(QRectF(
-            0, 0, logical_width, logical_height))
-        scale_view.resetTransform()
-        self._update_header_scale_compensation(1.0)
-        scale_view.horizontalScrollBar().setValue(
-            scale_view.horizontalScrollBar().minimum())
-        scale_view.verticalScrollBar().setValue(
-            scale_view.verticalScrollBar().minimum())
-        self._layout_resize_handles()
 
     def quickbar_status(self):
         return self._status_text
@@ -1309,11 +1315,21 @@ class Vitals(ParserWindow):
         if not reading.valid or not reading.token_rect:
             return (reading, normalized)
         token_x, token_y, token_width, token_height = reading.token_rect
-        margin = max(2, min(6, round(token_height * .16)))
-        left = max(0, token_x - margin)
-        top = max(0, token_y - margin)
-        right = min(image.width(), token_x + token_width + margin)
-        bottom = min(image.height(), token_y + token_height + margin)
+        # Do not persist the exact one-frame glyph bounds. Tiny EQ bitmap text
+        # can move by one or two physical pixels after a frame, DPI, or window
+        # transition, and antialiasing may add an edge pixel. Keep a compact
+        # but deliberately padded ROI; the OCR helper already separates a
+        # nearby same-color health/mana bar from glyph-sized components.
+        horizontal_margin = max(
+            5, min(12, round(token_height * .45)))
+        vertical_margin = max(
+            4, min(10, round(token_height * .35)))
+        left = max(0, token_x - horizontal_margin)
+        top = max(0, token_y - vertical_margin)
+        right = min(
+            image.width(), token_x + token_width + horizontal_margin)
+        bottom = min(
+            image.height(), token_y + token_height + vertical_margin)
         fitted = normalize_rect(
             (left, top, right - left, bottom - top),
             (image.width(), image.height()))

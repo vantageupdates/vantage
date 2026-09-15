@@ -99,13 +99,8 @@ def test_every_window_size_preset_rollup_and_tray_restore_are_effective(
         'opendkp', 'zones', 'quests', 'items_notes', 'vantage_ui',
         'log_searcher', 'vitals'}
     for name, state in result.items():
-        if name == 'vitals':
-            assert all(case['size'] == [
-                max(240, case['expected'][0]), case['expected'][1]]
-                for case in state['cases'])
-        else:
-            assert all(case['size'] == case['expected']
-                       for case in state['cases'])
+        assert all(case['size'] == case['expected']
+                   for case in state['cases'])
         assert len({tuple(case['size']) for case in state['cases']}) == 4
         assert state['labels'] == expected_labels
         assert state['checked'] == ['Mini replica · 35%']

@@ -6,7 +6,7 @@ from vantage.helpers import config
 from vantage.helpers.application import VantageApp
 from vantage.helpers.notification_routes import (
     NOTIFICATION_ROUTES, NotificationDeliveryResult,
-    TellAudioCooldown, classify_chat_notification)
+    TellAudioCooldown, apply_starting_delivery, classify_chat_notification)
 
 
 EXPECTED_ROUTES = {
@@ -35,6 +35,74 @@ def test_route_catalog_is_complete_and_immutable():
         pass
     else:  # pragma: no cover - documents the immutability contract
         raise AssertionError('route catalog accepted mutation')
+
+
+def test_starting_delivery_changes_only_untouched_defaults():
+    saved = {
+        key: {
+            'delivery': route.default_delivery,
+            'sound': route.default_sound,
+            'voice': '',
+        }
+        for key, route in NOTIFICATION_ROUTES.items()
+    }
+    saved['market_sale']['sound'] = 'portable:sounds/my-sale.wav'
+    saved['tell_message']['voice'] = 'My narrator'
+    saved['death_loop']['delivery'] = 'off'
+    saved['spell_resisted']['sound'] = 'builtin:portal-ping'
+    original = copy.deepcopy(saved)
+
+    voice = apply_starting_delivery(saved, 'voice')
+
+    assert saved == original
+    assert set(voice.changed_keys) == {
+        'spell_fading', 'spell_worn_off', 'smart_timer',
+        'raid_encounter', 'opendkp_auction'}
+    assert len(voice.preserved_keys) == 5
+    assert voice.routes['spell_fading']['delivery'] == 'voice'
+    assert voice.routes['market_sale'] == saved['market_sale']
+    assert voice.routes['tell_message'] == saved['tell_message']
+    assert voice.routes['death_loop'] == saved['death_loop']
+    assert voice.routes['spell_resisted'] == saved['spell_resisted']
+
+
+def test_fresh_defaults_accept_text_to_speech_as_the_starting_style():
+    voice = apply_starting_delivery({}, 'voice')
+
+    expected_changed = {
+        key for key, route in NOTIFICATION_ROUTES.items()
+        if route.default_delivery == 'sound'}
+    assert set(voice.changed_keys) == expected_changed
+    assert set(voice.preserved_keys) == {
+        'tell_message', 'hail'}
+    assert all(
+        values['delivery'] == 'voice' and values['voice'] == ''
+        for values in voice.routes.values())
+    assert all(
+        values['sound'] == NOTIFICATION_ROUTES[key].default_sound
+        for key, values in voice.routes.items())
+
+
+def test_starting_delivery_can_reverse_automatic_voice_routes_to_beeps():
+    automatic_voice = {
+        key: {'delivery': 'voice', 'sound': route.default_sound, 'voice': ''}
+        for key, route in NOTIFICATION_ROUTES.items()
+    }
+    automatic_voice['market_sale']['sound'] = 'C:/alerts/market.wav'
+
+    sound = apply_starting_delivery(automatic_voice, 'sound')
+
+    assert sound.routes['spell_fading']['delivery'] == 'sound'
+    assert sound.routes['spell_fading']['sound'] == (
+        NOTIFICATION_ROUTES['spell_fading'].default_sound)
+    assert 'spell_fading' in sound.changed_keys
+    assert sound.routes['market_sale'] == automatic_voice['market_sale']
+    assert 'market_sale' in sound.preserved_keys
+
+
+def test_starting_delivery_rejects_an_unknown_mode():
+    with pytest.raises(ValueError, match='sound or voice'):
+        apply_starting_delivery({}, 'random')
 
 
 def test_chat_classifier_rejects_private_and_non_player_noise():
@@ -251,6 +319,7 @@ def test_config_removes_afk_route_and_repairs_malformed_routes():
         config.data.setdefault('sounds', {})['routes'] = {
             'tell_message': {'delivery': 'LOUD', 'sound': 123,
                              'voice': ['not a voice']}}
+        config.data['sounds']['starting_delivery'] = 'random'
         config.verify_settings()
         assert 'afk_attacked_enabled' not in config.data['timers']
         assert 'safety_sound_enabled' not in config.data['timers']
@@ -258,6 +327,7 @@ def test_config_removes_afk_route_and_repairs_malformed_routes():
         assert config.data['sounds']['routes']['tell_message'] == {
             'delivery': 'voice', 'sound': 'builtin:gentle-knock',
             'voice': ''}
+        assert config.data['sounds']['starting_delivery'] == 'sound'
     finally:
         config.data.clear()
         config.data.update(original)

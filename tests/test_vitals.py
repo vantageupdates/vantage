@@ -12,7 +12,8 @@ from PySide6.QtCore import QRect, Qt
 from PySide6.QtGui import QColor, QFont, QImage, QKeyEvent, QRawFont
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
-from PySide6.QtWidgets import QLabel, QMessageBox, QPushButton
+from PySide6.QtWidgets import (
+    QDialog, QDialogButtonBox, QLabel, QMessageBox, QPushButton)
 
 from vantage.helpers import config
 from vantage.helpers.game_capture import GameWindowCapture
@@ -68,6 +69,30 @@ _EQ_BITMAP_100 = (
     "..#..###...###.",
 )
 
+_EQ_BITMAP_DIGITS = {
+    "0": (".###.", "#...#", "#...#", "#...#",
+          "#...#", "#...#", "#...#", ".###."),
+    "1": ("..#", "###", "..#", "..#", "..#", "..#", "..#", "..#"),
+    "2": (".###.", "#...#", "....#", "...#.",
+          "..#..", ".#...", "#....", "#####"),
+    "3": ("####.", "....#", "....#", ".###.",
+          "....#", "....#", "....#", "####."),
+    "4": ("...#.", "..##.", ".#.#.", "#..#.",
+          "#####", "...#.", "...#.", "...#."),
+    "5": ("#####", "#....", "#....", "####.",
+          "....#", "....#", "....#", "####."),
+    "6": (".###.", "#....", "#....", "####.",
+          "#...#", "#...#", "#...#", ".###."),
+    "7": ("#####", "....#", "...#.", "...#.",
+          "..#..", "..#..", ".#...", ".#..."),
+    "8": (".###.", "#...#", "#...#", ".###.",
+          "#...#", "#...#", "#...#", ".###."),
+    "9": (".###.", "#...#", "#...#", "#...#",
+          ".####", "....#", "....#", ".###."),
+    "%": ("##..#", "##.#.", "...#.", "..#..",
+          "..#..", ".#...", "#.##.", "#..##"),
+}
+
 
 def _eq_bitmap_100_image(
         canvas, offset, color, bars=(), frame_lines=()):
@@ -89,6 +114,42 @@ def _eq_bitmap_100_image(
             if pixel == "#":
                 image.setPixelColor(left + x, top + y, foreground)
     return image
+
+
+def _eq_bitmap_number_image(
+        value, canvas=(54, 24), offset=(4, 8), color="#eceae1",
+        include_percent=False, scale=1, bars=(), missing_pixels=()):
+    """Build a privacy-safe compact eight-row EQ percentage fixture."""
+    image = QImage(canvas[0], canvas[1], QImage.Format.Format_RGB32)
+    background = QColor(10, 14, 16)
+    image.fill(background)
+    for left, top, width, height, bar_color in bars:
+        for y in range(top, min(image.height(), top + height)):
+            for x in range(left, min(image.width(), left + width)):
+                image.setPixelColor(x, y, QColor(bar_color))
+    text = str(value) + ("%" if include_percent else "")
+    left, top = offset
+    foreground = QColor(color)
+    cursor = left
+    foreground_points = []
+    for glyph in text:
+        rows = _EQ_BITMAP_DIGITS[glyph]
+        for row, bits in enumerate(rows):
+            for column, bit in enumerate(bits):
+                if bit != "#":
+                    continue
+                for dy in range(scale):
+                    for dx in range(scale):
+                        point = (cursor + column * scale + dx,
+                                 top + row * scale + dy)
+                        foreground_points.append(point)
+                        image.setPixelColor(*point, foreground)
+        cursor += (len(rows[0]) + 1) * scale
+    for index in missing_pixels:
+        point = foreground_points[index % len(foreground_points)]
+        image.setPixelColor(*point, background)
+    token_width = cursor - left - scale
+    return image, (left, top, token_width, 8 * scale)
 
 
 def _number_image(value, scale=2, color="#f2cf68", include_percent=True):
@@ -282,6 +343,114 @@ def test_real_eq_blue_and_green_labels_ignore_adjacent_bars_and_stay_ambiguous()
     assert combined.valid is False
     assert combined.percent is None
     assert "multiple" in combined.message.casefold()
+
+
+def test_compact_eq_bitmap_alphabet_reads_realistic_values_without_font_data(
+        monkeypatch):
+    class NoGuiApplication:
+        @staticmethod
+        def instance():
+            return None
+
+    monkeypatch.setattr(
+        vital_helpers_module, "QGuiApplication", NoGuiApplication)
+    vital_helpers_module._ocr_templates.cache_clear()
+    try:
+        cases = (
+            (7, "#f0f3f7", False, 1),
+            (25, "#e6bd48", False, 1),
+            (37, "#f0f3f7", False, 1),
+            (42, "#45d483", True, 1),
+            (68, "#1a9fff", False, 2),
+            (99, "#f0f3f7", False, 1),
+            (100, "#45d483", False, 1),
+        )
+        for expected, color, include_percent, scale in cases:
+            image, token = _eq_bitmap_number_image(
+                expected, canvas=(74, 36), offset=(5, 9), color=color,
+                include_percent=include_percent, scale=scale,
+                bars=((38, 6, 34, 18, color),))
+            loose = read_visible_percent(image, [0, 0, 1, 1])
+            tight = read_visible_percent(
+                image, normalize_rect(token, (image.width(), image.height())))
+            assert loose.valid is True, (expected, "loose", loose)
+            assert loose.percent == float(expected)
+            assert tight.valid is True, (expected, "tight", tight)
+            assert tight.percent == float(expected)
+            assert loose.confidence >= MIN_CONFIDENCE
+    finally:
+        vital_helpers_module._ocr_templates.cache_clear()
+
+
+def test_compact_eq_templates_do_not_turn_a_colored_bar_into_a_number():
+    image = QImage(74, 36, QImage.Format.Format_RGB32)
+    image.fill(QColor(10, 14, 16))
+    for y in range(9, 17):
+        for x in range(5, 69):
+            image.setPixelColor(x, y, QColor("#45d483"))
+    reading = read_visible_percent(image, [0, 0, 1, 1])
+    assert reading.valid is False
+    assert reading.percent is None
+    assert "unreadable" in reading.message.casefold()
+
+
+def test_compact_eq_bitmap_reader_tolerates_single_pixel_capture_noise(
+        monkeypatch):
+    class NoGuiApplication:
+        @staticmethod
+        def instance():
+            return None
+
+    monkeypatch.setattr(
+        vital_helpers_module, "QGuiApplication", NoGuiApplication)
+    vital_helpers_module._ocr_templates.cache_clear()
+    try:
+        cases = ((25, (3,), False), (42, (), True), (68, (27,), False))
+        for expected, missing, add_speck in cases:
+            image, token = _eq_bitmap_number_image(
+                expected, canvas=(46, 24), offset=(4, 7),
+                color="#eceae1", missing_pixels=missing)
+            if add_speck:
+                image.setPixelColor(
+                    token[0] + token[2] + 2, token[1] + 3,
+                    QColor("#eceae1"))
+            reading = read_visible_percent(
+                image, normalize_rect(
+                    (token[0] - 2, token[1] - 2,
+                     token[2] + 4, token[3] + 4),
+                    (image.width(), image.height())))
+            assert reading.valid is True, (expected, reading)
+            assert reading.percent == float(expected)
+    finally:
+        vital_helpers_module._ocr_templates.cache_clear()
+
+
+def test_two_different_compact_eq_numbers_remain_ambiguous(monkeypatch):
+    class NoGuiApplication:
+        @staticmethod
+        def instance():
+            return None
+
+    monkeypatch.setattr(
+        vital_helpers_module, "QGuiApplication", NoGuiApplication)
+    vital_helpers_module._ocr_templates.cache_clear()
+    try:
+        image, _token = _eq_bitmap_number_image(
+            25, canvas=(100, 38), offset=(5, 5), color="#45d483")
+        second, _second_token = _eq_bitmap_number_image(
+            68, canvas=(18, 8), offset=(0, 0), color="#1a9fff")
+        background = QColor(10, 14, 16)
+        for y in range(second.height()):
+            for x in range(second.width()):
+                color = second.pixelColor(x, y)
+                if color != background:
+                    image.setPixelColor(68 + x, 23 + y, color)
+        reading = read_visible_percent(image, [0, 0, 1, 1])
+        assert reading.valid is False
+        assert reading.percent is None
+        assert "multiple" in reading.message.casefold()
+    finally:
+        vital_helpers_module._ocr_templates.cache_clear()
 
 
 def test_visible_number_reader_never_turns_unreadable_pixels_into_zero():
@@ -711,8 +880,9 @@ def test_apply_valid_numeric_calibration_marks_and_persists_ocr_roi():
     Vitals._apply_calibration(owner, "my-hp", bounds)
 
     saved = owner._bars[0]["rect"]
-    assert saved != [0.0, 0.0, 1.0, 1.0]
-    assert 0 < saved[2] < 1 and 0 < saved[3] < 1
+    # This fixture is already cropped to the number plus only four pixels of
+    # canvas, so the stable margin correctly saturates at the image bounds.
+    assert saved == [0.0, 0.0, 1.0, 1.0]
     assert read_vital_bar(image, owner._bars[0]).percent == 75.0
     assert owner._bars[0]["ocr_calibrated"] is True
     assert ("persist", None) in calls
@@ -750,6 +920,84 @@ def test_loose_calibration_persists_a_fitted_offset_token_rect():
     assert x <= 68 + 4 and y <= 25 + 4
     reading = read_vital_bar(image, owner._bars[0])
     assert reading.valid is True and reading.percent == 83.0
+    owner._calibration_controls.close()
+
+
+def test_calibration_saves_drift_tolerant_roi_and_survives_reload_recalibration(
+        monkeypatch):
+    _app()
+    foreground = "#45d483"
+    initial, token = _eq_bitmap_number_image(
+        25, canvas=(120, 44), offset=(28, 14), color=foreground,
+        bars=((40, 10, 70, 16, foreground),))
+    bounds = QRect(300, 400, initial.width(), initial.height())
+    bar = sanitize_vital_bar({"id": "my-hp", "name": "My HP"})
+    persisted = []
+    monkeypatch.setitem(config.data, "vitals", {"bars": []})
+
+    def capture_save():
+        persisted[:] = json.loads(json.dumps(
+            config.data["vitals"]["bars"]))
+
+    monkeypatch.setattr(config, "save", capture_save)
+    owner = type("Owner", (), {})()
+    owner._bars = [bar]
+    owner._bar_index = lambda bar_id: 0 if bar_id == "my-hp" else -1
+    owner._calibration_context = ("my-hp", initial, bounds)
+    owner._calibration_sample = MethodType(Vitals._calibration_sample, owner)
+    owner._calibration_controls = CalibrationControls(bounds, bounds)
+    owner._tracker = type(
+        "Tracker", (), {"reset_bar": lambda *_args: None})()
+    owner._persist = MethodType(Vitals._persist, owner)
+    owner._rebuild_cards = lambda _target: None
+    owner._finish_calibration = lambda: None
+    owner._set_status = lambda _status: None
+    owner.poll_now = lambda: None
+
+    Vitals._apply_calibration(owner, "my-hp", bounds)
+
+    saved = owner._bars[0]["rect"]
+    saved_pixels = denormalize_rect(
+        saved, (initial.width(), initial.height()))
+    saved_x, saved_y, saved_width, saved_height = saved_pixels
+    token_x, token_y, token_width, token_height = token
+    assert saved_x <= token_x - 5
+    assert saved_y <= token_y - 4
+    assert saved_x + saved_width >= token_x + token_width + 5
+    assert saved_y + saved_height >= token_y + token_height + 4
+    assert saved_width < initial.width() / 3
+    assert saved_height < initial.height() / 2
+    assert persisted and persisted[0]["ocr_calibrated"] is True
+
+    # The live frame moves two pixels in both axes, loses one captured stroke
+    # pixel, and still places a same-color bar within the saved padded ROI.
+    shifted, _shifted_token = _eq_bitmap_number_image(
+        25, canvas=(120, 44), offset=(30, 16), color=foreground,
+        bars=((42, 12, 70, 16, foreground),), missing_pixels=(3,))
+    restored = sanitize_vital_bars(
+        json.loads(json.dumps(persisted)))[0]
+    shifted_reading = read_vital_bar(shifted, restored)
+    assert shifted_reading.valid is True
+    assert shifted_reading.percent == 25.0
+
+    # Repositioning an already persisted monitor uses the padded selection,
+    # validates the new frame, and saves another stable normalized ROI.
+    owner._bars = [restored]
+    owner._calibration_context = ("my-hp", shifted, bounds)
+    relative = denormalize_rect(
+        restored["rect"], (shifted.width(), shifted.height()))
+    selected = QRect(
+        bounds.x() + relative[0], bounds.y() + relative[1],
+        relative[2], relative[3])
+    Vitals._apply_calibration(owner, "my-hp", selected)
+    recalibrated = sanitize_vital_bars(
+        json.loads(json.dumps(persisted)))[0]
+    final, _final_token = _eq_bitmap_number_image(
+        25, canvas=(120, 44), offset=(29, 15), color=foreground,
+        bars=((41, 11, 70, 16, foreground),))
+    final_reading = read_vital_bar(final, recalibrated)
+    assert final_reading.valid is True
+    assert final_reading.percent == 25.0
     owner._calibration_controls.close()
 
 
@@ -793,6 +1041,43 @@ def test_vital_bar_has_one_numeric_reading_flow_and_no_obsolete_controls():
         label.text() for label in dialog.findChildren(QLabel)).casefold()
     assert all(term not in visible_copy
                for term in ("bar fill", "color tolerance", "legacy", "fallback"))
+    dialog.close()
+
+
+def test_overlay_name_validation_is_visible_associated_and_keyboard_focused():
+    app = _app()
+    dialog = VitalBarDialog(default_vital_bars()[0])
+    dialog.show()
+    app.processEvents()
+    assert dialog.windowTitle() == "Edit overlay"
+    assert dialog.name_label.text() == "Overlay name"
+    assert dialog.name_label.buddy() is dialog.name
+    assert dialog.name.accessibleName() == "Overlay name"
+    save = dialog.findChild(QDialogButtonBox).button(
+        QDialogButtonBox.StandardButton.Save)
+    assert save.text() == "Save overlay"
+    assert save.accessibleName() == "Save overlay"
+
+    dialog.name.setText("   ")
+    dialog.stop_list.setFocus()
+    dialog._validate()
+    app.processEvents()
+    assert dialog.result() != QDialog.DialogCode.Accepted
+    assert dialog.name.hasFocus()
+    assert dialog.name_error.isVisibleTo(dialog)
+    assert dialog.name_error.text() == "Enter an overlay name."
+    assert dialog.name_error.accessibleName() == "Overlay name error"
+    assert "Error: Enter an overlay name." in (
+        dialog.name.accessibleDescription())
+
+    dialog.name.setText("Raid target HP")
+    app.processEvents()
+    assert not dialog.name_error.isVisibleTo(dialog)
+    assert dialog.name_error.text() == ""
+    assert not dialog.name.accessibleDescription().startswith("Error:")
+    QTest.keyClick(dialog.name, Qt.Key.Key_Tab)
+    app.processEvents()
+    assert dialog.kind.hasFocus()
     dialog.close()
 
 
@@ -844,6 +1129,156 @@ def test_monitor_state_transitions_are_announced_once(monkeypatch):
     Vitals._set_status(owner, "ACTIVE · 2 live readings")
     assert announcements == ["ACTIVE · 2 live readings"]
     assert emitted == [True]
+
+
+def test_existing_overlay_can_be_renamed_without_changing_monitor_data(
+        tmp_path):
+    script = r'''
+import copy
+import json
+from PySide6.QtWidgets import QDialog
+from vantage.helpers import config
+from vantage.helpers.application import VantageApp
+from vantage.parsers.vitals import VitalBarDialog
+
+config.data["general"]["startup_window_state"] = "normal"
+app = VantageApp([])
+vitals = app._parsers_dict["vitals"]
+bar_id = vitals._bars[0]["id"]
+vitals._bars[0]["ocr_calibrated"] = True
+vitals._bars[0]["rect"] = [0.11, 0.22, 0.19, 0.08]
+vitals._persist()
+vitals._rebuild_cards()
+before = copy.deepcopy(vitals._bars[0])
+
+def rename_and_accept(dialog):
+    dialog.name.setText("Spiritflux target HP")
+    dialog._validate()
+    return dialog.result()
+
+VitalBarDialog.exec = rename_and_accept
+vitals._edit_bar(bar_id)
+app.processEvents()
+after = copy.deepcopy(vitals._bars[0])
+card = vitals._cards[bar_id]
+print(json.dumps({
+    "accepted": after["name"] == "Spiritflux target HP",
+    "stored_name": config.data["vitals"]["bars"][0]["name"],
+    "card_label": card.name_label.text(),
+    "card_accessible": card.accessibleName(),
+    "edit_text": card.action_buttons["edit"].text(),
+    "edit_accessible": card.action_buttons["edit"].accessibleName(),
+    "same_id": after["id"] == before["id"],
+    "same_rect": after["rect"] == before["rect"],
+    "same_stops": after["stops"] == before["stops"],
+    "same_type": after["type"] == before["type"],
+    "same_enabled": after["enabled"] == before["enabled"],
+}))
+app.quit()
+'''
+    env = os.environ.copy()
+    env["QT_QPA_PLATFORM"] = "offscreen"
+    env["PYTHONPATH"] = str(ROOT / "src")
+    env["VANTAGE_DATA_DIR"] = str(tmp_path / "profile")
+    completed = subprocess.run(
+        [sys.executable, "-c", script], cwd=ROOT, env=env,
+        check=True, capture_output=True, text=True, timeout=30)
+    result = json.loads(completed.stdout.strip().splitlines()[-1])
+    assert result == {
+        "accepted": True,
+        "stored_name": "Spiritflux target HP",
+        "card_label": "Spiritflux target HP",
+        "card_accessible": "Spiritflux target HP vital bar",
+        "edit_text": "Edit overlay",
+        "edit_accessible": "Edit overlay Spiritflux target HP",
+        "same_id": True,
+        "same_rect": True,
+        "same_stops": True,
+        "same_type": True,
+        "same_enabled": True,
+    }
+
+
+def test_vitals_mini_replica_rollup_and_expanded_size_restore(tmp_path):
+    script = r'''
+import json
+from PySide6.QtTest import QTest
+from vantage.helpers import config
+from vantage.helpers.application import VantageApp
+
+config.data["general"]["startup_window_state"] = "normal"
+app = VantageApp([])
+vitals = app._parsers_dict["vitals"]
+vitals._set_collapsed(False)
+vitals.show()
+vitals._set_replica_scale(0.35)
+QTest.qWait(30)
+app.processEvents()
+mini = [vitals.width(), vitals.height()]
+mini_scale = vitals._scale_view.transform().m11()
+roll_name = vitals._roll_button.accessibleName()
+vitals._focus_embedded_control(vitals._roll_button)
+roll_focused = vitals._surface.focusWidget() is vitals._roll_button
+
+vitals._set_collapsed(True)
+QTest.qWait(30)
+app.processEvents()
+rolled = [vitals.width(), vitals.height()]
+content_hidden = all(
+    not vitals.content.itemAt(index).widget().isVisible()
+    for index in range(1, vitals.content.count())
+    if vitals.content.itemAt(index).widget() is not None)
+saved_while_rolled = config.data["vitals"]["geometry"][2:]
+expand_name = vitals._roll_button.accessibleName()
+collapsed_saved = config.data["vitals"]["collapsed"]
+
+vitals._set_collapsed(False)
+QTest.qWait(30)
+app.processEvents()
+expanded = [vitals.width(), vitals.height()]
+expanded_scale = vitals._scale_view.transform().m11()
+print(json.dumps({
+    "design": [vitals._design_size.width(), vitals._design_size.height()],
+    "mini": mini,
+    "mini_scale": mini_scale,
+    "roll_name": roll_name,
+    "roll_focused": roll_focused,
+    "rolled": rolled,
+    "content_hidden": content_hidden,
+    "saved_while_rolled": saved_while_rolled,
+    "expand_name": expand_name,
+    "collapsed_saved": collapsed_saved,
+    "expanded": expanded,
+    "expanded_scale": expanded_scale,
+    "expanded_saved": config.data["vitals"]["geometry"][2:],
+    "expanded_collapsed": config.data["vitals"]["collapsed"],
+}))
+app.quit()
+'''
+    env = os.environ.copy()
+    env["QT_QPA_PLATFORM"] = "offscreen"
+    env["PYTHONPATH"] = str(ROOT / "src")
+    env["VANTAGE_DATA_DIR"] = str(tmp_path / "profile")
+    completed = subprocess.run(
+        [sys.executable, "-c", script], cwd=ROOT, env=env,
+        check=True, capture_output=True, text=True, timeout=30)
+    result = json.loads(completed.stdout.strip().splitlines()[-1])
+    expected_mini = [
+        round(result["design"][0] * 0.35),
+        round(result["design"][1] * 0.35)]
+    assert result["mini"] == expected_mini
+    assert result["mini_scale"] == pytest.approx(0.35, abs=0.01)
+    assert result["roll_name"] == "Roll up panel"
+    assert result["roll_focused"] is True
+    assert result["rolled"][1] <= 24
+    assert result["content_hidden"] is True
+    assert result["saved_while_rolled"] == expected_mini
+    assert result["expand_name"] == "Expand panel"
+    assert result["collapsed_saved"] is True
+    assert result["expanded"] == expected_mini
+    assert result["expanded_scale"] == pytest.approx(0.35, abs=0.01)
+    assert result["expanded_saved"] == expected_mini
+    assert result["expanded_collapsed"] is False
 
 
 def test_direct_background_frame_drives_reading_and_calibration_status(tmp_path):
@@ -1055,8 +1490,9 @@ app.quit()
     assert result["status"].startswith("NO READING")
     assert "NO READING" in result["tooltip"]
     assert result["responsive"] == {
-        "width": 240, "surface_width": 240,
-        "scale": 1.0, "button_height": result["responsive"]["button_height"]}
+        "width": 240, "surface_width": 560,
+        "scale": pytest.approx(240 / 560, abs=0.01),
+        "button_height": result["responsive"]["button_height"]}
     assert result["responsive"]["button_height"] >= 30
     assert result["hierarchy"] == {
         "add_in_header": False,
@@ -1065,19 +1501,19 @@ app.quit()
         "add_text": "Add monitor",
         "guide": [
             "Place overlay over %", "Validate reading", "Set alert stops"],
-        "guide_columns": 1,
+        "guide_columns": 3,
         "has_long_copy": False,
         "has_progress": False,
         "value_object": "SpawnTimerTime",
         "state": "SETUP",
         "detail": "Next: place the overlay over the visible % number",
         "actions": [
-            "Monitoring on", "Calibrate", "Alert stops", "Remove"],
+            "Monitoring on", "Calibrate", "Edit overlay", "Remove"],
         "card_count": 4,
         "actions_do_not_overlap": True,
         "text_fits": True,
         "tab_after_add": "Monitor My HP",
     }
-    assert result["restored_focus"] == "Alert stops My HP"
+    assert result["restored_focus"] == "Edit overlay My HP"
     assert result["remove_focus"] == "Monitor My Mana"
     assert result["calibration_focus"] == "Calibrate My Mana"

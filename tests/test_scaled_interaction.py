@@ -279,7 +279,7 @@ def test_scaled_panels_keep_keyboard_pointer_and_tooltips(tmp_path):
             "items_notes": [225, 142],
             "vantage_ui": [175, 135],
             "log_searcher": [240, 140],
-            "vitals": [240, 115]}
+            "vitals": [140, 115]}
     assert result["minimum_sizes"]["timers"] == [
         130, min(
             result["timer_required_physical_height"],

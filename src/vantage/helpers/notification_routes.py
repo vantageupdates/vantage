@@ -55,6 +55,8 @@ _ROUTES = (
 
 NOTIFICATION_ROUTES = MappingProxyType({route.key: route for route in _ROUTES})
 DELIVERY_CHOICES = (("Off", "off"), ("Sound", "sound"), ("Voice", "voice"))
+STARTING_DELIVERY_CHOICES = (
+    ("Beeps", "sound"), ("Text to speech", "voice"))
 
 _INCOMING_TELL = re.compile(
     r"^(?P<sender>[A-Za-z][\w`' -]{0,79}) tells you, ['\"](?P<body>.*)['\"]$",
@@ -87,6 +89,15 @@ class NotificationDeliveryResult:
 
     def __bool__(self):
         return self.played
+
+
+@dataclass(frozen=True)
+class StartingDeliveryResult:
+    """Non-destructive result of applying an app-wide starting style."""
+
+    routes: dict
+    changed_keys: tuple
+    preserved_keys: tuple
 
 
 class TellAudioCooldown:
@@ -169,3 +180,35 @@ def normalized_route_settings(settings, route):
     raw_voice = settings.get("voice", "")
     voice = str(raw_voice or "")[:160] if isinstance(raw_voice, str) else ""
     return {"delivery": delivery, "sound": sound, "voice": voice}
+
+
+def apply_starting_delivery(route_settings, delivery):
+    """Apply a sound/voice starting point only to untouched route defaults.
+
+    A route is protected when it is Off, has a chosen voice, or keeps any
+    sound other than its catalog default.  This includes custom and portable
+    WAV files as well as a deliberately selected gallery sound.  The caller
+    receives independent records and can preview them without mutating config.
+    """
+    delivery = str(delivery or "").strip().casefold()
+    if delivery not in {"sound", "voice"}:
+        raise ValueError("Starting delivery must be sound or voice")
+    route_settings = route_settings if isinstance(route_settings, dict) else {}
+    updated = {}
+    changed = []
+    preserved = []
+    for route_key, route in NOTIFICATION_ROUTES.items():
+        values = normalized_route_settings(
+            route_settings.get(route_key), route)
+        customized = (
+            values["delivery"] == "off" or
+            bool(values["voice"].strip()) or
+            values["sound"] != route.default_sound)
+        if customized or values["delivery"] == delivery:
+            preserved.append(route_key)
+        else:
+            values["delivery"] = delivery
+            changed.append(route_key)
+        updated[route_key] = values
+    return StartingDeliveryResult(
+        updated, tuple(changed), tuple(preserved))

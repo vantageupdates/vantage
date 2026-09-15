@@ -600,6 +600,11 @@ def verify_settings():
     from vantage.helpers.notification_routes import (
         NOTIFICATION_ROUTES, normalized_route_settings)
     data['sounds'] = data.get('sounds', {})
+    if not isinstance(data['sounds'], dict):
+        data['sounds'] = {}
+    data['sounds']['starting_delivery'] = get_setting(
+        data['sounds'].get('starting_delivery', 'sound'), 'sound',
+        lambda value: value in ('sound', 'voice'))
     route_values = data['sounds'].get('routes', {})
     route_values = route_values if isinstance(route_values, dict) else {}
     legacy_keys = {

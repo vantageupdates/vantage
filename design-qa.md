@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.95 design QA
+# Vantage Companion 1.44.97 design QA
 
 final result: passed
 
@@ -15,16 +15,34 @@ final result: passed
   persistence, recast, or update-handoff identity comparisons. Multiple real
   P99 buffs such as Grim Aura, Focus of Spirit, Enlightenment, and Riotous
   Health coexist after update restore; a same-name recast replaces only itself.
-- Numeric Vitals OCR accepts the real EverQuest `100` maximum without requiring
-  a percent glyph, while unreadable or ambiguous pixels still remain **NO
-  READING**. The forgiving overlay preview and fitted ROI were rechecked with
-  real-sized EQ-style digits as well as synthetic 0–100 coverage.
+- Numeric Vitals OCR now includes the complete compact EverQuest 0–9 alphabet
+  and optional `%` glyph at their native 3–5 px widths. Component bands isolate
+  same-color HP/mana fills and whole-token ranking prevents a digit inside
+  `100` from winning as a false zero. All 101 values from 0 through 100 passed
+  with and without the percent form, at 1x/2x scale, and beside green, blue,
+  gold, or white bars; missing pixels are tolerated while two plausible labels
+  still remain **NO READING** instead of guessing. The bounded 384-candidate
+  search measured 20.627 ms per compact fixture across the complete 0–100 set,
+  safely within the 500 ms poll interval.
+- Vitals calibration no longer persists the previous two-pixel tight crop,
+  which could validate on the frozen frame and then lose a shifted live glyph.
+  Its fitted ROI now keeps bounded minimum margins of 5 px horizontally and
+  4 px vertically. An end-to-end save/reload test retains the same reading
+  after a two-pixel shift, one missing capture pixel, and an adjacent
+  same-color bar, then verifies recalibration remains stable.
 - Text-to-speech now defaults centrally to the legal local **Vantage Command**
   preset: Microsoft Mark, then David, another suitable installed voice, or the
   startup Windows voice. Explicit trigger/profile voices remain authoritative;
   unavailable saved voices remain visible and saved while the fallback is
   active. Notification routes, custom triggers, Smart Timers, and Vitals passed
   focused keyboard, status, and accessible-state review with no findings.
+- Sounds adds one explicit app-wide **Starting notification style** selector
+  for **Beeps** or **Text to speech**, followed by **Apply to defaults**. It is
+  a preview, not a bulk overwrite: custom/portable WAVs, non-default gallery
+  sounds, explicit voices, and Off routes are preserved, while untouched routes
+  receive their semantic default beep or Vantage Command speech. The visible
+  result reports changed and preserved counts; per-route editors still win,
+  Save persists the preview, and Cancel or close restores the prior state.
 - Vitals Monitor now keeps the title bar compact, places **Add monitor** in
   the content area, and presents setup as three short steps. Each responsive
   card prioritizes the current percentage, textual state, confidence, and next
@@ -32,6 +50,15 @@ final result: passed
   placed rectangle, finds one unambiguous percentage within it, and saves a
   fitted ROI; padded, framed, ambiguous, 240 px, large-font, keyboard, focus,
   and screen-reader states passed focused and accessibility review.
+- Existing Vitals overlays can now be renamed from the card's clearly labelled
+  **Edit overlay** action. The same dialog keeps alert-stop editing while
+  preserving the overlay ID, calibrated rectangle, thresholds, type, and
+  enabled state; saving immediately rebuilds the card and persists the new
+  name. Empty names remain in the dialog with a visible and announced error.
+- Vitals now follows the shared parser replica contract: **Mini** produces the
+  true 35% scaled replica instead of reflowing into a forced 240 px surface.
+  Roll-up reduces the window to its header only, updates the accessible action
+  to **Expand panel**, and restores the exact prior expanded or Mini geometry.
 - Vitals Monitor now reads only the visible 0–100 HP/mana number, with an
   optional percent sign and no external OCR executable. The removed fill/color
   reader, direction, tolerance, and mode controls have no runtime or persisted
@@ -196,9 +223,8 @@ final result: passed
 - Mini replica captures: `work/v14469-spells-mini.png`, `work/v14469-timers-mini.png`, `work/v14469-market-mini.png`, and `work/v14469-combat-mini.png`
 - The selected logo remains identifiable from 16 through 256 px on dark and light backgrounds.
 - Exact 25%, 35%, 50%, and 75% panel presets were measured across every main
-  window. Standard overlays preserve their authored replica geometry; Vitals
-  keeps a readable 240 px width at its two smallest presets while varying the
-  viewport height and reflowing without overlap.
+  window. Standard overlays, including Vitals, preserve their authored replica
+  geometry instead of substituting a reflowed layout for a requested scale.
 - Roll-up uses a compact 1:1 header, and expanding or restoring from the tray returns to the exact previous replica size.
 - Self-buff rows are owned by the exact character and server that produced
   them. Selecting a character hides unowned legacy rows, while a new verified
@@ -210,6 +236,16 @@ final result: passed
 
 ## Accessibility checks
 
+- Sounds Starting style passed focused WCAG 2.4.3, 2.4.6, 3.3.2, and 4.1.2
+  review. The native selector has a visible buddy label and a deterministic
+  keyboard path to Apply; its changed/preserved result is visible and announced
+  politely without moving focus. Save/Cancel semantics are stated before the
+  control, and protected custom choices remain exposed in their original route.
+- Vitals overlay editing passed focused WCAG 2.4.3, 2.4.6, 3.3.1, 3.3.2,
+  and 4.1.2 review. **Overlay name** is a visible buddy label and accessible
+  name; empty-name validation is visible, announced, and returns focus to the
+  field. **Edit overlay**, **Save overlay**, roll-up, and expand expose clear
+  accessible names, and card rebuilding restores keyboard focus.
 - The final accessibility-lead review passed WCAG 2.4.3 and 4.1.2 for Maps:
   the graphic label is a non-focusable pointer shortcut, while the native POI
   button/menu provides the complete named keyboard and screen-reader path.

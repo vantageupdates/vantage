@@ -24,7 +24,8 @@ from vantage.helpers.audio import (
     unavailable_voice_label, vantage_command_voice_description,
     vantage_command_voice_label)
 from vantage.helpers.notification_routes import (
-    DELIVERY_CHOICES, NOTIFICATION_ROUTES, normalized_route_settings)
+    DELIVERY_CHOICES, NOTIFICATION_ROUTES, STARTING_DELIVERY_CHOICES,
+    apply_starting_delivery, normalized_route_settings)
 from vantage.helpers.icons import game_icon
 from vantage.helpers.friends_manager import FriendsManagerDialog
 from vantage.helpers.gina_import import GinaImportError, import_gina_package
@@ -400,6 +401,8 @@ class SettingsWindow(UniformScaleDialog):
                 current['voice'] = str(picker.currentData() or '')
             config.data.setdefault('sounds', {}).setdefault(
                 'routes', {})[route_key] = current
+        config.data.setdefault('sounds', {})['starting_delivery'] = str(
+            self.audio_starting_style.currentData() or 'sound')
         for route_key, legacy_key in (
                 ('smart_timer', 'timer_default'),
                 ('raid_encounter', 'raid_encounter'),
@@ -512,6 +515,14 @@ class SettingsWindow(UniformScaleDialog):
             delivery.setCurrentIndex(max(0, index))
             self._populate_route_picker(
                 route_key, delivery, picker, values=values)
+        if hasattr(self, 'audio_starting_style'):
+            wanted = config.data.get('sounds', {}).get(
+                'starting_delivery', 'sound')
+            index = self.audio_starting_style.findData(wanted)
+            self.audio_starting_style.setCurrentIndex(max(0, index))
+            self.audio_starting_style_status.setText(
+                'Choose a style and apply it. Nothing changes until Apply, '
+                'and nothing is stored until Save.')
 
     def _populate_route_picker(
             self, route_key, delivery, picker, _index=None, values=None):
@@ -595,6 +606,50 @@ class SettingsWindow(UniformScaleDialog):
         except (AttributeError, RuntimeError, TypeError):
             pass
         return message
+
+    def _apply_audio_starting_style(self):
+        """Preview a safe app-wide audio starting point in route controls."""
+        current_routes = {}
+        for route_key, delivery, picker in self._notification_route_widgets:
+            route = NOTIFICATION_ROUTES[route_key]
+            values = normalized_route_settings(
+                config.data.get('sounds', {}).get('routes', {}).get(route_key),
+                route)
+            mode = str(delivery.currentData() or 'off')
+            values['delivery'] = mode
+            if mode == 'sound':
+                values['sound'] = str(picker.currentData() or '')
+            elif mode == 'voice':
+                values['voice'] = str(picker.currentData() or '')
+            current_routes[route_key] = values
+
+        mode = str(self.audio_starting_style.currentData() or 'sound')
+        result = apply_starting_delivery(current_routes, mode)
+        changed = set(result.changed_keys)
+        for route_key, delivery, picker in self._notification_route_widgets:
+            if route_key not in changed:
+                continue
+            values = result.routes[route_key]
+            delivery.blockSignals(True)
+            delivery.setCurrentIndex(max(0, delivery.findData(mode)))
+            delivery.blockSignals(False)
+            self._populate_route_picker(
+                route_key, delivery, picker, values=values)
+
+        style = ('Text to speech' if mode == 'voice' else 'Beeps')
+        message = (
+            f'{style} preview applied · {len(result.changed_keys)} default '
+            f'routes changed · {len(result.preserved_keys)} routes preserved. '
+            'Custom choices and Off routes stay unchanged. Select Save to keep it.')
+        self.audio_starting_style_status.setText(message)
+        self.audio_starting_style_status.setVisible(True)
+        try:
+            QAccessible.updateAccessibility(
+                QAccessibleAnnouncementEvent(
+                    self.audio_starting_style_status, message))
+        except (AttributeError, RuntimeError, TypeError):
+            pass
+        return result
 
     def _create_settings(self):
         stacked_widgets = []
@@ -853,6 +908,60 @@ class SettingsWindow(UniformScaleDialog):
         sound_intro.setObjectName('CombatDataNotice')
         sound_intro.setWordWrap(True)
         sound_sl.addRow('', sound_intro)
+        sound_sl.addRow(SettingsHeader('STARTING STYLE'))
+        starting_style_intro = QLabel(
+            'Choose a starting style for automatic notifications, then apply '
+            'it. Only routes still using their defaults change. Custom WAVs, '
+            'chosen sounds, voices, and Off routes are always preserved; every '
+            'route remains editable below.')
+        starting_style_intro.setObjectName('CombatDataNotice')
+        starting_style_intro.setWordWrap(True)
+        sound_sl.addRow('', starting_style_intro)
+        starting_style = QComboBox()
+        starting_style.setObjectName('sounds:starting_delivery')
+        starting_style.setAccessibleName('Starting notification style')
+        starting_style.setAccessibleDescription(
+            'Choose Beeps or Text to speech as the starting style for '
+            'automatic routes that have not been customized.')
+        starting_style.setToolTip(
+            'This does not overwrite custom WAVs, chosen sounds or voices, '
+            'or routes set to Off.')
+        for choice_label, value in STARTING_DELIVERY_CHOICES:
+            starting_style.addItem(choice_label, value)
+        starting_style_label = QLabel('Starting notification style')
+        starting_style_label.setBuddy(starting_style)
+        starting_style_row = QWidget()
+        starting_style_layout = QHBoxLayout(starting_style_row)
+        starting_style_layout.setContentsMargins(0, 0, 0, 0)
+        starting_style_layout.setSpacing(3)
+        starting_style_layout.addWidget(starting_style, 1)
+        apply_starting_style = QPushButton('Apply to defaults')
+        apply_starting_style.setAccessibleName(
+            'Apply starting notification style to default routes')
+        apply_starting_style.setAccessibleDescription(
+            'Previews the selected style without replacing custom route '
+            'choices. Use Save to keep the preview.')
+        apply_starting_style.setToolTip(
+            'Preview this style on untouched routes; nothing is saved until '
+            'you select Save')
+        apply_starting_style.clicked.connect(self._apply_audio_starting_style)
+        starting_style_layout.addWidget(apply_starting_style)
+        sound_sl.addRow(starting_style_label, starting_style_row)
+        starting_style_status = QLabel(
+            'Choose a style and apply it. Nothing changes until Apply, and '
+            'nothing is stored until Save.')
+        starting_style_status.setObjectName('StartingAudioStyleStatus')
+        starting_style_status.setAccessibleName(
+            'Starting notification style result')
+        starting_style_status.setAccessibleDescription(
+            'Reports how many default routes changed and how many existing '
+            'route choices were preserved without moving keyboard focus.')
+        starting_style_status.setWordWrap(True)
+        sound_sl.addRow('Apply status', starting_style_status)
+        self.audio_starting_style = starting_style
+        self.audio_starting_style_label = starting_style_label
+        self.apply_audio_starting_style_button = apply_starting_style
+        self.audio_starting_style_status = starting_style_status
         sound_sl.addRow(SettingsHeader('NOTIFICATION SOUNDS'))
 
         route_test_status = QLabel('')
@@ -924,6 +1033,12 @@ class SettingsWindow(UniformScaleDialog):
                 (route_key, delivery, picker))
             if route.default_delivery == 'sound':
                 self._notification_sound_combos.append(picker)
+        QWidget.setTabOrder(
+            starting_style, apply_starting_style)
+        if self._notification_route_widgets:
+            QWidget.setTabOrder(
+                apply_starting_style,
+                self._notification_route_widgets[0][1])
         sound_sl.addRow('Test status', route_test_status)
 
         def add_sound_route(label, object_name, default, volume, source):

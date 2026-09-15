@@ -254,6 +254,30 @@ _EQ_BITMAP_GLYPHS = {
     "0": ("01110", "10001", "10001", "10001",
           "10001", "10001", "10001", "01110"),
     "1": ("001", "111", "001", "001", "001", "001", "001", "001"),
+    # EQ's compact labels use an eight-row raster alphabet.  These shapes
+    # deliberately keep their native 3-5 pixel widths: stretching every
+    # digit to one width makes a tiny 1, 4, or 7 much easier to confuse after
+    # capture scaling.  The first two masks above come directly from live EQ
+    # percentage labels; the remaining masks cover the same compact raster
+    # family used for the other digits.
+    "2": ("01110", "10001", "00001", "00010",
+          "00100", "01000", "10000", "11111"),
+    "3": ("11110", "00001", "00001", "01110",
+          "00001", "00001", "00001", "11110"),
+    "4": ("00010", "00110", "01010", "10010",
+          "11111", "00010", "00010", "00010"),
+    "5": ("11111", "10000", "10000", "11110",
+          "00001", "00001", "00001", "11110"),
+    "6": ("01110", "10000", "10000", "11110",
+          "10001", "10001", "10001", "01110"),
+    "7": ("11111", "00001", "00010", "00010",
+          "00100", "00100", "01000", "01000"),
+    "8": ("01110", "10001", "10001", "01110",
+          "10001", "10001", "10001", "01110"),
+    "9": ("01110", "10001", "10001", "10001",
+          "01111", "00001", "00001", "01110"),
+    "%": ("11001", "11010", "00010", "00100",
+           "00100", "01000", "10110", "00110"),
 }
 
 
@@ -385,16 +409,33 @@ def _without_frame_lines(mask):
     """Remove long one-pixel frame rules without erasing digit strokes."""
     if not mask or not mask[0]:
         return []
+
+    def longest_run(values):
+        longest = current = 0
+        for value in values:
+            if value:
+                current += 1
+                longest = max(longest, current)
+            else:
+                current = 0
+        return longest
+
     cleaned = [list(row) for row in mask]
     height, width = len(cleaned), len(cleaned[0])
     for row in range(height):
-        if sum(cleaned[row]) >= max(8, round(width * .72)):
+        # Count one continuous rule, not total ink. Dense rows such as the
+        # top of "25" contain several short strokes separated by glyph
+        # spacing and must remain intact in a tightly calibrated ROI.
+        if longest_run(cleaned[row]) >= max(8, round(width * .72)):
             cleaned[row] = [False] * width
     for column in range(width):
         # An EQ bitmap "1" has an eight-pixel vertical stem.  Only treat a
         # near-full-height column as framing when the ROI is taller than a
         # compact glyph; otherwise a tightly fitted 100 would lose its 1.
-        if height >= 12 and sum(
+        # A 2x-scaled EQ glyph is sixteen pixels tall and can legitimately
+        # contain a full-height two-pixel stem.  Vertical frame cleanup is
+        # therefore restricted to ROIs taller than compact text at 2x.
+        if height >= 21 and longest_run(
                 cleaned[row][column] for row in range(height)) >= max(
                     8, round(height * .78)):
             for row in range(height):
