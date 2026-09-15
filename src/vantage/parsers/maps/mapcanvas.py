@@ -105,6 +105,7 @@ class MapCanvas(QGraphicsView):
     """Map Widget for Everquest Map Files."""
 
     manual_pan = Signal()
+    poi_activated = Signal(object)
 
     def __init__(self):
 
@@ -186,7 +187,7 @@ class MapCanvas(QGraphicsView):
             self.update()
             self.update_()
 
-            QTimer.singleShot(0, self.fit_overview)
+            QTimer.singleShot(0, self._fit_overview_if_automatic)
             self._mouse_location = MouseLocation()
             self._scene.addItem(self._mouse_location)
             config.data['maps']['last_zone'] = self._data.zone
@@ -201,6 +202,7 @@ class MapCanvas(QGraphicsView):
         for z in self._data.keys():
             self._scene.addItem(self._data[z]['paths'])
             for p in self._data[z]['poi']:
+                p.set_activation_callback(self.poi_activated.emit)
                 self._scene.addItem(p.leader)
                 self._scene.addItem(p.text)
 
@@ -571,6 +573,44 @@ class MapCanvas(QGraphicsView):
             geometry.z_groups[self._z_index],
             config.data['maps']['show_poi'])
 
+    def _fit_overview_if_automatic(self):
+        """Ignore stale queued fits after a user or POI chose a view."""
+        if not self._manual_view:
+            self.fit_overview()
+
+    def focus_poi(self, point):
+        """Center the exact saved POI and keep its label on the active layer."""
+        if not self._data or point is None:
+            return False
+        located_z = None
+        for z in self._data.keys():
+            if point in self._data[z]['poi']:
+                located_z = z
+                break
+        if located_z is None:
+            return False
+        try:
+            self._z_index = self._data.geometry.z_groups.index(located_z)
+        except ValueError:
+            pass
+        self._manual_view = True
+        self.update_()
+        # QGraphicsView clamps centerOn at scene edges. Extend only the
+        # navigable scene envelope (not the map geometry) so even an edge POI
+        # lands at the exact viewport center requested by the selector.
+        visible = self.mapToScene(self.viewport().rect()).boundingRect()
+        required = QRectF(
+            point.location.x - visible.width(),
+            point.location.y - visible.height(),
+            visible.width() * 2.0, visible.height() * 2.0)
+        self.setSceneRect(self.sceneRect().united(required))
+        self.centerOn(point.location.x, point.location.y)
+        point.text.setVisible(True)
+        point.text.setOpacity(1.0)
+        self._layout_poi_labels(
+            located_z, config.data['maps']['show_poi'])
+        return True
+
     def remove_player(self, name):
         player = self._data.players.pop(name)
         if player:
@@ -699,7 +739,7 @@ class MapCanvas(QGraphicsView):
             if config.data['maps']['auto_follow'] and player:
                 self.center()
             elif not self._manual_view:
-                QTimer.singleShot(0, self.fit_overview)
+                QTimer.singleShot(0, self._fit_overview_if_automatic)
 
     def contextMenuEvent(self, event):
         # create menu

@@ -110,9 +110,23 @@ def write_spell_handoff(rows, *, path=None, now=None):
     return cleaned
 
 
-def read_spell_handoff(*, updated_from="", path=None, now=None):
-    """Read a validated handoff only during a confirmed post-update launch."""
-    if not str(updated_from or "").strip():
+def read_spell_handoff(
+        *, updated_from="", path=None, now=None, newer_than=None):
+    """Read a validated update handoff without reviving stale state.
+
+    ``updated_from`` is the primary one-shot proof supplied by the updater.
+    Some Windows relaunch paths can drop that environment value. The updater
+    therefore stamps the sidecar *after* the old process has exited and the
+    executable swap succeeds. In that recovery mode the stamp must be newer
+    than the config the new process loaded. A later normal save therefore
+    always wins, including explicit fades or removals. Pre-stamp sidecars are
+    accepted only under the older, conservative rule where their snapshot is
+    itself newer than config; this lets a valid interrupted-update recovery
+    survive an upgrade from a build which did not yet write the stamp.
+    """
+    update_confirmed = bool(str(updated_from or "").strip())
+    recovery_floor = _safe_clock(newer_than)
+    if not update_confirmed and not recovery_floor:
         return None
     source = Path(path) if path is not None else spell_handoff_path()
     try:
@@ -129,6 +143,15 @@ def read_spell_handoff(*, updated_from="", path=None, now=None):
     if (not created_at or created_at > current + 300 or
             current - created_at > SPELL_HANDOFF_MAX_AGE_SECONDS):
         return None
+    if not update_confirmed:
+        applied_at = _safe_clock(payload.get("update_applied_at"))
+        if applied_at:
+            if (applied_at < created_at or applied_at > current + 300 or
+                    current - applied_at > SPELL_HANDOFF_MAX_AGE_SECONDS or
+                    applied_at <= recovery_floor):
+                return None
+        elif created_at <= recovery_floor:
+            return None
     rows = payload.get("rows")
     if not isinstance(rows, list) or len(rows) > SPELL_HANDOFF_MAX_ROWS:
         return None

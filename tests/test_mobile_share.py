@@ -153,7 +153,8 @@ def test_mobile_page_accessibility_updates_preserve_the_private_session():
     assert 'id="installApp"' in _MOBILE_PAGE
     assert "Save Vantage to your Home Screen" in _MOBILE_PAGE
     assert "vantageMobileSessionToken" in _MOBILE_PAGE
-    assert "history.replaceState" in _MOBILE_PAGE
+    assert "history.replaceState" not in _MOBILE_PAGE
+    assert "vantageMobilePairingV1" in _MOBILE_PAGE
     assert 'rel="manifest" href="/manifest.webmanifest"' in _MOBILE_PAGE
     assert "navigator.serviceWorker.register('/sw.js'" in _MOBILE_PAGE
     assert "Showing saved data while Vantage reconnects" in _MOBILE_PAGE
@@ -162,10 +163,10 @@ def test_mobile_page_accessibility_updates_preserve_the_private_session():
     assert "function announceConnectionPolitely" in _MOBILE_PAGE
     assert "8000-(Date.now()-lastPoliteConnectionAt)" in _MOBILE_PAGE
     assert "if(actionRequired)" in _MOBILE_PAGE
+    assert "No saved Vantage link exists" in _MOBILE_PAGE
+    assert "This saved Vantage link no longer exists" in _MOBILE_PAGE
     assert (
-        "Scan the new QR in Vantage.',true" in _MOBILE_PAGE)
-    assert (
-        "setConnection('OFFLINE · SAVED',true,'Connection lost." in
+        "setConnection('RECONNECTING · SAVED',true,'Vantage is closed" in
         _MOBILE_PAGE)
     assert (
         "setConnection('OFFLINE · SAVED',true,'Connection lost."
@@ -229,7 +230,7 @@ def test_mobile_pwa_shell_routes_are_cacheable_without_caching_private_api():
         manifest = json.loads(manifest_payload)
         assert manifest["name"] == "Vantage P99 Companion"
         assert manifest["display"] == "standalone"
-        assert manifest["start_url"] == "/"
+        assert "start_url" not in manifest
         assert "token" not in manifest_payload.decode("utf-8").casefold()
         assert manifest_headers["Content-Type"].startswith(
             "application/manifest+json")
@@ -343,6 +344,53 @@ def test_mobile_controller_reuses_lan_session_and_preserves_choices_on_shutdown(
         assert second.game_capture.enabled is True
         second._snapshot_timer.stop()
         assert len(saves) >= 4
+        assert app is not None
+    finally:
+        config.data = original
+
+
+def test_saved_home_screen_link_reconnects_after_companion_shutdown_and_reopen(
+        monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    original = config.data
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.bind(("127.0.0.1", 0))
+    preferred_port = probe.getsockname()[1]
+    probe.close()
+    token = "R" * 43
+    try:
+        config.data = {"mobile": {
+            "game_enabled": True, "auto_start": True,
+            "preferred_port": preferred_port, "lan_token": token,
+        }}
+        monkeypatch.setattr(
+            mobile_share_module, "GameWindowCapture", _PersistentGameCapture)
+        monkeypatch.setattr(config, "save", lambda: None)
+        monkeypatch.setattr(
+            MobileShareController, "_cloudflared_path", lambda self: None)
+
+        first = MobileShareController(_snapshot)
+        first.start()
+        old_url = urlsplit(first.local_url)
+        _, before, _ = _request(
+            f"http://127.0.0.1:{old_url.port}", "/api/state", token)
+        assert json.loads(before)["version"] == 2
+        first.shutdown()
+        first._snapshot_timer.stop()
+        assert config.data["mobile"]["auto_start"] is True
+
+        # The saved Home Screen origin/hash can retry the same host, port and
+        # private token after Vantage opens again; no replacement QR is needed.
+        second = MobileShareController(_snapshot)
+        second.start()
+        reopened = urlsplit(second.local_url)
+        assert reopened.port == old_url.port == preferred_port
+        assert reopened.fragment == old_url.fragment == token
+        _, after, _ = _request(
+            f"http://127.0.0.1:{reopened.port}", "/api/state", token)
+        assert json.loads(after)["version"] == 2
+        second.shutdown()
+        second._snapshot_timer.stop()
         assert app is not None
     finally:
         config.data = original
@@ -520,7 +568,7 @@ def test_mobile_item_detail_fetches_once_and_reuses_bounded_cache(
     wiki = """
 {{Itembox
 | itemname = Jade Mace
-| statsblock = MAGIC ITEM LORE ITEM<br>Slot: PRIMARY<br>AC: 9<br>
+| statsblock = MAGIC ITEM LORE ITEM<br>Slot: PRIMARY<br>AC: 9<br>DMG: 9<br>Delay: 22<br>
 Effect: [[Light Strike]] (Combat)
 | dropsfrom = West Commonlands
 * [[Kizdean Gix]]
@@ -566,6 +614,8 @@ Effect: [[Light Strike]] (Combat)
     assert len(calls) == 1
     assert first["status"] == "complete"
     assert first["stats"]["ac"] == 15
+    assert first["stats"]["dmg"] == 9
+    assert first["stats"]["dly"] == 22
     assert "MAGIC ITEM" in first["stats_text"]
     assert first["restrictions"]["classes"] == ["Shaman"]
     assert first["effects"][0]["name"] == "Light Strike"
@@ -679,6 +729,8 @@ def test_mobile_item_detail_ui_uses_safe_links_live_status_and_offline_fallback(
     assert 'id="detailStatus" class="sr-only" role="status"' in _MOBILE_PAGE
     assert 'aria-live="polite" aria-atomic="true"' in _MOBILE_PAGE
     assert "requestAnimationFrame(()=>announce(detailStatus" in _MOBILE_PAGE
+    assert "dmg:'DMG',dly:'DLY'" in _MOBILE_PAGE
+    assert "['dmg','dly'].includes(key)?String(value)" in _MOBILE_PAGE
     assert "label+'; opens in a new tab'" in _MOBILE_PAGE
     assert ".innerHTML" not in _MOBILE_PAGE
     assert "restarts this saved Wi-Fi session automatically" in _MOBILE_PAGE

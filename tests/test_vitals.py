@@ -21,7 +21,8 @@ from vantage.helpers.vitals import (
     learn_fill_color, normalize_rect, preset_percentages,
     sanitize_vital_bars)
 from vantage.parsers.vitals import (
-    CalibrationControls, CalibrationOverlay, VitalStopDialog, Vitals)
+    CalibrationControls, CalibrationOverlay, VitalBarDialog, VitalStopDialog,
+    Vitals)
 import vantage.parsers.vitals as vitals_module
 
 
@@ -59,6 +60,33 @@ def test_pixel_reader_reports_ltr_rtl_and_rejects_missing_fill_color():
     assert rtl.valid and rtl.percent == 37.0 and rtl.confidence >= MIN_CONFIDENCE
     assert absent.valid is False and absent.percent is None
     assert "not visible" in absent.message.casefold()
+
+
+def test_pixel_reader_finds_thin_fill_inside_tall_roi_and_ignores_frame():
+    image = QImage(100, 30, QImage.Format.Format_RGB32)
+    image.fill(QColor(12, 14, 18))
+    fill = QColor(205, 28, 35)
+    # A target-colored one-pixel frame must not become a false 100% reading.
+    for x in range(100):
+        image.setPixelColor(x, 0, fill)
+        image.setPixelColor(x, 29, fill)
+    # The actual EQ fill can be only a few pixels tall inside a loose overlay.
+    for x in range(63):
+        for y in range(12, 16):
+            image.setPixelColor(x, y, fill)
+
+    reading = analyze_vital_bar(image, [0, 0, 1, 1], [205, 28, 35])
+    assert reading.valid is True
+    assert reading.percent == 63.0
+    assert reading.confidence >= MIN_CONFIDENCE
+
+    frame_only = QImage(image.size(), image.format())
+    frame_only.fill(QColor(12, 14, 18))
+    for x in range(100):
+        frame_only.setPixelColor(x, 0, fill)
+        frame_only.setPixelColor(x, 29, fill)
+    absent = analyze_vital_bar(frame_only, [0, 0, 1, 1], [205, 28, 35])
+    assert absent.valid is False and absent.percent is None
 
 
 def test_fill_color_learning_prefers_colored_fill_over_dark_background():
@@ -197,7 +225,7 @@ def test_target_hp_is_a_default_and_existing_profiles_receive_it_once(
         config.data = original
 
 
-def test_raw_capture_is_opt_in_independent_but_refuses_background():
+def test_raw_capture_uses_direct_eq_window_while_vantage_is_foreground():
     capture = object.__new__(GameWindowCapture)
     capture._lock = threading.Lock()
     capture._supported = True
@@ -215,13 +243,6 @@ def test_raw_capture_is_opt_in_independent_but_refuses_background():
     capture._capture_image = lambda _hwnd: (_image(), (0, 0, 100, 12))
     status, image, rect = capture.image_frame(
         require_enabled=False, require_foreground=True)
-    assert status["available"] is False
-    assert image.isNull() and rect == ()
-    assert "foreground" in status["message"]
-
-    capture._game_is_foreground = lambda _hwnd: True
-    status, image, rect = capture.image_frame(
-        require_enabled=False, require_foreground=True)
     assert status["available"] is True
     assert not image.isNull() and rect == (0, 0, 100, 12)
 
@@ -230,6 +251,17 @@ def test_raw_capture_is_opt_in_independent_but_refuses_background():
         require_enabled=False, require_foreground=False)
     assert status["available"] is True
     assert not image.isNull() and rect == (0, 0, 100, 12)
+
+
+def test_screen_fallback_remains_blocked_when_eq_is_not_foreground():
+    capture = object.__new__(GameWindowCapture)
+    capture._capture_error = ""
+    capture._game_is_foreground = lambda _hwnd: False
+    assert capture._screen_fallback_allowed(123) is False
+    assert "safe WinEQ screen fallback" in capture._capture_error
+
+    capture._game_is_foreground = lambda _hwnd: True
+    assert capture._screen_fallback_allowed(123) is True
 
 
 def test_vitals_contains_no_game_input_automation_path():
@@ -312,6 +344,15 @@ def test_stop_editor_exposes_delivery_sound_tts_off_and_tokens(monkeypatch):
     dialog.close()
 
 
+def test_vital_bar_help_explains_direct_capture_and_safe_fallback():
+    _app()
+    dialog = VitalBarDialog(default_vital_bars()[0])
+    description = dialog.enabled.accessibleDescription()
+    assert "Direct capture can continue while Vantage is in focus" in description
+    assert "safe screen fallback may require EverQuest" in description
+    dialog.close()
+
+
 def test_runtime_delivery_passes_sound_and_tts_profile_controls(monkeypatch):
     played = []
     spoken = []
@@ -360,6 +401,74 @@ def test_monitor_state_transitions_are_announced_once(monkeypatch):
     Vitals._set_status(owner, "ACTIVE · 2 live readings")
     assert announcements == ["ACTIVE · 2 live readings"]
     assert emitted == [True]
+
+
+def test_direct_background_frame_drives_reading_and_calibration_status(tmp_path):
+    script = r'''
+import json
+from PySide6.QtGui import QColor, QImage
+from vantage.helpers.application import VantageApp
+
+class DirectEverQuestCapture:
+    def __init__(self):
+        self.image = QImage(100, 30, QImage.Format.Format_RGB32)
+        self.image.fill(QColor(12, 14, 18))
+        for x in range(64):
+            for y in range(12, 16):
+                self.image.setPixelColor(x, y, QColor(205, 28, 35))
+    def image_frame(self, **_kwargs):
+        # Models PrintWindow/window-DC success while the Vantage panel owns
+        # foreground focus.
+        return ({"available": True, "message": "Direct EQ capture"},
+                self.image.copy(), (40, 50, 100, 30))
+    def set_executable(self, _path):
+        pass
+
+app = VantageApp([])
+vitals = app._parsers_dict["vitals"]
+vitals._capture = DirectEverQuestCapture()
+vitals._bars[0]["rect"] = [0, 0, 1, 1]
+vitals._bars[0]["color"] = [205, 28, 35]
+for bar in vitals._bars[1:]:
+    bar["enabled"] = False
+vitals.poll_now()
+active = vitals.quickbar_status()
+reading = vitals._readings["my-hp"]
+vitals._start_calibration("my-hp")
+app.processEvents()
+calibrating = vitals.quickbar_status()
+controls_visible = vitals._calibration_controls.isVisible()
+overlay_visible = vitals._calibration_overlay.isVisible()
+focus_name = vitals._calibration_controls.focusWidget().accessibleName()
+vitals._finish_calibration()
+app.processEvents()
+vitals.close()
+app.processEvents()
+print(json.dumps({
+    "active": active,
+    "percent": reading.percent,
+    "valid": reading.valid,
+    "calibrating": calibrating,
+    "controls_visible": controls_visible,
+    "overlay_visible": overlay_visible,
+    "focus_name": focus_name,
+}))
+app.quit()
+'''
+    env = os.environ.copy()
+    env["QT_QPA_PLATFORM"] = "offscreen"
+    env["PYTHONPATH"] = str(ROOT / "src")
+    env["VANTAGE_DATA_DIR"] = str(tmp_path / "profile")
+    completed = subprocess.run(
+        [sys.executable, "-c", script], cwd=ROOT, env=env,
+        check=True, capture_output=True, text=True, timeout=30)
+    result = json.loads(completed.stdout.strip().splitlines()[-1])
+    assert result["active"] == "ACTIVE · 1 live reading"
+    assert result["valid"] is True and result["percent"] == 64.0
+    assert result["calibrating"] == "CALIBRATING · My HP"
+    assert result["controls_visible"] is True
+    assert result["overlay_visible"] is True
+    assert result["focus_name"] == "Calibration X coordinate"
 
 
 def test_application_registers_and_quickbar_toggles_vitals(tmp_path):

@@ -80,10 +80,26 @@ updater.sys.frozen = True
 updater.sys.executable = str(target)
 updater.subprocess.Popen = lambda command, **kwargs: spawned.append(command)
 
+# Reproduce the real shutdown race: after the updater owns a verified handoff,
+# a late UI/sync teardown observes an empty container and writes that stale
+# state just before QApplication.aboutToQuit performs its final checkpoint.
+real_checkpoint_for_update = app.checkpoint_for_update
+def checkpoint_then_teardown():
+    complete = real_checkpoint_for_update()
+    if complete:
+        container.snapshot_runtime_state = lambda: []
+        config.data['spells']['active_timer_state'] = []
+        config.save()
+    return complete
+app.checkpoint_for_update = checkpoint_then_teardown
+
 dialog = UpdateDialog(app._update_controller)
 dialog.info = info
 dialog.staged_path = str(staged)
 dialog.open_ui_after_restart.setChecked(True)
+# A failed install must produce a deterministic assertion, never strand this
+# regression subprocess inside the Qt event loop.
+QTimer.singleShot(8000, app.quit)
 QTimer.singleShot(0, dialog.install)
 app.exec()
 
@@ -92,7 +108,7 @@ with open(config._filename, encoding='utf-8') as source:
 rows = persisted['spells']['active_timer_state']
 print(json.dumps({
     'spawned': len(spawned),
-    'open_ui_flag': '--open-vantage-ui' in spawned[0],
+    'open_ui_flag': bool(spawned) and '--open-vantage-ui' in spawned[0],
     'names_after_quit': sorted(row['spell']['name'] for row in rows),
     'rows_after_quit': rows,
 }))
@@ -128,6 +144,22 @@ print(json.dumps({
     'persisted_deadlines': {
         row['spell']['name']: row['deadline'] for row in persisted},
     'handoff_consumed': not spell_handoff_path().exists(),
+}))
+app.quit()
+"""
+
+
+COUNT_RESTORE_SCRIPT = r"""
+import json
+
+from vantage.helpers.application import VantageApp
+from vantage.helpers.update_handoff import spell_handoff_path
+
+app = VantageApp([])
+rows = app._parsers_dict['spells']._spell_container.snapshot_runtime_state()
+print(json.dumps({
+    'names': sorted(row['spell']['name'] for row in rows),
+    'handoff_exists': spell_handoff_path().exists(),
 }))
 app.quit()
 """
@@ -184,6 +216,67 @@ def test_real_update_dialog_quit_and_fresh_process_restore_all_active_spells(
     assert restored['handoff_consumed'] is True
     assert 0 < restored['remaining']['Update Self Buff'] < 300
     assert 0 < restored['remaining']['Update Mob Debuff'] < 240
+
+
+def test_fresh_process_recovers_newer_handoff_without_environment_marker_but_not_after_user_save(
+        tmp_path):
+    from vantage.helpers.update_apply import _stamp_spell_handoff
+    from vantage.helpers.update_handoff import write_spell_handoff
+
+    now = time.time()
+    live_row = {
+        'deadline': now + 600,
+        'target': '__you__',
+        'target_created_order': 1,
+        'target_marker': '',
+        'character': 'Spiritflux',
+        'server': 'P1999 Green',
+        'spell': {
+            'name': 'Focus of Spirit',
+            'runtime_key': 'focus of spirit',
+        },
+    }
+
+    recovered_profile = tmp_path / 'missing-marker-recovered'
+    recovered_profile.mkdir()
+    recovered_config = recovered_profile / 'vantage.config.json'
+    write_spell_handoff(
+        [live_row], path=recovered_profile / 'update-spell-handoff.json',
+        now=now)
+    # Reproduce the actual order: QApplication/aboutToQuit writes config after
+    # the checkpoint, then the successful updater stamps the sidecar only once
+    # the old process is gone and the swap has completed.
+    recovered_config.write_text(json.dumps({
+        'spells': {'active_timer_state': []},
+    }), encoding='utf-8')
+    os.utime(recovered_config, (now + 1, now + 1))
+    assert _stamp_spell_handoff(
+        path=recovered_profile / 'update-spell-handoff.json',
+        now=now + 2) is True
+
+    recovered = _run(COUNT_RESTORE_SCRIPT, recovered_profile)
+    assert recovered['names'] == ['Focus of Spirit']
+    assert recovered['handoff_exists'] is False
+
+    changed_profile = tmp_path / 'missing-marker-user-changed'
+    changed_profile.mkdir()
+    changed_config = changed_profile / 'vantage.config.json'
+    changed_config.write_text(json.dumps({
+        'spells': {'active_timer_state': []},
+    }), encoding='utf-8')
+    write_spell_handoff(
+        [live_row], path=changed_profile / 'update-spell-handoff.json',
+        now=now)
+    assert _stamp_spell_handoff(
+        path=changed_profile / 'update-spell-handoff.json',
+        now=now + 1) is True
+    # A config write after the applied stamp represents normal operation or an
+    # explicit removal and must remain authoritative over the stale sidecar.
+    os.utime(changed_config, (now + 2, now + 2))
+
+    rejected = _run(COUNT_RESTORE_SCRIPT, changed_profile)
+    assert rejected['names'] == []
+    assert rejected['handoff_exists'] is True
 
 
 def test_checkpoint_verification_rejects_stale_disk_without_spawning(
@@ -262,6 +355,50 @@ def test_launch_installer_forwards_one_shot_vantageui_handoff(
     assert '--open-vantage-ui' in spawned[0][0]
 
 
+def test_installer_spawn_failure_cancels_frozen_spell_handoff(
+        monkeypatch, tmp_path):
+    import pytest
+    from vantage.helpers import updater
+    from vantage.helpers.updater import UpdateController
+
+    candidate = tmp_path / 'new.exe'
+    target = tmp_path / 'Vantage.exe'
+    candidate.write_bytes(b'MZnew')
+    target.write_bytes(b'MZold')
+    digest = hashlib.sha256(candidate.read_bytes()).hexdigest()
+    info = SimpleNamespace(digest='sha256:' + digest)
+
+    class _Signal:
+        @staticmethod
+        def connect(_callback):
+            pass
+
+    class _App:
+        cancelled = False
+        aboutToQuit = _Signal()
+
+        @staticmethod
+        def checkpoint_for_update():
+            return True
+
+        def cancel_update_handoff(self):
+            self.cancelled = True
+
+    app = _App()
+    monkeypatch.setattr(updater.sys, 'frozen', True, raising=False)
+    monkeypatch.setattr(updater.sys, 'executable', str(target))
+    monkeypatch.setattr(
+        updater.QApplication, 'instance', staticmethod(lambda: app))
+    monkeypatch.setattr(
+        updater.subprocess, 'Popen',
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            OSError('Windows refused to start updater')))
+
+    with pytest.raises(OSError, match='refused'):
+        UpdateController('1.0.0').launch_installer(info, candidate)
+    assert app.cancelled is True
+
+
 def test_update_apply_sets_handoff_only_for_successful_swap(monkeypatch, tmp_path):
     from vantage.helpers import update_apply
 
@@ -294,10 +431,13 @@ def test_update_apply_parser_forwards_handoff_only_after_verified_success(
     target.write_bytes(b'MZold')
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
     launches = []
+    stamps = []
     monkeypatch.setattr(update_apply.sys, 'executable', str(source))
     monkeypatch.setattr(
         update_apply, '_launch_target',
         lambda path, **kwargs: launches.append((path, kwargs)))
+    monkeypatch.setattr(
+        update_apply, '_stamp_spell_handoff', lambda: stamps.append(True))
     result = update_apply.apply_staged_update([
         '--apply-update', '--target', str(target), '--wait-pid', '0',
         '--digest', 'sha256:' + digest, '--from-version', '1.44.54',
@@ -305,6 +445,7 @@ def test_update_apply_parser_forwards_handoff_only_after_verified_success(
     assert result == 0
     assert launches[0][1]['open_vantage_ui'] is True
     assert launches[0][1]['updated_from'] == '1.44.54'
+    assert stamps == [True]
 
     launches.clear()
     result = update_apply.apply_staged_update([
@@ -313,6 +454,7 @@ def test_update_apply_parser_forwards_handoff_only_after_verified_success(
         '--open-vantage-ui'])
     assert result == 1
     assert launches and launches[0][1].get('open_vantage_ui', False) is False
+    assert stamps == [True]
 
 
 def test_checkpoint_does_not_report_success_when_fresh_process_would_read_stale(

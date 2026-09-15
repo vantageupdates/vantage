@@ -66,6 +66,46 @@ def test_non_authoritative_render_cleanup_does_not_emit_removal():
     assert removed == []
 
 
+def test_cancelled_update_handoff_resumes_live_spell_persistence(monkeypatch):
+    _app()
+    original_spells = config.data['spells']
+    monkeypatch.setattr(config, '_filename', '')
+
+    class _Host:
+        checkpoint_runtime_state = Spells.checkpoint_runtime_state
+        begin_update_handoff = Spells.begin_update_handoff
+        cancel_update_handoff = Spells.cancel_update_handoff
+
+    host = _Host()
+    host._runtime_state_save_timer = QTimer()
+    host._runtime_state_save_timer.setSingleShot(True)
+    host._spell_container = SpellContainer()
+    host._update_handoff_rows = None
+    now = datetime.datetime.now()
+    host._spell_container.add_spell(
+        _spell('Fetter'), now, '__you__', 'Spiritflux', 'Green')
+    config.data['spells'] = {
+        **original_spells,
+        'active_timer_state': [],
+        'active_timer_sync': {},
+    }
+    try:
+        frozen = host.begin_update_handoff()
+        assert [row['spell']['name'] for row in frozen] == ['Fetter']
+
+        # The app remains open after Popen fails. A later live cast must be
+        # observed rather than remaining pinned to the failed-update snapshot.
+        host.cancel_update_handoff()
+        host._spell_container.add_spell(
+            _spell('Regrowth'), now, '__you__', 'Spiritflux', 'Green')
+        host.checkpoint_runtime_state()
+        assert sorted(row['spell']['name'] for row in
+                      config.data['spells']['active_timer_state']) == [
+                          'Fetter', 'Regrowth']
+    finally:
+        config.data['spells'] = original_spells
+
+
 def test_spell_state_restores_current_remaining_time_after_downtime():
     _app()
     # Keep the live Qt timer in the future while testing the independent

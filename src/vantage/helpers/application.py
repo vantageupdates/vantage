@@ -57,7 +57,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=90,
+    patch=91,
     build=""
 )
 
@@ -151,8 +151,14 @@ class VantageApp(QApplication):
             self._ensure_location_sharing()
 
         # Load Parsers
+        updated_from = os.environ.get("VANTAGE_UPDATED_FROM", "")
+        try:
+            config_mtime = os.path.getmtime(config._filename)
+        except (OSError, TypeError, ValueError):
+            config_mtime = 0.0
         self._update_spell_handoff = read_spell_handoff(
-            updated_from=os.environ.get("VANTAGE_UPDATED_FROM", ""))
+            updated_from=updated_from,
+            newer_than=config_mtime if not updated_from else None)
         if self._update_spell_handoff is not None:
             config.data.setdefault('spells', {})['active_timer_state'] = \
                 copy.deepcopy(self._update_spell_handoff)
@@ -1483,15 +1489,35 @@ class VantageApp(QApplication):
 
     def checkpoint_for_update(self):
         """Persist and verify countdown state before another EXE can start."""
+        spells = None
+        handoff_frozen = False
+
+        def cancel_spell_handoff():
+            nonlocal handoff_frozen
+            cancel = getattr(spells, 'cancel_update_handoff', None)
+            if handoff_frozen and callable(cancel):
+                cancel()
+            handoff_frozen = False
+
         try:
             for parser in self._parsers:
                 parser._save_geometry()
             spells = self._parsers_dict.get('spells')
             timers = self._parsers_dict.get('timers')
             if spells is not None:
-                spells.checkpoint_runtime_state()
-            spell_rows = copy.deepcopy(
-                config.data.get('spells', {}).get('active_timer_state', []))
+                begin_handoff = getattr(spells, 'begin_update_handoff', None)
+                if callable(begin_handoff):
+                    spell_rows = begin_handoff()
+                    handoff_frozen = True
+                else:
+                    spells.checkpoint_runtime_state()
+                    spell_rows = copy.deepcopy(
+                        config.data.get('spells', {}).get(
+                            'active_timer_state', []))
+            else:
+                spell_rows = copy.deepcopy(
+                    config.data.get('spells', {}).get(
+                        'active_timer_state', []))
             write_spell_handoff(spell_rows)
             if timers is not None:
                 timers.checkpoint_view_geometries()
@@ -1500,15 +1526,27 @@ class VantageApp(QApplication):
             sync_checkpoint = getattr(
                 device_sync, 'checkpoint_for_update', None)
             if callable(sync_checkpoint) and not sync_checkpoint():
+                cancel_spell_handoff()
                 return False
             timer_rows = copy.deepcopy(
                 config.data.get('timers', {}).get('items', []))
             config.save()
-            return config.verify_update_checkpoint(spell_rows, timer_rows)
+            verified = config.verify_update_checkpoint(spell_rows, timer_rows)
+            if not verified:
+                cancel_spell_handoff()
+            return verified
         except Exception:
             # The installer treats False as a hard cancellation and leaves the
             # current Vantage process, tray, and windows running.
+            cancel_spell_handoff()
             return False
+
+    def cancel_update_handoff(self):
+        """Resume live spell persistence after an updater launch failure."""
+        spells = self._parsers_dict.get('spells')
+        cancel = getattr(spells, 'cancel_update_handoff', None)
+        if callable(cancel):
+            cancel()
 
     def show_update_dialog(self):
         self.clear_update_receipt()

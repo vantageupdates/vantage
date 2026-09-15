@@ -70,6 +70,16 @@ def test_wiki_itembox_is_converted_to_native_card_data():
         "name": "Fungal Regrowth", "target": "Fungal Regrowth"}]
 
 
+def test_wiki_itembox_exposes_weapon_damage_and_delay_for_mobile_card():
+    item = parse_wiki_item_wikitext("""{{Itembox
+| itemname = Wurmslayer
+| statsblock = MAGIC ITEM LORE ITEM<br>Slot: PRIMARY<br>
+Skill: 1H Slashing Atk Delay: 40<br>DMG: 25<br>AC: 5
+}}""")
+
+    assert item["numeric_stats"] == {"dmg": 25, "dly": 40, "ac": 5}
+
+
 def test_plain_item_effect_name_becomes_internal_link_not_its_requirements():
     item = parse_wiki_item_wikitext("""{{Itembox
 |itemname = Grim Aura item

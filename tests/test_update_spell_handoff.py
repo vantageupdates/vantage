@@ -83,3 +83,48 @@ def test_valid_empty_handoff_clears_stale_rows_without_reviving_on_normal_start(
     assert read_spell_handoff(
         updated_from="1.44.85", path=path, now=now + 1) == []
     assert consume_spell_handoff([], [], path=path, now=now + 1) is True
+
+
+def test_missing_update_marker_recovers_only_when_handoff_is_newer_than_config(
+        tmp_path):
+    path = tmp_path / "handoff.json"
+    now = time.time()
+    write_spell_handoff([_buff(deadline=now + 600)], path=path, now=now)
+
+    recovered = read_spell_handoff(
+        path=path, now=now + 1, newer_than=now - 10)
+    assert [row["spell"]["name"] for row in recovered] == [
+        "Focus of Spirit"]
+
+    # A normal save after the handoff is authoritative. This includes a user
+    # removing/fading the buff before a later non-update restart.
+    assert read_spell_handoff(
+        path=path, now=now + 1, newer_than=now + 0.01) is None
+    assert path.exists()
+
+
+def test_success_stamp_after_final_config_save_recovers_without_environment(
+        tmp_path):
+    from vantage.helpers.update_apply import _stamp_spell_handoff
+
+    path = tmp_path / "handoff.json"
+    now = time.time()
+    write_spell_handoff([_buff(deadline=now + 600)], path=path, now=now)
+
+    # This is the real update ordering: the old app saves config after the
+    # snapshot. Before the swap proof exists, that newer config wins.
+    assert read_spell_handoff(
+        path=path, now=now + 3, newer_than=now + 1) is None
+
+    # update_apply writes this only after the old process has exited and the
+    # verified executable swap succeeds.
+    assert _stamp_spell_handoff(path=path, now=now + 2) is True
+    recovered = read_spell_handoff(
+        path=path, now=now + 3, newer_than=now + 1)
+    assert [row["spell"]["name"] for row in recovered] == [
+        "Focus of Spirit"]
+
+    # A user/normal save after the one-shot applied stamp remains
+    # authoritative and does not resurrect a removed timer.
+    assert read_spell_handoff(
+        path=path, now=now + 4, newer_than=now + 3) is None

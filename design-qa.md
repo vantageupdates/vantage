@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.90 design QA
+# Vantage Companion 1.44.91 design QA
 
 final result: passed
 
@@ -13,10 +13,11 @@ final result: passed
 
 - Vitals Monitor is a first-class Quick Bar window and reads only the pixels
   inside user-calibrated EverQuest bars. My HP, My Mana, Target/Mob HP, Group
-  HP, and additional custom bars run simultaneously from one foreground frame;
-  normalized calibration survives window movement and resizing. Low-confidence,
-  minimized, background, or unavailable captures never become false zero values
-  and never fire alerts.
+  HP, and additional custom bars run simultaneously. Direct window capture
+  continues while Vantage or calibration has focus; only the safe screen
+  fallback requires foreground EQ. Thin fills inside framed/tall ROIs remain
+  readable, while minimized, unavailable, or low-confidence captures never
+  become false zero values and never fire alerts.
 - Every vital bar supports multiple directional thresholds, quarter/every-10%
   presets, hysteresis, cooldown, and independent Sound/WAV, Windows TTS, or Off
   delivery. Calibration supports pointer, keyboard, and exact numeric geometry;
@@ -49,9 +50,23 @@ final result: passed
   custom PH names. Device Sync, persistence, and Share Timers preserve the
   list, and legacy regular-expression timers continue unchanged until edited.
 - Companion updates preserve the exact live buff set through a separate,
-  bounded atomic handoff. The replacement process restores it only for a
-  verified post-update launch, confirms the restored UI and durable config,
-  then consumes the handoff; normal restarts cannot revive removed buffs.
+  bounded atomic handoff. After the old process and its final config save have
+  completed, the verified executable swap atomically stamps that handoff. A
+  replacement process can therefore recover even if Windows drops its update
+  environment marker, while any later normal/user save remains authoritative.
+  Restoration is verified before the one-shot handoff is consumed, and a
+  failed updater launch resumes ordinary spell persistence.
+- Mobile item cards reuse the desktop P99 item cache and now expose complete
+  weapon DMG/DLY values as plain numbers alongside the existing stats, effects,
+  drops, quests, restrictions, and safe internal links.
+- Home Screen pairing keeps its token in the client-only URL fragment, retains
+  the last Companion host and offline cache, and automatically retries after
+  Companion closes or restarts. A new QR is requested only for a missing or
+  explicitly revoked link; the token is never placed in HTTP, manifests, or logs.
+- Maps adds one native POI selector containing every current map label. Any
+  selection centers the exact point; diamond entries and pointer-activated named
+  labels open a native cached-loot list whose item buttons reuse Market's full
+  card. Plain and uncached points retain clear states without parallel scraping.
 - Device Sync checkpoints the active PC's latest log-backed authority before
   an update closes Vantage. Stale peers cannot erase the restored rows during
   startup, while a genuinely newer authoritative removal still wins.
@@ -164,6 +179,10 @@ final result: passed
 
 ## Accessibility checks
 
+- The final accessibility-lead review passed WCAG 2.4.3 and 4.1.2 for Maps:
+  the graphic label is a non-focusable pointer shortcut, while the native POI
+  button/menu provides the complete named keyboard and screen-reader path.
+  Loot dialogs restore focus to that stable selector after Escape or Close.
 - One `#F7F8F8` label is used across every normal spell fill and its empty
   track. All 216 icon palettes meet 4.5:1; the measured yellow-family minimum
   is 4.5039:1, with no clipped black-text layer or focus/name changes.

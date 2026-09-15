@@ -521,7 +521,9 @@ class VitalBarDialog(QDialog):
         self.enabled = QCheckBox("Monitor this bar")
         self.enabled.setChecked(self._bar["enabled"])
         self.enabled.setAccessibleDescription(
-            "When checked, Vantage reads the calibrated pixels while EQ is foreground")
+            "When checked, Vantage reads the calibrated EverQuest window. "
+            "Direct capture can continue while Vantage is in focus; the safe "
+            "screen fallback may require EverQuest in the foreground.")
         self.fill_direction = QComboBox()
         self.fill_direction.addItem("Left to right", "ltr")
         self.fill_direction.addItem("Right to left", "rtl")
@@ -780,7 +782,9 @@ class Vitals(ParserWindow):
         intro = QLabel(
             "All enabled bars are monitored together from one read-only EQ "
             "frame. Calibrate one bar at a time. Alerts pause whenever "
-            "EverQuest is minimized, unavailable, or not foreground.")
+            "EverQuest is minimized or unavailable. Direct window capture can "
+            "continue while Vantage is in focus; the safe screen fallback may "
+            "require EverQuest in the foreground.")
         intro.setObjectName("InlineStatus")
         intro.setWordWrap(True)
         intro.setAccessibleDescription(intro.text())
@@ -950,6 +954,12 @@ class Vitals(ParserWindow):
             self._persist()
 
     def poll_now(self):
+        calibration = getattr(self, '_calibration_context', None)
+        if calibration is not None:
+            index = self._bar_index(calibration[0])
+            name = self._bars[index]['name'] if index >= 0 else 'vital bar'
+            self._set_status(f"CALIBRATING · {name}")
+            return
         status, image, _window_rect = self._capture.image_frame(
             require_enabled=False, require_foreground=True)
         if not status.get("available"):

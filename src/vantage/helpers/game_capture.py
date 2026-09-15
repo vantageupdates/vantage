@@ -298,8 +298,10 @@ class GameWindowCapture:
 
         This is the read-only primitive used by Vitals Monitor.  It does not
         depend on the phone-view preference unless ``require_enabled`` is
-        requested, and it deliberately refuses background or minimized frames
-        by default so stale/covered pixels can never become a false vital.
+        requested. Direct capture from the EverQuest window is safe while
+        Vantage is foreground; only the desktop/screen fallback requires
+        EverQuest itself to be foreground. ``require_foreground`` is retained
+        for API compatibility and never relaxes that screen-fallback rule.
         ``window_rect`` is ``(left, top, width, height)`` in screen pixels.
         """
         with self._lock:
@@ -321,10 +323,6 @@ class GameWindowCapture:
             if self._is_window_minimized(hwnd):
                 return (
                     self._status(False, "EverQuest is minimized; restore it to read vitals.", title),
-                    QImage(), ())
-            if require_foreground and not self._game_is_foreground(hwnd):
-                return (
-                    self._status(False, "Bring EverQuest to the foreground to read vitals.", title),
                     QImage(), ())
             image, rect = self._capture_image(hwnd)
             if image.isNull() or not rect:
@@ -656,18 +654,17 @@ class GameWindowCapture:
                 self._capture_mode = "window"
             else:
                 # DirectX under WinEQ commonly rejects PrintWindow. Copying from
-                # the game's own DC works reliably, but is allowed only while an
-                # EQ/WinEQ surface is foreground so a covered desktop is never
-                # exposed to the phone.
-                if not self._game_is_foreground(hwnd):
-                    self._capture_error = (
-                        "WinEQ2 detected · bring EverQuest to the foreground to continue.")
-                    return QImage(), ()
+                # the game's own DC is still a direct, window-scoped read and
+                # remains safe while Vantage's monitor/calibration UI has focus.
                 if self._gdi32.BitBlt(
                         memory_dc, 0, 0, width, height, source_dc,
                         0, 0, SRCCOPY):
                     self._capture_mode = "wineq-window"
                 else:
+                    # Only this last-resort desktop copy can include covered
+                    # pixels. Never use it unless EQ/WinEQ is foreground.
+                    if not self._screen_fallback_allowed(hwnd):
+                        return QImage(), ()
                     screen_dc = self._user32.GetDC(0)
                     if not screen_dc:
                         return QImage(), ()
@@ -705,6 +702,15 @@ class GameWindowCapture:
             self._gdi32.DeleteObject(bitmap)
             self._gdi32.DeleteDC(memory_dc)
             self._user32.ReleaseDC(hwnd, source_dc)
+
+    def _screen_fallback_allowed(self, hwnd):
+        """Gate desktop capture without blocking direct EQ window capture."""
+        if self._game_is_foreground(hwnd):
+            return True
+        self._capture_error = (
+            "Direct EverQuest capture is unavailable · bring EverQuest to "
+            "the foreground for the safe WinEQ screen fallback.")
+        return False
 
     def _capture_jpeg(self, hwnd):
         image, _rect = self._capture_image(hwnd)

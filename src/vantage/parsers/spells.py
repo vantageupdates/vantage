@@ -508,6 +508,11 @@ class Spells(ParserWindow):
         self._runtime_state_save_timer.setInterval(200)
         self._runtime_state_save_timer.timeout.connect(
             self._persist_runtime_timer_state)
+        # Once an update handoff has been verified, the exact active rows are
+        # immutable for the few milliseconds between launching the updater and
+        # QApplication.aboutToQuit.  Widget teardown and late sync callbacks
+        # must not turn that authoritative checkpoint into an empty snapshot.
+        self._update_handoff_rows = None
         self._spell_container.state_changed.connect(
             self._schedule_runtime_timer_state_save)
         self._spell_container.timer_rows_removed.connect(
@@ -955,13 +960,29 @@ class Spells(ParserWindow):
     def _persist_runtime_timer_state(self):
         self.checkpoint_runtime_state()
 
+    def begin_update_handoff(self):
+        """Freeze and return the exact active rows handed to the updater."""
+        self._update_handoff_rows = None
+        self.checkpoint_runtime_state()
+        self._update_handoff_rows = copy.deepcopy(
+            config.data['spells'].get('active_timer_state', []))
+        return copy.deepcopy(self._update_handoff_rows)
+
+    def cancel_update_handoff(self):
+        """Resume ordinary persistence when an update never launches."""
+        self._update_handoff_rows = None
+
     def checkpoint_runtime_state(self):
         """Synchronously preserve every active buff before an app handoff."""
         self._runtime_state_save_timer.stop()
         spells = config.data['spells']
+        if self._update_handoff_rows is not None:
+            current_rows = copy.deepcopy(self._update_handoff_rows)
+        else:
+            current_rows = self._spell_container.snapshot_runtime_state()
         rows, metadata = record_local_timer_state(
             spells.get('active_timer_state', []),
-            self._spell_container.snapshot_runtime_state(),
+            current_rows,
             spells.get('active_timer_sync', {}))
         spells['active_timer_state'] = rows
         spells['active_timer_sync'] = metadata
@@ -971,6 +992,11 @@ class Spells(ParserWindow):
 
     def _record_runtime_timer_removals(self, removed_rows):
         """Persist only removal events captured before their widgets detach."""
+        if self._update_handoff_rows is not None:
+            # Removal signals emitted while Qt tears down the window are not
+            # gameplay evidence. The replacement process will age the frozen
+            # absolute deadlines and resume normal authoritative removals.
+            return
         spells = config.data['spells']
         rows, metadata = record_explicit_timer_removals(
             spells.get('active_timer_state', []), removed_rows,
@@ -2397,7 +2423,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.90')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.91')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:

@@ -40,13 +40,37 @@ class MouseLocation(QGraphicsTextItem):
         self.setScale(1/scale)
 
 
+class PoiTextItem(QGraphicsTextItem):
+    """Pointer shortcut whose keyboard-equivalent lives in the POI menu.
+
+    QGraphicsTextItem exposes static-text semantics to assistive technology,
+    not a reliable button/action interface. Keep it deliberately outside the
+    keyboard focus order; the native, named POI QToolButton/QMenu contains the
+    same complete list and actions for keyboard and screen-reader users.
+    """
+
+    def __init__(self, point):
+        super().__init__()
+        self._point = point
+        self.setFlag(
+            QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, False)
+        self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._point.activate()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
 class PointOfInterest:
 
     def __init__(self, **kwargs):
         super().__init__()
         self.location = MapPoint()
         self.__dict__.update(kwargs)
-        self.text = QGraphicsTextItem()
+        self._activation_callback = None
+        self.text = PoiTextItem(self)
         self.label = self.location.text.replace('_', ' ')
         # EQ map files use sizes 2 and 3 for most labels.  Feeding those
         # values to HTML's relative <font size> scale made overview labels
@@ -67,6 +91,13 @@ class PointOfInterest:
         self.text.setFlag(
             QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
         self.text.setPos(self.location.x, self.location.y)
+
+    def set_activation_callback(self, callback):
+        self._activation_callback = callback if callable(callback) else None
+
+    def activate(self):
+        if self._activation_callback is not None:
+            self._activation_callback(self)
 
     def update_(self, scene_per_pixel):
         """Reset a compact label beside its map anchor before layout."""

@@ -272,13 +272,55 @@ def analyze_vital_bar(
     if width < 3 or height < 2:
         return VitalReading(None, 0.0, False, "Calibration area is too small")
     tolerance = _integer(tolerance, 64, 10, 180)
-    scores = []
+    match_grid = []
+    row_totals = [0] * height
     for column in range(x, x + width):
-        matches = sum(
-            _distance(_rgb(image, column, row), color) <= tolerance
-            for row in range(y, y + height))
-        scores.append(matches / height)
-    active = [score >= 0.35 for score in scores]
+        column_matches = []
+        for row_offset, row in enumerate(range(y, y + height)):
+            matched = _distance(
+                _rgb(image, column, row), color) <= tolerance
+            column_matches.append(matched)
+            row_totals[row_offset] += int(matched)
+        match_grid.append(column_matches)
+
+    # A generously drawn calibration rectangle often contains the native EQ
+    # frame above/below a thin fill stripe. Ignore full-width target-colored
+    # edge rows (frame pixels), then normalize each column against the strongest
+    # remaining vertical band instead of demanding 35% of the whole ROI.
+    edge_depth = max(1, min(height // 3, round(height * 0.2)))
+    ignored_rows = {
+        row for row, count in enumerate(row_totals)
+        if count >= math.ceil(width * 0.9) and
+        (row < edge_depth or row >= height - edge_depth)}
+    counts, runs = [], []
+    for column_matches in match_grid:
+        count = 0
+        longest = 0
+        current_run = 0
+        for row, matched in enumerate(column_matches):
+            if row in ignored_rows:
+                matched = False
+            if matched:
+                count += 1
+                current_run += 1
+                longest = max(longest, current_run)
+            else:
+                current_run = 0
+        counts.append(count)
+        runs.append(longest)
+    peak_count = max(counts, default=0)
+    peak_run = max(runs, default=0)
+    minimum_band = 3 if height >= 10 else 2
+    if peak_count < minimum_band or peak_run < minimum_band:
+        return VitalReading(None, 0.0, False, "Fill color is not visible")
+    count_floor = max(minimum_band, math.ceil(peak_count * 0.55))
+    run_floor = max(minimum_band, math.ceil(peak_run * 0.55))
+    scores = [
+        min(1.0, 0.45 * count / peak_count + 0.55 * run / peak_run)
+        for count, run in zip(counts, runs)]
+    active = [
+        count >= count_floor and run >= run_floor
+        for count, run in zip(counts, runs)]
     if not any(active):
         return VitalReading(None, 0.0, False, "Fill color is not visible")
     ordered = active if direction != "rtl" else list(reversed(active))
@@ -304,8 +346,13 @@ def analyze_vital_bar(
                  [index >= width - filled for index in range(width)])
     agreement = sum(
         expected == observed for expected, observed in zip(predicted, active)) / width
-    clarity = sum(abs(score - 0.35) for score in scores) / (width * 0.65)
-    confidence = max(0.0, min(1.0, agreement * 0.75 + min(1.0, clarity) * 0.25))
+    clarity = sum(
+        score if observed else 1.0 - score
+        for score, observed in zip(scores, active)) / width
+    band_support = min(1.0, peak_run / max(
+        float(minimum_band), min(6.0, height * 0.35)))
+    confidence = max(0.0, min(
+        1.0, agreement * 0.68 + clarity * 0.20 + band_support * 0.12))
     valid = confidence >= MIN_CONFIDENCE
     return VitalReading(
         round(percent, 1) if valid else None, round(confidence, 3), valid,
