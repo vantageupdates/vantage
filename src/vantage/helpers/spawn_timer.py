@@ -23,7 +23,7 @@ MAX_DEATH_MOB_NAME_LENGTH = 128
 
 
 def normalize_death_mobs(values):
-    """Return a bounded, stable list of exact mob/placeholder names."""
+    """Return a bounded, stable list of mob/placeholder match phrases."""
     if not isinstance(values, (list, tuple)):
         return []
     result = []
@@ -41,11 +41,37 @@ def normalize_death_mobs(values):
     return result
 
 
+def death_mob_name_matches(expected_name, actual_name):
+    """Match a full name or a distinctive multi-word phrase.
+
+    EverQuest death lines expose the complete NPC name. A saved full name
+    therefore remains exact, while a phrase of two or more words may match a
+    contiguous part of that name (for example ``Kennel Master`` matches
+    ``Kennel Master Al`ele``). Single-word entries stay exact so generic words
+    such as ``master`` cannot restart unrelated timers.
+    """
+    expected = " ".join(str(expected_name or "").split()).casefold()
+    actual = " ".join(str(actual_name or "").split()).casefold()
+    if not expected or not actual:
+        return False
+    if expected == actual:
+        return True
+    expected_tokens = re.findall(r"[^\W_]+", expected, re.UNICODE)
+    actual_tokens = re.findall(r"[^\W_]+", actual, re.UNICODE)
+    if len(expected_tokens) < 2 or len(expected_tokens) > len(actual_tokens):
+        return False
+    width = len(expected_tokens)
+    return any(
+        actual_tokens[index:index + width] == expected_tokens
+        for index in range(len(actual_tokens) - width + 1))
+
+
 def zone_timer_visible(timer_zone, selected_zone):
-    """Global rows are visible everywhere; zoned rows match the chosen view."""
+    """Show all in overview, otherwise require an exact assigned zone."""
     timer_zone = str(timer_zone or "").strip().casefold()
     selected_zone = str(selected_zone or "").strip().casefold()
-    return not selected_zone or not timer_zone or timer_zone == selected_zone
+    return not selected_zone or bool(
+        timer_zone and timer_zone == selected_zone)
 
 
 def reset_stale_persisted_timers(settings, now=None):
@@ -80,8 +106,9 @@ class SpawnTimerState:
     smart: bool = True
     zone: str = ""
     mob_pattern: str = ""
-    # New timers use exact names. ``mob_pattern`` remains solely so saved
-    # pre-list timers can keep their established regular-expression behavior.
+    # New timers use full names or distinctive multi-word phrases.
+    # ``mob_pattern`` remains solely so saved pre-list timers can keep their
+    # established regular-expression behavior.
     death_mobs: list[str] = field(default_factory=list)
     # None inherits the central Smart Timer route, an empty string is an
     # explicit silent override, and a URI is this timer's sound override.
@@ -280,7 +307,7 @@ class SpawnTimerState:
         mob_name = " ".join(str(mob_name or "").split())
         if self.death_mobs:
             return any(
-                expected.casefold() == mob_name.casefold()
+                death_mob_name_matches(expected, mob_name)
                 for expected in self.death_mobs)
         pattern = self.mob_pattern.strip()
         if not pattern:

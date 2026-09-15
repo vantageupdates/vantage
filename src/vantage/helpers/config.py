@@ -1025,6 +1025,20 @@ def verify_settings():
     data['timers']['view_zone'] = get_setting(
         data['timers'].get('view_zone', ''), '',
         lambda value: isinstance(value, str))
+    raw_timer_watches = data['timers'].get('watch_timer_ids', [])
+    if not isinstance(raw_timer_watches, list):
+        raw_timer_watches = []
+    timer_watches = []
+    seen_timer_watches = set()
+    for raw_timer_id in raw_timer_watches[:128]:
+        timer_id = str(raw_timer_id or '').strip()[:96]
+        if not timer_id or timer_id in seen_timer_watches:
+            continue
+        seen_timer_watches.add(timer_id)
+        timer_watches.append(timer_id)
+        if len(timer_watches) >= 64:
+            break
+    data['timers']['watch_timer_ids'] = timer_watches
     raw_timer_instances = data['timers'].get('instances', [])
     if not isinstance(raw_timer_instances, list):
         raw_timer_instances = []
@@ -1061,6 +1075,20 @@ def verify_settings():
         section['view_zone'] = get_setting(
             section.get('view_zone', ''), '',
             lambda value: isinstance(value, str))[:160]
+        raw_watches = section.get('watch_timer_ids', [])
+        if not isinstance(raw_watches, list):
+            raw_watches = []
+        watches = []
+        seen_watches = set()
+        for raw_timer_id in raw_watches[:128]:
+            timer_id = str(raw_timer_id or '').strip()[:96]
+            if not timer_id or timer_id in seen_watches:
+                continue
+            seen_watches.add(timer_id)
+            watches.append(timer_id)
+            if len(watches) >= 64:
+                break
+        section['watch_timer_ids'] = watches
         data[section_key] = section
     data['timers']['instances'] = timer_instances
     data['timers']['seen_share_ids'] = get_setting(

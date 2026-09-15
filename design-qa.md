@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.88 design QA
+# Vantage Companion 1.44.89 design QA
 
 final result: passed
 
@@ -11,7 +11,20 @@ final result: passed
 
 ## Visual checks
 
-- Smart Timer death detection now exposes a compact exact-name list for each
+- Smart Timer zone views now isolate timers by their exact saved zone;
+  unassigned rows remain in **All saved timers** instead of leaking into every
+  zone. Each timer window adds a searchable **Watch timers** checklist for
+  explicitly showing selected timers from other zones without copying or
+  moving their shared state. External rows identify their origin zone, and
+  each primary or extra timer window persists its own selection through
+  restart and Device Sync. Keyboard, focus, accessible state, minimum-scale
+  layout, mobile snapshots, and visible-timer sharing were verified.
+- Death detection now accepts either a full NPC name or a distinctive partial
+  phrase of two or more contiguous words, so **Kennel Master** safely matches
+  **Kennel Master Al`ele** while a generic one-word entry such as **Master**
+  does not. The bundled named list now includes the missing Chardok hunter,
+  named, and raid NPCs, including the verified 20-minute Kennel Master entry.
+- Smart Timer death detection exposes a compact match list for each
   spawn timer. Users can add or remove multiple named mobs and placeholders;
   the field autocompletes from all 882 bundled P99 nameds while accepting
   custom PH names. Device Sync, persistence, and Share Timers preserve the

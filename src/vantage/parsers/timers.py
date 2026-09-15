@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -102,6 +103,7 @@ AUTO_TIMER_COLORS = (
     "#B97252", "#9A7650", "#7B8755", "#4F8378",
     "#657A96", "#806C91", "#995E73", "#8D7048",
 )
+MAX_CROSS_ZONE_WATCHES = 64
 
 
 def extract_log_timer_command(text):
@@ -355,12 +357,13 @@ class TimerEditDialog(UniformScaleDialog):
         self.zone = QLineEdit(timer.zone if timer else "")
         self.zone.setPlaceholderText("Blank = all zones")
         self.zone.setToolTip(
-            "Only match death lines while this zone is active; leave blank "
-            "to use the timer in every zone")
+            "Only match death lines while this zone is active. Blank allows "
+            "detection in any zone, but the row appears only under All saved "
+            "timers unless a window explicitly watches it.")
         form.addRow("Zone", self.zone)
 
         # ``mob_pattern`` remains hidden for saved pre-list timers. New input
-        # is always stored and matched as complete mob/placeholder names.
+        # is stored as a full name or distinctive multi-word match phrase.
         self.mob_pattern = QLineEdit(timer.mob_pattern if timer else "")
         self.mob_pattern.hide()
         self._death_list_changed = False
@@ -374,7 +377,8 @@ class TimerEditDialog(UniformScaleDialog):
         self.death_mob_panel.setMinimumHeight(164)
         self.death_mob_panel.setAccessibleName("Detect deaths")
         self.death_mob_panel.setAccessibleDescription(
-            "Adds exact mob or placeholder names that can restart this timer")
+            "Adds full mob or placeholder names, or distinctive multi-word "
+            "phrases, that can restart this timer")
         death_layout = QVBoxLayout(self.death_mob_panel)
         death_layout.setContentsMargins(0, 0, 0, 0)
         death_layout.setSpacing(4)
@@ -395,19 +399,22 @@ class TimerEditDialog(UniformScaleDialog):
         self.death_mob_picker.setAccessibleDescription(
             "Editable named-mob picker. Type to search all bundled P99 "
             "nameds, use Arrow keys to choose a suggestion, or type a "
-            "custom placeholder; press Enter to add it. Save up to 24 exact "
-            "names of no more than 128 characters each.")
+            "custom placeholder; press Enter to add it. Save up to 24 full "
+            "names or distinctive multi-word phrases of no more than 128 "
+            "characters each.")
         self.death_mob_input = self.death_mob_picker.lineEdit()
         self.death_mob_input.setPlaceholderText("Named mob or custom PH")
         self.death_mob_input.setAccessibleName(
             "Detect deaths: mob or placeholder name to add")
         self.death_mob_input.setAccessibleDescription(
-            "Type any exact mob or placeholder name. Suggestions search all "
-            "named mobs in Vantage's P99 catalog, regardless of selected "
-            "zone. Use Arrow keys to select a suggestion and Enter to add.")
+            "Type a full mob or placeholder name, or a distinctive phrase of "
+            "two or more words. Suggestions search all named mobs in "
+            "Vantage's P99 catalog, regardless of selected zone. Use Arrow "
+            "keys to select a suggestion and Enter to add.")
         self.death_mob_input.setToolTip(
-            "Add an exact death-line name. Type to search every bundled P99 "
-            "named mob, or enter a custom placeholder name; press Enter to add.")
+            "Add a full name or distinctive multi-word phrase. Type to search "
+            "every bundled P99 named mob, or enter a custom placeholder; "
+            "press Enter to add.")
         self.death_mob_picker.setToolTip(self.death_mob_input.toolTip())
         self.death_mob_completer = self.death_mob_picker.completer()
         self.death_mob_completer.setCaseSensitivity(
@@ -432,10 +439,10 @@ class TimerEditDialog(UniformScaleDialog):
 
         self.death_mob_add = QPushButton("Add")
         self.death_mob_add.setAccessibleName(
-            "Add exact death detection name")
+            "Add death detection name or phrase")
         self.death_mob_add.setAccessibleDescription(
-            "Adds the typed catalog suggestion or custom placeholder as an "
-            "exact death-line match for this timer")
+            "Adds the typed catalog suggestion, custom placeholder, or "
+            "distinctive multi-word phrase for this timer")
         self.death_mob_add.setToolTip(
             "Add the typed named mob or custom placeholder to this timer")
         self.death_mob_add.clicked.connect(self._add_death_mob)
@@ -444,10 +451,10 @@ class TimerEditDialog(UniformScaleDialog):
         self.death_mob_remove.setAccessibleName(
             "Remove selected death detection name")
         self.death_mob_remove.setAccessibleDescription(
-            "Removes the selected exact mob or placeholder name from this "
+            "Removes the selected mob or placeholder match from this "
             "timer without changing other entries")
         self.death_mob_remove.setToolTip(
-            "Remove the selected exact name; Delete works from the list too")
+            "Remove the selected match; Delete works from the list too")
         self.death_mob_remove.clicked.connect(self._remove_death_mob)
         death_input_row.addWidget(self.death_mob_remove)
         death_layout.addLayout(death_input_row)
@@ -456,12 +463,13 @@ class TimerEditDialog(UniformScaleDialog):
         self.death_mob_list.setMinimumHeight(76)
         self.death_mob_list.setMaximumHeight(88)
         self.death_mob_list.setAccessibleName(
-            "Detect deaths: exact mob and placeholder list")
+            "Detect deaths: mob and placeholder match list")
         self.death_mob_list.setAccessibleDescription(
             "Each complete name can restart this timer. Select a name and "
             "press Delete or Remove to stop matching it.")
         self.death_mob_list.setToolTip(
-            "Exact names that restart this timer from an EverQuest death line")
+            "Full names and distinctive phrases that restart this timer from "
+            "an EverQuest death line")
         self.death_mob_list.installEventFilter(self)
         self.death_mob_list.currentRowChanged.connect(
             self._refresh_death_mob_actions)
@@ -470,22 +478,25 @@ class TimerEditDialog(UniformScaleDialog):
         death_layout.addWidget(self.death_mob_list)
 
         self.death_mob_help = QLabel(
-            "Exact full names · up to 24 entries · 128 characters each · "
-            "all P99 nameds or any custom PH")
+            "Full names or 2+ word partial phrases · up to 24 entries · "
+            "128 characters each · all P99 nameds or any custom PH")
         self.death_mob_help.setWordWrap(True)
         self.death_mob_help.setAccessibleDescription(
-            "Detect deaths instructions: exact full names; up to 24 entries; "
-            "128 characters each; all P99 nameds or any custom placeholder")
+            "Detect deaths instructions: full names or distinctive partial "
+            "phrases of two or more words; up to 24 entries; all P99 nameds "
+            "or any custom placeholder")
         self.death_mob_help.setToolTip(
-            "Each saved name must exactly match an EverQuest death line")
+            "Full names match exactly; partial phrases need two or more "
+            "contiguous words from the EverQuest death-line name")
         death_layout.addWidget(self.death_mob_help)
 
         self.death_mob_status = QLabel()
         self.death_mob_status.setAccessibleName("Death detection list status")
         self.death_mob_status.setAccessibleDescription(
-            "Reports exact-name additions, removals, duplicates, and limits")
+            "Reports death-name or phrase additions, removals, duplicates, "
+            "and limits")
         self.death_mob_status.setToolTip(
-            "Status for this timer's exact death detection names")
+            "Status for this timer's death detection names and phrases")
         death_layout.addWidget(self.death_mob_status)
         form.addRow("Detect deaths", self.death_mob_panel)
         detect_label = form.labelForField(self.death_mob_panel)
@@ -683,8 +694,8 @@ class TimerEditDialog(UniformScaleDialog):
         message = (
             f"0 of {MAX_DEATH_MOBS} saved · the timer name matches exactly"
             if not count else
-            f"{count} of {MAX_DEATH_MOBS} exact death "
-            f"name{'s' if count != 1 else ''} saved")
+            f"{count} of {MAX_DEATH_MOBS} death "
+            f"match{'es' if count != 1 else ''} saved")
         self._set_death_mob_status(message, announce=announce)
 
     def _death_mob_input_changed(self, text):
@@ -796,8 +807,8 @@ class TimerEditDialog(UniformScaleDialog):
             self.death_mob_input.setFocus(Qt.FocusReason.OtherFocusReason)
         self._set_death_mob_status(
             f"Removed {removed_name} · " + (
-                f"{self.death_mob_list.count()} exact name"
-                f"{'s' if self.death_mob_list.count() != 1 else ''} remain"
+                f"{self.death_mob_list.count()} death match"
+                f"{'es' if self.death_mob_list.count() != 1 else ''} remain"
                 if self.death_mob_list.count() else
                 "the timer name now matches exactly"),
             announce=True)
@@ -909,6 +920,215 @@ class TimerEditDialog(UniformScaleDialog):
             "1:03:50 are also accepted" if spawn_mode else
             "Length of this timer: 3 means 3 minutes; 3:50 and 1:03:50 "
             "are also accepted")
+
+
+class TimerWatchDialog(UniformScaleDialog):
+    """Choose explicit cross-zone timer rows for one timer window."""
+
+    def __init__(
+            self, timers, selected_zone, watched_timer_ids=(), parent=None):
+        super().__init__(
+            QSize(560, 470), parent, minimum_size=QSize(224, 188))
+        self.setWindowTitle("Watch Timers in This Window")
+        self.selected_zone = str(selected_zone or "").strip()
+        self._timers = tuple(sorted(
+            (timer for timer in timers if timer is not None),
+            key=lambda timer: (
+                str(timer.zone or "").casefold(), timer.name.casefold())))
+        known_ids = {timer.timer_id for timer in self._timers}
+        self._checked_ids = {
+            str(timer_id) for timer_id in watched_timer_ids
+            if str(timer_id) in known_ids}
+
+        layout = QVBoxLayout(self.scaled_surface)
+        layout.setContentsMargins(10, 9, 10, 9)
+        layout.setSpacing(7)
+
+        zone_label = self.selected_zone or "All saved timers"
+        instructions_text = (
+            f"Showing {zone_label}. Check timers from other zones to keep "
+            "them visible in this window. Their saved zone and timer state "
+            "do not change.")
+        instructions = QLabel(instructions_text)
+        instructions.setWordWrap(True)
+        instructions.setAccessibleDescription(instructions_text)
+        instructions.setToolTip(
+            "A watch changes only this window's visible rows; it never copies "
+            "or moves a timer")
+        layout.addWidget(instructions)
+
+        search_label = QLabel("Search saved timers")
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Timer name, origin zone, or source")
+        self.search.setAccessibleName("Search all saved timers")
+        self.search.setAccessibleDescription(
+            "Filters timers from every saved zone without changing which "
+            "timers are checked")
+        self.search.setToolTip(
+            "Filter the complete saved-timer list by name, origin zone, or "
+            "source")
+        search_label.setBuddy(self.search)
+        layout.addWidget(search_label)
+        layout.addWidget(self.search)
+
+        self.timer_list = QListWidget()
+        self.timer_list.setMinimumHeight(250)
+        self.timer_list.setAccessibleName(
+            "Saved timers available to watch in this window")
+        self.timer_list.setAccessibleDescription(
+            "Check external-zone timers with Space. Timers already included "
+            "by the selected zone remain selectable for review, but their "
+            "checked state is read-only because no watch is needed.")
+        self.timer_list.setToolTip(
+            "Origin zone is shown on every row. Press Space to watch or stop "
+            "watching an enabled row in this window.")
+        self.timer_list.itemChanged.connect(self._item_changed)
+        layout.addWidget(self.timer_list, 1)
+
+        self.status = QLabel()
+        self.status.setAccessibleName("Cross-zone watch status")
+        self.status.setAccessibleDescription(
+            "Reports search results and the number of explicitly watched "
+            "external timers")
+        self.status.setToolTip(
+            "Current saved-timer search and watch-selection summary")
+        layout.addWidget(self.status)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Apply |
+            QDialogButtonBox.StandardButton.Cancel)
+        apply_button = buttons.button(QDialogButtonBox.StandardButton.Apply)
+        cancel_button = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        apply_button.setText("Apply")
+        apply_button.setObjectName("PrimaryAction")
+        apply_button.setToolTip(
+            "Apply these watched timers to this timer window only")
+        cancel_button.setText("Cancel")
+        cancel_button.setToolTip(
+            "Discard watch changes and return to the timer window")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self._search_announce_timer = QTimer(self)
+        self._search_announce_timer.setSingleShot(True)
+        self._search_announce_timer.setInterval(350)
+        self._search_announce_timer.timeout.connect(
+            self._announce_current_status)
+        self.finished.connect(
+            lambda _result: self._search_announce_timer.stop())
+        self.search.textChanged.connect(self._search_changed)
+        self._rebuild_list()
+        QTimer.singleShot(
+            0, lambda: self.search.setFocus(
+                Qt.FocusReason.OtherFocusReason))
+
+    def _is_included_by_zone(self, timer):
+        return zone_timer_visible(timer.zone, self.selected_zone)
+
+    def _matches_search(self, timer, query):
+        if not query:
+            return True
+        return query in " ".join((
+            timer.name,
+            str(timer.zone or "Unassigned"),
+            str(timer.source or "User-created"))).casefold()
+
+    def _search_changed(self, *_args):
+        self._rebuild_list()
+        self._search_announce_timer.start()
+
+    def _announce_current_status(self):
+        message = self.status.text()
+        if message:
+            try:
+                QAccessible.updateAccessibility(
+                    QAccessibleAnnouncementEvent(self.status, message))
+            except (AttributeError, RuntimeError, TypeError):
+                pass
+
+    def _rebuild_list(self, *_args):
+        query = self.search.text().strip().casefold()
+        matches = [
+            timer for timer in self._timers
+            if self._matches_search(timer, query)]
+        self.timer_list.blockSignals(True)
+        self.timer_list.clear()
+        for timer in matches:
+            origin_zone = str(timer.zone or "").strip() or "Unassigned"
+            included = self._is_included_by_zone(timer)
+            suffix = " · Included by selected zone" if included else ""
+            text = f"{timer.name} · {origin_zone}{suffix}"
+            item = QListWidgetItem(text)
+            item.setData(Qt.ItemDataRole.UserRole, timer.timer_id)
+            item.setData(Qt.ItemDataRole.AccessibleTextRole, text)
+            item.setData(
+                Qt.ItemDataRole.AccessibleDescriptionRole,
+                f"{timer.name}, origin zone {origin_zone}. " + (
+                    "Already included by the selected zone; no watch is "
+                    "needed." if included else
+                    "Press Space to toggle Watch in this window."))
+            item.setToolTip(
+                f"Origin zone: {origin_zone}\n" + (
+                    "Already visible because it belongs to the selected zone"
+                    if included else
+                    "Check to watch this timer in this window"))
+            item.setCheckState(
+                Qt.CheckState.Checked if (
+                    included or timer.timer_id in self._checked_ids) else
+                Qt.CheckState.Unchecked)
+            if included:
+                item.setFlags(
+                    (item.flags() | Qt.ItemFlag.ItemIsEnabled |
+                     Qt.ItemFlag.ItemIsSelectable) &
+                    ~Qt.ItemFlag.ItemIsUserCheckable)
+            else:
+                item.setFlags(
+                    item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            self.timer_list.addItem(item)
+        self.timer_list.blockSignals(False)
+        self._set_status(
+            f"{len(matches)} of {len(self._timers)} saved timers shown · "
+            f"{len(self._checked_ids)} explicitly watched")
+
+    def _item_changed(self, item):
+        timer_id = str(item.data(Qt.ItemDataRole.UserRole) or "")
+        if not timer_id:
+            return
+        if item.checkState() == Qt.CheckState.Checked:
+            if (timer_id not in self._checked_ids and
+                    len(self._checked_ids) >= MAX_CROSS_ZONE_WATCHES):
+                self.timer_list.blockSignals(True)
+                item.setCheckState(Qt.CheckState.Unchecked)
+                self.timer_list.blockSignals(False)
+                self._set_status(
+                    f"Watch limit reached · remove one of "
+                    f"{MAX_CROSS_ZONE_WATCHES} selections", announce=True)
+                return
+            self._checked_ids.add(timer_id)
+        else:
+            self._checked_ids.discard(timer_id)
+        self._set_status(
+            f"{len(self._checked_ids)} timer"
+            f"{'s' if len(self._checked_ids) != 1 else ''} explicitly "
+            "watched in this window", announce=True)
+
+    def _set_status(self, message, announce=False):
+        self.status.setText(message)
+        self.status.setAccessibleDescription(message)
+        if announce:
+            try:
+                QAccessible.updateAccessibility(
+                    QAccessibleAnnouncementEvent(self.status, message))
+            except (AttributeError, RuntimeError, TypeError):
+                pass
+
+    def selected_timer_ids(self):
+        """Return a stable, bounded selection in saved-timer order."""
+        return [
+            timer.timer_id for timer in self._timers
+            if timer.timer_id in self._checked_ids
+        ][:MAX_CROSS_ZONE_WATCHES]
 
 
 class TimerRow(QFrame):
@@ -1108,7 +1328,27 @@ class TimerRow(QFrame):
 
     def refresh(self):
         timer = self.timer
-        self.name_label.setText(timer.name)
+        watched_elsewhere = bool(
+            getattr(self.owner, "_is_cross_zone_watch", lambda _timer: False)(
+                timer))
+        origin_zone = str(timer.zone or "").strip() or "Unassigned"
+        self.name_label.setText(
+            f"{timer.name} · {origin_zone}" if watched_elsewhere else
+            timer.name)
+        self.name_label.setToolTip(
+            f"Watched from origin zone: {origin_zone}"
+            if watched_elsewhere else
+            "Timer name; edit the timer to change it")
+        self.setAccessibleName(
+            f"Watched timer {timer.name} from {origin_zone}"
+            if watched_elsewhere else f"Timer for {timer.name}")
+        self.setAccessibleDescription(
+            f"Shown by an explicit cross-zone watch in this window; saved "
+            f"origin zone {origin_zone}."
+            if watched_elsewhere else
+            f"Timer included in the "
+            f"{getattr(self.owner, '_selected_zone', '') or 'all saved'} "
+            "timer view.")
         phase_text = PHASE_TEXT.get(timer.phase, timer.phase.upper())
         if timer.timer_mode == TIMER_MODE_COUNTDOWN:
             phase_text = (
@@ -1365,13 +1605,31 @@ class SpawnTimers(ParserWindow):
         # minimum supported width; secondary actions can use header overflow.
         self.zone_filter.setProperty('HeaderAlwaysVisible', True)
         self.zone_filter.setAccessibleName('Timer zone view')
+        self.zone_filter.setAccessibleDescription(
+            "Choose one exact origin zone, or All saved timers. Unassigned "
+            "and other-zone timers only appear in a named view when explicitly "
+            "watched for this window.")
         self.zone_filter.setToolTip(
-            'Show the saved timer rows for one zone; global timers appear in '
-            'every zone and rows remain saved until you delete them')
+            'Show only timers assigned to one exact zone, or choose All saved '
+            'timers. Use Watch timers to add explicit cross-zone rows.')
         self.zone_filter.setMinimumContentsLength(8)
         self.zone_filter.currentIndexChanged.connect(
             self._zone_filter_changed)
         self.menu_area.addWidget(self.zone_filter)
+
+        self.watch_button = QPushButton()
+        self.watch_button.setIcon(game_icon("follow"))
+        self.watch_button.setAccessibleName(
+            "Watch timers from other zones in this window")
+        self.watch_button.setAccessibleDescription(
+            "Opens a searchable checklist of every saved timer and its origin "
+            "zone. Checked external timers appear only in this timer window.")
+        self.watch_button.setToolTip(
+            "Watch timers from other zones in this window\n"
+            "Search all saved timers, check external rows, and keep their "
+            "original zones and shared timer state unchanged.")
+        self.watch_button.clicked.connect(self.edit_cross_zone_watches)
+        self.menu_area.addWidget(self.watch_button)
 
         self.share_button = QPushButton()
         self.share_button.setIcon(game_icon("export"))
@@ -1509,6 +1767,7 @@ class SpawnTimers(ParserWindow):
             'collapsed': False,
             'compact': bool(primary.get('compact', False)),
             'view_zone': str(primary.get('view_zone', '') or ''),
+            'watch_timer_ids': [],
         }
         config.data[self.name] = settings
         return settings
@@ -1628,7 +1887,7 @@ class SpawnTimers(ParserWindow):
         """Small immutable shape consumed by the isolated mobile server."""
         timers = []
         for timer in self._states.values():
-            if not zone_timer_visible(timer.zone, self._selected_zone):
+            if not self._row_matches_zone(timer):
                 continue
             remaining = timer.remaining()
             timers.append({
@@ -1739,9 +1998,10 @@ class SpawnTimers(ParserWindow):
             incoming = []
         current = [timer.to_dict() for timer in self._states.values()]
         if incoming == current:
+            self._reload_synced_view_preferences()
             return 0
         for timer_id in list(self._states):
-            self._remove_timer(timer_id)
+            self._remove_timer(timer_id, clean_watches=False)
         restored = 0
         cleaned = []
         for values in incoming:
@@ -1753,14 +2013,21 @@ class SpawnTimers(ParserWindow):
             cleaned.append(timer.to_dict())
             restored += 1
         config.data['timers']['items'] = cleaned
-        self._selected_zone = str(
-            self._view_settings().get('view_zone') or '').strip()
-        self.compact.setChecked(bool(self._view_settings()['compact']))
-        self._refresh_all_view_filters()
+        self._reload_synced_view_preferences()
         self.status.setText(
             f"DEVICE SYNC · {restored} Smart Timer"
             f"{'s' if restored != 1 else ''} loaded")
         return restored
+
+    def _reload_synced_view_preferences(self):
+        """Apply synced per-window filters without touching shared timers."""
+        controller = self if self._is_primary else self._controller
+        for view in tuple(controller._views):
+            settings = view._view_settings()
+            view._selected_zone = str(
+                settings.get('view_zone') or '').strip()
+            view.compact.setChecked(bool(settings.get('compact', False)))
+            view._refresh_zone_filter(view._selected_zone)
 
     def record_session_closed(self):
         """Anchor the next startup's offline-age check to a clean exit."""
@@ -1782,7 +2049,7 @@ class SpawnTimers(ParserWindow):
 
         self.zone_filter.blockSignals(True)
         self.zone_filter.clear()
-        self.zone_filter.addItem('All zones', '')
+        self.zone_filter.addItem('All saved timers', '')
         for zone in sorted(zones.values(), key=str.casefold):
             self.zone_filter.addItem(zone, zone)
         selected = 0
@@ -1798,6 +2065,60 @@ class SpawnTimers(ParserWindow):
         self._view_settings()['view_zone'] = self._selected_zone
         self._apply_zone_filter()
 
+    def _clean_watched_timer_ids(self, save=False):
+        settings = self._view_settings()
+        raw = settings.get('watch_timer_ids', [])
+        if not isinstance(raw, list):
+            raw = []
+        valid_ids = set(self._states)
+        cleaned = []
+        seen = set()
+        for raw_timer_id in raw:
+            timer_id = str(raw_timer_id or '').strip()[:96]
+            if (not timer_id or timer_id not in valid_ids or
+                    timer_id in seen):
+                continue
+            seen.add(timer_id)
+            cleaned.append(timer_id)
+            if len(cleaned) >= MAX_CROSS_ZONE_WATCHES:
+                break
+        changed = settings.get('watch_timer_ids') != cleaned
+        settings['watch_timer_ids'] = cleaned
+        if changed and save:
+            config.save()
+        return tuple(cleaned)
+
+    def _is_cross_zone_watch(self, timer):
+        return bool(
+            timer and self._selected_zone and
+            not zone_timer_visible(timer.zone, self._selected_zone) and
+            timer.timer_id in self._clean_watched_timer_ids())
+
+    def edit_cross_zone_watches(self):
+        """Edit this view's explicit external timer selection."""
+        current = self._clean_watched_timer_ids(save=True)
+        dialog = TimerWatchDialog(
+            self._states.values(), self._selected_zone, current, self)
+        accepted = dialog.exec()
+        if accepted:
+            self._view_settings()['watch_timer_ids'] = \
+                dialog.selected_timer_ids()
+            config.save()
+            self._apply_zone_filter()
+            watched = sum(
+                self._is_cross_zone_watch(timer)
+                for timer in self._states.values())
+            self.announce(
+                f"WATCH VIEW · {watched} external timer"
+                f"{'s' if watched != 1 else ''} shown with "
+                f"{self._selected_zone or 'All saved timers'}")
+        self.raise_()
+        self.activateWindow()
+        QTimer.singleShot(
+            0, lambda: self.watch_button.setFocus(
+                Qt.FocusReason.OtherFocusReason))
+        return bool(accepted)
+
     def _zone_filter_changed(self, _index):
         self._selected_zone = str(
             self.zone_filter.currentData() or '').strip()
@@ -1808,19 +2129,22 @@ class SpawnTimers(ParserWindow):
             self._row_matches_zone(timer)
             for timer in self._states.values())
         self.status.setText(
-            f"ZONE VIEW · {self._selected_zone or 'All zones'} · "
+            f"ZONE VIEW · {self._selected_zone or 'All saved timers'} · "
             f"{visible} saved timer{'s' if visible != 1 else ''}")
 
     def _apply_zone_filter(self):
+        self._clean_watched_timer_ids(save=True)
         for timer_id, row in self._rows.items():
             timer = self._states.get(timer_id)
             row.setVisible(self._row_matches_zone(timer))
+            if timer is not None:
+                row.refresh()
         self._schedule_timer_canvas()
 
     def _row_matches_zone(self, timer):
-        return bool(
-            timer and zone_timer_visible(
-                timer.zone, self._selected_zone))
+        return bool(timer and (
+            zone_timer_visible(timer.zone, self._selected_zone) or
+            timer.timer_id in self._clean_watched_timer_ids()))
 
     def _add_row(self, timer):
         if timer.timer_id in self._rows:
@@ -2183,7 +2507,7 @@ class SpawnTimers(ParserWindow):
         for packet_id in exported.packet_ids:
             self._remember_share_packet(packet_id)
         config.save()
-        zone = self._selected_zone or "All zones"
+        zone = self._selected_zone or "All saved timers"
         line_text = (
             "1 chat code" if len(exported.codes) == 1 else
             f"{len(exported.codes)} chat-code lines; send each line")
@@ -2330,9 +2654,10 @@ class SpawnTimers(ParserWindow):
             volume=config.data['timers']['volume'], repeat=2,
             channel="timers")
 
-    def _remove_timer(self, timer_id):
+    def _remove_timer(self, timer_id, clean_watches=True):
         if not self._is_primary:
-            return self._controller._remove_timer(timer_id)
+            return self._controller._remove_timer(
+                timer_id, clean_watches=clean_watches)
         for view in tuple(self._views):
             row = view._rows.pop(timer_id, None)
             if row is not None:
@@ -2340,6 +2665,9 @@ class SpawnTimers(ParserWindow):
                 row.deleteLater()
             view._schedule_timer_canvas()
         removed = self._states.pop(timer_id, None)
+        if clean_watches:
+            for view in tuple(self._views):
+                view._clean_watched_timer_ids()
         return removed
 
     def _start_ring_war_schedule(self, event_time):

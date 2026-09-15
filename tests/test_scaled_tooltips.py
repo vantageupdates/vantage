@@ -67,6 +67,7 @@ if timers._collapsed:
     timers._set_collapsed(False)
 timers._auto_hide_menu = False
 timers._set_header_revealed(True)
+timers._refresh_zone_filter('')
 timer = SpawnTimerState('Tooltip test', 1200, kill_seconds=90, volume=42)
 timers._states[timer.timer_id] = timer
 timers._add_row(timer)

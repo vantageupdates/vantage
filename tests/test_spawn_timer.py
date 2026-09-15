@@ -128,16 +128,30 @@ def test_kill_match_honors_zone_and_regex():
     assert not timer.matches_kill("Quillmane", "North Karana")
 
 
-def test_exact_death_list_matches_multiple_phs_without_substrings():
+def test_death_list_matches_full_names_and_safe_multi_word_phrases():
     timer = SpawnTimerState(
         "Quillmane cycle", 100, zone="South Karana",
-        death_mobs=["Quillmane", "an escaped splitpaw gnoll"])
+        death_mobs=["Quillmane", "escaped splitpaw gnoll"])
 
     assert timer.matches_kill("quillmane", "south karana")
     assert timer.matches_kill("An Escaped Splitpaw Gnoll", "South Karana")
+    assert timer.matches_kill(
+        "an escaped splitpaw gnoll scout", "South Karana")
     assert not timer.matches_kill("Quillmane's pet", "South Karana")
-    assert not timer.matches_kill("an escaped splitpaw gnoll scout", "South Karana")
     assert not timer.matches_kill("Quillmane", "North Karana")
+
+
+def test_distinctive_partial_chardok_name_matches_but_generic_word_does_not():
+    timer = SpawnTimerState(
+        "Kennel camp", 1_200, zone="Chardok",
+        death_mobs=["Kennel Master"])
+
+    assert timer.matches_kill("Kennel Master Al`ele", "Chardok")
+    assert not timer.matches_kill("An apprentice kennelmaster", "Chardok")
+
+    generic = SpawnTimerState(
+        "Unsafe generic", 1_200, zone="Chardok", death_mobs=["Master"])
+    assert not generic.matches_kill("Kennel Master Al`ele", "Chardok")
 
 
 def test_legacy_death_regex_remains_compatible_when_no_exact_list_exists():
@@ -242,12 +256,13 @@ def test_unclean_or_legacy_session_does_not_discard_saved_timers():
     assert settings["items"] == [{"name": "Preserve me"}]
 
 
-def test_zone_timer_rows_are_grouped_without_losing_global_rows():
+def test_zone_timer_rows_require_exact_zone_except_in_saved_overview():
     assert zone_timer_visible("Velketor's Labyrinth", "Velketor's Labyrinth")
     assert zone_timer_visible("velketor's labyrinth", "VELKETOR'S LABYRINTH")
     assert not zone_timer_visible("Kael Drakkel", "Velketor's Labyrinth")
-    assert zone_timer_visible("", "Velketor's Labyrinth")
+    assert not zone_timer_visible("", "Velketor's Labyrinth")
     assert zone_timer_visible("Kael Drakkel", "")
+    assert zone_timer_visible("", "")
 
 
 def test_timer_volume_is_individual_and_clamped():
@@ -296,6 +311,9 @@ def test_automatic_catalog_accepts_named_mobs_and_rejects_zone_trash():
     assert named_spawn_for("velketor", "Crystal Fang") is not None
     assert named_spawn_for("velketor", "a crystalline watcher") is None
     assert named_spawn_for("southkarana", "Quillmane") is not None
+    kennel_master = named_spawn_for("chardok", "Kennel Master Al`ele")
+    assert kennel_master is not None
+    assert kennel_master.respawn_seconds == 20 * 60
 
 
 def test_automatic_timer_metadata_survives_persistence():

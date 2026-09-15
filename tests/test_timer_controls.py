@@ -137,7 +137,7 @@ def test_timer_editor_supports_general_countdowns_without_mob_only_fields():
     dialog.close()
 
 
-def test_timer_editor_adds_deduplicates_and_deletes_exact_death_names():
+def test_timer_editor_adds_deduplicates_and_deletes_death_matches():
     app = _app()
     timer = SpawnTimerState(
         "Quillmane cycle", 1_920, death_mobs=["Quillmane"])
@@ -190,6 +190,7 @@ def test_death_name_completer_searches_all_zones_and_accepts_selection():
     assert len(NAMED_MOB_SUGGESTIONS) == len({
         name.casefold() for name in NAMED_MOB_SUGGESTIONS})
     assert "Crystal Fang" in NAMED_MOB_SUGGESTIONS
+    assert "Kennel Master Al`ele" in NAMED_MOB_SUGGESTIONS
     assert "Quillmane" in NAMED_MOB_SUGGESTIONS
     dialog.death_mob_completer.setCompletionPrefix("quill")
     matches = [
@@ -215,7 +216,7 @@ def test_death_name_completer_searches_all_zones_and_accepts_selection():
     assert dialog._death_mob_names() == ["Crystal Fang", "Quillmane"]
     assert dialog.death_mob_input.text() == ""
     assert dialog.death_mob_status.text() == \
-        "2 of 24 exact death names saved"
+        "2 of 24 death matches saved"
     assert dialog.death_mob_input.hasFocus()
     assert isinstance(dialog.death_mob_picker, QComboBox)
     assert dialog.death_mob_picker.isEditable()

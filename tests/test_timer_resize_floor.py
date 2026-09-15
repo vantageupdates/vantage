@@ -26,6 +26,7 @@ app = VantageApp([])
 panel = app._parsers_dict['timers']
 panel._set_collapsed(False)
 panel.compact.setChecked(True)
+panel._refresh_zone_filter('')
 
 for index in range(4):
     timer = SpawnTimerState(f'Timer {index + 1}', 1800)

@@ -110,6 +110,7 @@ market_layout_after = {
 }
 
 timer = SpawnTimerState('Scaled test', 1800, kill_seconds=90)
+timers._refresh_zone_filter('')
 timers._states[timer.timer_id] = timer
 timers._add_row(timer)
 row = timers._rows[timer.timer_id]
