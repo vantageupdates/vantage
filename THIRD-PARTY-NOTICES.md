@@ -25,6 +25,13 @@ The Windows executable includes the following open-source runtime components:
   contributors. https://github.com/python-semver/python-semver
 - Segno — BSD 3-Clause License. Copyright Lars Heuer and contributors.
   https://github.com/heuer/segno
+- python-zeroconf — GNU Lesser General Public License 2.1 or later.
+  Copyright the python-zeroconf contributors. Vantage uses it only for local
+  multicast DNS and DNS Service Discovery of Mobile Host on the same network.
+  https://github.com/python-zeroconf/python-zeroconf
+- ifaddr — MIT License. Copyright the ifaddr contributors. This is a runtime
+  dependency of python-zeroconf for local network-adapter discovery.
+  https://github.com/pydron/ifaddr
 - Syncthing — Mozilla Public License 2.0. The optional portable device-sync
   transport is downloaded from the official Syncthing GitHub release only
   after the user selects Install, and its published SHA-256 digest is verified.

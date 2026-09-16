@@ -100,7 +100,9 @@ if __name__ == "__main__":
     except Exception:
         pass
     from vantage.helpers.application import VantageApp
-    APP = VantageApp(sys.argv)
+    APP = VantageApp(sys.argv, enforce_terms=True)
+    if APP.startup_aborted:
+        raise SystemExit(0)
     APP.setQuitOnLastWindowClosed(False)
 
     sys.exit(APP.exec())

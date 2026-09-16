@@ -7,24 +7,26 @@ import hashlib
 import html as html_module
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
+import ipaddress
 import json
 import os
-import platform
 import re
 import secrets
 import socket
-import subprocess
 import threading
 from urllib.request import Request, urlopen
 from urllib.parse import parse_qs, quote, urlsplit
 
 import segno
-from PySide6.QtCore import QObject, QProcess, QSize, QTimer, Qt, QUrl, Signal
-from PySide6.QtGui import QPixmap
-from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
+from PySide6.QtCore import QObject, QSize, QTimer, Qt, Signal
+from PySide6.QtGui import QAccessible, QPixmap
+try:
+    from PySide6.QtGui import QAccessibleAnnouncementEvent
+except ImportError:  # Qt versions before native announcement-event support.
+    QAccessibleAnnouncementEvent = None
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QHBoxLayout,
-    QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QVBoxLayout,
+    QLabel, QLineEdit, QMessageBox, QPushButton, QVBoxLayout,
     QWidget)
 
 from vantage.helpers import config, resource_path
@@ -36,14 +38,7 @@ from vantage.helpers.scaled_dialog import UniformScaleDialog
 from vantage.helpers.spell_catalog import p99_spell_entries
 
 
-CLOUDFLARED_DOWNLOAD = (
-    "https://github.com/cloudflare/cloudflared/releases/latest/download/"
-    "cloudflared-windows-amd64.exe")
-CLOUDFLARE_QUICK_TUNNEL_DOCS = (
-    "https://developers.cloudflare.com/cloudflare-one/networks/connectors/"
-    "cloudflare-tunnel/do-more-with-tunnels/trycloudflare/")
 COMPANION_URL = "https://vantageupdates.github.io/vantage/companion/"
-TUNNEL_URL_RX = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com", re.I)
 P99_SPELL_DETAIL_API = (
     "https://wiki.project1999.com/api.php?action=parse&page={slug}"
     "&prop=wikitext&format=json")
@@ -114,7 +109,7 @@ def load_mobile_spell_detail(name):
     request = Request(
         P99_SPELL_DETAIL_API.format(
             slug=quote(str(name).strip().replace(" ", "_"), safe="")),
-        headers={"User-Agent": "Vantage/1.44.99"})
+        headers={"User-Agent": "Vantage/1.44.100"})
     with urlopen(request, timeout=8) as response:
         payload_bytes = response.read(2_000_001)
     if len(payload_bytes) > 2_000_000:
@@ -353,7 +348,7 @@ def load_mobile_item_detail(item):
     request = Request(
         P99_ITEM_DETAIL_API.format(
             slug=quote(name.replace(" ", "_"), safe="")),
-        headers={"User-Agent": "Vantage/1.44.99"})
+        headers={"User-Agent": "Vantage/1.44.100"})
     with urlopen(request, timeout=8) as response:
         payload_bytes = response.read(MAX_WIKI_RESPONSE + 1)
     if len(payload_bytes) > MAX_WIKI_RESPONSE:
@@ -506,7 +501,7 @@ function saved(key,fallback){try{const value=localStorage.getItem(key);return va
 let zoomLocked=saved('vantageZoomLock',true),nativeSize=saved('vantageNativeSize',false);function applyGameView(){gameShell.classList.toggle('zoom-locked',zoomLocked);gameShell.classList.toggle('native',nativeSize);zoomLock.textContent=zoomLocked?'EQ VIEW LOCKED':'EQ VIEW FREE';zoomLock.setAttribute('aria-pressed',String(zoomLocked));zoomLock.setAttribute('aria-label',zoomLocked?'Unlock pinch gestures inside the EverQuest live image':'Lock pinch gestures inside the EverQuest live image');gameSize.textContent=nativeSize?'1:1 PIXELS':'FIT TO SCREEN'}applyGameView();
 window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();deferredInstallPrompt=event;installApp.textContent='INSTALL APP'});
 if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js',{scope:'/'}).catch(()=>{}));
-function showInstallHelp(){detailDialog.setAttribute('aria-busy','false');detailStatus.textContent='';detailTitle.textContent='Save Vantage to your Home Screen';detailBody.replaceChildren();const intro=node('p','summary','Keep this mobile view one tap away. Its last successful data stays visible while Vantage reconnects.');const steps=node('ol','install-steps');const ios=/iphone|ipad|ipod/i.test(navigator.userAgent);for(const text of (ios?['Open this page in Safari.','Tap Share.','Choose Add to Home Screen, then tap Add.']:['Open your browser menu.','Choose Add to Home screen or Install app.','Confirm Add.']))steps.append(node('li','',text));const limit=node('p','limitation','Vantage restarts this saved Wi-Fi session automatically. If the saved port is busy, Vantage shows a refreshed QR; scan that new QR once. An explicit Stop Phone QR keeps saved data but pauses reconnection until you start it again.');detailBody.append(intro,steps,limit);showDetailDialog()}
+function showInstallHelp(){detailDialog.setAttribute('aria-busy','false');detailStatus.textContent='';detailTitle.textContent='Save Vantage to your Home Screen';detailBody.replaceChildren();const intro=node('p','summary','Keep this mobile view one tap away. Its last successful data stays visible while Vantage reconnects.');const steps=node('ol','install-steps');const ios=/iphone|ipad|ipod/i.test(navigator.userAgent);for(const text of (ios?['Open this page in Safari.','Tap Share.','Choose Add to Home Screen, then tap Add.']:['Open your browser menu.','Choose Add to Home screen or Install app.','Confirm Add.']))steps.append(node('li','',text));const limit=node('p','limitation','Vantage restarts this saved same-Wi-Fi Mobile Host automatically. If the saved port is busy, Vantage shows a refreshed QR; scan that new QR once. An explicit Stop Mobile Host keeps saved data and the pairing key, but pauses reconnection until you start it again.');detailBody.append(intro,steps,limit);showDetailDialog()}
 installApp.addEventListener('click',async()=>{if(deferredInstallPrompt){deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null;installApp.textContent='SAVE TO HOME';return}showInstallHelp()});
 zoomLock.addEventListener('click',()=>{zoomLocked=!zoomLocked;save('vantageZoomLock',zoomLocked);applyGameView()});gameSize.addEventListener('click',()=>{nativeSize=!nativeSize;save('vantageNativeSize',nativeSize);applyGameView()});gameShell.addEventListener('touchmove',event=>{if(zoomLocked&&event.touches.length>1)event.preventDefault()},{passive:false});for(const eventName of ['gesturestart','gesturechange','gestureend'])gameShell.addEventListener(eventName,event=>{if(zoomLocked)event.preventDefault()},{passive:false});
 async function loadGame(){clearTimeout(gameDelay);if(gamePanel.hidden||document.hidden)return;if(gameLoading){gameDelay=setTimeout(loadGame,180);return}gameLoading=true;let delay=500;try{const status=await get('/api/game/status');delay=Math.max(100,Math.round(1000/(Number(status.fps)||5)));announce(gameState,(status.title?status.title+' · ':'')+String(status.message||'')+(status.image_quality_label?' · '+status.image_quality_label:''));if(!status.enabled||!status.available){gameFrame.hidden=true;gameHelp.hidden=false;gameHelp.textContent=String(status.message||'View unavailable.');return}const response=await fetch('/api/game/frame',{cache:'no-store',headers:{Authorization:'Bearer '+token}});if(!response.ok){let failure={};try{failure=await response.json()}catch(_){}const message=String(failure.message||(response.status===403?'EverQuest Live is available only through the local Wi-Fi link.':'The EverQuest window could not be captured.'));gameFrame.hidden=true;gameHelp.hidden=false;gameHelp.textContent=message;announce(gameState,(failure.title?String(failure.title)+' · ':'')+message);delay=1000;return}const blob=await response.blob(),next=URL.createObjectURL(blob),old=gameObjectUrl;gameObjectUrl=next;gameFrame.onload=()=>{if(old)URL.revokeObjectURL(old)};gameFrame.src=next;gameFrame.hidden=false;gameHelp.hidden=true}catch(_){gameFrame.hidden=true;gameHelp.hidden=false;gameHelp.textContent='Local connection to Vantage was lost. Retrying…';announce(gameState,gameHelp.textContent);delay=1000}finally{gameLoading=false;if(!gamePanel.hidden&&!document.hidden)gameDelay=setTimeout(loadGame,delay)}}
@@ -547,7 +542,7 @@ async function chooseZone(target){if(!target||syncingZone||pendingZone)return;cl
 function showQuestDetail(quest){if(!quest||!quest.title){questDetail.hidden=true;questDetail.replaceChildren();return}questDetail.hidden=false;questDetail.replaceChildren(node('h3','',String(quest.title)),node('p','summary',String(quest.summary||'No summary available.')));const steps=Array.isArray(quest.steps)?quest.steps:[];if(steps.length){const list=node('ol','quest-steps');for(const step of steps){const text=typeof step==='string'?step:String(step.text||'');if(text)list.append(node('li','',text))}questDetail.append(list)}if(quest.wiki_url){const link=node('a','source-link','Open full P99 Wiki quest');link.href=quest.wiki_url;link.target='_blank';link.rel='noopener noreferrer';questDetail.append(link)}}
 function drawQuests(data){questNote.textContent=String(data.status||'Quest catalog')+' · '+String(data.total||0)+' matches';showQuestDetail(data.current);const titles=Array.isArray(data.titles)?data.titles:[];if(!titles.length){showListMessage(questRoot,data.loading?'Loading the quest catalog…':'No quests match this search.')}else stableReplace(questRoot,'quests:'+JSON.stringify(titles),...titles.map(title=>{const row=node('li','card'),button=node('button','card-button',title);button.type='button';button.addEventListener('click',async()=>{try{await post('/api/browser/action',{action:'quest',target:title});setTimeout(loadQuests,220);setTimeout(loadQuests,900)}catch(_){announce(questStatus,'Quest could not be opened.')}});row.append(button);return row}));announce(questStatus,String(data.total||0)+' matching quests')}
 async function loadQuests(){const path='/api/quests?q='+encodeURIComponent(byId('questSearch').value);restoreCached(path,questRoot,drawQuests);questRoot.setAttribute('aria-busy','true');try{drawQuests(await get(path))}catch(_){retainOrExplain(questRoot,questStatus,'Quest catalog could not be refreshed.')}finally{questRoot.setAttribute('aria-busy','false')}}
-async function poll(){if(polling)return;if(!token){setConnection('PAIRING NEEDED',true,'No saved Vantage link exists on this device. Scan the Phone QR once.',true);return}polling=true;timersRoot.setAttribute('aria-busy','true');try{drawTimers(await get('/api/state'));rememberPairing(token);setConnection('LIVE',false,'Vantage is connected and data is current.')}catch(error){if(error&&[401,403].includes(Number(error.status))){forgetPairing();token='';setConnection('LINK REVOKED',true,'This saved Vantage link no longer exists. Scan the Phone QR once to pair again.',true)}else setConnection('RECONNECTING · SAVED',true,'Vantage is closed or unreachable. Showing saved data and retrying the last paired address automatically.')}finally{timersRoot.setAttribute('aria-busy','false');polling=false}}
+async function poll(){if(polling)return;if(!token){setConnection('PAIRING NEEDED',true,'No saved Vantage link exists on this device. Scan the Mobile Host QR once.',true);return}polling=true;timersRoot.setAttribute('aria-busy','true');try{drawTimers(await get('/api/state'));rememberPairing(token);setConnection('LIVE',false,'Vantage is connected and data is current.')}catch(error){if(error&&[401,403].includes(Number(error.status))){forgetPairing();token='';setConnection('LINK REVOKED',true,'This saved Vantage link no longer exists. Scan the Mobile Host QR once to pair again.',true)}else setConnection('RECONNECTING · SAVED',true,'Vantage is closed or unreachable. Showing saved data and retrying the last paired address automatically.')}finally{timersRoot.setAttribute('aria-busy','false');polling=false}}
 function params(ids){const p=new URLSearchParams();for(const [key,id] of Object.entries(ids))p.set(key,byId(id).value);return p}
 async function loadMarket(announceLoading=true){const request=++marketRequest,p=params({q:'mq',class:'mc',race:'mr',slot:'ms',effect:'me',drop:'md',era:'mera',sort:'mso'}),path='/api/market?'+p;restoreCached(path,marketRoot,drawMarket);marketRoot.setAttribute('aria-busy','true');if(announceLoading)announce(marketStatus,'Loading market and item stats.');try{const data=await get(path);if(request!==marketRequest)return;drawMarket(data);announce(marketStatus,(Number(data.total)||0)+' matches')}catch(_){if(request!==marketRequest)return;retainOrExplain(marketRoot,marketStatus,'Market data could not be refreshed.')}finally{if(request===marketRequest)marketRoot.setAttribute('aria-busy','false')}}
 function marketChanged(){clearTimeout(marketDelay);marketDelay=setTimeout(()=>loadMarket(true),220)}for(const id of ['mq','mc','mr','ms','me','md','mera','mso'])byId(id).addEventListener(id==='mq'?'input':'change',marketChanged);byId('marketFilters').addEventListener('submit',event=>{event.preventDefault();clearTimeout(marketDelay);loadMarket(true)});
@@ -585,7 +580,7 @@ class _ShareHTTPServer(ThreadingHTTPServer):
 
 
 class _ShareHandler(BaseHTTPRequestHandler):
-    server_version = "VantageMobile/1.44.99"
+    server_version = "VantageMobile/1.44.100"
 
     def log_message(self, *_):
         # Do not write access paths or the user's network details to disk.
@@ -994,12 +989,111 @@ def _lan_address():
         sock.close()
 
 
+_HOST_ID_RX = re.compile(r"[a-f0-9]{10}")
+
+
+def _mobile_hostname(host_id):
+    """Return the stable, non-secret local DNS name for one Vantage install."""
+    if not _HOST_ID_RX.fullmatch(str(host_id or "")):
+        raise ValueError("invalid Mobile Host id")
+    return f"vantage-{host_id}.local"
+
+
+def _mobile_lan_ipv4(address):
+    """Return a usable same-LAN IPv4 address or raise for unsafe values."""
+    parsed = ipaddress.IPv4Address(str(address or ""))
+    if parsed.is_loopback or parsed.is_unspecified or parsed.is_multicast:
+        raise ValueError("Mobile Host requires a usable LAN IPv4 address")
+    return parsed
+
+
+class _MdnsAdvertisement:
+    """Small zeroconf lifetime wrapper with no pairing data in DNS-SD."""
+
+    def __init__(self, zeroconf, service_info, service_info_type,
+                 host_id, address, port):
+        self.zeroconf = zeroconf
+        self.service_info = service_info
+        self._service_info_type = service_info_type
+        self.host_id = host_id
+        self.address = address
+        self.port = int(port)
+
+    def _info(self, address):
+        packed_address = _mobile_lan_ipv4(address).packed
+        hostname = _mobile_hostname(self.host_id)
+        return self._service_info_type(
+            "_http._tcp.local.",
+            f"Vantage Mobile Host {self.host_id}._http._tcp.local.",
+            addresses=[packed_address],
+            port=self.port,
+            properties={},
+            server=f"{hostname}.")
+
+    def update(self, address):
+        """Publish a changed IPv4 address while retaining the stable host name."""
+        if address == self.address:
+            return True
+        try:
+            replacement = self._info(address)
+            update_service = getattr(self.zeroconf, "update_service", None)
+            if callable(update_service):
+                update_service(replacement)
+            else:
+                self.zeroconf.unregister_service(self.service_info)
+                self.zeroconf.register_service(replacement)
+        except Exception:
+            # A transient adapter/mDNS failure must not stop the HTTP host.
+            return False
+        self.service_info = replacement
+        self.address = address
+        return True
+
+    def close(self):
+        try:
+            self.zeroconf.unregister_service(self.service_info)
+        except Exception:
+            pass
+        try:
+            self.zeroconf.close()
+        except Exception:
+            pass
+
+
+def _advertise_mobile_host(host_id, address, port):
+    """Advertise the local host, falling back cleanly when mDNS is unavailable."""
+    zeroconf = None
+    try:
+        _mobile_lan_ipv4(address)
+        from zeroconf import IPVersion, ServiceInfo, Zeroconf
+        zeroconf = Zeroconf(ip_version=IPVersion.V4Only)
+        registration = _MdnsAdvertisement(
+            zeroconf, None, ServiceInfo, host_id, address, port)
+        registration.service_info = registration._info(address)
+        zeroconf.register_service(registration.service_info)
+        return registration
+    except (ImportError, OSError, ValueError, RuntimeError, TypeError):
+        if zeroconf is not None:
+            try:
+                zeroconf.close()
+            except Exception:
+                pass
+        return None
+    except Exception:
+        # Some network stacks raise backend-specific errors during registration.
+        if zeroconf is not None:
+            try:
+                zeroconf.close()
+            except Exception:
+                pass
+        return None
+
+
 class MobileShareController(QObject):
     status_changed = Signal(str)
     link_changed = Signal(str, bool)
+    fallback_link_changed = Signal(str)
     running_changed = Signal(bool)
-    binary_required = Signal()
-    download_progress = Signal(int)
     game_status_changed = Signal(str)
     game_enabled_changed = Signal(bool)
     game_executable_changed = Signal(str)
@@ -1017,22 +1111,30 @@ class MobileShareController(QObject):
         self._server_thread = None
         self._token = ""
         self._lan_token = ""
+        self._host_id = ""
         self._preferred_port = 8765
         self._port_notice = ""
-        self._process = None
-        self._process_buffer = ""
-        self._public_url = ""
         self._local_url = ""
-        self._download_stream = None
-        self._download_pending = ""
+        self._host_url = ""
+        self._ip_fallback_url = ""
+        self._lan_ipv4 = ""
+        self._mdns = None
         self._snapshot_lock = threading.Lock()
         self._snapshot_cache = {}
         mobile_settings = config.data.setdefault("mobile", {})
+        settings_changed = False
         saved_lan_token = str(mobile_settings.get("lan_token") or "")
         if not re.fullmatch(r"[A-Za-z0-9_-]{43}", saved_lan_token):
             saved_lan_token = secrets.token_urlsafe(32)
             mobile_settings["lan_token"] = saved_lan_token
+            settings_changed = True
         self._lan_token = saved_lan_token
+        saved_host_id = str(mobile_settings.get("host_id") or "")
+        if not _HOST_ID_RX.fullmatch(saved_host_id):
+            saved_host_id = secrets.token_hex(5)
+            mobile_settings["host_id"] = saved_host_id
+            settings_changed = True
+        self._host_id = saved_host_id
         try:
             preferred_port = int(mobile_settings.get("preferred_port", 8765))
         except (TypeError, ValueError):
@@ -1045,6 +1147,8 @@ class MobileShareController(QObject):
             profile=mobile_settings.get("game_image_quality", "hd"))
         self.game_capture.set_enabled(
             bool(mobile_settings.get("game_enabled", True)))
+        if settings_changed:
+            config.save()
         self._spell_items = tuple({
             "spell_id": entry.spell_id,
             "name": entry.name,
@@ -1056,7 +1160,6 @@ class MobileShareController(QObject):
         } for entry in p99_spell_entries())
         self.timer_action_requested.connect(self._dispatch_timer_action)
         self.browse_action_requested.connect(self._dispatch_browse_action)
-        self._network = QNetworkAccessManager(self)
         self._snapshot_timer = QTimer(self)
         self._snapshot_timer.setInterval(1000)
         self._snapshot_timer.timeout.connect(self._refresh_snapshot)
@@ -1068,12 +1171,20 @@ class MobileShareController(QObject):
         return self._server is not None
 
     @property
-    def public_url(self):
-        return self._public_url
+    def host_id(self):
+        return self._host_id
 
     @property
     def local_url(self):
         return self._local_url
+
+    @property
+    def host_url(self):
+        return self._host_url
+
+    @property
+    def ip_fallback_url(self):
+        return self._ip_fallback_url
 
     def _snapshot(self):
         with self._snapshot_lock:
@@ -1083,16 +1194,19 @@ class MobileShareController(QObject):
         snapshot = self.snapshot_provider()
         with self._snapshot_lock:
             self._snapshot_cache = snapshot
+        if self.active:
+            self._refresh_network_address()
 
     def start(self):
+        self._start(auto_start=True)
+
+    def _start(self, *, auto_start):
         if self.active:
-            if self._public_url:
-                self.link_changed.emit(self._public_url, True)
-            else:
-                self.link_changed.emit(self._local_url, False)
+            self._refresh_network_address()
+            self.link_changed.emit(self._local_url, self._mdns is not None)
+            self.fallback_link_changed.emit(self._ip_fallback_url)
             return
-        self._token = secrets.token_urlsafe(32)
-        self._process_buffer = ""
+        self._token = self._lan_token
         self._port_notice = ""
         try:
             self._server = _ShareHTTPServer(
@@ -1119,23 +1233,98 @@ class MobileShareController(QObject):
         mobile_settings = config.data.setdefault("mobile", {})
         mobile_settings["preferred_port"] = self._preferred_port
         mobile_settings["lan_token"] = self._lan_token
-        mobile_settings["auto_start"] = True
+        mobile_settings["host_id"] = self._host_id
+        mobile_settings["auto_start"] = bool(auto_start)
         config.save()
         self._server_thread = threading.Thread(
             target=self._server.serve_forever,
             kwargs={"poll_interval": 0.2}, daemon=True)
         self._server_thread.start()
-        self._local_url = f"http://{_lan_address()}:{port}/#{self._lan_token}"
-        self.link_changed.emit(self._local_url, False)
+        self._lan_ipv4 = _lan_address()
+        self._host_url = (
+            f"http://{_mobile_hostname(self._host_id)}:{port}/"
+            f"#{self._lan_token}")
+        self._ip_fallback_url = (
+            f"http://{self._lan_ipv4}:{port}/#{self._lan_token}")
+        self._mdns = _advertise_mobile_host(
+            self._host_id, self._lan_ipv4, port)
+        self._local_url = (
+            self._host_url if self._mdns is not None
+            else self._ip_fallback_url)
+        self.link_changed.emit(self._local_url, self._mdns is not None)
+        self.fallback_link_changed.emit(self._ip_fallback_url)
         self.running_changed.emit(True)
-        binary = self._cloudflared_path()
-        if binary:
-            self._start_tunnel(binary, port)
+        if self._mdns is not None:
+            self.status_changed.emit(
+                "Mobile Host ready on the same Wi-Fi. The stable host link "
+                "will reconnect while Vantage is running." + self._port_notice)
         else:
             self.status_changed.emit(
-                "Wi-Fi ready. To open it away from home, install the free "
-                "official component." + self._port_notice)
-            self.binary_required.emit()
+                "Mobile Host ready on the same Wi-Fi. Local host discovery "
+                "is unavailable, so this QR uses the IP fallback." +
+                self._port_notice)
+
+    def _refresh_network_address(self):
+        if not self.active:
+            return
+        address = _lan_address()
+        if address == self._lan_ipv4:
+            return
+        self._lan_ipv4 = address
+        port = int(self._server.server_address[1])
+        self._ip_fallback_url = (
+            f"http://{address}:{port}/#{self._lan_token}")
+        if self._mdns is not None:
+            advertised = self._mdns.update(address)
+            if advertised is False:
+                self._mdns.close()
+                self._mdns = _advertise_mobile_host(
+                    self._host_id, address, port)
+                advertised = self._mdns is not None
+            else:
+                advertised = True
+        else:
+            self._mdns = _advertise_mobile_host(
+                self._host_id, address, port)
+            advertised = self._mdns is not None
+        if advertised:
+            self._local_url = self._host_url
+            self.link_changed.emit(self._local_url, True)
+        else:
+            self._mdns = None
+            self._local_url = self._ip_fallback_url
+            self.link_changed.emit(self._local_url, False)
+        self.fallback_link_changed.emit(self._ip_fallback_url)
+        if self._mdns is not None:
+            self.status_changed.emit(
+                "The Wi-Fi address changed. The stable host link is unchanged; "
+                "the IP fallback has been refreshed.")
+        else:
+            self.status_changed.emit(
+                "The Wi-Fi address changed. Local host discovery is unavailable, "
+                "so the QR and IP fallback were refreshed.")
+
+    def regenerate_pairing_key(self):
+        """Rotate the saved secret and immediately revoke every old link."""
+        mobile_settings = config.data.setdefault("mobile", {})
+        was_active = self.active
+        saved_auto_start = bool(mobile_settings.get("auto_start", False))
+        if was_active:
+            self._shutdown_session(explicit=False)
+        self._lan_token = secrets.token_urlsafe(32)
+        mobile_settings["lan_token"] = self._lan_token
+        mobile_settings["host_id"] = self._host_id
+        mobile_settings["preferred_port"] = self._preferred_port
+        mobile_settings["auto_start"] = saved_auto_start
+        config.save()
+        if was_active:
+            self._start(auto_start=saved_auto_start)
+            self.status_changed.emit(
+                "Pairing key regenerated. Old saved links were revoked; "
+                "scan the refreshed QR once.")
+        else:
+            self.status_changed.emit(
+                "Pairing key regenerated. Old saved links were revoked.")
 
     def stop(self):
         config.data.setdefault("mobile", {})["auto_start"] = False
@@ -1147,14 +1336,9 @@ class MobileShareController(QObject):
         self._shutdown_session(explicit=False)
 
     def _shutdown_session(self, *, explicit):
-        if self._process:
-            process = self._process
-            self._process = None
-            process.terminate()
-            if not process.waitForFinished(1500):
-                process.kill()
-                process.waitForFinished(1000)
-            process.deleteLater()
+        if self._mdns is not None:
+            self._mdns.close()
+            self._mdns = None
         server_thread = self._server_thread
         if self._server:
             self._server.shutdown()
@@ -1165,14 +1349,16 @@ class MobileShareController(QObject):
             server_thread.join(timeout=2.0)
         self._server_thread = None
         self._token = ""
-        self._public_url = ""
         self._local_url = ""
-        self._process_buffer = ""
+        self._host_url = ""
+        self._ip_fallback_url = ""
+        self._lan_ipv4 = ""
         self._port_notice = ""
         self.status_changed.emit(
-            "Session stopped. Start Phone QR to reconnect the saved Home "
-            "Screen app." if explicit else "Mobile session closed with Vantage.")
+            "Mobile Host stopped. Start it to reconnect saved phone links."
+            if explicit else "Mobile Host closed with Vantage.")
         self.link_changed.emit("", False)
+        self.fallback_link_changed.emit("")
         self.running_changed.emit(False)
 
     def set_game_enabled(self, enabled):
@@ -1184,13 +1370,13 @@ class MobileShareController(QObject):
         self.game_status_changed.emit(status["message"])
         if self.active:
             if enabled:
-                self.link_changed.emit(self._local_url, False)
+                self.link_changed.emit(
+                    self._local_url, self._mdns is not None)
                 self.status_changed.emit(
                     "EverQuest Live ready over local Wi-Fi · read-only view.")
-            elif self._public_url:
-                self.link_changed.emit(self._public_url, True)
             else:
-                self.link_changed.emit(self._local_url, False)
+                self.link_changed.emit(
+                    self._local_url, self._mdns is not None)
 
     def set_game_fps(self, fps):
         self.game_capture.set_fps(fps)
@@ -1239,129 +1425,6 @@ class MobileShareController(QObject):
         self.game_status_changed.emit(
             "eqgame.exe was not found. Open EverQuest and try again, or select it manually.")
         return ""
-
-    def _tool_dir(self):
-        return str(data_dir("tools"))
-
-    def _cloudflared_path(self):
-        bundled = os.path.join(self._tool_dir(), "cloudflared.exe")
-        return bundled if os.path.isfile(bundled) else None
-
-    def download_cloudflared(self):
-        if platform.system() != "Windows" or platform.machine().lower() not in {
-                "amd64", "x86_64"}:
-            self.status_changed.emit("Automatic download is available only on 64-bit Windows.")
-            return
-        self.status_changed.emit("Downloading the official Cloudflare component…")
-        os.makedirs(self._tool_dir(), exist_ok=True)
-        self._download_pending = os.path.join(
-            self._tool_dir(), "cloudflared.exe.part")
-        try:
-            self._download_stream = open(self._download_pending, "wb")
-        except OSError as error:
-            self.status_changed.emit(f"The download could not be prepared: {error}")
-            return
-        request = QNetworkRequest(QUrl(CLOUDFLARED_DOWNLOAD))
-        request.setAttribute(
-            QNetworkRequest.Attribute.RedirectPolicyAttribute,
-            QNetworkRequest.RedirectPolicy.NoLessSafeRedirectPolicy)
-        reply = self._network.get(request)
-        reply.readyRead.connect(lambda: self._download_ready(reply))
-        reply.downloadProgress.connect(self._download_progress)
-        reply.finished.connect(lambda: self._download_finished(reply))
-
-    def _download_ready(self, reply):
-        if self._download_stream:
-            self._download_stream.write(bytes(reply.readAll()))
-
-    def _download_progress(self, received, total):
-        self.download_progress.emit(
-            int(received * 100 / total) if total and total > 0 else 0)
-
-    def _download_finished(self, reply):
-        try:
-            self._download_ready(reply)
-            if self._download_stream:
-                self._download_stream.close()
-                self._download_stream = None
-            if reply.error() != QNetworkReply.NetworkError.NoError:
-                self.status_changed.emit(f"Download failed: {reply.errorString()}")
-                try:
-                    os.remove(self._download_pending)
-                except OSError:
-                    pass
-                return
-            target = os.path.join(self._tool_dir(), "cloudflared.exe")
-            if not self._valid_cloudflare_signature(self._download_pending):
-                try:
-                    os.remove(self._download_pending)
-                except OSError:
-                    pass
-                self.status_changed.emit(
-                    "Windows could not validate Cloudflare's official signature; nothing was installed.")
-                return
-            os.replace(self._download_pending, target)
-            self.download_progress.emit(100)
-            self.status_changed.emit("Component validated. Creating an ephemeral link…")
-            if self.active:
-                self._start_tunnel(target, self._server.server_address[1])
-        finally:
-            reply.deleteLater()
-
-    @staticmethod
-    def _valid_cloudflare_signature(path):
-        safe_path = path.replace("'", "''")
-        script = (
-            "$s=Get-AuthenticodeSignature -LiteralPath '" + safe_path + "';"
-            "if($s.Status -eq 'Valid' -and "
-            "$s.SignerCertificate.Subject -match 'Cloudflare'){exit 0}else{exit 2}")
-        try:
-            result = subprocess.run(
-                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
-                check=False, capture_output=True, timeout=20,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            return result.returncode == 0
-        except (OSError, subprocess.SubprocessError):
-            return False
-
-    def _start_tunnel(self, binary, port):
-        if self._process:
-            return
-        self.status_changed.emit(
-            "Creating a private temporary link…" + self._port_notice)
-        process = QProcess(self)
-        process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
-        process.setProgram(binary)
-        process.setArguments([
-            "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{port}"])
-        process.readyReadStandardOutput.connect(self._read_tunnel_output)
-        process.errorOccurred.connect(
-            lambda _: self.status_changed.emit(
-                "The tunnel could not start; the Wi-Fi link remains available."))
-        process.finished.connect(self._tunnel_finished)
-        self._process = process
-        process.start()
-
-    def _read_tunnel_output(self):
-        if not self._process:
-            return
-        self._process_buffer += bytes(
-            self._process.readAllStandardOutput()).decode("utf-8", "replace")
-        match = TUNNEL_URL_RX.search(self._process_buffer)
-        if match and not self._public_url:
-            self._public_url = f"{match.group(0)}/#{self._token}"
-            self.status_changed.emit(
-                "Live · free individual link. It shuts down when the session "
-                "stops." + self._port_notice)
-            if not self.game_capture.enabled:
-                self.link_changed.emit(self._public_url, True)
-
-    def _tunnel_finished(self, *_):
-        if self.active and not self._public_url:
-            self.status_changed.emit(
-                "Cloudflare did not respond; use the Wi-Fi link or try again.")
-        self._process = None
-
 
 def _qr_pixmap(text, size=250):
     qr = segno.make(text, error="q")
@@ -1473,10 +1536,9 @@ class EverQuestLiveSetupDialog(UniformScaleDialog):
         self.game_enabled.toggled.connect(controller.set_game_enabled)
         layout.addWidget(self.game_enabled)
         finish = QLabel(
-            "Then return to “Vantage on Your Phone,” create the link, and scan "
-            "the QR code. The game view works only over local Wi-Fi; Timers and "
-            "Market and Spells can also use the temporary external link. Timer "
-            "controls and zone sync require the local Wi-Fi link.")
+            "Then return to Vantage Mobile Host, start it, and scan the QR "
+            "code. Every tab uses the local same-Wi-Fi Mobile Host. EverQuest "
+            "Live is read-only; timer controls and zone sync also remain local.")
         finish.setWordWrap(True)
         layout.addWidget(finish)
 
@@ -1524,70 +1586,74 @@ class MobileShareDialog(UniformScaleDialog):
             initial_size=QSize(390, 458))
         self.controller = controller
         self._current_link = ""
-        self.setWindowTitle("Vantage on Your Phone")
+        self.setWindowTitle("Vantage Mobile Host")
         outer = QVBoxLayout(self.scaled_surface)
         body = QWidget()
         layout = QVBoxLayout(body)
         outer.addWidget(scrollable(body, "MobileShareScroll"), 1)
-        heading = QLabel("VANTAGE ON YOUR PHONE")
+        heading = QLabel("VANTAGE MOBILE HOST")
         heading.setObjectName("MobileShareTitle")
         layout.addWidget(heading)
         note = QLabel(
-            "One private QR opens your Timers, Market, Spells, and EverQuest "
-            "Live view. Keep Vantage running while you use it.")
+            "Account-free and local: your phone must be on the same Wi-Fi as "
+            "this PC. Keep Vantage running. You can close this window; Mobile "
+            "Host keeps running in the Vantage tray and starts with Vantage "
+            "next time when you leave it running.")
         note.setWordWrap(True)
         note.setAccessibleName(
-            "The private QR includes Timers, Market, Spells, and EverQuest Live")
+            "Mobile Host stays on this PC and requires the same Wi-Fi network. "
+            "Closing this window leaves the host running in the Vantage tray.")
         layout.addWidget(note)
 
         steps = QLabel(
-            "1 · START PHONE QR    2 · SCAN IT    3 · OPEN A TAB")
+            "1 · START MOBILE HOST    2 · SCAN IT    3 · OPEN A TAB")
         steps.setObjectName("SettingsHeader")
         steps.setWordWrap(True)
         steps.setAccessibleName(
-            "Step 1 start the phone QR. Step 2 scan it. Step 3 open a tab.")
+            "Step 1 start Mobile Host. Step 2 scan it. Step 3 open a tab.")
         layout.addWidget(steps)
 
         actions = ResponsiveActionBar(180)
-        self.toggle = QPushButton("Start Phone QR")
+        self.toggle = QPushButton("Start Mobile Host")
         self.toggle.setObjectName("PrimaryAction")
         self.toggle.setIcon(game_icon("mobile"))
+        self.toggle.setAccessibleName("Start Mobile Host")
+        self.toggle.setAccessibleDescription(
+            "Start the account-free host on this PC for phones on the same Wi-Fi")
         self.toggle.setToolTip(
-            "Start one private phone session and display its QR code")
+            "Start Mobile Host on this PC and display the private pairing QR")
         self.toggle.clicked.connect(self._toggle)
         actions.addWidget(self.toggle)
-        self.download = QPushButton("Enable Remote Link")
-        self.download.setIcon(game_icon("refresh"))
-        self.download.setVisible(False)
-        self.download.setToolTip(
-            "Download the official signed Cloudflare component for use away from home")
-        self.download.clicked.connect(self._confirm_download)
-        actions.addWidget(self.download)
+        self.rotate = QPushButton("Regenerate Pairing Key…")
+        self.rotate.setIcon(game_icon("refresh"))
+        self.rotate.setAccessibleName("Regenerate Pairing Key")
+        self.rotate.setAccessibleDescription(
+            "Revoke every saved phone link and create a new private pairing key")
+        self.rotate.setToolTip(
+            "Revoke old saved links and refresh the pairing QR")
+        self.rotate.clicked.connect(self._confirm_regenerate)
+        actions.addWidget(self.rotate)
         layout.addWidget(actions)
 
-        self.status = QLabel("Stopped · click Start Phone QR")
+        self.status = QLabel("Stopped · click Start Mobile Host")
         self.status.setObjectName("MobileShareStatus")
         self.status.setWordWrap(True)
+        self.status.setAccessibleName("Mobile Host status")
+        self.status.setAccessibleDescription(
+            "Stopped. Start Mobile Host to connect a phone on the same Wi-Fi.")
         self.status.setToolTip(
-            "Current phone session, Wi-Fi link, remote link, or download state")
+            "Current same-Wi-Fi Mobile Host status; updates are announced politely")
         layout.addWidget(self.status)
 
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 100)
-        self.progress.setVisible(False)
-        self.progress.setToolTip(
-            "Download progress for the official Cloudflare component")
-        layout.addWidget(self.progress)
-
-        self.qr = QLabel("1 · Click Start Phone QR")
+        self.qr = QLabel("1 · Click Start Mobile Host")
         self.qr.setObjectName("MobileShareQR")
         self.qr.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.qr.setMinimumHeight(180)
-        self.qr.setAccessibleName("Private mobile session QR code")
+        self.qr.setAccessibleName("Mobile Host pairing QR code")
         self.qr.setAccessibleDescription(
-            "Start the phone session to generate the QR code")
+            "Start Mobile Host to generate the private same-Wi-Fi pairing QR code")
         self.qr.setToolTip(
-            "Scan this private companion link with your phone camera")
+            "Start Mobile Host to display the private same-Wi-Fi pairing QR")
         layout.addWidget(self.qr)
 
         included = QLabel(
@@ -1600,20 +1666,72 @@ class MobileShareDialog(UniformScaleDialog):
             "Quests, and EverQuest Live")
         layout.addWidget(included)
 
+        host_label = QLabel("Host link")
+        host_label.setObjectName("SettingsHeader")
+        layout.addWidget(host_label)
         link_row = QHBoxLayout()
         self.link = QLineEdit()
         self.link.setReadOnly(True)
-        self.link.setPlaceholderText("The QR address will appear here")
-        self.link.setAccessibleName("Current private mobile link")
+        self.link.setPlaceholderText("The stable Mobile Host link will appear here")
+        self.link.setAccessibleName("Mobile Host link")
+        self.link.setAccessibleDescription(
+            "Private pairing link used by the QR code; the pairing key is in "
+            "the fragment and is not advertised on the network")
         self.link.setToolTip(
-            "Private companion address; scan the QR or copy this link")
+            "Stable same-Wi-Fi host link; scan the QR or copy this address")
+        host_label.setBuddy(self.link)
         link_row.addWidget(self.link, 1)
-        copy = QPushButton("Copy Link")
-        copy.setIcon(game_icon("copy"))
-        copy.setToolTip("Copy the current private mobile link")
-        copy.clicked.connect(self._copy)
-        link_row.addWidget(copy)
+        self.copy_host = QPushButton("Copy Host Link")
+        self.copy_host.setIcon(game_icon("copy"))
+        self.copy_host.setAccessibleName("Copy Host Link")
+        self.copy_host.setAccessibleDescription(
+            "Copy the private Mobile Host pairing link to the clipboard")
+        self.copy_host.setToolTip("Copy the current private Mobile Host link")
+        self.copy_host.clicked.connect(self._copy_host)
+        self.copy_host.setEnabled(False)
+        link_row.addWidget(self.copy_host)
         layout.addLayout(link_row)
+
+        fallback_label = QLabel("IP fallback")
+        fallback_label.setObjectName("SettingsHeader")
+        layout.addWidget(fallback_label)
+        fallback_row = QHBoxLayout()
+        self.ip_fallback = QLineEdit()
+        self.ip_fallback.setReadOnly(True)
+        self.ip_fallback.setPlaceholderText(
+            "The current numeric Wi-Fi address will appear here")
+        self.ip_fallback.setAccessibleName("IP fallback link")
+        self.ip_fallback.setAccessibleDescription(
+            "Current numeric same-Wi-Fi address to use if the stable local "
+            "host name does not open on this phone")
+        self.ip_fallback.setToolTip(
+            "Use this address only if the stable Host link does not open")
+        fallback_label.setBuddy(self.ip_fallback)
+        fallback_row.addWidget(self.ip_fallback, 1)
+        self.copy_ip = QPushButton("Copy IP Fallback")
+        self.copy_ip.setIcon(game_icon("copy"))
+        self.copy_ip.setAccessibleName("Copy IP Fallback")
+        self.copy_ip.setAccessibleDescription(
+            "Copy the current numeric same-Wi-Fi pairing link to the clipboard")
+        self.copy_ip.setToolTip(
+            "Copy the numeric Wi-Fi fallback link for this PC")
+        self.copy_ip.clicked.connect(self._copy_ip)
+        self.copy_ip.setEnabled(False)
+        fallback_row.addWidget(self.copy_ip)
+        layout.addLayout(fallback_row)
+
+        self.connection_help = QLabel(
+            "If your phone cannot connect, use Copy IP Fallback and allow "
+            "Vantage on Private networks in Windows Firewall.")
+        self.connection_help.setWordWrap(True)
+        self.connection_help.setObjectName("MobileShareTerms")
+        self.connection_help.setAccessibleName("Mobile Host connection help")
+        self.connection_help.setAccessibleDescription(
+            "If the phone cannot connect on the same Wi-Fi, copy the IP "
+            "fallback and allow Vantage on Private networks in Windows Firewall.")
+        self.connection_help.setToolTip(
+            "Same-Wi-Fi troubleshooting for the IP fallback and Windows Firewall")
+        layout.addWidget(self.connection_help)
 
         live_box = QWidget()
         live_layout = QVBoxLayout(live_box)
@@ -1629,6 +1747,9 @@ class MobileShareDialog(UniformScaleDialog):
         live_layout.addWidget(self.game_summary)
         configure_live = QPushButton("Set Up EQ Live…")
         configure_live.setIcon(game_icon("follow"))
+        configure_live.setAccessibleName("Set Up EverQuest Live")
+        configure_live.setAccessibleDescription(
+            "Open local read-only EverQuest capture settings")
         configure_live.setToolTip(
             "Open the separate detection and setup guide")
         configure_live.clicked.connect(self._show_live_setup)
@@ -1636,36 +1757,27 @@ class MobileShareDialog(UniformScaleDialog):
         layout.addWidget(live_box)
         self._live_setup = EverQuestLiveSetupDialog(controller, self)
 
-        self.terms = QLabel(
-            "Remote access uses <a href='" + CLOUDFLARE_QUICK_TUNNEL_DOCS +
-            "'>Cloudflare Quick Tunnels</a>. It is free and temporary, with no SLA. "
-            "The first use may require downloading its official Windows component.")
-        self.terms.setWordWrap(True)
-        self.terms.setOpenExternalLinks(True)
-        self.terms.setTextFormat(Qt.TextFormat.RichText)
-        self.terms.setObjectName("MobileShareTerms")
-        self.terms.setToolTip(
-            "Open the official documentation for free temporary Quick Tunnels")
-        layout.addWidget(self.terms)
-
-
-        controller.status_changed.connect(self.status.setText)
+        controller.status_changed.connect(self._set_status)
         controller.link_changed.connect(self._set_link)
+        controller.fallback_link_changed.connect(self._set_fallback_link)
         controller.running_changed.connect(self._set_running)
-        controller.binary_required.connect(lambda: self.download.setVisible(True))
-        controller.download_progress.connect(self._set_progress)
         controller.game_status_changed.connect(self.game_summary.setText)
         controller.game_enabled_changed.connect(self._set_game_enabled)
+        self.setTabOrder(self.toggle, self.rotate)
+        self.setTabOrder(self.rotate, self.link)
+        self.setTabOrder(self.link, self.copy_host)
+        self.setTabOrder(self.copy_host, self.ip_fallback)
+        self.setTabOrder(self.ip_fallback, self.copy_ip)
+        self.setTabOrder(self.copy_ip, configure_live)
 
     def refresh(self):
         self._live_setup.refresh()
         self._set_running(self.controller.active)
-        if self.controller.game_capture.enabled and self.controller.local_url:
-            self._set_link(self.controller.local_url, False)
-        elif self.controller.public_url:
-            self._set_link(self.controller.public_url, True)
-        elif self.controller.local_url:
-            self._set_link(self.controller.local_url, False)
+        if self.controller.local_url:
+            self._set_link(
+                self.controller.local_url,
+                self.controller.local_url == self.controller.host_url)
+        self._set_fallback_link(self.controller.ip_fallback_url)
 
     def _toggle(self):
         if self.controller.active:
@@ -1674,15 +1786,19 @@ class MobileShareDialog(UniformScaleDialog):
             self.controller.start()
 
     def _set_running(self, running):
-        self.toggle.setText("Stop Phone QR" if running else "Start Phone QR")
+        label = "Stop Mobile Host" if running else "Start Mobile Host"
+        self.toggle.setText(label)
+        self.toggle.setAccessibleName(label)
         self.toggle.setIcon(game_icon("stop" if running else "mobile"))
-        self.toggle.setToolTip(
-            "Stop this private phone session and invalidate its QR" if running
-            else "Start one private phone session and display its QR code")
+        description = (
+            "Stop Mobile Host and disable automatic startup; the saved pairing "
+            "key is preserved" if running else
+            "Start the account-free host on this PC for phones on the same Wi-Fi")
+        self.toggle.setAccessibleDescription(description)
+        self.toggle.setToolTip(description)
         self.toggle.setObjectName("DangerAction" if running else "PrimaryAction")
         self.toggle.style().unpolish(self.toggle)
         self.toggle.style().polish(self.toggle)
-        self.download.setVisible(False if not running else self.download.isVisible())
 
     def _set_game_enabled(self, enabled):
         state = "ACTIVE" if enabled else "OFF"
@@ -1697,21 +1813,29 @@ class MobileShareDialog(UniformScaleDialog):
         self._live_setup.raise_()
         self._live_setup.activateWindow()
 
-    def _set_link(self, link, public):
+    def _set_link(self, link, stable_host):
         self._current_link = link
         self.link.setText(link)
+        self.copy_host.setEnabled(bool(link))
         if not link:
             self.qr.clear()
-            self.qr.setText("1 · Click Start Phone QR")
+            self.qr.setText("1 · Click Start Mobile Host")
             self.qr.setAccessibleDescription(
-                "The phone session is stopped; start it to generate a QR code")
+                "Mobile Host is stopped; start it to generate the private "
+                "same-Wi-Fi pairing QR code")
+            self.qr.setToolTip(
+                "Start Mobile Host to display the private same-Wi-Fi pairing QR")
             return
         self._update_qr()
-        link_kind = "temporary remote" if public else "same Wi-Fi"
+        link_kind = "stable local host" if stable_host else "IP fallback"
         self.qr.setAccessibleDescription(
-            f"QR code ready for the {link_kind} phone link")
+            f"QR code ready for the {link_kind} on the same Wi-Fi network")
         self.qr.setToolTip(
-            "Temporary remote link" if public else "Link available on the same Wi-Fi network")
+            f"Scan the private {link_kind} link on the same Wi-Fi network")
+
+    def _set_fallback_link(self, link):
+        self.ip_fallback.setText(link)
+        self.copy_ip.setEnabled(bool(link))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -1721,27 +1845,38 @@ class MobileShareDialog(UniformScaleDialog):
         self.qr.setMinimumHeight(size + 18)
         self.qr.setPixmap(_qr_pixmap(self._current_link, size))
 
-    def _copy(self):
+    def _copy_host(self):
         if self.link.text():
             QApplication.clipboard().setText(self.link.text())
-            self.status.setText("Link copied.")
+            self._set_status("Host link copied.")
 
-    def _confirm_download(self):
+    def _copy_ip(self):
+        if self.ip_fallback.text():
+            QApplication.clipboard().setText(self.ip_fallback.text())
+            self._set_status("IP fallback copied.")
+
+    def _confirm_regenerate(self):
         answer = QMessageBox.question(
-            self, "Official Cloudflare Component",
-            "cloudflared will be downloaded from the official repository, and Windows "
-            "will verify its digital signature before use. Installing it means "
-            "accepting Cloudflare's license, terms, and privacy policy.\n\n"
-            "Continue?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            self, "Regenerate Pairing Key?",
+            "Every saved phone link will stop working immediately. Mobile "
+            "Host will restart if it is running, and you will need to scan the "
+            "refreshed QR code once.\n\nRegenerate the pairing key?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
         if answer == QMessageBox.StandardButton.Yes:
-            self.download.setEnabled(False)
-            self.progress.setVisible(True)
-            self.controller.download_cloudflared()
+            self.controller.regenerate_pairing_key()
+        self.rotate.setFocus(Qt.FocusReason.OtherFocusReason)
 
-    def _set_progress(self, value):
-        self.progress.setVisible(value < 100)
-        self.progress.setValue(value)
-        if value >= 100:
-            self.download.setVisible(False)
-            self.download.setEnabled(True)
+    def _set_status(self, message):
+        message = str(message)
+        self.status.setText(message)
+        self.status.setAccessibleDescription(message)
+        try:
+            if QAccessibleAnnouncementEvent is None:
+                return
+            event = QAccessibleAnnouncementEvent(self.status, message)
+            event.setPoliteness(
+                QAccessible.AnnouncementPoliteness.Polite)
+            QAccessible.updateAccessibility(event)
+        except (AttributeError, RuntimeError, TypeError):
+            pass

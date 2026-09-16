@@ -28,6 +28,7 @@ from vantage.helpers.notification_routes import (
 from vantage.helpers.portable import data_dir
 from vantage.helpers.responsive import TableColumnManager
 from vantage.helpers.splash import StartupSplash
+from vantage.helpers.terms import ensure_terms_accepted
 from vantage.helpers.updater import UpdateController
 from vantage.helpers.update_toast import QuickUpdateToast
 from vantage.helpers.update_handoff import (
@@ -57,7 +58,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=99,
+    patch=100,
     build=""
 )
 
@@ -79,7 +80,7 @@ class LocationSharingSignals(QObject):
 class VantageApp(QApplication):
     """Application Control."""
 
-    def __init__(self, *args):
+    def __init__(self, *args, enforce_terms=False):
         super().__init__(*args)
         # Keep the tray application alive even when every parser is hidden.
         self.setQuitOnLastWindowClosed(False)
@@ -102,6 +103,10 @@ class VantageApp(QApplication):
         self.setPalette(palette)
         self._apply_theme()
         self.setWindowIcon(QIcon(resource_path('data/ui/icon.png')))
+        self._startup_aborted = False
+        if enforce_terms and not ensure_terms_accepted():
+            self._startup_aborted = True
+            return
         self._splash = StartupSplash()
         self._splash.show_centered()
         self._splash.step("Loading preferences and profiles…", 12)
@@ -280,6 +285,11 @@ class VantageApp(QApplication):
                 update_error, msecs=8500, overlay_id="alerts",
                 text_color="#E08372")
         self._schedule_update_check(UPDATE_INITIAL_DELAY_MS)
+
+    @property
+    def startup_aborted(self):
+        """Whether the required notice was declined before startup began."""
+        return self._startup_aborted
 
     def _log_archive_completed(self, report):
         if report.moved:

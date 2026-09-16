@@ -7,6 +7,7 @@ from glob import glob
 import json
 import re
 import tempfile
+from datetime import datetime, timezone
 
 from vantage.helpers.trigger_groups import normalize_trigger_groups
 from vantage.helpers.quickbar_items import QUICKBAR_ITEM_KEYS
@@ -22,6 +23,20 @@ APP_EXIT = False
 QUEST_CHECKLIST_MAX_STEPS = 180
 QUEST_CHECKLIST_MAX_ENTRY_BYTES = 16 * 1024
 QUEST_CHECKLIST_MAX_TOTAL_BYTES = 384 * 1024
+
+
+def valid_utc_timestamp(value):
+    """Recognize the compact ISO-8601 UTC timestamps stored by Vantage."""
+    if not isinstance(value, str) or len(value) > 40 or not value.endswith('Z'):
+        return False
+    try:
+        parsed = datetime.fromisoformat(value[:-1] + '+00:00')
+    except ValueError:
+        return False
+    return (
+        parsed.tzinfo is not None
+        and parsed.utcoffset() == timezone.utc.utcoffset(parsed)
+    )
 
 
 # Reset UI Layout is deliberately constrained to this presentation-only
@@ -531,6 +546,22 @@ def verify_update_checkpoint(spell_rows, timer_rows):
 def verify_settings():
     # verify vantage.config.json contains what it should and
     # set defaults if appropriate
+
+    # Versioned legal acceptance contains no external account or profile data.
+    legal = data.get('legal', {})
+    if not isinstance(legal, dict):
+        legal = {}
+    terms_version = legal.get('terms_version', '')
+    if (not isinstance(terms_version, str) or
+            not re.fullmatch(r'\d{4}-\d{2}-\d{2}\.[1-9]\d*', terms_version)):
+        terms_version = ''
+    accepted_at = legal.get('accepted_at', '')
+    if not valid_utc_timestamp(accepted_at):
+        accepted_at = ''
+    data['legal'] = {
+        'terms_version': terms_version,
+        'accepted_at': accepted_at,
+    }
 
     # general
     data['general'] = data.get('general', {})
@@ -1671,7 +1702,8 @@ def verify_settings():
 
     # Private mobile companion and local, read-only EverQuest view.  The LAN
     # credential is deliberately persisted so an installed Home Screen app can
-    # reconnect without placing a secret in its manifest or scanning the LAN.
+    # reconnect.  host_id is a separate, non-secret mDNS identity and must
+    # never be accepted as a pairing credential.
     data['mobile'] = data.get('mobile', {})
     if not isinstance(data['mobile'], dict):
         data['mobile'] = {}
@@ -1690,6 +1722,10 @@ def verify_settings():
     mobile_token = str(data['mobile'].get('lan_token') or '')
     data['mobile']['lan_token'] = (
         mobile_token if re.fullmatch(r'[A-Za-z0-9_-]{43}', mobile_token)
+        else '')
+    mobile_host_id = str(data['mobile'].get('host_id') or '')
+    data['mobile']['host_id'] = (
+        mobile_host_id if re.fullmatch(r'[a-f0-9]{10}', mobile_host_id)
         else '')
     data['mobile']['preferred_port'] = get_setting(
         data['mobile'].get('preferred_port', 8765), 8765,

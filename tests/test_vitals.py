@@ -13,7 +13,7 @@ from PySide6.QtGui import QColor, QFont, QImage, QKeyEvent, QRawFont
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from PySide6.QtWidgets import (
-    QDialog, QDialogButtonBox, QLabel, QMessageBox, QPushButton)
+    QDialog, QDialogButtonBox, QLabel, QMessageBox, QPushButton, QScrollArea)
 
 from vantage.helpers import config
 from vantage.helpers.game_capture import GameWindowCapture
@@ -655,6 +655,82 @@ def test_own_vitals_use_persisted_current_max_but_other_types_stay_percentage():
     assert legacy_percent.source == "number"
 
 
+def test_explicit_number_formats_are_strict_and_auto_tries_slash_first():
+    percentage = _number_image(42)
+    current_max, _token = _eq_bitmap_text_image("1674/2595")
+
+    strict_pair = read_vital_bar(percentage, {
+        "id": "hp", "name": "My HP", "type": "my_hp",
+        "ocr_calibrated": True, "number_format": "current_max",
+        "rect": [0, 0, 1, 1],
+    })
+    assert strict_pair.valid is False
+    assert strict_pair.source == "current_max"
+
+    strict_percent = read_vital_bar(current_max, {
+        "id": "mana", "name": "My Mana", "type": "my_mana",
+        "ocr_calibrated": True, "number_format": "percentage",
+        "rect": [0, 0, 1, 1],
+    })
+    assert strict_percent.valid is False
+    assert strict_percent.source != "current_max"
+
+    auto_pair = read_vital_bar(current_max, {
+        "id": "hp", "name": "My HP", "type": "my_hp",
+        "ocr_calibrated": True, "number_format": "auto",
+        "rect": [0, 0, 1, 1],
+    })
+    auto_percent = read_vital_bar(percentage, {
+        "id": "mana", "name": "My Mana", "type": "my_mana",
+        "ocr_calibrated": True, "number_format": "auto",
+        "rect": [0, 0, 1, 1],
+    })
+    assert auto_pair.valid is True and auto_pair.source == "current_max"
+    assert auto_percent.valid is True and auto_percent.source == "number"
+
+
+def test_number_format_persists_before_calibration_save_and_reload(
+        tmp_path, monkeypatch):
+    destination = tmp_path / "vantage.config.json"
+    bars = []
+    for index, number_format in enumerate(
+            ("auto", "percentage", "current_max")):
+        bar = default_vital_bar(
+            f"own-{index}", f"Own {index}", "my_hp")
+        bar["number_format"] = number_format
+        sanitized = sanitize_vital_bar(bar, index)
+        assert sanitized["rect"] == []
+        assert sanitized["ocr_calibrated"] is False
+        assert sanitized["number_format"] == number_format
+        bars.append(sanitized)
+
+    monkeypatch.setattr(config, "data", {"vitals": {"bars": bars}})
+    monkeypatch.setattr(config, "_filename", str(destination))
+    config.save()
+    config.data = {}
+    config.load(str(destination))
+    restored = sanitize_vital_bars(config.data["vitals"]["bars"])
+    assert [bar["number_format"] for bar in restored] == [
+        "auto", "percentage", "current_max"]
+    assert all(not bar["rect"] for bar in restored)
+
+
+def test_unsupported_types_are_always_percentage_and_legacy_own_roi_survives():
+    for bar_type in ("target_hp", "group_hp", "custom"):
+        bar = sanitize_vital_bar({
+            "id": bar_type, "type": bar_type,
+            "number_format": "current_max",
+        })
+        assert bar["number_format"] == "percentage"
+
+    legacy = sanitize_vital_bar({
+        "id": "legacy", "name": "Legacy HP", "type": "my_hp",
+        "read_mode": "number", "rect": [.1, .2, .2, .1],
+    })
+    assert legacy["rect"] == [.1, .2, .2, .1]
+    assert legacy["number_format"] == ""
+
+
 def test_compact_eq_templates_do_not_turn_a_colored_bar_into_a_number():
     image = QImage(74, 36, QImage.Format.Format_RGB32)
     image.fill(QColor(10, 14, 16))
@@ -1199,6 +1275,34 @@ def test_apply_valid_numeric_calibration_marks_and_persists_ocr_roi():
     owner._calibration_controls.close()
 
 
+@pytest.mark.parametrize(("number_format", "image_factory", "valid", "source"), [
+    ("current_max", lambda: _number_image(75), False, "current_max"),
+    ("percentage", lambda: _eq_bitmap_text_image("1674/2595")[0],
+     False, "number"),
+    ("auto", lambda: _eq_bitmap_text_image("1674/2595")[0],
+     True, "current_max"),
+    ("auto", lambda: _number_image(75), True, "number"),
+])
+def test_calibration_obeys_selected_number_format(
+        number_format, image_factory, valid, source):
+    image = image_factory()
+    bounds = QRect(0, 0, image.width(), image.height())
+    bar = sanitize_vital_bar({
+        "id": "my-hp", "name": "My HP", "type": "my_hp",
+        "number_format": number_format,
+    })
+    owner = type("Owner", (), {})()
+    owner._bars = [bar]
+    owner._bar_index = lambda bar_id: 0 if bar_id == "my-hp" else -1
+    owner._calibration_context = ("my-hp", image, bounds)
+
+    reading, _normalized = Vitals._calibration_sample(
+        owner, "my-hp", bounds)
+
+    assert reading.valid is valid
+    assert reading.source == source
+
+
 def test_my_hp_calibration_detects_persists_and_reloads_current_max_format():
     _app()
     image, _token = _eq_bitmap_text_image(
@@ -1397,6 +1501,72 @@ def test_vital_bar_has_one_numeric_reading_flow_and_no_obsolete_controls():
     dialog.close()
 
 
+def test_overlay_editor_exposes_visible_accessible_number_format_selector():
+    app = _app()
+    bar = default_vital_bar("my-hp", "My HP", "my_hp")
+    dialog = VitalBarDialog(bar)
+    dialog.show()
+    app.processEvents()
+
+    assert dialog.number_format_label.text() == "Visible number format"
+    assert dialog.number_format_label.buddy() is dialog.number_format
+    assert dialog.number_format.accessibleName() == "Visible number format"
+    assert [dialog.number_format.itemText(index) for index in range(3)] == [
+        "Auto-detect",
+        "Percentage",
+        "Current / maximum",
+    ]
+    assert dialog.number_format.currentData() == "auto"
+    assert dialog.number_format.isEnabled()
+    assert "current / maximum pair first" in dialog.number_format_help.text()
+
+    dialog.number_format.setCurrentIndex(
+        dialog.number_format.findData("current_max"))
+    assert "strict slash pair" in dialog.number_format_help.text()
+    saved = dialog.value()
+    assert saved["number_format"] == "current_max"
+    assert saved["rect"] == []
+
+    dialog.kind.setCurrentIndex(dialog.kind.findData("target_hp"))
+    assert not dialog.number_format.isEnabled()
+    assert dialog.number_format.currentData() == "percentage"
+    assert "percentages only" in dialog.number_format_help.text()
+    assert dialog.value()["number_format"] == "percentage"
+
+    dialog.kind.setCurrentIndex(dialog.kind.findData("my_mana"))
+    assert dialog.number_format.isEnabled()
+    assert dialog.number_format.currentData() == "current_max"
+    dialog.close()
+
+
+def test_overlay_editor_number_format_fits_at_large_text_without_horizontal_scroll():
+    app = _app()
+    previous_font = QFont(app.font())
+    large_font = QFont(previous_font)
+    large_font.setPointSize(18)
+    app.setFont(large_font)
+    try:
+        bar = default_vital_bar("my-hp", "My HP", "my_hp")
+        dialog = VitalBarDialog(bar)
+        dialog.resize(460, 600)
+        dialog.show()
+        app.processEvents()
+
+        area = dialog.findChild(QScrollArea, "ResponsiveScroll")
+        assert area is not None
+        assert area.horizontalScrollBar().maximum() == 0
+        assert dialog.number_format.isEnabled()
+        current_max = dialog.number_format.findData("current_max")
+        assert current_max >= 0
+        dialog.number_format.setCurrentIndex(current_max)
+        assert dialog.number_format.currentData() == "current_max"
+        assert "1000/1000" in dialog.number_format.toolTip()
+        assert "1000/1000" in dialog.number_format.accessibleDescription()
+        dialog.close()
+    finally:
+        app.setFont(previous_font)
+
+
 @pytest.mark.parametrize("bar_type", [
     "my_hp", "my_mana", "target_hp", "group_hp", "custom",
 ])
@@ -1421,7 +1591,11 @@ def test_overlay_editor_exposes_accessible_full_alert_silence_for_every_type(
     assert control.isChecked() is (bar_type == "target_hp")
 
     dialog.name.setFocus(Qt.FocusReason.TabFocusReason)
-    for expected in (dialog.kind, dialog.enabled, control, dialog.stop_list):
+    focus_order = [dialog.kind]
+    if bar_type in {"my_hp", "my_mana"}:
+        focus_order.append(dialog.number_format)
+    focus_order.extend((dialog.enabled, control, dialog.stop_list))
+    for expected in focus_order:
         QTest.keyClick(dialog.focusWidget(), Qt.Key.Key_Tab)
         app.processEvents()
         assert dialog.focusWidget() is expected
@@ -1858,13 +2032,14 @@ app.quit()
         [sys.executable, "-c", script], cwd=ROOT, env=env,
         check=True, capture_output=True, text=True, timeout=30)
     result = json.loads(completed.stdout.strip().splitlines()[-1])
-    assert result["guide_step"] == "Place over visible HP or mana number"
+    assert result["guide_step"] == "Choose visible number format"
     for key in (
             "guide_description", "title_tooltip", "add_description",
             "add_tooltip", "empty_description", "empty_detail"):
-        assert "visible HP or mana number" in result[key]
         assert "My HP and My Mana" in result[key]
-        assert "percentage or current/max" in result[key]
+        assert "Auto-detect" in result[key]
+        assert "Percentage (100%)" in result[key]
+        assert "Current / maximum (1000/1000)" in result[key]
     assert result["add_description"] == result["add_tooltip"]
     assert result["empty_description"] == result["empty_detail"]
 
@@ -1999,14 +2174,17 @@ app.quit()
         "add_visible": True,
         "add_text": "Add monitor",
         "guide": [
-            "Place over visible HP or mana number", "Validate reading",
+            "Choose visible number format",
+            "Place over that number and validate",
             "Set alert stops"],
         "guide_columns": 3,
         "has_long_copy": False,
         "has_progress": False,
         "value_object": "SpawnTimerTime",
         "state": "SETUP",
-        "detail": "Next: place the overlay over the visible vital number",
+        "detail": (
+            "Next: calibrate Auto-detect (current / maximum first, then "
+            "percentage)"),
         "actions": [
             "Monitoring on", "Calibrate", "Edit overlay", "Remove"],
         "card_count": 4,

@@ -25,6 +25,9 @@ app.processEvents()
 support = dialog.scaled_surface.findChild(QPushButton, "SupportAction")
 notices = dialog.scaled_surface.findChild(QPlainTextEdit, "LegalNotices")
 credits = dialog.scaled_surface.findChild(QTextBrowser, "CreditsAcknowledgments")
+terms = dialog.scaled_surface.findChild(QTextBrowser, "TermsPrivacy")
+tabs = dialog.scaled_surface.findChild(__import__(
+    "PySide6.QtWidgets", fromlist=["QTabWidget"]).QTabWidget, "AboutTabs")
 creator = dialog.scaled_surface.findChild(QLabel, "AboutCreator")
 contact = dialog.scaled_surface.findChild(QLabel, "AboutContact")
 print(json.dumps({
@@ -35,6 +38,9 @@ print(json.dumps({
     "gpl": "GNU GENERAL PUBLIC LICENSE" in notices.toPlainText(),
     "credits": "nParse project and contributors" in credits.toPlainText(),
     "non_affiliation": "not affiliated with" in credits.toPlainText(),
+    "terms_version": "2026-09-15.1" in terms.toPlainText(),
+    "terms_tab": any(tabs.tabText(index) == "Terms & Privacy"
+                     for index in range(tabs.count())),
     "creator": creator.text(),
     "contact": contact.text(),
     "minimum": [dialog.minimumWidth(), dialog.minimumHeight()],
@@ -86,6 +92,8 @@ def test_about_dialog_keeps_branding_primary_and_legal_notice_discoverable(tmp_p
         "gpl": True,
         "credits": True,
         "non_affiliation": True,
+        "terms_version": True,
+        "terms_tab": True,
         "creator": (
             "Created by Mindflux / Harmflux · P99 Green Server · "
             "Discord: mindflux99"),

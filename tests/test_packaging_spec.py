@@ -22,6 +22,21 @@ def test_portable_self_test_imports_the_complete_application_graph():
     assert 'f"{CURRENT_VERSION}\\n{data_dir()}"' in source
 
 
+def test_production_launcher_enforces_terms_before_event_loop():
+    source = (ROOT / "vantage_app.py").read_text(encoding="utf-8")
+
+    assert "VantageApp(sys.argv, enforce_terms=True)" in source
+    assert "if APP.startup_aborted:" in source
+    assert source.index("if APP.startup_aborted:") < source.index("APP.exec()")
+
+
+def test_pyinstaller_spec_bundles_terms_and_privacy_notice():
+    source = (ROOT / "vantage.spec").read_text(encoding="utf-8")
+
+    assert "'TERMS-AND-PRIVACY.md'" in source
+    assert "data.append((legal_file, 'legal'))" in source
+
+
 def test_embedded_ui_updater_runs_before_single_instance_and_is_bundled():
     entrypoint = (ROOT / "vantage_app.py").read_text(encoding="utf-8")
     spec = (ROOT / "vantage.spec").read_text(encoding="utf-8")

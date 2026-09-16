@@ -1,5 +1,6 @@
 import json
 import socket
+import sys
 import threading
 from types import SimpleNamespace
 from urllib.error import HTTPError
@@ -8,7 +9,7 @@ from urllib.request import Request, urlopen
 
 import vantage.helpers.mobile_share as mobile_share_module
 from vantage.helpers import config
-from PySide6.QtWidgets import QApplication, QLabel, QPushButton
+from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QPushButton
 from vantage.helpers.mobile_share import (
     MobileShareController, MobileShareDialog, _MOBILE_PAGE, _ShareHTTPServer,
     _safe_p99_url, load_mobile_item_detail, parse_mobile_spell_detail)
@@ -50,6 +51,26 @@ class _PersistentGameCapture:
             "enabled": self.enabled, "available": False,
             "message": "Ready", "fps": self.fps,
         }
+
+
+class _FakeMdnsAdvertisement:
+    def __init__(self, host_id="", address="", port=0):
+        self.host_id = host_id
+        self.address = address
+        self.port = port
+        self.updates = []
+        self.closed = False
+
+    def update(self, address):
+        self.address = address
+        self.updates.append(address)
+
+    def close(self):
+        self.closed = True
+
+
+def _fake_advertisement(host_id, address, port):
+    return _FakeMdnsAdvertisement(host_id, address, port)
 
 
 def _snapshot():
@@ -285,16 +306,144 @@ def test_mobile_config_defaults_and_validates_persistent_session_settings():
         assert config.data["mobile"]["auto_start"] is False
         assert config.data["mobile"]["preferred_port"] == 8765
         assert config.data["mobile"]["lan_token"] == ""
+        assert config.data["mobile"]["host_id"] == ""
 
         config.data["mobile"] = {
             "game_enabled": False, "auto_start": "yes",
             "preferred_port": 80, "lan_token": "unsafe-token",
+            "host_id": "NOT-A-HOST-ID",
         }
         config.verify_settings()
         assert config.data["mobile"]["game_enabled"] is False
         assert config.data["mobile"]["auto_start"] is False
         assert config.data["mobile"]["preferred_port"] == 8765
         assert config.data["mobile"]["lan_token"] == ""
+        assert config.data["mobile"]["host_id"] == ""
+
+        config.data["mobile"].update({
+            "lan_token": "L" * 43, "host_id": "0123456789"})
+        config.verify_settings()
+        assert config.data["mobile"]["lan_token"] == "L" * 43
+        assert config.data["mobile"]["host_id"] == "0123456789"
+    finally:
+        config.data = original
+
+
+def test_mdns_advertises_stable_http_host_without_pairing_secret(monkeypatch):
+    created = []
+
+    class FakeServiceInfo:
+        def __init__(self, service_type, name, **values):
+            self.type = service_type
+            self.name = name
+            self.__dict__.update(values)
+
+    class FakeZeroconf:
+        def __init__(self, **values):
+            self.values = values
+            self.registered = []
+            self.updated = []
+            self.unregistered = []
+            self.closed = False
+            created.append(self)
+
+        def register_service(self, info):
+            self.registered.append(info)
+
+        def update_service(self, info):
+            self.updated.append(info)
+
+        def unregister_service(self, info):
+            self.unregistered.append(info)
+
+        def close(self):
+            self.closed = True
+
+    fake_module = SimpleNamespace(
+        IPVersion=SimpleNamespace(V4Only="v4"),
+        ServiceInfo=FakeServiceInfo, Zeroconf=FakeZeroconf)
+    monkeypatch.setitem(sys.modules, "zeroconf", fake_module)
+
+    registration = mobile_share_module._advertise_mobile_host(
+        "0123456789", "192.168.1.7", 8765)
+
+    assert registration is not None
+    info = created[0].registered[0]
+    assert info.type == "_http._tcp.local."
+    assert info.server == "vantage-0123456789.local."
+    assert info.port == 8765
+    assert info.addresses == [socket.inet_aton("192.168.1.7")]
+    assert info.properties == {}
+    assert "pair" not in repr(info.__dict__).casefold()
+    registration.update("192.168.1.8")
+    assert created[0].updated[0].addresses == [
+        socket.inet_aton("192.168.1.8")]
+    assert created[0].updated[0].server == info.server
+    registration.close()
+    assert created[0].closed is True
+
+
+def test_mdns_registration_failure_closes_backend_and_uses_safe_fallback(
+        monkeypatch):
+    instances = []
+
+    class FakeServiceInfo:
+        def __init__(self, *_args, **values):
+            self.__dict__.update(values)
+
+    class FailingZeroconf:
+        def __init__(self, **_values):
+            self.closed = False
+            instances.append(self)
+
+        def register_service(self, _info):
+            raise OSError("multicast unavailable")
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setitem(sys.modules, "zeroconf", SimpleNamespace(
+        IPVersion=SimpleNamespace(V4Only="v4"),
+        ServiceInfo=FakeServiceInfo, Zeroconf=FailingZeroconf))
+
+    assert mobile_share_module._advertise_mobile_host(
+        "0123456789", "192.168.1.7", 8765) is None
+    assert instances[0].closed is True
+    assert mobile_share_module._advertise_mobile_host(
+        "unsafe", "192.168.1.7", 8765) is None
+    instance_count = len(instances)
+    for unsafe_address in ("127.0.0.1", "0.0.0.0", "224.0.0.251"):
+        assert mobile_share_module._advertise_mobile_host(
+            "0123456789", unsafe_address, 8765) is None
+    assert len(instances) == instance_count
+
+
+def test_mobile_controller_rejects_loopback_mdns_and_uses_ip_fallback(
+        monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    original = config.data
+    try:
+        config.data = {"mobile": {
+            "game_enabled": True, "auto_start": False,
+            "preferred_port": 8765, "lan_token": "F" * 43,
+            "host_id": "9999999999",
+        }}
+        monkeypatch.setattr(
+            mobile_share_module, "GameWindowCapture", _PersistentGameCapture)
+        monkeypatch.setattr(config, "save", lambda: None)
+        monkeypatch.setattr(
+            mobile_share_module, "_lan_address", lambda: "127.0.0.1")
+        controller = MobileShareController(_snapshot)
+        controller._preferred_port = 0
+        controller.start()
+
+        assert controller.local_url == controller.ip_fallback_url
+        assert urlsplit(controller.local_url).hostname == "127.0.0.1"
+        assert controller.host_url.startswith(
+            "http://vantage-9999999999.local:")
+        controller.shutdown()
+        controller._snapshot_timer.stop()
+        assert app is not None
     finally:
         config.data = original
 
@@ -313,12 +462,14 @@ def test_mobile_controller_reuses_lan_session_and_preserves_choices_on_shutdown(
         config.data = {"mobile": {
             "game_enabled": False, "auto_start": False,
             "preferred_port": preferred_port, "lan_token": token,
+            "host_id": "0123456789",
         }}
         monkeypatch.setattr(
             mobile_share_module, "GameWindowCapture", _PersistentGameCapture)
         monkeypatch.setattr(config, "save", lambda: saves.append(True))
         monkeypatch.setattr(
-            MobileShareController, "_cloudflared_path", lambda self: None)
+            mobile_share_module, "_advertise_mobile_host",
+            _fake_advertisement)
 
         first = MobileShareController(_snapshot)
         assert first.game_capture.enabled is False
@@ -326,8 +477,10 @@ def test_mobile_controller_reuses_lan_session_and_preserves_choices_on_shutdown(
         assert config.data["mobile"]["game_enabled"] is True
         first.start()
         first_url = urlsplit(first.local_url)
+        assert first_url.hostname == "vantage-0123456789.local"
         assert first_url.port == preferred_port
         assert first_url.fragment == token
+        assert urlsplit(first.ip_fallback_url).port == preferred_port
         assert config.data["mobile"]["auto_start"] is True
         first.shutdown()
         assert config.data["mobile"]["auto_start"] is True
@@ -337,10 +490,13 @@ def test_mobile_controller_reuses_lan_session_and_preserves_choices_on_shutdown(
         second = MobileShareController(_snapshot)
         second.start()
         second_url = urlsplit(second.local_url)
+        assert second_url.hostname == "vantage-0123456789.local"
         assert second_url.port == preferred_port
         assert second_url.fragment == token
         second.stop()
         assert config.data["mobile"]["auto_start"] is False
+        assert config.data["mobile"]["lan_token"] == token
+        assert config.data["mobile"]["host_id"] == "0123456789"
         assert second.game_capture.enabled is True
         second._snapshot_timer.stop()
         assert len(saves) >= 4
@@ -362,18 +518,21 @@ def test_saved_home_screen_link_reconnects_after_companion_shutdown_and_reopen(
         config.data = {"mobile": {
             "game_enabled": True, "auto_start": True,
             "preferred_port": preferred_port, "lan_token": token,
+            "host_id": "abcdef0123",
         }}
         monkeypatch.setattr(
             mobile_share_module, "GameWindowCapture", _PersistentGameCapture)
         monkeypatch.setattr(config, "save", lambda: None)
         monkeypatch.setattr(
-            MobileShareController, "_cloudflared_path", lambda self: None)
+            mobile_share_module, "_advertise_mobile_host",
+            _fake_advertisement)
 
         first = MobileShareController(_snapshot)
         first.start()
         old_url = urlsplit(first.local_url)
+        first_fallback = urlsplit(first.ip_fallback_url)
         _, before, _ = _request(
-            f"http://127.0.0.1:{old_url.port}", "/api/state", token)
+            f"http://127.0.0.1:{first_fallback.port}", "/api/state", token)
         assert json.loads(before)["version"] == 2
         first.shutdown()
         first._snapshot_timer.stop()
@@ -387,7 +546,8 @@ def test_saved_home_screen_link_reconnects_after_companion_shutdown_and_reopen(
         assert reopened.port == old_url.port == preferred_port
         assert reopened.fragment == old_url.fragment == token
         _, after, _ = _request(
-            f"http://127.0.0.1:{reopened.port}", "/api/state", token)
+            f"http://127.0.0.1:{urlsplit(second.ip_fallback_url).port}",
+            "/api/state", token)
         assert json.loads(after)["version"] == 2
         second.shutdown()
         second._snapshot_timer.stop()
@@ -408,12 +568,14 @@ def test_mobile_controller_falls_back_when_saved_port_is_busy(monkeypatch):
         config.data = {"mobile": {
             "game_enabled": True, "auto_start": True,
             "preferred_port": busy_port, "lan_token": "B" * 43,
+            "host_id": "fedcba9876",
         }}
         monkeypatch.setattr(
             mobile_share_module, "GameWindowCapture", _PersistentGameCapture)
         monkeypatch.setattr(config, "save", lambda: None)
         monkeypatch.setattr(
-            MobileShareController, "_cloudflared_path", lambda self: None)
+            mobile_share_module, "_advertise_mobile_host",
+            _fake_advertisement)
         controller = MobileShareController(_snapshot)
         controller.status_changed.connect(statuses.append)
         controller.start()
@@ -430,6 +592,189 @@ def test_mobile_controller_falls_back_when_saved_port_is_busy(monkeypatch):
         config.data = original
 
 
+def test_mobile_host_keeps_stable_name_and_refreshes_ip_fallback(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    original = config.data
+    addresses = ["192.168.10.4"]
+    advertisements = []
+    try:
+        config.data = {"mobile": {
+            "game_enabled": True, "auto_start": False,
+            "preferred_port": 0, "lan_token": "I" * 43,
+            "host_id": "1111111111",
+        }}
+        monkeypatch.setattr(
+            mobile_share_module, "GameWindowCapture", _PersistentGameCapture)
+        monkeypatch.setattr(config, "save", lambda: None)
+        monkeypatch.setattr(
+            mobile_share_module, "_lan_address", lambda: addresses[0])
+
+        def advertise(host_id, address, port):
+            result = _FakeMdnsAdvertisement(host_id, address, port)
+            advertisements.append(result)
+            return result
+
+        monkeypatch.setattr(
+            mobile_share_module, "_advertise_mobile_host", advertise)
+        controller = MobileShareController(_snapshot)
+        controller._preferred_port = 0
+        controller.start()
+        original_host_link = controller.local_url
+        original_fallback = controller.ip_fallback_url
+
+        addresses[0] = "192.168.10.9"
+        controller._refresh_network_address()
+
+        assert controller.local_url == original_host_link
+        assert controller.host_url == original_host_link
+        assert controller.ip_fallback_url != original_fallback
+        assert urlsplit(controller.ip_fallback_url).hostname == "192.168.10.9"
+        assert advertisements[0].updates == ["192.168.10.9"]
+        controller.shutdown()
+        controller._snapshot_timer.stop()
+        assert app is not None
+    finally:
+        config.data = original
+
+
+def test_mdns_update_and_reregister_failure_switches_qr_to_ip_fallback(
+        monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    original = config.data
+    addresses = ["192.168.20.4"]
+    registration = _FakeMdnsAdvertisement()
+    registration.update = lambda _address: False
+    advertisements = []
+    links = []
+    try:
+        config.data = {"mobile": {
+            "game_enabled": True, "auto_start": True,
+            "preferred_port": 8765, "lan_token": "U" * 43,
+            "host_id": "4444444444",
+        }}
+        monkeypatch.setattr(
+            mobile_share_module, "GameWindowCapture", _PersistentGameCapture)
+        monkeypatch.setattr(config, "save", lambda: None)
+        monkeypatch.setattr(
+            mobile_share_module, "_lan_address", lambda: addresses[0])
+
+        def advertise(*args):
+            advertisements.append(args)
+            return registration if len(advertisements) == 1 else None
+
+        monkeypatch.setattr(
+            mobile_share_module, "_advertise_mobile_host", advertise)
+        controller = MobileShareController(_snapshot)
+        controller._preferred_port = 0
+        controller.link_changed.connect(
+            lambda link, is_host: links.append((link, is_host)))
+        controller.start()
+        assert urlsplit(controller.local_url).hostname == (
+            "vantage-4444444444.local")
+
+        addresses[0] = "192.168.20.9"
+        controller._refresh_network_address()
+
+        assert registration.closed is True
+        assert len(advertisements) == 2
+        assert advertisements[1][1] == "192.168.20.9"
+        assert controller._mdns is None
+        assert controller.local_url == controller.ip_fallback_url
+        assert urlsplit(controller.local_url).hostname == "192.168.20.9"
+        assert links[-1] == (controller.ip_fallback_url, False)
+        controller.shutdown()
+        controller._snapshot_timer.stop()
+        assert app is not None
+    finally:
+        config.data = original
+
+
+def test_installed_cloudflared_is_never_started_or_used(monkeypatch, tmp_path):
+    app = QApplication.instance() or QApplication([])
+    original = config.data
+    (tmp_path / "cloudflared.exe").write_bytes(b"installed but unused")
+    try:
+        config.data = {"mobile": {
+            "game_enabled": True, "auto_start": False,
+            "preferred_port": 8765, "lan_token": "C" * 43,
+            "host_id": "2222222222",
+        }}
+        monkeypatch.setattr(
+            mobile_share_module, "GameWindowCapture", _PersistentGameCapture)
+        monkeypatch.setattr(config, "save", lambda: None)
+        monkeypatch.setattr(
+            mobile_share_module, "data_dir", lambda *_parts: tmp_path)
+        monkeypatch.setattr(
+            mobile_share_module, "_advertise_mobile_host",
+            _fake_advertisement)
+        controller = MobileShareController(_snapshot)
+        controller._preferred_port = 0
+        controller.start()
+
+        assert controller.active is True
+        assert controller.local_url.startswith(
+            "http://vantage-2222222222.local:")
+        assert not hasattr(controller, "_process")
+        assert "trycloudflare" not in controller.local_url
+        controller.shutdown()
+        controller._snapshot_timer.stop()
+        assert app is not None
+    finally:
+        config.data = original
+
+
+def test_regenerate_pairing_key_revokes_old_link_and_restarts_same_host(
+        monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    original = config.data
+    try:
+        config.data = {"mobile": {
+            "game_enabled": True, "auto_start": True,
+            "preferred_port": 8765, "lan_token": "O" * 43,
+            "host_id": "3333333333",
+        }}
+        monkeypatch.setattr(
+            mobile_share_module, "GameWindowCapture", _PersistentGameCapture)
+        monkeypatch.setattr(config, "save", lambda: None)
+        monkeypatch.setattr(
+            mobile_share_module, "_advertise_mobile_host",
+            _fake_advertisement)
+        controller = MobileShareController(_snapshot)
+        controller._preferred_port = 0
+        controller.start()
+        old_token = "O" * 43
+        old_url = urlsplit(controller.local_url)
+        old_port = old_url.port
+        _, payload, _ = _request(
+            f"http://127.0.0.1:{old_port}", "/api/state", old_token)
+        assert json.loads(payload)["version"] == 2
+
+        controller.regenerate_pairing_key()
+
+        new_url = urlsplit(controller.local_url)
+        new_token = new_url.fragment
+        assert new_token != old_token
+        assert new_url.hostname == old_url.hostname
+        assert new_url.port == old_port
+        assert controller.host_id == "3333333333"
+        assert config.data["mobile"]["auto_start"] is True
+        try:
+            _request(
+                f"http://127.0.0.1:{old_port}", "/api/state", old_token)
+            assert False, "the old pairing key must be revoked immediately"
+        except HTTPError as error:
+            assert error.code == 403
+        _, payload, _ = _request(
+            f"http://127.0.0.1:{old_port}", "/api/state", new_token)
+        assert json.loads(payload)["version"] == 2
+        controller.shutdown()
+        assert config.data["mobile"]["auto_start"] is True
+        controller._snapshot_timer.stop()
+        assert app is not None
+    finally:
+        config.data = original
+
+
 def test_application_mobile_autostart_invokes_the_saved_controller():
     from vantage.helpers.application import VantageApp
 
@@ -442,7 +787,8 @@ def test_application_mobile_autostart_invokes_the_saved_controller():
     assert calls == ["ensure", "start"]
 
 
-def test_mobile_dialog_keeps_the_phone_flow_qr_first_and_explicit():
+def test_mobile_dialog_is_local_persistent_accessible_and_has_no_remote_controls(
+        monkeypatch):
     app = QApplication.instance() or QApplication([])
     controller = MobileShareController(_snapshot)
     dialog = MobileShareDialog(controller)
@@ -451,14 +797,72 @@ def test_mobile_dialog_keeps_the_phone_flow_qr_first_and_explicit():
     buttons = [
         button.text() for button in
         dialog.scaled_surface.findChildren(QPushButton)]
+    live_setup_labels = " ".join(
+        label.text() for label in
+        dialog._live_setup.scaled_surface.findChildren(QLabel))
 
     assert app is not None
-    assert dialog.toggle.text() == "Start Phone QR"
-    assert "Copy Link" in buttons
+    assert dialog.windowTitle() == "Vantage Mobile Host"
+    assert dialog.toggle.text() == "Start Mobile Host"
+    assert "Copy Host Link" in buttons
+    assert "Copy IP Fallback" in buttons
+    assert "Regenerate Pairing Key…" in buttons
     assert "TIMERS · BUFFS · MARKET · SPELLS · GUILD · ZONES · QUESTS" in labels
-    assert "PERMANENT" not in labels.upper()
-    assert dialog.qr.accessibleName() == "Private mobile session QR code"
-    assert "generate the QR" in dialog.qr.accessibleDescription()
+    assert "same Wi-Fi" in labels
+    assert "Vantage tray" in labels
+    assert "starts with Vantage" in labels
+    assert "Copy IP Fallback" in labels
+    assert "Private networks in Windows Firewall" in labels
+    assert "temporary external link" not in labels
+    assert "Every tab uses the local same-Wi-Fi Mobile Host" in (
+        live_setup_labels)
+    assert "temporary external link" not in live_setup_labels
+    assert "CLOUDFLARE" not in (labels + " " + " ".join(buttons)).upper()
+    assert "REMOTE" not in " ".join(buttons).upper()
+    assert dialog.qr.accessibleName() == "Mobile Host pairing QR code"
+    assert "generate the private" in dialog.qr.accessibleDescription()
+    assert dialog.status.accessibleName() == "Mobile Host status"
+    assert dialog.copy_host.accessibleName() == "Copy Host Link"
+    assert dialog.copy_ip.accessibleName() == "Copy IP Fallback"
+    assert dialog.rotate.accessibleName() == "Regenerate Pairing Key"
+    assert not dialog.connection_help.isHidden()
+    assert dialog.connection_help.accessibleName() == (
+        "Mobile Host connection help")
+    assert "Windows Firewall" in (
+        dialog.connection_help.accessibleDescription())
+    rotations = []
+    monkeypatch.setattr(
+        controller, "regenerate_pairing_key", lambda: rotations.append(True))
+    confirmation = {}
+
+    def reject_regeneration(*args):
+        confirmation["default"] = args[4]
+        return QMessageBox.StandardButton.No
+
+    monkeypatch.setattr(QMessageBox, "question", reject_regeneration)
+    dialog._confirm_regenerate()
+    assert rotations == []
+    assert confirmation["default"] == QMessageBox.StandardButton.No
+    monkeypatch.setattr(
+        QMessageBox, "question", lambda *_args: QMessageBox.StandardButton.Yes)
+    dialog._confirm_regenerate()
+    assert rotations == [True]
+
+    assert dialog.toggle.accessibleName() == "Start Mobile Host"
+    assert "Start Mobile Host" in dialog.qr.toolTip()
+    assert "Start Mobile Host to generate" in (
+        dialog.qr.accessibleDescription())
+    dialog._set_running(True)
+    dialog._set_link(
+        "http://vantage-0123456789.local:8765/#" + "A" * 43, True)
+    assert dialog.toggle.accessibleName() == "Stop Mobile Host"
+    assert "stable local host" in dialog.qr.toolTip()
+    assert "stable local host" in dialog.qr.accessibleDescription()
+    dialog._set_link("", False)
+    dialog._set_running(False)
+    assert dialog.toggle.accessibleName() == "Start Mobile Host"
+    assert "Start Mobile Host" in dialog.qr.toolTip()
+    assert "stopped; start it" in dialog.qr.accessibleDescription()
 
     controller._snapshot_timer.stop()
     dialog.close()
@@ -733,8 +1137,9 @@ def test_mobile_item_detail_ui_uses_safe_links_live_status_and_offline_fallback(
     assert "['dmg','dly'].includes(key)?String(value)" in _MOBILE_PAGE
     assert "label+'; opens in a new tab'" in _MOBILE_PAGE
     assert ".innerHTML" not in _MOBILE_PAGE
-    assert "restarts this saved Wi-Fi session automatically" in _MOBILE_PAGE
-    assert "An explicit Stop Phone QR keeps saved data" in _MOBILE_PAGE
+    assert "restarts this saved same-Wi-Fi Mobile Host automatically" in (
+        _MOBILE_PAGE)
+    assert "An explicit Stop Mobile Host keeps saved data" in _MOBILE_PAGE
     assert _safe_p99_url(
         "javascript:alert(1)", fallback_name="Jade Mace") == (
             "https://wiki.project1999.com/Jade_Mace")

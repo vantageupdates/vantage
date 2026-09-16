@@ -15,8 +15,11 @@ from PySide6.QtGui import QFont, QGuiApplication, QRawFont
 MAX_VITAL_BARS = 32
 MAX_VITAL_STOPS = 32
 MIN_CONFIDENCE = 0.55
+CURRENT_MAX_MIN_CONFIDENCE = 0.80
 VITALS_DEFAULTS_VERSION = 1
 BAR_TYPES = {"my_hp", "my_mana", "target_hp", "group_hp", "custom"}
+OWN_VITAL_TYPES = {"my_hp", "my_mana"}
+NUMBER_FORMATS = {"auto", "percentage", "current_max"}
 STOP_DIRECTIONS = {"below", "above", "either", "full"}
 DELIVERIES = {"sound", "tts", "off"}
 
@@ -152,9 +155,8 @@ def default_vital_bar(bar_id="custom", name="Custom bar", bar_type="custom"):
         # lower threshold remains active.
         "silence_full_alerts": bar_type == "target_hp",
         "ocr_calibrated": False,
-        # Empty means a legacy/uncalibrated overlay may auto-detect. Once a
-        # calibration succeeds, its strict source format is persisted.
-        "number_format": "",
+        "number_format": (
+            "auto" if bar_type in OWN_VITAL_TYPES else "percentage"),
         "rect": [],
         "stops": [],
     }
@@ -177,11 +179,15 @@ def sanitize_vital_bar(raw, index=0):
     migrated_numeric = str(raw.get("read_mode", "") or "").casefold() == "number"
     numeric_marker = raw.get("ocr_calibrated") is True or migrated_numeric
     rect = sanitize_normalized_rect(raw.get("rect", [])) if numeric_marker else []
+    # A genuinely missing value marks a calibrated legacy profile. Keep that
+    # empty marker so runtime retains its historical percentage-first fallback.
+    # Explicit choices are independent of calibration and therefore survive
+    # before a rectangle exists.
     number_format = str(raw.get("number_format", "") or "").casefold()
-    if number_format not in {"percentage", "current_max"}:
+    if number_format not in NUMBER_FORMATS:
         number_format = ""
-    if bar_type not in {"my_hp", "my_mana"}:
-        number_format = "percentage" if rect else ""
+    if bar_type not in OWN_VITAL_TYPES:
+        number_format = "percentage"
     raw_stops = raw.get("stops", [])
     if not isinstance(raw_stops, list):
         raw_stops = []
@@ -206,7 +212,7 @@ def sanitize_vital_bar(raw, index=0):
         "silence_full_alerts": bool(raw.get(
             "silence_full_alerts", bar_type == "target_hp")),
         "ocr_calibrated": bool(rect),
-        "number_format": number_format if rect else "",
+        "number_format": number_format,
         "rect": rect,
         "stops": stops,
     }
@@ -1109,6 +1115,12 @@ def read_visible_current_max(image, normalized_rect):
         if result is None:
             continue
         current, maximum, confidence, character_count = result
+        # Percent glyphs can weakly resemble a slash plus small digits when a
+        # GUI font template is available. A strict current/max selection must
+        # require a confidently recognized slash-pair token, not that weak
+        # approximation.
+        if confidence < CURRENT_MAX_MIN_CONFIDENCE:
+            continue
         rank = confidence + min(12, character_count - 1) * .006
         recognized.append((
             rank, confidence, current, maximum, bounds, character_count))
@@ -1172,11 +1184,16 @@ def read_visible_current_max(image, normalized_rect):
 def read_vital_bar(image, bar):
     """Read one sanitized vital exclusively from its visible-number ROI."""
     bar = sanitize_vital_bar(bar, 0)
-    if bar["type"] in {"my_hp", "my_mana"}:
+    if bar["type"] in OWN_VITAL_TYPES:
         number_format = bar.get("number_format", "")
         if number_format == "current_max":
             return read_visible_current_max(image, bar["rect"])
         if number_format == "percentage":
+            return read_visible_percent(image, bar["rect"])
+        if number_format == "auto":
+            reading = read_visible_current_max(image, bar["rect"])
+            if reading.valid:
+                return reading
             return read_visible_percent(image, bar["rect"])
         # Missing format marks a legacy saved percentage ROI. Preserve that
         # behavior first, then permit current/max only if percent OCR is truly

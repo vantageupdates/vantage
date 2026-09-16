@@ -26,10 +26,11 @@ from vantage.helpers.parser import ParserWindow
 from vantage.helpers.portable import store_portable_file
 from vantage.helpers.responsive import ResponsiveActionBar, polish_form, scrollable
 from vantage.helpers.vitals import (
-    MIN_CONFIDENCE, VitalReading, VitalStopTracker, default_vital_bar,
-    default_vital_stop, denormalize_rect, normalize_rect, preset_percentages,
-    read_visible_current_max, read_visible_percent, read_vital_bar,
-    sanitize_vital_bar, sanitize_vital_bars, sanitize_vital_stop)
+    MIN_CONFIDENCE, NUMBER_FORMATS, OWN_VITAL_TYPES, VitalReading,
+    VitalStopTracker, default_vital_bar, default_vital_stop, denormalize_rect,
+    normalize_rect, preset_percentages, read_visible_current_max,
+    read_visible_percent, read_vital_bar, sanitize_vital_bar,
+    sanitize_vital_bars, sanitize_vital_stop)
 
 
 TYPE_LABELS = {
@@ -39,12 +40,49 @@ TYPE_LABELS = {
     "group_hp": "Group HP",
     "custom": "Custom",
 }
+NUMBER_FORMAT_OPTIONS = (
+    ("auto", "Auto-detect"),
+    ("percentage", "Percentage"),
+    ("current_max", "Current / maximum"),
+)
+NUMBER_FORMAT_LABELS = {
+    "auto": "Auto-detect (recommended)",
+    "percentage": "Percentage (100%)",
+    "current_max": "Current / maximum (1000/1000)",
+}
 DIRECTION_LABELS = {
     "below": "Falls below",
     "above": "Rises above",
     "either": "Crosses either way",
     "full": "Becomes full",
 }
+
+
+def _visible_number_format(bar):
+    """Return a user-facing description of the bar's actual OCR contract."""
+    if bar.get("type") not in OWN_VITAL_TYPES:
+        return "Percentage only (100%)"
+    number_format = bar.get("number_format", "")
+    if number_format == "current_max":
+        return NUMBER_FORMAT_LABELS["current_max"]
+    if number_format == "percentage":
+        return NUMBER_FORMAT_LABELS["percentage"]
+    if number_format == "auto":
+        return "Auto-detect (current / maximum first, then percentage)"
+    return "Auto-detect for existing monitor (percentage first)"
+
+
+def _calibration_expected(bar):
+    if bar.get("type") not in OWN_VITAL_TYPES:
+        return "one percentage such as 75%"
+    number_format = bar.get("number_format", "")
+    if number_format == "current_max":
+        return "one strict current / maximum pair such as 1000/1000"
+    if number_format == "percentage":
+        return "one percentage such as 75%"
+    return "one current / maximum pair or one percentage"
+
+
 def _announce(widget, message):
     widget.setAccessibleDescription(str(message))
     try:
@@ -222,7 +260,12 @@ class CalibrationControls(QDialog):
     preview_requested = Signal(QRect)
     use_requested = Signal(QRect)
 
-    def __init__(self, bounds, initial, parent=None):
+    def __init__(
+            self, bounds, initial, parent=None,
+            format_description=(
+                "Auto-detect (current / maximum first, then percentage)"),
+            expected_number=(
+                "one current / maximum pair or one percentage")):
         super().__init__(parent)
         self._bounds = QRect(bounds)
         self._syncing = False
@@ -235,13 +278,17 @@ class CalibrationControls(QDialog):
         self.setWindowTitle("Calibrate visible vital number")
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
         self.setMinimumWidth(360)
+        self.format_description = str(format_description)
         intro = QLabel(
-            "Place the gold rectangle loosely around one visible HP or mana "
-            "percentage. For My HP or My Mana, you can instead cover one "
-            "current/max value. Vantage will find and fit the token "
-            "automatically.")
+            f"Selected visible number format: {self.format_description}. "
+            f"Place the gold rectangle loosely around one visible value: "
+            f"{expected_number}. "
+            "Vantage will find and fit that token automatically.")
+        intro.setObjectName("CalibrationFormatHelp")
         intro.setWordWrap(True)
+        intro.setAccessibleName("Selected visible number format")
         intro.setAccessibleDescription(intro.text())
+        self.format_help = intro
 
         form = polish_form(QFormLayout())
         self.x = self._spin("Calibration X coordinate")
@@ -569,7 +616,11 @@ class VitalBarDialog(QDialog):
         self.setWindowTitle("Edit overlay")
         self.setMinimumSize(460, 470)
         form = polish_form(QFormLayout())
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
         self.name = QLineEdit(self._bar["name"])
+        self.name.setMinimumWidth(0)
+        self.name.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.name.setMaxLength(80)
         self.name.setAccessibleName("Overlay name")
         self._name_description = (
@@ -585,10 +636,40 @@ class VitalBarDialog(QDialog):
         self.name_error.setWordWrap(True)
         self.name_error.hide()
         self.kind = QComboBox()
+        self.kind.setMinimumWidth(0)
+        self.kind.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         for value, label in TYPE_LABELS.items():
             self.kind.addItem(label, value)
         self.kind.setCurrentIndex(max(0, self.kind.findData(self._bar["type"])))
         self.kind.setAccessibleName("Vital bar type")
+        self.number_format = QComboBox()
+        self.number_format.setObjectName("VisibleNumberFormat")
+        self.number_format.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.number_format.setMinimumContentsLength(12)
+        self.number_format.setMinimumWidth(0)
+        self.number_format.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        for value, label in NUMBER_FORMAT_OPTIONS:
+            self.number_format.addItem(label, value)
+        initial_format = self._bar.get("number_format", "")
+        if initial_format not in NUMBER_FORMATS:
+            initial_format = "auto"
+        self._own_number_format = (
+            initial_format if self._bar["type"] in OWN_VITAL_TYPES else "auto")
+        self._format_kind_was_own = self._bar["type"] in OWN_VITAL_TYPES
+        self.number_format.setCurrentIndex(max(
+            0, self.number_format.findData(
+                initial_format if self._format_kind_was_own else "percentage")))
+        self.number_format.setAccessibleName("Visible number format")
+        self.number_format_label = QLabel("Visible number format")
+        self.number_format_label.setBuddy(self.number_format)
+        self.number_format_help = QLabel()
+        self.number_format_help.setObjectName("InlineStatus")
+        self.number_format_help.setWordWrap(True)
+        self.number_format_help.setAccessibleName(
+            "Visible number format explanation")
         self.enabled = QCheckBox("Monitor this bar")
         self.enabled.setChecked(self._bar["enabled"])
         self.enabled.setAccessibleDescription(
@@ -610,8 +691,14 @@ class VitalBarDialog(QDialog):
         form.addRow(self.name_label, self.name)
         form.addRow("", self.name_error)
         form.addRow("Type", self.kind)
+        form.addRow(self.number_format_label, self.number_format)
+        form.addRow("", self.number_format_help)
         form.addRow("Enabled", self.enabled)
         form.addRow(self.silence_full_label, self.silence_full_alerts)
+        self.kind.currentIndexChanged.connect(self._sync_number_format_controls)
+        self.number_format.currentIndexChanged.connect(
+            self._number_format_changed)
+        self._sync_number_format_controls()
 
         stops_label = QLabel("Alert stops")
         stops_label.setObjectName("SettingsHeader")
@@ -655,16 +742,24 @@ class VitalBarDialog(QDialog):
         page = QWidget()
         layout = QVBoxLayout(page)
         form_host = QWidget()
+        form_host.setMinimumWidth(0)
+        form_host.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         form_host.setLayout(form)
         layout.addWidget(form_host)
         layout.addWidget(stops_label)
         layout.addWidget(self.stop_list, 1)
         layout.addWidget(stop_actions)
         root = QVBoxLayout(self)
-        root.addWidget(scrollable(page), 1)
+        editor_scroll = scrollable(page)
+        page.setMinimumWidth(0)
+        page.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        root.addWidget(editor_scroll, 1)
         root.addWidget(buttons)
         self.setTabOrder(self.name, self.kind)
-        self.setTabOrder(self.kind, self.enabled)
+        self.setTabOrder(self.kind, self.number_format)
+        self.setTabOrder(self.number_format, self.enabled)
         self.setTabOrder(self.enabled, self.silence_full_alerts)
         self.setTabOrder(self.silence_full_alerts, self.stop_list)
 
@@ -689,6 +784,58 @@ class VitalBarDialog(QDialog):
             self.stop_list.addItem(item)
         if self._stops:
             self.stop_list.setCurrentRow(max(0, min(selected, len(self._stops) - 1)))
+
+    def _number_format_changed(self):
+        if self.kind.currentData() in OWN_VITAL_TYPES:
+            selected = self.number_format.currentData()
+            if selected in NUMBER_FORMATS:
+                self._own_number_format = selected
+        self._update_number_format_help()
+
+    def _sync_number_format_controls(self):
+        own_value = self.kind.currentData() in OWN_VITAL_TYPES
+        if self._format_kind_was_own:
+            selected = self.number_format.currentData()
+            if selected in NUMBER_FORMATS:
+                self._own_number_format = selected
+        wanted = self._own_number_format if own_value else "percentage"
+        self.number_format.blockSignals(True)
+        self.number_format.setCurrentIndex(max(
+            0, self.number_format.findData(wanted)))
+        self.number_format.blockSignals(False)
+        self.number_format.setEnabled(own_value)
+        self._format_kind_was_own = own_value
+        self._update_number_format_help()
+
+    def _update_number_format_help(self):
+        own_value = self.kind.currentData() in OWN_VITAL_TYPES
+        selected = self.number_format.currentData()
+        if not own_value:
+            message = (
+                "Target, Group, and Custom monitors read percentages only; "
+                "for example, 100%. Current / maximum is unavailable for "
+                "this type.")
+            description = message
+        elif selected == "current_max":
+            message = (
+                "Reads only a strict slash pair, such as 1000/1000. A lone "
+                "percentage will not calibrate.")
+            description = message
+        elif selected == "percentage":
+            message = (
+                "Reads only a percentage, such as 100% or 75. A current / "
+                "maximum pair will not calibrate.")
+            description = message
+        else:
+            message = (
+                "Auto-detect (recommended) tries a strict current / maximum "
+                "pair first, such as 1000/1000, then a percentage such as "
+                "100%.")
+            description = message
+        self.number_format_help.setText(message)
+        self.number_format_help.setAccessibleDescription(message)
+        self.number_format.setToolTip(message)
+        self.number_format.setAccessibleDescription(description)
 
     def _add_stop(self):
         stop = default_vital_stop(25, "below", len(self._stops))
@@ -748,9 +895,14 @@ class VitalBarDialog(QDialog):
 
     def value(self):
         result = dict(self._bar)
+        bar_type = self.kind.currentData()
+        number_format = (
+            self.number_format.currentData()
+            if bar_type in OWN_VITAL_TYPES else "percentage")
         result.update({
             "name": self.name.text().strip(),
-            "type": self.kind.currentData(),
+            "type": bar_type,
+            "number_format": number_format,
             "enabled": self.enabled.isChecked(),
             "silence_full_alerts": self.silence_full_alerts.isChecked(),
             "stops": [dict(stop) for stop in self._stops],
@@ -774,8 +926,8 @@ class VitalsSetupGuide(QFrame):
     """A short three-step guide that reflows instead of clipping."""
 
     STEPS = (
-        ("1", "Place over visible HP or mana number"),
-        ("2", "Validate reading"),
+        ("1", "Choose visible number format"),
+        ("2", "Place over that number and validate"),
         ("3", "Set alert stops"),
     )
 
@@ -786,7 +938,9 @@ class VitalsSetupGuide(QFrame):
         self.setAccessibleDescription(
             "; ".join(f"Step {number}: {text}"
                       for number, text in self.STEPS) +
-            ". My HP and My Mana accept a percentage or current/max value.")
+            ". My HP and My Mana can explicitly read Auto-detect, Percentage "
+            "(100%), or Current / maximum (1000/1000). Other types read "
+            "percentages only.")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(7, 6, 7, 6)
         layout.setSpacing(4)
@@ -841,6 +995,15 @@ class VitalCard(QFrame):
         heading.addWidget(self.type_label)
         layout.addLayout(heading)
 
+        self.format_label = QLabel(
+            "Visible number format · " + _visible_number_format(bar))
+        self.format_label.setObjectName("SpawnTimerDetail")
+        self.format_label.setWordWrap(True)
+        self.format_label.setAccessibleName(
+            f"{bar['name']} visible number format")
+        self.format_label.setAccessibleDescription(self.format_label.text())
+        layout.addWidget(self.format_label)
+
         reading_row = QHBoxLayout()
         reading_row.setSpacing(7)
         self.value_label = QLabel("—%")
@@ -870,13 +1033,10 @@ class VitalCard(QFrame):
         self._sync_enabled_text(self.enabled.isChecked())
         self.action_buttons["monitor"] = self.enabled
         actions.addWidget(self.enabled)
-        own_value = bar.get("type") in {"my_hp", "my_mana"}
         calibration_help = (
-            "Place the overlay loosely around one visible percentage or "
-            "current/max value; Vantage will find and fit it"
-            if own_value else
-            "Place the overlay loosely around the visible number; Vantage "
-            "will find and fit the percentage")
+            f"Selected format: {_visible_number_format(bar)}. Place the "
+            f"overlay loosely around {_calibration_expected(bar)}; Vantage "
+            "will find and fit it")
         calibration_label = (
             "Reposition overlay" if bar.get("rect") else "Calibrate")
         for key, label, callback, description in (
@@ -937,7 +1097,8 @@ class VitalCard(QFrame):
                 detail = "Monitoring is off · turn it on to read and alert"
             elif not self._bar.get("rect"):
                 state = "SETUP"
-                detail = "Next: place the overlay over the visible vital number"
+                detail = (
+                    f"Next: calibrate {_visible_number_format(self._bar)}")
             else:
                 state = "NO READING"
                 detail = message
@@ -981,7 +1142,8 @@ class Vitals(ParserWindow):
         self._title.setText("Vitals")
         self._title.setToolTip(
             "Read a visible HP or mana number and run configured alerts. "
-            "My HP and My Mana accept a percentage or current/max value.")
+            "For My HP and My Mana, choose Auto-detect, Percentage (100%), "
+            "or Current / maximum (1000/1000). Other types use percentage.")
         self._status_badge = QLabel("WAIT")
         self._status_badge.setObjectName("TimerBadge")
         self._status_badge.setAccessibleName("Vitals Monitor status")
@@ -1006,7 +1168,8 @@ class Vitals(ParserWindow):
         self._add_button.setAccessibleName("Add vital monitor")
         add_description = (
             "Add a monitor for a visible HP or mana number and configure its "
-            "alerts. My HP and My Mana accept a percentage or current/max value.")
+            "alerts. For My HP and My Mana, choose Auto-detect, Percentage "
+            "(100%), or Current / maximum (1000/1000). Other types use percentage.")
         self._add_button.setAccessibleDescription(add_description)
         self._add_button.setToolTip(add_description)
         self._add_button.clicked.connect(self._add_bar)
@@ -1090,8 +1253,9 @@ class Vitals(ParserWindow):
             title.setObjectName("SpawnTimerName")
             empty_instructions = (
                 "Choose Add monitor, then place the overlay loosely around a "
-                "visible HP or mana number. My HP and My Mana accept a "
-                "percentage or current/max value.")
+                "visible HP or mana number. For My HP and My Mana, first "
+                "choose Auto-detect, Percentage (100%), or Current / maximum "
+                "(1000/1000). Other types use percentage.")
             empty.setAccessibleDescription(empty_instructions)
             detail = QLabel(empty_instructions)
             detail.setObjectName("SpawnTimerDetail")
@@ -1308,14 +1472,17 @@ class Vitals(ParserWindow):
                 bounds.x() + saved[0], bounds.y() + saved[1],
                 saved[2], saved[3])
         else:
-            own_value = self._bars[index].get("type") in {"my_hp", "my_mana"}
+            own_value = self._bars[index].get("type") in OWN_VITAL_TYPES
             initial = QRect(
                 bounds.x() + round(bounds.width() * .2),
                 bounds.y() + round(bounds.height() * .2),
                 max(72 if own_value else 46, round(bounds.width() * .08)),
                 max(18 if own_value else 14, round(bounds.height() * .035)))
         overlay = CalibrationOverlay(bounds, initial)
-        controls = CalibrationControls(bounds, initial, self)
+        controls = CalibrationControls(
+            bounds, initial, self,
+            format_description=_visible_number_format(self._bars[index]),
+            expected_number=_calibration_expected(self._bars[index]))
         overlay.rect_changed.connect(controls.set_absolute_rect)
         controls.geometry_changed.connect(overlay.set_calibration_geometry)
         controls.preview_requested.connect(
@@ -1347,15 +1514,20 @@ class Vitals(ParserWindow):
             absolute_rect.x() - bounds.x(), absolute_rect.y() - bounds.y(),
             absolute_rect.width(), absolute_rect.height())
         normalized = normalize_rect(relative, (bounds.width(), bounds.height()))
-        # Repositioning may intentionally switch My HP/Mana between its
-        # percentage and current/max presentations. During calibration prefer
-        # the strict slash pair, then preserve percentage as the fallback.
-        if self._bars[index].get("type") in {"my_hp", "my_mana"}:
+        bar = self._bars[index]
+        number_format = bar.get("number_format", "")
+        if bar.get("type") not in OWN_VITAL_TYPES:
+            reading = read_visible_percent(image, normalized)
+        elif number_format == "current_max":
+            reading = read_visible_current_max(image, normalized)
+        elif number_format == "percentage":
+            reading = read_visible_percent(image, normalized)
+        else:
+            # Explicit Auto and legacy calibration both retain the historical
+            # calibration order: strict slash pair first, then percentage.
             reading = read_visible_current_max(image, normalized)
             if not reading.valid:
                 reading = read_visible_percent(image, normalized)
-        else:
-            reading = read_visible_percent(image, normalized)
         if not reading.valid or not reading.token_rect:
             return (reading, normalized)
         token_x, token_y, token_width, token_height = reading.token_rect
@@ -1396,11 +1568,8 @@ class Vitals(ParserWindow):
                 f"{reading.confidence * 100:.0f}% · fitted reading area ready to save",
                 True)
         else:
-            own_value = self._bars[self._bar_index(bar_id)].get(
-                "type") in {"my_hp", "my_mana"}
-            expected = (
-                "one percentage or current/max value" if own_value
-                else "one percentage")
+            bar = self._bars[self._bar_index(bar_id)]
+            expected = _calibration_expected(bar)
             controls.set_preview(
                 f"Invalid preview · {reading.message}. "
                 f"Place the rectangle loosely around only {expected} and try again.",
@@ -1425,8 +1594,14 @@ class Vitals(ParserWindow):
             return
         self._bars[index]["rect"] = normalized
         self._bars[index]["ocr_calibrated"] = True
-        self._bars[index]["number_format"] = (
-            "current_max" if reading.source == "current_max" else "percentage")
+        selected_format = self._bars[index].get("number_format", "")
+        if selected_format not in NUMBER_FORMATS:
+            # A legacy monitor did not offer a choice. Preserve the successful
+            # migration behavior by locking it to the source just calibrated.
+            selected_format = (
+                "current_max" if reading.source == "current_max"
+                else "percentage")
+        self._bars[index]["number_format"] = selected_format
         self._tracker.reset_bar(bar_id)
         self._persist()
         self._rebuild_cards((bar_id, "calibrate"))

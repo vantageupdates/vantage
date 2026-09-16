@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.99 design QA
+# Vantage Companion 1.44.100 design QA
 
 final result: passed
 
@@ -323,3 +323,24 @@ accessibility final result: PASS
   fading notices; those retain their visible semantic message and configured
   audio route. Transient Bard rows use the normal readable timer before clean
   removal and never flash a misleading Warning, Critical, or FADED state.
+
+## 1.44.100 release evidence
+
+- Focused Terms & Privacy and Vitals verification: **84 passed**.
+- Focused version, updater, and packaging verification: **25 passed**.
+- Independent accessibility review after responsive action-row and form reflow:
+  **PASS**. The Terms actions fit at 18 pt/200%, status changes are announced,
+  and the Vitals editor has no horizontal scrollbar at 18 pt after stacking
+  every form label above its field.
+- Mobile Host focused evidence: **31 passed**, **31 passed**, and **34 passed**
+  across three verification runs for local discovery, pairing persistence,
+  auto-start, and hostname/IP fallback behavior.
+- Final combined focused verification: **137 passed**.
+- Full automated test suite: **1,514 passed, 2 skipped**.
+- PyInstaller one-file `Vantage.exe` build: **PASS**. Portable self-test:
+  **PASS**, reporting version `1.44.100`.
+- Candidate size: **75,857,093 bytes**. SHA-256:
+  `3B63B26D46917A79151827FF2EA90A713D67591DF3AEA00807A6FAA1C66B4C12`.
+- Candidate archive inspection confirms `TERMS-AND-PRIVACY.md` and `zeroconf`
+  are included.
+- **PENDING:** public release/update-channel verification.
