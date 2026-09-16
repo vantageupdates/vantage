@@ -1646,7 +1646,7 @@ class Spells(ParserWindow):
             if speak:
                 speak_text(
                     summary.text,
-                    config.data['spells']['fade_sound_volume'], True,
+                    config.data['spells']['fade_sound_volume'],
                     source='Bard AE Count',
                     character=getattr(self, '_active_character', ''),
                     server=getattr(self, '_active_server', ''),
@@ -2448,7 +2448,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.100')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.101')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:

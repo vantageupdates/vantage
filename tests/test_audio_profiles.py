@@ -124,6 +124,59 @@ class _Speech:
         self.deleted = True
 
 
+class _NativeSpeech(_Speech):
+    """Deterministic Qt 6.11 enqueue/aboutToSynthesize adapter."""
+
+    def __init__(self):
+        super().__init__()
+        self.aboutToSynthesize = _Signal()
+        self.enqueued = []
+        self.synthesized = []
+        self.synthesized_profiles = []
+        self.setter_events = []
+        self._next_id = 1
+
+    def setVoice(self, voice):
+        super().setVoice(voice)
+        self.setter_events.append(('voice', self.selected))
+
+    def setRate(self, rate):
+        super().setRate(rate)
+        self.setter_events.append(('rate', rate))
+
+    def setPitch(self, pitch):
+        super().setPitch(pitch)
+        self.setter_events.append(('pitch', pitch))
+
+    def setVolume(self, volume):
+        super().setVolume(volume)
+        self.setter_events.append(('volume', volume))
+
+    def enqueue(self, message):
+        utterance_id = self._next_id
+        self._next_id += 1
+        self.enqueued.append((utterance_id, message))
+        self.events.append(('enqueue', message))
+        return utterance_id
+
+    def synthesize_next(self):
+        utterance_id, message = self.enqueued.pop(0)
+        self.aboutToSynthesize.emit(utterance_id)
+        self.synthesized.append(message)
+        self.synthesized_profiles.append(
+            (self.selected, self.rate, self.pitch, self.volume))
+        self._state = 'Speaking'
+        self.stateChanged.emit(self._state)
+        return message
+
+    def stop(self, boundary=None):
+        self.stop_count += 1
+        self.events.append(('stop', boundary))
+        self.enqueued.clear()
+        self._state = 'Ready'
+        self.stateChanged.emit(self._state)
+
+
 class _App:
     def __init__(self):
         self.events = []
@@ -575,6 +628,289 @@ def test_automatic_speech_waits_for_active_phrase_and_explicit_interrupt_stops(
         ('stop', None), ('say', 'Explicit interrupt')]
     assert speech.stop_count == 1
     assert audio._SPEECH_PENDING == []
+
+
+def test_native_enqueue_keeps_rapid_alerts_continuous_without_say_stop_churn(
+        monkeypatch):
+    app = _App()
+    config.data = {
+        'general': {'audio_muted': False, 'master_volume': 100},
+        'spells': {'audio_profiles': {}}}
+    speech = _NativeSpeech()
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, '_SPEECH', speech)
+
+    phrases = ['First complete phrase', 'Second complete phrase',
+               'Third complete phrase']
+    for phrase in phrases:
+        assert audio.speak_text(phrase, 80, source=phrase, channel='spells')
+
+    assert [message for _utterance_id, message in speech.enqueued] == phrases
+    assert not any(event[0] == 'say' for event in speech.events)
+    assert speech.stop_count == 0
+
+    for phrase in phrases:
+        assert speech.synthesize_next() == phrase
+    assert speech.synthesized == phrases
+    assert speech.stop_count == 0
+    assert [name for name, _value in speech.setter_events].count('voice') == 1
+    assert [name for name, _value in speech.setter_events].count('rate') == 1
+    assert [name for name, _value in speech.setter_events].count('pitch') == 1
+    assert [name for name, _value in speech.setter_events].count('volume') == 1
+
+
+def test_native_enqueue_applies_each_profile_at_about_to_synthesize(
+        monkeypatch):
+    app = _App()
+    config.data = {
+        'general': {'audio_muted': False, 'master_volume': 100},
+        'spells': {'audio_profiles': {
+            'first@green': {
+                'character': 'First', 'server': 'Green',
+                'voice_name': 'Voice A', 'voice_speed': -2, 'volume': 100},
+            'second@green': {
+                'character': 'Second', 'server': 'Green',
+                'voice_name': 'Voice B', 'voice_speed': 6, 'volume': 50}}}}
+    speech = _NativeSpeech()
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, '_SPEECH', speech)
+
+    assert audio.speak_text(
+        'First profile', 80, character='First', server='Green')
+    assert audio.speak_text(
+        'Second profile', 80, character='Second', server='Green', pitch=5)
+    assert speech.selected is None
+
+    speech.synthesize_next()
+    speech.synthesize_next()
+
+    assert speech.synthesized_profiles == [
+        ('Voice A', -0.2, 0.0, 0.8),
+        ('Voice B', 0.6, 0.5, 0.4),
+    ]
+
+
+def test_native_voice_change_reapplies_properties_reset_by_backend(
+        monkeypatch):
+    class ResettingVoiceSpeech(_NativeSpeech):
+        def setVoice(self, voice):
+            super().setVoice(voice)
+            self.rate = None
+            self.pitch = None
+            self.volume = None
+
+    app = _App()
+    config.data = {
+        'general': {'audio_muted': False, 'master_volume': 100},
+        'spells': {'audio_profiles': {
+            'first@green': {
+                'character': 'First', 'server': 'Green',
+                'voice_name': 'Voice A', 'voice_speed': 4, 'volume': 100},
+            'second@green': {
+                'character': 'Second', 'server': 'Green',
+                'voice_name': 'Voice B', 'voice_speed': 4, 'volume': 100}}}}
+    speech = ResettingVoiceSpeech()
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, '_SPEECH', speech)
+
+    assert audio.speak_text(
+        'First voice', 80, character='First', server='Green', pitch=3)
+    assert audio.speak_text(
+        'Second voice', 80, character='Second', server='Green', pitch=3)
+    speech.synthesize_next()
+    speech.synthesize_next()
+
+    assert speech.synthesized_profiles == [
+        ('Voice A', 0.4, 0.3, 0.8),
+        ('Voice B', 0.4, 0.3, 0.8),
+    ]
+    assert [name for name, _value in speech.setter_events].count('rate') == 2
+    assert [name for name, _value in speech.setter_events].count('pitch') == 2
+    assert [name for name, _value in speech.setter_events].count('volume') == 2
+
+
+def test_native_enqueue_coalesces_duplicates_before_synthesis(monkeypatch):
+    app = _App()
+    config.data = {
+        'general': {'audio_muted': False, 'master_volume': 100},
+        'spells': {'audio_profiles': {}}}
+    speech = _NativeSpeech()
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, '_SPEECH', speech)
+    common = {
+        'source': 'Spell fading · Clarity', 'channel': 'spells',
+        'replace_pending': True}
+
+    assert audio.speak_text('Clarity fading', 40, **common)
+    assert audio.speak_text('Clarity fading', 90, **common)
+    assert [message for _utterance_id, message in speech.enqueued] == [
+        'Clarity fading']
+
+    speech.synthesize_next()
+    assert speech.volume == 0.9
+    assert audio.speak_text('Clarity fading', 70, **common)
+    assert speech.enqueued == []
+
+
+def test_native_enqueue_bounds_waiting_work_without_interrupting_head(
+        monkeypatch):
+    app = _App()
+    config.data = {
+        'general': {'audio_muted': False, 'master_volume': 100},
+        'spells': {'audio_profiles': {}}}
+    speech = _NativeSpeech()
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, '_SPEECH', speech)
+
+    accepted = ['Queue head'] + [
+        f'Waiting {index}' for index in range(audio._SPEECH_MAX_PENDING)]
+    for phrase in accepted:
+        assert audio.speak_text(
+            phrase, source=phrase, channel='spells', replace_pending=True)
+    assert not audio.speak_text(
+        'Overflow', source='Overflow route', channel='spells',
+        replace_pending=True)
+
+    assert [message for _utterance_id, message in speech.enqueued] == accepted
+    assert speech.stop_count == 0
+    assert app.blocked[-1] == (
+        'Overflow route', 'speech queue full', 'spells')
+
+
+def test_native_enqueue_rejects_invalid_ids_without_stuck_pending_work(
+        monkeypatch):
+    app = _App()
+    config.data = {
+        'general': {'audio_muted': False, 'master_volume': 100},
+        'spells': {'audio_profiles': {}}}
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+
+    for invalid_id in (-1, None, 'invalid', 1.5, True):
+        speech = _NativeSpeech()
+        speech.enqueue = lambda _message, result=invalid_id: result
+        monkeypatch.setattr(audio, '_SPEECH', speech)
+
+        assert not audio.speak_text(
+            'Rejected native request', source='Rejected route',
+            channel='spells')
+        assert audio._SPEECH_PENDING == []
+        assert audio._SPEECH_ACTIVE is None
+        assert app.blocked[-1] == (
+            'Rejected route', 'speech enqueue failed', 'spells')
+
+
+def test_native_enqueue_mute_and_explicit_interrupt_clear_native_work(
+        monkeypatch):
+    app = _App()
+    config.data = {
+        'general': {'audio_muted': False, 'master_volume': 100},
+        'spells': {'audio_profiles': {}}}
+    speech = _NativeSpeech()
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, '_SPEECH', speech)
+
+    assert audio.speak_text('Old one')
+    assert audio.speak_text('Old two')
+    assert audio.speak_text('Interrupt now', interrupt=True)
+    assert speech.stop_count == 1
+    assert [message for _utterance_id, message in speech.enqueued] == [
+        'Interrupt now']
+    assert audio._SPEECH_PENDING[0]['message'] == 'Interrupt now'
+
+    audio.set_audio_muted(True)
+    assert speech.stop_count == 2
+    assert speech.enqueued == []
+    assert audio._SPEECH_PENDING == []
+    assert audio._SPEECH_ACTIVE is None
+    assert audio._SPEECH is None
+
+
+def test_native_runtime_error_reports_all_work_and_recreates_backend(
+        monkeypatch):
+    app = _App()
+    config.data = {
+        'general': {'audio_muted': False, 'master_volume': 100},
+        'spells': {'audio_profiles': {}}}
+    failed = _NativeSpeech()
+    fresh = _NativeSpeech()
+    created = []
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, '_SPEECH', failed)
+    monkeypatch.setattr(
+        audio, 'QTextToSpeech',
+        lambda parent: created.append(parent) or fresh)
+
+    assert audio.speak_text(
+        'Active before error', source='Active route', channel='spells')
+    assert audio.speak_text(
+        'Pending before error', source='Pending route', channel='spells')
+    failed.synthesize_next()
+    failed._state = 'Error'
+    failed.stateChanged.emit(failed._state)
+
+    assert audio._SPEECH is None
+    assert audio._SPEECH_PENDING == []
+    assert audio._SPEECH_ACTIVE is None
+    assert failed.deleted is True
+    assert app.blocked[-2:] == [
+        ('Active route', 'speech backend error', 'spells'),
+        ('Pending route', 'speech backend error', 'spells'),
+    ]
+
+    assert audio.speak_text(
+        'Fresh backend alert', source='Fresh route', channel='spells')
+    assert created == [app]
+    assert audio._SPEECH is fresh
+    assert [message for _utterance_id, message in fresh.enqueued] == [
+        'Fresh backend alert']
+    fresh.synthesize_next()
+    assert fresh.synthesized == ['Fresh backend alert']
+
+
+def test_bard_count_speech_queues_without_forced_interrupt(monkeypatch):
+    import vantage.parsers.spells as spells_module
+
+    calls = []
+    notices = []
+    app = SimpleNamespace(
+        _queue_quickbar_notice=notices.append,
+        show_overlay_notification=lambda *_args, **_kwargs: None)
+    owner = SimpleNamespace(
+        _bard_group=SimpleNamespace(add_summary=lambda _summary: None),
+        _active_character='Singer', _active_server='Green')
+    config.data = {'spells': {
+        'bard_count_overlay': False,
+        'bard_count_audio': True,
+        'fade_sound_volume': 75,
+    }}
+    monkeypatch.setattr(spells_module, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(
+        spells_module, 'speak_text',
+        lambda *args, **kwargs: calls.append((args, kwargs)) or True)
+
+    spells_module.Spells._handle_bard_summaries(
+        owner, [SimpleNamespace(text='6 Total | 5 Hits | 1 Resist')])
+
+    assert notices == ['6 Total | 5 Hits | 1 Resist']
+    assert calls[0][0] == ('6 Total | 5 Hits | 1 Resist', 75)
+    assert 'interrupt' not in calls[0][1]
 
 
 def test_only_explicit_interrupt_requests_qt_immediate_boundary(monkeypatch):

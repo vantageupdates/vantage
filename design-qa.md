@@ -1,8 +1,8 @@
-# Vantage Companion 1.44.100 design QA
+# Vantage Companion 1.44.101 design QA
 
-final result: passed
+release verification: pending
 
-accessibility final result: PASS
+independent accessibility review: PASS
 
 ## Brand reference
 
@@ -324,7 +324,7 @@ accessibility final result: PASS
   audio route. Transient Bard rows use the normal readable timer before clean
   removal and never flash a misleading Warning, Critical, or FADED state.
 
-## 1.44.100 release evidence
+## 1.44.100 release evidence (historical)
 
 - Focused Terms & Privacy and Vitals verification: **84 passed**.
 - Focused version, updater, and packaging verification: **25 passed**.
@@ -349,3 +349,31 @@ accessibility final result: PASS
   `sha256:3b63b26d46917a79151827ff2ea90a713d67591df3aea00807a6faa1c66b4c12`.
 - A freshly downloaded public asset matches the tested candidate hash and size
   byte-for-byte.
+
+## 1.44.101 release evidence
+
+- Diagnosis: closely arriving alerts were submitted sentence-by-sentence with
+  `QTextToSpeech.say()` while voice, rate, pitch, and volume were reapplied.
+  That submission and backend-property churn could restart Windows speech and
+  produce stuttered or cut phrases.
+- Current Qt engines now use one persistent native `enqueue()` FIFO. Each
+  request receives its saved voice, rate, pitch, and live volume in
+  `aboutToSynthesize(id)` immediately before synthesis; unchanged properties
+  are not redundantly applied. Older engines keep the state-aware serial
+  fallback.
+- A real voice change invalidates and reapplies rate, pitch, and volume because
+  Qt backends may reset those dependent properties. Exact automatic duplicates
+  still coalesce, waiting work remains bounded, and only mute or an explicitly
+  configured interrupt stops queued speech. Bard-count speech queues normally.
+- Invalid native enqueue IDs fail without leaving stuck work. A native runtime
+  error atomically clears and reports every affected route, retires the failed
+  engine without replaying uncertain phrases, and lets the next alert create a
+  fresh backend.
+- Focused TTS and notification-route verification so far: **81 passed**.
+- Independent accessibility review of the accepted scheduler changes: **PASS**.
+- Full automated test suite: **1,523 passed, 2 skipped** in **701.62 seconds**.
+- PyInstaller **6.22.2** single-file build: **PASS**. Portable self-test:
+  **PASS**, reporting version `1.44.101`.
+- Candidate `dist/Vantage.exe` size: **75,860,174 bytes**. SHA-256:
+  `EF3E1DCEDC875D1C45EA6404E1260B4A8316DB1EC8D1E42D50B44AD15FD9C63C`.
+- **PENDING:** public release/update-channel verification for `1.44.101`.

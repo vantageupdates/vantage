@@ -81,13 +81,17 @@ _SPEECH_PENDING = []
 _SPEECH_ACTIVE = None
 _SPEECH_BOUND_ENGINE = None
 _SPEECH_STATE_SIGNAL = False
+_SPEECH_ABOUT_SIGNAL = False
+_SPEECH_NATIVE_QUEUE = False
 _SPEECH_GAP_PENDING = False
 _SPEECH_EPOCH = 0
 _SPEECH_REQUEST_ID = 0
+_SPEECH_APPLIED_ENGINE = None
+_SPEECH_APPLIED_SETTINGS = {}
 
-# Automatic alerts share one local Windows voice.  Keep the pause perceptible
-# without making combat feedback feel late, and cap only the waiting work: the
-# phrase already being spoken is never sacrificed to make room.
+# Automatic alerts share one local Windows voice. Older backends retain a
+# short serial gap, while current Qt uses its continuous native queue. Cap only
+# the waiting work: the phrase already being spoken is never sacrificed.
 _SPEECH_GAP_MS = 180
 _SPEECH_MAX_PENDING = 8
 _SPEECH_POLL_MS = 100
@@ -484,13 +488,33 @@ def vantage_command_voice_description(unavailable_voice=""):
     return description
 
 
+def _set_speech_attribute(
+        speech, name, value, setter, invalidates=()):
+    """Change a shared engine property only when its effective value differs."""
+    global _SPEECH_APPLIED_ENGINE, _SPEECH_APPLIED_SETTINGS
+    if _SPEECH_APPLIED_ENGINE is not speech:
+        _SPEECH_APPLIED_ENGINE = speech
+        _SPEECH_APPLIED_SETTINGS = {}
+    if _SPEECH_APPLIED_SETTINGS.get(name, object()) == value:
+        return True
+    try:
+        setter()
+    except (AttributeError, RuntimeError, TypeError, ValueError):
+        return False
+    _SPEECH_APPLIED_SETTINGS[name] = value
+    for dependent in invalidates:
+        _SPEECH_APPLIED_SETTINGS.pop(dependent, None)
+    return True
+
+
 def _apply_speech_profile(speech, settings, voice_name="", pitch=0):
     """Apply every mutable voice setting for one isolated utterance.
 
     The Qt speech engine is shared, so leaving one setting untouched leaks it
     into the next alert.  Resolve voice from the trigger first, then the
-    character profile, and finally the local Vantage Adjutant preset; rate and
-    pitch are deliberately reset on every call as well.
+    character profile, and finally the local Vantage Adjutant preset. Values
+    are resolved for every utterance, but unchanged setters are skipped because
+    some Windows backends reinitialize when a property is redundantly applied.
     """
     try:
         voices = list(speech.availableVoices())
@@ -507,7 +531,11 @@ def _apply_speech_profile(speech, settings, voice_name="", pitch=0):
             voice for voice in voices
             if str(voice.name()).casefold() == wanted.casefold()), None)
         if selected is not None:
-            speech.setVoice(selected)
+            selected_name = str(selected.name()).strip().casefold()
+            _set_speech_attribute(
+                speech, "voice", selected_name,
+                lambda: speech.setVoice(selected),
+                invalidates=("rate", "pitch", "volume"))
         speed_value = int(settings.get("voice_speed", 0))
         pitch_value = int(pitch or 0)
         # A slight slowdown and lower pitch make the local female fallback
@@ -517,10 +545,20 @@ def _apply_speech_profile(speech, settings, voice_name="", pitch=0):
                 speed_value / 10.0)
         tone = (-0.08 if not requested and pitch_value == 0 else
                 pitch_value / 10.0)
-        speech.setRate(max(-1.0, min(1.0, rate)))
-        speech.setPitch(max(-1.0, min(1.0, tone)))
+        rate = max(-1.0, min(1.0, rate))
+        tone = max(-1.0, min(1.0, tone))
+        _set_speech_attribute(
+            speech, "rate", rate, lambda: speech.setRate(rate))
+        _set_speech_attribute(
+            speech, "pitch", tone, lambda: speech.setPitch(tone))
     except (AttributeError, RuntimeError, TypeError, ValueError):
         pass
+
+
+def _apply_speech_volume(speech, volume):
+    value = max(0.0, min(1.0, float(volume)))
+    return _set_speech_attribute(
+        speech, "volume", value, lambda: speech.setVolume(value))
 
 
 def _stop_speech_immediately(speech):
@@ -567,11 +605,30 @@ def _reset_speech_scheduler():
 def _bind_speech_scheduler(speech):
     """Attach the one engine-state listener used by the serial scheduler."""
     global _SPEECH_BOUND_ENGINE, _SPEECH_STATE_SIGNAL
+    global _SPEECH_ABOUT_SIGNAL, _SPEECH_NATIVE_QUEUE
+    global _SPEECH_APPLIED_ENGINE, _SPEECH_APPLIED_SETTINGS
     if _SPEECH_BOUND_ENGINE is speech:
         return
     _reset_speech_scheduler()
     _SPEECH_BOUND_ENGINE = speech
     _SPEECH_STATE_SIGNAL = False
+    _SPEECH_ABOUT_SIGNAL = False
+    _SPEECH_NATIVE_QUEUE = False
+    if _SPEECH_APPLIED_ENGINE is not speech:
+        _SPEECH_APPLIED_ENGINE = speech
+        _SPEECH_APPLIED_SETTINGS = {}
+    about_signal = getattr(speech, "aboutToSynthesize", None)
+    about_connector = getattr(about_signal, "connect", None)
+    if callable(getattr(speech, "enqueue", None)) and callable(about_connector):
+        try:
+            about_connector(
+                lambda utterance_id, engine=speech:
+                _speech_about_to_synthesize(engine, utterance_id))
+            _SPEECH_ABOUT_SIGNAL = True
+            _SPEECH_NATIVE_QUEUE = True
+        except (AttributeError, RuntimeError, TypeError):
+            _SPEECH_ABOUT_SIGNAL = False
+            _SPEECH_NATIVE_QUEUE = False
     signal = getattr(speech, "stateChanged", None)
     connector = getattr(signal, "connect", None)
     if callable(connector):
@@ -666,9 +723,16 @@ def _poll_speech_state(speech, epoch, request_id=0):
 
 def _speech_state_changed(speech, state):
     """Advance only after Qt reports that the active phrase fully finished."""
+    global _SPEECH_ACTIVE
     if speech is not _SPEECH:
         return
     state_name = _speech_state_name(state)
+    if _SPEECH_NATIVE_QUEUE:
+        if state_name == "error":
+            _discard_failed_native_speech(speech)
+        elif state_name == "ready":
+            _SPEECH_ACTIVE = None
+        return
     if state_name in ("ready", "error") and _SPEECH_ACTIVE:
         _finish_active_speech(speech, _SPEECH_ACTIVE.get("id", -1))
     elif (state_name in ("ready", "error") and _SPEECH_PENDING and
@@ -676,9 +740,45 @@ def _speech_state_changed(speech, state):
         _start_next_speech(speech)
 
 
+def _discard_failed_native_speech(speech):
+    """Report aborted native work and retire the failed engine without retry."""
+    global _SPEECH, _SPEECH_BOUND_ENGINE, _SPEECH_STATE_SIGNAL
+    global _SPEECH_ABOUT_SIGNAL, _SPEECH_NATIVE_QUEUE
+    global _SPEECH_APPLIED_ENGINE, _SPEECH_APPLIED_SETTINGS
+    if speech is not _SPEECH:
+        return
+    affected = []
+    if _SPEECH_ACTIVE is not None:
+        affected.append(_SPEECH_ACTIVE)
+    affected.extend(_SPEECH_PENDING)
+    app = QApplication.instance()
+
+    # Detach all logical work before callbacks report the failure. This makes
+    # re-entrant notification handling see an empty scheduler and ensures none
+    # of the aborted phrases is retried with a risk of duplicate speech.
+    _SPEECH = None
+    _reset_speech_scheduler()
+    _SPEECH_BOUND_ENGINE = None
+    _SPEECH_STATE_SIGNAL = False
+    _SPEECH_ABOUT_SIGNAL = False
+    _SPEECH_NATIVE_QUEUE = False
+    _SPEECH_APPLIED_ENGINE = None
+    _SPEECH_APPLIED_SETTINGS = {}
+    for request in affected:
+        _report_blocked(
+            app, request.get("source", "Vantage speech"),
+            "speech backend error", request.get("channel", ""))
+    try:
+        speech.deleteLater()
+    except (AttributeError, RuntimeError):
+        pass
+
+
 def _start_next_speech(speech):
     """Start exactly one queued utterance with its own captured voice profile."""
     global _SPEECH_ACTIVE
+    if _SPEECH_NATIVE_QUEUE:
+        return False
     if (speech is not _SPEECH or _SPEECH_ACTIVE or _SPEECH_GAP_PENDING or
             not _SPEECH_PENDING):
         return False
@@ -707,9 +807,8 @@ def _start_next_speech(speech):
             speech, request.get("profile", {}),
             voice_name=request.get("voice_name", ""),
             pitch=request.get("pitch", 0))
-        try:
-            speech.setVolume(int(request.get("volume", 0)) / 100.0)
-        except (AttributeError, RuntimeError, TypeError, ValueError):
+        if not _apply_speech_volume(
+                speech, int(request.get("volume", 0)) / 100.0):
             continue
 
         # A mute/config signal may run while voice properties are applied.
@@ -737,6 +836,90 @@ def _start_next_speech(speech):
     return False
 
 
+def _speech_about_to_synthesize(speech, utterance_id):
+    """Apply one native-queue request immediately before Qt synthesizes it."""
+    global _SPEECH_ACTIVE
+    if speech is not _SPEECH or not _SPEECH_NATIVE_QUEUE:
+        return
+    index = next((
+        position for position, request in enumerate(_SPEECH_PENDING)
+        if request.get("native_id") == utterance_id), -1)
+    if index < 0:
+        # Some adapters emit synchronously from enqueue(), before its return
+        # value can be attached to the request. FIFO identifies that head.
+        index = next((
+            position for position, request in enumerate(_SPEECH_PENDING)
+            if request.get("native_id") is None), -1)
+    if index < 0:
+        return
+    request = _SPEECH_PENDING.pop(index)
+    request["native_id"] = utterance_id
+    _SPEECH_ACTIVE = request
+
+    app = QApplication.instance()
+    reason = _playback_block_reason(
+        app, request.get("channel", ""),
+        bool(request.get("allow_hidden", False)))
+    live_volume = round(
+        int(request.get("base_volume", 0)) * master_volume() / 100)
+    request["volume"] = live_volume
+    if reason or live_volume <= 0:
+        _apply_speech_volume(speech, 0.0)
+        _report_blocked(
+            app, request.get("source", "Vantage speech"),
+            reason or "master volume 0%", request.get("channel", ""))
+        return
+
+    _apply_speech_profile(
+        speech, request.get("profile", {}),
+        voice_name=request.get("voice_name", ""),
+        pitch=request.get("pitch", 0))
+    if not _apply_speech_volume(speech, live_volume / 100.0):
+        return
+
+    # A mute/config signal may run while the utterance properties are applied.
+    reason = _playback_block_reason(
+        app, request.get("channel", ""),
+        bool(request.get("allow_hidden", False)))
+    if reason or speech is not _SPEECH:
+        _apply_speech_volume(speech, 0.0)
+        _report_blocked(
+            app, request.get("source", "Vantage speech"),
+            reason or "muted", request.get("channel", ""))
+        return
+    _speech_notify_started(request)
+
+
+def _enqueue_native_speech(speech, request):
+    """Hand one phrase to Qt's continuous queue without say/stop churn."""
+    def reject_enqueue():
+        global _SPEECH_ACTIVE
+        _SPEECH_PENDING[:] = [
+            pending for pending in _SPEECH_PENDING
+            if pending is not request]
+        if _SPEECH_ACTIVE is request:
+            _SPEECH_ACTIVE = None
+        _report_blocked(
+            QApplication.instance(), request.get("source", "Vantage speech"),
+            "speech enqueue failed", request.get("channel", ""))
+        return False
+
+    request["native_id"] = None
+    _SPEECH_PENDING.append(request)
+    try:
+        utterance_id = speech.enqueue(request["message"])
+    except (AttributeError, RuntimeError, TypeError):
+        return reject_enqueue()
+    # Qt documents -1 as failure. Require the normal Python integer binding so
+    # None, booleans, floats, and adapter-specific sentinel objects cannot
+    # become permanently unmatchable pending IDs.
+    if type(utterance_id) is not int or utterance_id < 0:
+        return reject_enqueue()
+    if any(pending is request for pending in _SPEECH_PENDING):
+        request["native_id"] = utterance_id
+    return True
+
+
 def _queue_speech_request(speech, request, replace_pending=False):
     """Queue without ever stopping the active phrase or growing unbounded."""
     _bind_speech_scheduler(speech)
@@ -752,15 +935,23 @@ def _queue_speech_request(speech, request, replace_pending=False):
                     _speech_request_key(pending) == key):
                 # Same alert, fresher values, same FIFO position.  This is the
                 # only coalescing rule, so distinct critical alerts keep order.
+                request["native_id"] = pending.get("native_id")
                 _SPEECH_PENDING[index] = request
                 return True
-    if len(_SPEECH_PENDING) >= _SPEECH_MAX_PENDING:
+    waiting = len(_SPEECH_PENDING)
+    if _SPEECH_NATIVE_QUEUE and _SPEECH_ACTIVE is None and waiting:
+        # Before the first aboutToSynthesize signal, the queue head is the
+        # imminent active phrase rather than waiting work.
+        waiting -= 1
+    if waiting >= _SPEECH_MAX_PENDING:
         # Refuse only the newest waiting request. Never truncate the active
         # phrase or reorder the distinct alerts already promised to the user.
         _report_blocked(
             QApplication.instance(), request.get("source", "Vantage speech"),
             "speech queue full", request.get("channel", ""))
         return False
+    if _SPEECH_NATIVE_QUEUE:
+        return _enqueue_native_speech(speech, request)
     _SPEECH_PENDING.append(request)
     _start_next_speech(speech)
     return True
@@ -769,6 +960,8 @@ def _queue_speech_request(speech, request, replace_pending=False):
 def stop_all_audio():
     """Immediately silence and dispose every Vantage playback backend."""
     global _SPEECH, _SPEECH_BOUND_ENGINE, _SPEECH_STATE_SIGNAL
+    global _SPEECH_ABOUT_SIGNAL, _SPEECH_NATIVE_QUEUE
+    global _SPEECH_APPLIED_ENGINE, _SPEECH_APPLIED_SETTINGS
     for effect in tuple(_ACTIVE_EFFECTS):
         # Muting volume before stop prevents a multimedia backend's already
         # buffered tail from remaining audible for another scheduler turn.
@@ -795,6 +988,10 @@ def stop_all_audio():
     _reset_speech_scheduler()
     _SPEECH_BOUND_ENGINE = None
     _SPEECH_STATE_SIGNAL = False
+    _SPEECH_ABOUT_SIGNAL = False
+    _SPEECH_NATIVE_QUEUE = False
+    _SPEECH_APPLIED_ENGINE = None
+    _SPEECH_APPLIED_SETTINGS = {}
     if speech is not None:
         try:
             speech.setVolume(0.0)
@@ -896,12 +1093,14 @@ def speak_text(
         text, volume=80, interrupt=False, source="Vantage speech",
         character="", server="", channel="", allow_hidden=False,
         voice_name="", pitch=0, replace_pending=False):
-    """Submit speech to Vantage's serial, gap-aware Windows voice scheduler.
+    """Submit speech to Vantage's persistent Windows voice scheduler.
 
     Automatic notifications use ``replace_pending=True`` to coalesce exact
     duplicates while leaving the phrase already being spoken untouched.
     Explicit trigger authors retain the separate ``interrupt`` switch: false
     waits in order and true is the only path that immediately stops speech.
+    Current Qt engines use enqueue/aboutToSynthesize for continuous FIFO audio;
+    older engines retain the serial state-aware fallback.
     """
     global _SPEECH_REQUEST_ID
     message = str(text or "").strip()
