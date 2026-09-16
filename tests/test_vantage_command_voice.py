@@ -16,14 +16,16 @@ def _app():
 
 
 def test_vantage_command_label_resolves_current_fake_inventory(monkeypatch):
-    monkeypatch.setattr(
-        audio, "speech_voice_names",
-        lambda: ["Microsoft Zira", "Microsoft David", "Microsoft Mark"])
+    speech = SimpleNamespace(availableVoices=lambda: [
+        SimpleNamespace(name=lambda: "Microsoft Zira"),
+        SimpleNamespace(name=lambda: "Microsoft David"),
+        SimpleNamespace(name=lambda: "Microsoft Mark")])
+    monkeypatch.setattr(audio, "_speech_engine", lambda: speech)
     monkeypatch.setattr(audio, "_DEFAULT_VOICE_NAME", "Microsoft David")
 
-    assert audio.vantage_command_voice_name() == "Microsoft Mark"
+    assert audio.vantage_command_voice_name() == "Microsoft Zira"
     assert audio.vantage_command_voice_label() == (
-        "Vantage Command · Microsoft Mark")
+        "Vantage Adjutant · Microsoft Zira")
 
 
 def test_notification_voice_route_uses_accessible_command_default(monkeypatch):
@@ -43,8 +45,8 @@ def test_notification_voice_route_uses_accessible_command_default(monkeypatch):
         values={"delivery": "voice", "voice": "", "sound": ""})
 
     assert picker.itemData(0) == ""
-    assert picker.itemText(0).startswith("Vantage Command")
-    assert "calm installed Windows voice" in picker.accessibleDescription()
+    assert picker.itemText(0).startswith("Vantage Adjutant")
+    assert "calm installed female Windows voice" in picker.accessibleDescription()
     assert picker.currentData() == ""
 
     SettingsWindow._populate_route_picker(
@@ -59,14 +61,14 @@ def test_notification_voice_route_uses_accessible_command_default(monkeypatch):
         SimpleNamespace(), "market_sale", delivery, picker,
         values={"delivery": "sound", "voice": "", "sound": ""})
     assert "gallery or custom WAV" in picker.accessibleDescription()
-    assert "calm installed Windows voice" not in picker.accessibleDescription()
+    assert "calm installed female Windows voice" not in picker.accessibleDescription()
 
     delivery.setCurrentIndex(delivery.findData("off"))
     SettingsWindow._populate_route_picker(
         SimpleNamespace(), "market_sale", delivery, picker,
         values={"delivery": "off", "voice": "", "sound": ""})
     assert "Audio delivery is off" in picker.accessibleDescription()
-    assert "calm installed Windows voice" not in picker.accessibleDescription()
+    assert "calm installed female Windows voice" not in picker.accessibleDescription()
 
 
 def test_each_trigger_phase_preserves_an_unavailable_explicit_voice():
@@ -74,7 +76,7 @@ def test_each_trigger_phase_preserves_an_unavailable_explicit_voice():
     combos = [QComboBox(), QComboBox(), QComboBox()]
     for combo, saved in zip(
             combos, ("Old Basic", "Old Ending", "Old Ended")):
-        combo.addItem("Vantage Command", "")
+        combo.addItem("Vantage Adjutant", "")
         CustomTriggerSettings._set_voice_combo(combo, saved)
         assert combo.currentData() == saved
         assert "unavailable" in combo.currentText()
@@ -102,8 +104,8 @@ def test_vital_stop_voice_default_is_command_and_saved_voice_survives(
     default_stop.update({"delivery": "tts", "voice": ""})
     dialog = VitalStopDialog(default_stop)
     assert dialog.voice.itemData(0) == ""
-    assert dialog.voice.itemText(0).startswith("Vantage Command")
-    assert "calm installed Windows voice" in dialog.voice.accessibleDescription()
+    assert dialog.voice.itemText(0).startswith("Vantage Adjutant")
+    assert "calm installed female Windows voice" in dialog.voice.accessibleDescription()
     assert dialog.value()["voice"] == ""
     dialog.close()
 

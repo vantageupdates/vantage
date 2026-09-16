@@ -267,7 +267,7 @@ def _normalize_quest_checklist_steps(value):
         total_bytes += size
     return normalized
 
-BASIC_ALERTS_VERSION = 3
+BASIC_ALERTS_VERSION = 4
 BASIC_ALERTS = (
     ["Invisibility Fading", "You feel yourself starting to appear*", "00:00:00", "",
      "builtin:danger-double", "INVISIBILITY FADING", True, False, "Vantage · Basics"],
@@ -305,6 +305,14 @@ BASIC_ALERTS = (
      "{mob} is casting", False, "", False, "", False, "", "", False,
      "sound", "", 85, 0, "off", "", 100, 0, "off", "", 100, 0,
      "external_npc_cast", 2.0],
+    ["Insufficient mana", r"^Insufficient Mana to cast this spell[!.]$",
+     "00:00:00", "", "builtin:soft-tick", "Insufficient mana", True, True,
+     "Vantage · Basics", "Vantage · Basics", "alerts", "restart", "", "",
+     "Classic P99 client insufficient-mana system line.",
+     "none", 0, 0, "", "", "", "", 0, "", [],
+     "Insufficient mana", False, "", False, "", False, "", "", False,
+     "sound", "", 85, 0, "off", "", 100, 0, "off", "", 100, 0,
+     "", 0.75],
 )
 
 
@@ -836,7 +844,12 @@ def verify_settings():
             translated = next(
                 (basic for basic in BASIC_ALERTS if basic[1] == item[1]),
                 None)
-            if translated:
+            # A case-only variant of the v4 seed may be a customized copy.
+            # Preserve all of its fields during the version bump.
+            preserve_v4_custom = (
+                translated and translated[0] == "Insufficient mana" and
+                item[0].casefold() == translated[0].casefold())
+            if translated and not preserve_v4_custom:
                 item[0] = translated[0]
                 item[5] = translated[5]
                 item[8] = translated[8]

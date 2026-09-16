@@ -57,7 +57,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=98,
+    patch=99,
     build=""
 )
 
@@ -1037,7 +1037,7 @@ class VantageApp(QApplication):
         if sound_path.startswith("tts:"):
             played = speak_text(
                 sound_path[4:], volume, source=f"Replay · {source}",
-                allow_hidden=True, replace_pending=True)
+                allow_hidden=True)
         else:
             played = play_alert(
                 sound_path, volume, source=f"Replay · {source}",

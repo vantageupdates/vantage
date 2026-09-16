@@ -168,8 +168,8 @@ def test_timer_editor_exposes_compact_accessible_tts_controls(monkeypatch):
     assert dialog.tts_voice.accessibleName() == "Timer Windows voice"
     assert dialog.tts_voice.currentData() == "Voice One"
     assert dialog.tts_voice.itemData(0) == ""
-    assert dialog.tts_voice.itemText(0).startswith("Vantage Command")
-    assert "calm installed Windows voice" in \
+    assert dialog.tts_voice.itemText(0).startswith("Vantage Adjutant")
+    assert "calm installed female Windows voice" in \
         dialog.tts_voice.accessibleDescription()
     assert dialog.tts_pitch.accessibleName() == "Timer speech pitch"
     assert dialog.tts_pitch.value() == 4
@@ -178,6 +178,7 @@ def test_timer_editor_exposes_compact_accessible_tts_controls(monkeypatch):
     dialog._test_notification()
     assert spoken[-1][0][:2] == (
         "Port cycle: ready · North Karana", 47)
+    assert "replace_pending" not in spoken[-1][1]
     assert dialog.sound_test_status.text() == "Test status · tts played"
     assert dialog.sound_test_status.accessibleName() == \
         "Test status · tts played"

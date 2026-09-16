@@ -21,7 +21,8 @@ from vantage.helpers.quickbar_items import QUICKBAR_ITEMS
 from vantage.helpers.vitals import (
     MIN_CONFIDENCE, VitalStopTracker, default_vital_bar, default_vital_bars,
     default_vital_stop, denormalize_rect, normalize_rect, preset_percentages,
-    read_visible_percent, read_vital_bar, sanitize_vital_bar,
+    read_visible_current_max, read_visible_percent, read_vital_bar,
+    sanitize_vital_bar,
     sanitize_vital_bars)
 import vantage.helpers.vitals as vital_helpers_module
 from vantage.parsers.vitals import (
@@ -93,6 +94,28 @@ _EQ_BITMAP_DIGITS = {
           "..#..", ".#...", "#.##.", "#..##"),
 }
 
+_LIVE_EQ_BITMAP_DIGITS = dict(_EQ_BITMAP_DIGITS, **{
+    # Privacy-safe reconstructions of the two solid-color HUD glyph shapes;
+    # no screenshot pixels or player data are stored in the fixture.
+    "1": ("..#", ".##", "#.#", "..#", "..#", "..#", "..#", "..#"),
+    "2": (".###.", "#...#", "....#", "....#",
+          "...#.", ".##..", "##...", "#####"),
+    "3": (".###.", "#...#", "....#", "..##.",
+          "....#", "....#", "#...#", ".###."),
+    "4": ("...#.", "..##.", "..##.", ".#.#.",
+          "##.#.", "#####", "...#.", "...#."),
+    "5": (".####", ".#...", "##...", "####.",
+          "....#", "....#", "#...#", ".###."),
+    "6": (".###.", "##..#", "#....", "####.",
+          "##..#", "#...#", "#...#", ".###."),
+    "7": ("#####", "....#", "...#.", "...#.",
+          "..#..", "..#..", "..#..", "..#.."),
+    "9": (".###.", "##..#", "#...#", "##..#",
+          ".####", "....#", "#..##", ".###."),
+    "/": ("..#", ".##", ".#.", ".#.",
+          ".#.", "#..", "#..", "#.."),
+})
+
 
 def _eq_bitmap_100_image(
         canvas, offset, color, bars=(), frame_lines=()):
@@ -118,7 +141,8 @@ def _eq_bitmap_100_image(
 
 def _eq_bitmap_number_image(
         value, canvas=(54, 24), offset=(4, 8), color="#eceae1",
-        include_percent=False, scale=1, bars=(), missing_pixels=()):
+        include_percent=False, scale=1, bars=(), missing_pixels=(),
+        glyphs=None):
     """Build a privacy-safe compact eight-row EQ percentage fixture."""
     image = QImage(canvas[0], canvas[1], QImage.Format.Format_RGB32)
     background = QColor(10, 14, 16)
@@ -130,10 +154,11 @@ def _eq_bitmap_number_image(
     text = str(value) + ("%" if include_percent else "")
     left, top = offset
     foreground = QColor(color)
+    glyphs = glyphs or _EQ_BITMAP_DIGITS
     cursor = left
     foreground_points = []
     for glyph in text:
-        rows = _EQ_BITMAP_DIGITS[glyph]
+        rows = glyphs[glyph]
         for row, bits in enumerate(rows):
             for column, bit in enumerate(bits):
                 if bit != "#":
@@ -150,6 +175,51 @@ def _eq_bitmap_number_image(
         image.setPixelColor(*point, background)
     token_width = cursor - left - scale
     return image, (left, top, token_width, 8 * scale)
+
+
+def _eq_bitmap_text_image(
+        text, canvas=(92, 28), offset=(5, 9), color="#45d483",
+        glyphs=None, bars=(), soft_edges=False):
+    """Render privacy-safe, live-shaped compact EQ text including slash."""
+    glyphs = glyphs or _LIVE_EQ_BITMAP_DIGITS
+    image = QImage(canvas[0], canvas[1], QImage.Format.Format_RGB32)
+    background = QColor(10, 14, 16)
+    image.fill(background)
+    for left, top, width, height, bar_color in bars:
+        for y in range(top, min(image.height(), top + height)):
+            for x in range(left, min(image.width(), left + width)):
+                image.setPixelColor(x, y, QColor(bar_color))
+    left, top = offset
+    cursor = left
+    points = set()
+    for glyph in text:
+        rows = glyphs[glyph]
+        for row, bits in enumerate(rows):
+            for column, bit in enumerate(bits):
+                if bit == "#":
+                    points.add((cursor + column, top + row))
+        # The italic slash overhang meets the first maximum digit. Other
+        # compact glyphs retain one empty advance column.
+        cursor += len(rows[0]) + (0 if glyph == "/" else 1)
+    foreground = QColor(color)
+    if soft_edges:
+        alpha = .38
+        halo = QColor(
+            round(background.red() * (1 - alpha) + foreground.red() * alpha),
+            round(background.green() * (1 - alpha) + foreground.green() * alpha),
+            round(background.blue() * (1 - alpha) + foreground.blue() * alpha))
+        for x, y in points:
+            for near_x, near_y in ((x - 1, y), (x + 1, y),
+                                   (x, y - 1), (x, y + 1)):
+                if (0 <= near_x < image.width() and
+                        0 <= near_y < image.height() and
+                        (near_x, near_y) not in points and
+                        image.pixelColor(near_x, near_y) == background):
+                    image.setPixelColor(near_x, near_y, halo)
+    for point in points:
+        image.setPixelColor(*point, foreground)
+    token_width = cursor - left - 1
+    return image, (left, top, token_width, 8)
 
 
 def _number_image(value, scale=2, color="#f2cf68", include_percent=True):
@@ -380,6 +450,209 @@ def test_compact_eq_bitmap_alphabet_reads_realistic_values_without_font_data(
             assert loose.confidence >= MIN_CONFIDENCE
     finally:
         vital_helpers_module._ocr_templates.cache_clear()
+
+
+def test_live_eq_colored_48_and_77_survive_tight_or_edge_clipped_rois(
+        monkeypatch):
+    class NoGuiApplication:
+        @staticmethod
+        def instance():
+            return None
+
+    monkeypatch.setattr(
+        vital_helpers_module, "QGuiApplication", NoGuiApplication)
+    vital_helpers_module._ocr_templates.cache_clear()
+    try:
+        palette = (
+            "#eceae1",  # white
+            "#e6bd48",  # gold/yellow
+            "#45d483",  # green
+            "#1a9fff",  # blue
+            "#42e2e8",  # cyan
+            "#e94d54",  # red
+            "#d966d2",  # magenta
+            "#276f52",  # dim green
+            "#18598c",  # dim blue
+        )
+        for index, color in enumerate(palette):
+            expected = 48 if index % 2 == 0 else 77
+            image, token = _eq_bitmap_number_image(
+                expected, canvas=(46, 25), offset=(3, 8), color=color,
+                bars=((16, 6, 28, 14, color),),
+                glyphs=_LIVE_EQ_BITMAP_DIGITS)
+            left, top, width, height = token
+
+            padded = normalize_rect(
+                (left - 2, top - 2, width + 5, height + 4),
+                (image.width(), image.height()))
+            reading = read_visible_percent(image, padded)
+            assert reading.valid is True, (expected, color, reading)
+            assert reading.percent == float(expected)
+
+            # A fitted overlay can lose up to two rows at one edge when the
+            # capture origin moves.  The bounded live-glyph variants recover
+            # that reading without accepting arbitrary damaged shapes.
+            clipped_top = top if expected == 48 else top + 1
+            clipped_height = height - 2 if expected == 48 else height - 1
+            clipped = normalize_rect(
+                (left - 1, clipped_top, width + 2, clipped_height),
+                (image.width(), image.height()))
+            reading = read_visible_percent(image, clipped)
+            assert reading.valid is True, (
+                expected, color, "edge clipped", reading)
+            assert reading.percent == float(expected)
+    finally:
+        vital_helpers_module._ocr_templates.cache_clear()
+
+
+def test_live_eq_colored_labels_remain_ambiguous_when_roi_contains_two_values(
+        monkeypatch):
+    class NoGuiApplication:
+        @staticmethod
+        def instance():
+            return None
+
+    monkeypatch.setattr(
+        vital_helpers_module, "QGuiApplication", NoGuiApplication)
+    vital_helpers_module._ocr_templates.cache_clear()
+    try:
+        image, _first = _eq_bitmap_number_image(
+            48, canvas=(42, 44), offset=(3, 5), color="#45d483",
+            bars=((17, 3, 23, 13, "#00df00"),),
+            glyphs=_LIVE_EQ_BITMAP_DIGITS)
+        second, _second = _eq_bitmap_number_image(
+            77, canvas=(14, 8), offset=(1, 0), color="#1a9fff",
+            glyphs=_LIVE_EQ_BITMAP_DIGITS)
+        background = QColor(10, 14, 16)
+        for y in range(second.height()):
+            for x in range(second.width()):
+                color = second.pixelColor(x, y)
+                if color != background:
+                    image.setPixelColor(x, 27 + y, color)
+
+        reading = read_visible_percent(image, [0, 0, 1, 1])
+        assert reading.valid is False
+        assert reading.percent is None
+        assert "multiple" in reading.message.casefold()
+    finally:
+        vital_helpers_module._ocr_templates.cache_clear()
+
+
+@pytest.mark.parametrize("text,expected,color,soft_edges", (
+    ("1674/2595", 1674 / 2595 * 100, "#45d483", False),
+    ("967/3365", 967 / 3365 * 100, "#45d483", True),
+    ("1674/2595", 1674 / 2595 * 100, "#1a9fff", True),
+    ("967/3365", 967 / 3365 * 100, "#e6bd48", False),
+    ("1674/2595", 1674 / 2595 * 100, "#e94d54", True),
+    ("967/3365", 967 / 3365 * 100, "#8a4385", False),
+))
+def test_current_max_reader_handles_live_shaped_colored_and_soft_edge_text(
+        text, expected, color, soft_edges):
+    image, token = _eq_bitmap_text_image(
+        text, color=color, soft_edges=soft_edges,
+        bars=((72, 5, 18, 15, color),))
+    left, top, width, height = token
+    reading = read_visible_current_max(
+        image, normalize_rect(
+            (left - 3, top - 3, width + 6, height + 6),
+            (image.width(), image.height())))
+    current, maximum = (int(value) for value in text.split("/"))
+    assert reading.valid is True, (text, color, reading)
+    assert reading.source == "current_max"
+    assert reading.current == current
+    assert reading.maximum == maximum
+    assert reading.percent == pytest.approx(expected)
+    assert reading.token_rect == token
+
+
+def test_current_max_reader_tolerates_edge_loss_and_two_pixel_token_drift():
+    image, token = _eq_bitmap_text_image(
+        "1674/2595", canvas=(110, 34), offset=(19, 12),
+        color="#18598c", bars=((75, 8, 30, 16, "#18598c"),))
+    left, top, width, height = token
+    # Model a saved padded ROI whose live token moved by two pixels.
+    padded = normalize_rect(
+        (left - 7, top - 6, width + 14, height + 12),
+        (image.width(), image.height()))
+    reading = read_visible_current_max(image, padded)
+    assert reading.valid is True
+    assert (reading.current, reading.maximum) == (1674, 2595)
+
+    # A one-row capture clip stays readable through bounded compact-glyph
+    # variants; arbitrary internal stroke loss is not made permissive.
+    clipped = normalize_rect(
+        (left - 1, top + 1, width + 2, height - 1),
+        (image.width(), image.height()))
+    clipped_reading = read_visible_current_max(image, clipped)
+    assert clipped_reading.valid is True
+    assert (clipped_reading.current, clipped_reading.maximum) == (1674, 2595)
+
+
+@pytest.mark.parametrize("text", ("861", "AC861", "2595/1674", "10/0"))
+def test_current_max_reader_rejects_labels_without_valid_strict_slash_pair(text):
+    glyphs = dict(_LIVE_EQ_BITMAP_DIGITS)
+    glyphs.update({
+        "A": (".###.", "#...#", "#...#", "#####",
+              "#...#", "#...#", "#...#", "#...#"),
+        "C": (".####", "#....", "#....", "#....",
+              "#....", "#....", "#....", ".####"),
+    })
+    image, _token = _eq_bitmap_text_image(text, glyphs=glyphs)
+    reading = read_visible_current_max(image, [0, 0, 1, 1])
+    assert reading.valid is False, (text, reading)
+    assert reading.percent is None
+
+
+def test_current_max_reader_rejects_two_pairs_and_plain_colored_bars():
+    first, _token = _eq_bitmap_text_image(
+        "1674/2595", canvas=(100, 42), offset=(4, 4), color="#45d483")
+    second, _second_token = _eq_bitmap_text_image(
+        "967/3365", canvas=(60, 8), offset=(0, 0), color="#1a9fff")
+    background = QColor(10, 14, 16)
+    for y in range(second.height()):
+        for x in range(second.width()):
+            color = second.pixelColor(x, y)
+            if color != background:
+                first.setPixelColor(9 + x, 26 + y, color)
+    ambiguous = read_visible_current_max(first, [0, 0, 1, 1])
+    assert ambiguous.valid is False
+    assert "multiple" in ambiguous.message.casefold()
+
+    bar = QImage(90, 24, QImage.Format.Format_RGB32)
+    bar.fill(background)
+    for y in range(7, 16):
+        for x in range(5, 85):
+            bar.setPixelColor(x, y, QColor("#45d483"))
+    no_label = read_visible_current_max(bar, [0, 0, 1, 1])
+    assert no_label.valid is False
+    assert no_label.percent is None
+
+
+def test_own_vitals_use_persisted_current_max_but_other_types_stay_percentage():
+    ratio, _token = _eq_bitmap_text_image("1674/2595")
+    own = read_vital_bar(ratio, {
+        "id": "my-hp", "name": "My HP", "type": "my_hp",
+        "ocr_calibrated": True, "number_format": "current_max",
+        "rect": [0, 0, 1, 1],
+    })
+    assert own.valid is True
+    assert own.source == "current_max"
+    assert own.percent == pytest.approx(1674 / 2595 * 100)
+
+    target = read_vital_bar(ratio, {
+        "id": "target", "name": "Target", "type": "target_hp",
+        "ocr_calibrated": True, "number_format": "current_max",
+        "rect": [0, 0, 1, 1],
+    })
+    assert target.source != "current_max"
+
+    legacy_percent = read_vital_bar(_number_image(42), {
+        "id": "my-mana", "name": "My Mana", "type": "my_mana",
+        "ocr_calibrated": True, "rect": [0, 0, 1, 1],
+    })
+    assert legacy_percent.valid is True
+    assert legacy_percent.percent == 42.0
+    assert legacy_percent.source == "number"
 
 
 def test_compact_eq_templates_do_not_turn_a_colored_bar_into_a_number():
@@ -923,6 +1196,51 @@ def test_apply_valid_numeric_calibration_marks_and_persists_ocr_roi():
     assert ("persist", None) in calls
     assert any(call[0] == "status" and "validated 75% visible number" in call[1]
                for call in calls)
+    owner._calibration_controls.close()
+
+
+def test_my_hp_calibration_detects_persists_and_reloads_current_max_format():
+    _app()
+    image, _token = _eq_bitmap_text_image(
+        "1674/2595", canvas=(100, 30), offset=(8, 10),
+        color="#45d483", soft_edges=True)
+    bounds = QRect(40, 60, image.width(), image.height())
+    bar = sanitize_vital_bar({
+        "id": "my-hp", "name": "My HP", "type": "my_hp"})
+    calls = []
+    owner = type("Owner", (), {})()
+    owner._bars = [bar]
+    owner._bar_index = lambda bar_id: 0 if bar_id == "my-hp" else -1
+    owner._calibration_context = ("my-hp", image, bounds)
+    owner._calibration_sample = MethodType(Vitals._calibration_sample, owner)
+    owner._calibration_controls = CalibrationControls(bounds, bounds)
+    owner._tracker = type(
+        "Tracker", (), {"reset_bar": lambda _self, bar_id:
+                        calls.append(("reset", bar_id))})()
+    owner._persist = lambda: calls.append(("persist", None))
+    owner._rebuild_cards = lambda target: calls.append(("rebuild", target))
+    owner._finish_calibration = lambda: calls.append(("finish", None))
+    owner._set_status = lambda status: calls.append(("status", status))
+    owner.poll_now = lambda: None
+
+    Vitals._preview_calibration(owner, "my-hp", bounds)
+    assert owner._calibration_controls._save_button.isEnabled() is True
+    assert "1674/2595" in owner._calibration_controls.status.text()
+    assert "64.5%" in owner._calibration_controls.status.text()
+    Vitals._apply_calibration(owner, "my-hp", bounds)
+
+    assert owner._bars[0]["ocr_calibrated"] is True
+    assert owner._bars[0]["number_format"] == "current_max"
+    assert owner._bars[0]["rect"]
+    assert ("persist", None) in calls
+    assert any(
+        call[0] == "status" and "1674/2595 current/max" in call[1]
+        for call in calls)
+    restored = sanitize_vital_bar(json.loads(json.dumps(owner._bars[0])))
+    assert restored["number_format"] == "current_max"
+    reading = read_vital_bar(image, restored)
+    assert reading.valid is True
+    assert reading.percent == pytest.approx(1674 / 2595 * 100)
     owner._calibration_controls.close()
 
 
@@ -1503,6 +1821,54 @@ app.quit()
     assert result["replacement_focus"] == "Validate vital reading preview"
 
 
+def test_vitals_instruction_copy_exposes_both_supported_own_formats(tmp_path):
+    script = r'''
+import json
+from PySide6.QtWidgets import QLabel, QFrame
+from vantage.helpers.application import VantageApp
+
+app = VantageApp([])
+vitals = app._parsers_dict["vitals"]
+vitals._poll_timer.stop()
+vitals._bars = []
+vitals._rebuild_cards()
+empty = next(
+    frame for frame in vitals._bar_page.findChildren(QFrame)
+    if frame.accessibleName() == "No vital monitors configured")
+empty_detail = next(
+    label.text() for label in empty.findChildren(QLabel)
+    if label.objectName() == "SpawnTimerDetail")
+print(json.dumps({
+    "guide_step": vitals._guide.step_labels[0].text(),
+    "guide_description": vitals._guide.accessibleDescription(),
+    "title_tooltip": vitals._title.toolTip(),
+    "add_description": vitals._add_button.accessibleDescription(),
+    "add_tooltip": vitals._add_button.toolTip(),
+    "empty_description": empty.accessibleDescription(),
+    "empty_detail": empty_detail,
+}))
+vitals.close()
+app.quit()
+'''
+    env = os.environ.copy()
+    env["QT_QPA_PLATFORM"] = "offscreen"
+    env["PYTHONPATH"] = str(ROOT / "src")
+    env["VANTAGE_DATA_DIR"] = str(tmp_path / "profile")
+    completed = subprocess.run(
+        [sys.executable, "-c", script], cwd=ROOT, env=env,
+        check=True, capture_output=True, text=True, timeout=30)
+    result = json.loads(completed.stdout.strip().splitlines()[-1])
+    assert result["guide_step"] == "Place over visible HP or mana number"
+    for key in (
+            "guide_description", "title_tooltip", "add_description",
+            "add_tooltip", "empty_description", "empty_detail"):
+        assert "visible HP or mana number" in result[key]
+        assert "My HP and My Mana" in result[key]
+        assert "percentage or current/max" in result[key]
+    assert result["add_description"] == result["add_tooltip"]
+    assert result["empty_description"] == result["empty_detail"]
+
+
 def test_application_registers_and_quickbar_toggles_vitals(tmp_path):
     script = r'''
 import json
@@ -1633,13 +1999,14 @@ app.quit()
         "add_visible": True,
         "add_text": "Add monitor",
         "guide": [
-            "Place overlay over %", "Validate reading", "Set alert stops"],
+            "Place over visible HP or mana number", "Validate reading",
+            "Set alert stops"],
         "guide_columns": 3,
         "has_long_copy": False,
         "has_progress": False,
         "value_object": "SpawnTimerTime",
         "state": "SETUP",
-        "detail": "Next: place the overlay over the visible % number",
+        "detail": "Next: place the overlay over the visible vital number",
         "actions": [
             "Monitoring on", "Calibrate", "Edit overlay", "Remove"],
         "card_count": 4,

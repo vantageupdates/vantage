@@ -740,7 +740,7 @@ class TimerEditDialog(UniformScaleDialog):
                 server=getattr(owner, "_active_server", ""),
                 channel="timers", allow_hidden=True,
                 voice_name=str(self.tts_voice.currentData() or ""),
-                pitch=self.tts_pitch.value(), replace_pending=True)
+                pitch=self.tts_pitch.value())
             result = type("Result", (), {
                 "delivery": "tts", "state": (
                     "played" if played else "unavailable"), "reason": ""})()

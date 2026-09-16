@@ -229,6 +229,26 @@ def test_dispatch_registers_semantics_before_exactly_one_audio(monkeypatch):
         config.data['sounds'] = original
 
 
+def test_visual_notification_survives_speech_queue_backpressure(monkeypatch):
+    import vantage.helpers.application as application
+    host = _DispatchHost()
+    original = config.data.get('sounds')
+    config.data['sounds'] = {'routes': {
+        'smart_timer': {'delivery': 'voice', 'sound': '', 'voice': ''}}}
+    monkeypatch.setattr(application, 'speak_text', lambda *args, **kwargs: False)
+    monkeypatch.setattr(application, 'playback_block_reason', lambda *args: '')
+    monkeypatch.setattr(application, 'master_volume', lambda: 100)
+    try:
+        result = VantageApp.notify_event(
+            host, 'smart_timer', 'Frenzy spawned',
+            voice_text='Frenzy spawned')
+        assert (result.delivery, result.state, bool(result)) == (
+            'voice', 'unavailable', False)
+        assert host.events == [('text', 'Frenzy spawned')]
+    finally:
+        config.data['sounds'] = original
+
+
 def test_dispatch_off_is_visual_only(monkeypatch):
     import vantage.helpers.application as application
     host = _DispatchHost()

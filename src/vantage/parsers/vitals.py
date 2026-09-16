@@ -28,7 +28,7 @@ from vantage.helpers.responsive import ResponsiveActionBar, polish_form, scrolla
 from vantage.helpers.vitals import (
     MIN_CONFIDENCE, VitalReading, VitalStopTracker, default_vital_bar,
     default_vital_stop, denormalize_rect, normalize_rect, preset_percentages,
-    read_vital_bar, read_visible_percent,
+    read_visible_current_max, read_visible_percent, read_vital_bar,
     sanitize_vital_bar, sanitize_vital_bars, sanitize_vital_stop)
 
 
@@ -80,7 +80,7 @@ class CalibrationOverlay(QWidget):
             Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setAccessibleName("Visible percentage calibration overlay")
+        self.setAccessibleName("Visible vital number calibration overlay")
         self.setAccessibleDescription(
             "Place this overlay over the visible HP or mana number. Drag to "
             "move; drag an edge to resize. Arrow keys move one pixel; Shift "
@@ -232,13 +232,14 @@ class CalibrationControls(QDialog):
         self._announce_timer.timeout.connect(
             lambda: _announce(self.status, self.status.text()))
         self.setObjectName("VitalsCalibrationControls")
-        self.setWindowTitle("Calibrate visible percentage number")
+        self.setWindowTitle("Calibrate visible vital number")
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
         self.setMinimumWidth(360)
         intro = QLabel(
             "Place the gold rectangle loosely around one visible HP or mana "
-            "percentage. Vantage will find the digits, with or without the % "
-            "sign, and fit the saved area automatically.")
+            "percentage. For My HP or My Mana, you can instead cover one "
+            "current/max value. Vantage will find and fit the token "
+            "automatically.")
         intro.setWordWrap(True)
         intro.setAccessibleDescription(intro.text())
 
@@ -276,7 +277,7 @@ class CalibrationControls(QDialog):
         preview = QPushButton("Validate preview")
         preview.setAccessibleName("Validate vital reading preview")
         preview.setToolTip(
-            "Read the selected pixels and verify a percentage before saving")
+            "Read the selected pixels and verify the vital value before saving")
         preview.clicked.connect(
             lambda: self.preview_requested.emit(self.absolute_rect()))
         self.preview_button = preview
@@ -591,8 +592,8 @@ class VitalBarDialog(QDialog):
         self.enabled = QCheckBox("Monitor this bar")
         self.enabled.setChecked(self._bar["enabled"])
         self.enabled.setAccessibleDescription(
-            "When checked, Vantage reads the visible percentage number inside "
-            "this bar's saved overlay area. "
+            "When checked, Vantage reads the saved visible vital number. Own "
+            "HP and mana can use a percentage or current/max value. "
             "Direct capture can continue while Vantage is in focus; safe "
             "screen capture may require EverQuest in the foreground.")
         self.silence_full_alerts = QCheckBox(
@@ -773,7 +774,7 @@ class VitalsSetupGuide(QFrame):
     """A short three-step guide that reflows instead of clipping."""
 
     STEPS = (
-        ("1", "Place overlay over %"),
+        ("1", "Place over visible HP or mana number"),
         ("2", "Validate reading"),
         ("3", "Set alert stops"),
     )
@@ -784,7 +785,8 @@ class VitalsSetupGuide(QFrame):
         self.setAccessibleName("Vitals setup: three steps")
         self.setAccessibleDescription(
             "; ".join(f"Step {number}: {text}"
-                      for number, text in self.STEPS))
+                      for number, text in self.STEPS) +
+            ". My HP and My Mana accept a percentage or current/max value.")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(7, 6, 7, 6)
         layout.setSpacing(4)
@@ -852,7 +854,7 @@ class VitalCard(QFrame):
         reading_row.addStretch(1)
         layout.addLayout(reading_row)
 
-        self.detail = QLabel("Next: place the overlay over the visible % number")
+        self.detail = QLabel("Next: place the overlay over the visible vital number")
         self.detail.setObjectName("SpawnTimerDetail")
         self.detail.setWordWrap(True)
         self.detail.setAccessibleName(f"{bar['name']} reading details")
@@ -868,7 +870,11 @@ class VitalCard(QFrame):
         self._sync_enabled_text(self.enabled.isChecked())
         self.action_buttons["monitor"] = self.enabled
         actions.addWidget(self.enabled)
+        own_value = bar.get("type") in {"my_hp", "my_mana"}
         calibration_help = (
+            "Place the overlay loosely around one visible percentage or "
+            "current/max value; Vantage will find and fit it"
+            if own_value else
             "Place the overlay loosely around the visible number; Vantage "
             "will find and fit the percentage")
         calibration_label = (
@@ -917,8 +923,11 @@ class VitalCard(QFrame):
         if reading is not None and reading.valid:
             value = f"{reading.percent:.0f}%"
             state = "LIVE"
+            token = (
+                f"{reading.current}/{reading.maximum} · "
+                if reading.source == "current_max" else "")
             detail = (
-                "Visible number · "
+                f"Visible number · {token}"
                 f"confidence {reading.confidence * 100:.0f}%")
         else:
             message = reading.message if reading is not None else "No reading"
@@ -928,7 +937,7 @@ class VitalCard(QFrame):
                 detail = "Monitoring is off · turn it on to read and alert"
             elif not self._bar.get("rect"):
                 state = "SETUP"
-                detail = "Next: place the overlay over the visible % number"
+                detail = "Next: place the overlay over the visible vital number"
             else:
                 state = "NO READING"
                 detail = message
@@ -971,7 +980,8 @@ class Vitals(ParserWindow):
         self.setWindowTitle("Vantage Vitals Monitor")
         self._title.setText("Vitals")
         self._title.setToolTip(
-            "Read visible HP and mana percentages and run configured alerts")
+            "Read a visible HP or mana number and run configured alerts. "
+            "My HP and My Mana accept a percentage or current/max value.")
         self._status_badge = QLabel("WAIT")
         self._status_badge.setObjectName("TimerBadge")
         self._status_badge.setAccessibleName("Vitals Monitor status")
@@ -994,10 +1004,11 @@ class Vitals(ParserWindow):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._add_button.setMaximumWidth(220)
         self._add_button.setAccessibleName("Add vital monitor")
-        self._add_button.setAccessibleDescription(
-            "Add another visible percentage and configure its alert stops")
-        self._add_button.setToolTip(
-            "Add another visible percentage number and configure its alerts")
+        add_description = (
+            "Add a monitor for a visible HP or mana number and configure its "
+            "alerts. My HP and My Mana accept a percentage or current/max value.")
+        self._add_button.setAccessibleDescription(add_description)
+        self._add_button.setToolTip(add_description)
         self._add_button.clicked.connect(self._add_bar)
         content_actions.addWidget(self._add_button)
         self._monitor_count = QLabel()
@@ -1077,11 +1088,15 @@ class Vitals(ParserWindow):
             empty_layout.setContentsMargins(10, 12, 10, 12)
             title = QLabel("No monitors yet")
             title.setObjectName("SpawnTimerName")
-            detail = QLabel(
-                "Choose Add monitor, then place the overlay loosely around an "
-                "HP or mana percentage.")
+            empty_instructions = (
+                "Choose Add monitor, then place the overlay loosely around a "
+                "visible HP or mana number. My HP and My Mana accept a "
+                "percentage or current/max value.")
+            empty.setAccessibleDescription(empty_instructions)
+            detail = QLabel(empty_instructions)
             detail.setObjectName("SpawnTimerDetail")
             detail.setWordWrap(True)
+            detail.setAccessibleDescription(empty_instructions)
             empty_layout.addWidget(title)
             empty_layout.addWidget(detail)
             self._bar_layout.insertWidget(0, empty)
@@ -1220,7 +1235,7 @@ class Vitals(ParserWindow):
         elif low_count:
             self._set_status("NO READING · low confidence; alerts paused")
         else:
-            self._set_status("NO READING · calibrate a percentage number")
+            self._set_status("NO READING · calibrate a visible vital number")
 
     def _deliver_stop(self, bar, stop, percent, crossed):
         message = (
@@ -1293,11 +1308,12 @@ class Vitals(ParserWindow):
                 bounds.x() + saved[0], bounds.y() + saved[1],
                 saved[2], saved[3])
         else:
+            own_value = self._bars[index].get("type") in {"my_hp", "my_mana"}
             initial = QRect(
                 bounds.x() + round(bounds.width() * .2),
                 bounds.y() + round(bounds.height() * .2),
-                max(46, round(bounds.width() * .08)),
-                max(14, round(bounds.height() * .035)))
+                max(72 if own_value else 46, round(bounds.width() * .08)),
+                max(18 if own_value else 14, round(bounds.height() * .035)))
         overlay = CalibrationOverlay(bounds, initial)
         controls = CalibrationControls(bounds, initial, self)
         overlay.rect_changed.connect(controls.set_absolute_rect)
@@ -1331,7 +1347,15 @@ class Vitals(ParserWindow):
             absolute_rect.x() - bounds.x(), absolute_rect.y() - bounds.y(),
             absolute_rect.width(), absolute_rect.height())
         normalized = normalize_rect(relative, (bounds.width(), bounds.height()))
-        reading = read_visible_percent(image, normalized)
+        # Repositioning may intentionally switch My HP/Mana between its
+        # percentage and current/max presentations. During calibration prefer
+        # the strict slash pair, then preserve percentage as the fallback.
+        if self._bars[index].get("type") in {"my_hp", "my_mana"}:
+            reading = read_visible_current_max(image, normalized)
+            if not reading.valid:
+                reading = read_visible_percent(image, normalized)
+        else:
+            reading = read_visible_percent(image, normalized)
         if not reading.valid or not reading.token_rect:
             return (reading, normalized)
         token_x, token_y, token_width, token_height = reading.token_rect
@@ -1361,14 +1385,25 @@ class Vitals(ParserWindow):
         if controls is None or reading is None:
             return
         if reading.valid:
+            token = (
+                f"{reading.current}/{reading.maximum} · "
+                if reading.source == "current_max" else "")
+            percent_text = (
+                f"{reading.percent:.1f}%" if reading.source == "current_max"
+                else f"{reading.percent:.0f}%")
             controls.set_preview(
-                f"Detected {reading.percent:.0f}% · confidence "
+                f"Detected {token}{percent_text} · confidence "
                 f"{reading.confidence * 100:.0f}% · fitted reading area ready to save",
                 True)
         else:
+            own_value = self._bars[self._bar_index(bar_id)].get(
+                "type") in {"my_hp", "my_mana"}
+            expected = (
+                "one percentage or current/max value" if own_value
+                else "one percentage")
             controls.set_preview(
                 f"Invalid preview · {reading.message}. "
-                "Place the rectangle loosely around only one percentage and try again.",
+                f"Place the rectangle loosely around only {expected} and try again.",
                 False)
 
     def _apply_calibration(self, bar_id, absolute_rect):
@@ -1390,11 +1425,19 @@ class Vitals(ParserWindow):
             return
         self._bars[index]["rect"] = normalized
         self._bars[index]["ocr_calibrated"] = True
+        self._bars[index]["number_format"] = (
+            "current_max" if reading.source == "current_max" else "percentage")
         self._tracker.reset_bar(bar_id)
         self._persist()
         self._rebuild_cards((bar_id, "calibrate"))
         self._finish_calibration()
-        result = f"validated {reading.percent:.0f}% visible number"
+        token = (
+            f"{reading.current}/{reading.maximum} current/max, "
+            if reading.source == "current_max" else "")
+        percent_text = (
+            f"{reading.percent:.1f}%" if reading.source == "current_max"
+            else f"{reading.percent:.0f}%")
+        result = f"validated {token}{percent_text} visible number"
         self._set_status(
             f"NO READING · calibrated {self._bars[index]['name']} "
             f"({result}); return to EverQuest")

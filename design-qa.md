@@ -1,6 +1,8 @@
-# Vantage Companion 1.44.98 design QA
+# Vantage Companion 1.44.99 design QA
 
 final result: passed
+
+accessibility final result: PASS
 
 ## Brand reference
 
@@ -15,40 +17,57 @@ final result: passed
   persistence, recast, or update-handoff identity comparisons. Multiple real
   P99 buffs such as Grim Aura, Focus of Spirit, Enlightenment, and Riotous
   Health coexist after update restore; a same-name recast replaces only itself.
-- Numeric Vitals OCR now includes the complete compact EverQuest 0–9 alphabet
-  and optional `%` glyph at their native 3–5 px widths. Component bands isolate
-  same-color HP/mana fills and whole-token ranking prevents a digit inside
-  `100` from winning as a false zero. All 101 values from 0 through 100 passed
-  with and without the percent form, at 1x/2x scale, and beside green, blue,
-  gold, or white bars; missing pixels are tolerated while two plausible labels
-  still remain **NO READING** instead of guessing. The bounded 384-candidate
-  search measured 20.627 ms per compact fixture across the complete 0–100 set,
-  safely within the 500 ms poll interval.
+- Numeric Vitals OCR now includes the complete compact EverQuest 0–9 alphabet,
+  `%`, and `/` at their native 3–5 px widths, independent of HUD color. My HP
+  and My Mana calibration detects a strict `current/max` pair, persists that
+  format, shows both values, and derives the percentage; Target/Mob, Group, and
+  custom bars remain percentage-only. Existing calibrated My HP/My Mana rows
+  without a format marker retain their legacy 0–100 percentage behavior.
+- Colored live-shaped 48/77 percentage glyphs and `1674/2595` or `967/3365`
+  current/max pairs passed with tight, padded, shifted, softly edged, and
+  one-row-clipped captures beside same-color bars. Bare or letter-prefixed
+  values, inverted or zero-maximum pairs, plain colored bars, and any ROI with
+  two plausible labels remain **NO READING** instead of being guessed.
+- The bounded percentage search measured 20.627 ms per compact fixture across
+  the complete 0–100 set. The six-fixture colored current/max benchmark measured
+  a 15.130 ms median and 16.330 ms maximum per fixture, both safely within the
+  500 ms polling interval.
 - Vitals calibration no longer persists the previous two-pixel tight crop,
   which could validate on the frozen frame and then lose a shifted live glyph.
   Its fitted ROI now keeps bounded minimum margins of 5 px horizontally and
   4 px vertically. An end-to-end save/reload test retains the same reading
   after a two-pixel shift, one missing capture pixel, and an adjacent
   same-color bar, then verifies recalibration remains stable.
-- Text-to-speech now defaults centrally to the legal local **Vantage Command**
-  preset: Microsoft Mark, then David, another suitable installed voice, or the
-  startup Windows voice. Explicit trigger/profile voices remain authoritative;
-  unavailable saved voices remain visible and saved while the fallback is
-  active. Notification routes, custom triggers, Smart Timers, and Vitals passed
-  focused keyboard, status, and accessible-state review with no findings.
+- Text-to-speech now defaults centrally to the original local **Vantage
+  Adjutant** preset. It prefers the installed Microsoft Zira voice, then another
+  known or Windows-reported female voice, and finally the previous safe local
+  fallback; it never downloads or imitates a third-party character voice. Its
+  uncustomized local fallback uses a slight -0.05 rate and -0.08 pitch for a
+  calm command tone. Explicit trigger/profile voice, speed, and pitch choices
+  remain authoritative, while unavailable saved voices remain visible and
+  saved. Notification routes, custom triggers, Smart Timers, Vitals, and the
+  renamed preset passed final keyboard, status, and accessibility review with
+  no findings.
 - Text-to-speech now silently prewarms Qt/SAPI on the Qt application thread,
   without speaking or taking focus. The measured Windows cold path was
-  291–311 ms and cached access was approximately 0.005 ms. Automatic routes,
-  Smart Timers, Vitals, tests, and replay replace stale queued announcements
-  at Qt's immediate boundary; an allowed background alert does not require
-  Vantage focus. Master Mute, master volume, per-window hidden-audio policy,
-  saved voices/profiles, and each custom trigger's explicit interrupt choice
-  remain authoritative.
+  291–311 ms and cached access was approximately 0.005 ms. A centralized Qt
+  scheduler now lets the active automatic phrase finish completely, preserves
+  FIFO order for distinct alerts, and inserts a 180 ms gap before the next
+  phrase. Exact automatic duplicates coalesce against the active or pending
+  copy; the queue accepts at most eight pending phrases without disturbing the
+  active phrase, and a refused overflow still retains its visible notification.
+  Master Mute and a custom trigger's explicit Interrupt option still stop and
+  flush speech immediately. Each queued phrase reapplies its own saved voice,
+  speed, pitch, and profile, then reads the live master volume when it actually
+  starts. Qt state polling and a conservative whole-phrase timer drain older
+  backends without truncation when their state signal is unavailable. Direct
+  Test and Replay actions remain serialized without automatic coalescing, and
+  an allowed background alert does not require Vantage focus.
 - Sounds adds one explicit app-wide **Starting notification style** selector
   for **Beeps** or **Text to speech**, followed by **Apply to defaults**. It is
   a preview, not a bulk overwrite: custom/portable WAVs, non-default gallery
   sounds, explicit voices, and Off routes are preserved, while untouched routes
-  receive their semantic default beep or Vantage Command speech. The visible
+  receive their semantic default beep or Vantage Adjutant speech. The visible
   result reports changed and preserved counts; per-route editors still win,
   Save persists the preview, and Cancel or close restores the prior state.
 - Vitals Monitor now keeps the title bar compact, places **Add monitor** in
@@ -97,6 +116,16 @@ final result: passed
   `<actor> begins to cast a spell.` line conservatively, excludes the player's
   own cast form, rate-limits each actor, and exposes the same Sound/WAV, TTS,
   voice, volume, pitch, and Test controls as other Basic triggers.
+- The enabled **Insufficient mana** Basic trigger matches only the complete P99
+  client line `Insufficient Mana to cast this spell!` or its period variant,
+  case-insensitively. Missing or different punctuation, prefixes, suffixes,
+  chat quotes, and unrelated text are rejected. Its v3-to-v4 migration adds one
+  serialized row, is idempotent, and preserves a customized same-name row
+  case-insensitively.
+- **Insufficient mana** displays its canonical visual alert and defaults to the
+  soft-tick sound with canonical TTS available. It inherits the common
+  Sound/WAV, Text to speech, Off, voice, volume, pitch, repeat-guard, and Test
+  controls rather than introducing a separate editor path.
 - Smart Timers now choose Sound/WAV, Text to speech, or Off per timer. Speech
   templates support timer, state, zone, and remaining-time tokens; saved and
   synced legacy timers retain their previous inherited sound behavior. The
@@ -249,6 +278,12 @@ final result: passed
 
 ## Accessibility checks
 
+- Accessibility result for the new trigger and Vitals formats: **PASS**. The
+  trigger retains the common editor's labelled delivery, voice, pitch, repeat
+  guard, and sound/speech Test controls. Current/max calibration uses the
+  existing keyboard and screen-reader flow, with its visible status reporting
+  both the recognized pair and derived percentage; ambiguity remains an
+  explicit no-reading state.
 - Sounds Starting style passed focused WCAG 2.4.3, 2.4.6, 3.3.2, and 4.1.2
   review. The native selector has a visible buddy label and a deterministic
   keyboard path to Apply; its changed/preserved result is visible and announced

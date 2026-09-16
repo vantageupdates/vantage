@@ -194,8 +194,8 @@ def test_trigger_editor_exposes_accessible_delivery_and_speech_controls(
     assert result['voice'] == 'Voice B'
     assert result['voice_count'] == 3
     assert result['default_voice_data'] == ''
-    assert result['default_voice_label'].startswith('Vantage Command')
-    assert 'calm installed Windows voice' in \
+    assert result['default_voice_label'].startswith('Vantage Adjutant')
+    assert 'calm installed female Windows voice' in \
         result['default_voice_description']
     assert result['volume'] == 74
     assert result['volume_range'] == [0, 100]

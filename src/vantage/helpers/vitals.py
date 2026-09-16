@@ -152,6 +152,9 @@ def default_vital_bar(bar_id="custom", name="Custom bar", bar_type="custom"):
         # lower threshold remains active.
         "silence_full_alerts": bar_type == "target_hp",
         "ocr_calibrated": False,
+        # Empty means a legacy/uncalibrated overlay may auto-detect. Once a
+        # calibration succeeds, its strict source format is persisted.
+        "number_format": "",
         "rect": [],
         "stops": [],
     }
@@ -174,6 +177,11 @@ def sanitize_vital_bar(raw, index=0):
     migrated_numeric = str(raw.get("read_mode", "") or "").casefold() == "number"
     numeric_marker = raw.get("ocr_calibrated") is True or migrated_numeric
     rect = sanitize_normalized_rect(raw.get("rect", [])) if numeric_marker else []
+    number_format = str(raw.get("number_format", "") or "").casefold()
+    if number_format not in {"percentage", "current_max"}:
+        number_format = ""
+    if bar_type not in {"my_hp", "my_mana"}:
+        number_format = "percentage" if rect else ""
     raw_stops = raw.get("stops", [])
     if not isinstance(raw_stops, list):
         raw_stops = []
@@ -198,6 +206,7 @@ def sanitize_vital_bar(raw, index=0):
         "silence_full_alerts": bool(raw.get(
             "silence_full_alerts", bar_type == "target_hp")),
         "ocr_calibrated": bool(rect),
+        "number_format": number_format if rect else "",
         "rect": rect,
         "stops": stops,
     }
@@ -230,6 +239,8 @@ class VitalReading:
     # can ignore this; calibration uses it to turn a loosely placed rectangle
     # into a small, stable saved ROI.
     token_rect: tuple[int, int, int, int] = ()
+    current: int | None = None
+    maximum: int | None = None
 
 
 def _rgb(image, x, y):
@@ -243,7 +254,8 @@ def _distance(first, second):
 
 _OCR_WIDTH = 24
 _OCR_HEIGHT = 32
-_OCR_GLYPHS = "0123456789%"
+_DIGIT_GLYPHS = "0123456789"
+_OCR_GLYPHS = _DIGIT_GLYPHS + "%/"
 _BITMAP_GLYPHS = {
     "0": ("01110", "10001", "10011", "10101", "11001", "10001", "01110"),
     "1": ("00100", "01100", "00100", "00100", "00100", "00100", "01110"),
@@ -256,6 +268,7 @@ _BITMAP_GLYPHS = {
     "8": ("01110", "10001", "10001", "01110", "10001", "10001", "01110"),
     "9": ("01110", "10001", "10001", "01111", "00001", "00001", "01110"),
     "%": ("11001", "11010", "00100", "00100", "01000", "10110", "00110"),
+    "/": ("00001", "00010", "00010", "00100", "01000", "01000", "10000"),
 }
 # Exact eight-pixel P99/EverQuest bitmap shapes observed in the compact target
 # and player percentage labels.  Keeping these alongside the generic 5x7 set
@@ -288,6 +301,54 @@ _EQ_BITMAP_GLYPHS = {
           "01111", "00001", "00001", "01110"),
     "%": ("11001", "11010", "00010", "00100",
            "00100", "01000", "10110", "00110"),
+    "/": ("00001", "00010", "00010", "00100",
+          "00100", "01000", "01000", "10000"),
+}
+# Live P99 clients also render compact digits and the slash with this raster
+# family. They are not hue-specific: the same masks occur in green, blue, and
+# other HUD colors. Keep the inferred alphabet too because UI skins use both.
+_EQ_LIVE_GLYPH_VARIANTS = {
+    "1": (
+        ("001", "011", "101", "001", "001", "001", "001", "001"),
+    ),
+    "2": (
+        ("01110", "10001", "00001", "00001",
+         "00010", "01100", "11000", "11111"),
+    ),
+    "3": (
+        ("01110", "11011", "00011", "00110",
+         "00001", "00001", "11001", "01110"),
+        ("01110", "10001", "00001", "00110",
+         "00001", "00001", "10001", "01110"),
+    ),
+    "4": (
+        ("00010", "00110", "01010", "10010",
+         "10010", "11111", "00010", "00010"),
+        ("00010", "00110", "00110", "01010",
+         "11010", "11111", "00010", "00010"),
+    ),
+    "5": (
+        ("01111", "01000", "11000", "11110",
+         "00001", "00001", "10001", "01110"),
+    ),
+    "6": (
+        ("01110", "11001", "10000", "11110",
+         "11001", "10001", "10001", "01110"),
+    ),
+    "7": (
+        ("11111", "00001", "00010", "00010",
+         "00100", "00100", "00100", "00100"),
+        ("11111", "00011", "00010", "00110",
+         "00100", "00100", "01100", "01000"),
+    ),
+    "9": (
+        ("01110", "11001", "10001", "11001",
+         "01111", "00001", "10011", "01110"),
+    ),
+    "/": (
+        ("001", "011", "010", "010", "010", "100", "100", "100"),
+        ("001", "011", "010", "010", "110", "110", "100", "100"),
+    ),
 }
 
 
@@ -347,10 +408,21 @@ def _render_glyph_mask(glyph, path, pixel_size):
 def _ocr_templates():
     """Small in-process digit templates; no OCR executable or model needed."""
     templates = {glyph: [] for glyph in _OCR_GLYPHS}
-    for glyph_set in (_BITMAP_GLYPHS, _EQ_BITMAP_GLYPHS):
+
+    def append_template(glyph, rows):
+        mask = [[value == "1" for value in row] for row in rows]
+        template = _normalized_bits(mask)
+        if template[1] and template not in templates[glyph]:
+            templates[glyph].append(template)
+
+    for glyph_set in (_BITMAP_GLYPHS,):
         for glyph, rows in glyph_set.items():
-            templates[glyph].append(_normalized_bits([
-                [value == "1" for value in row] for row in rows]))
+            append_template(glyph, rows)
+    for glyph, rows in _EQ_BITMAP_GLYPHS.items():
+        append_template(glyph, rows)
+    for glyph, variants in _EQ_LIVE_GLYPH_VARIANTS.items():
+        for rows in variants:
+            append_template(glyph, rows)
     if QGuiApplication.instance() is None:
         return templates
     windows = os.environ.get("WINDIR", r"C:\Windows")
@@ -370,6 +442,24 @@ def _ocr_templates():
                 template = _render_glyph_mask(glyph, path, pixel_size)
                 if template[1] and template not in templates[glyph]:
                     templates[glyph].append(template)
+    return templates
+
+
+@lru_cache(maxsize=1)
+def _ocr_edge_templates():
+    """Compact EQ templates missing one or two top/bottom raster rows."""
+    templates = {glyph: [] for glyph in _OCR_GLYPHS}
+    sources = {glyph: [rows] for glyph, rows in _EQ_BITMAP_GLYPHS.items()}
+    for glyph, variants in _EQ_LIVE_GLYPH_VARIANTS.items():
+        sources.setdefault(glyph, []).extend(variants)
+    for glyph, variants in sources.items():
+        for rows in variants:
+            mask = [[value == "1" for value in row] for row in rows]
+            for amount in (1, 2):
+                for edge_variant in (mask[amount:], mask[:-amount]):
+                    template = _normalized_bits(edge_variant)
+                    if template[1] and template not in templates[glyph]:
+                        templates[glyph].append(template)
     return templates
 
 
@@ -524,7 +614,9 @@ def _component_text_bands(mask):
     return sorted(bands, key=lambda band: (band[1] - band[0], band[0]))[:16]
 
 
-def _candidate_masks(image, x, y, width, height):
+def _candidate_masks(
+        image, x, y, width, height, min_glyphs=1, max_glyphs=4,
+        candidate_cap=384):
     pixels = []
     quantized = {}
     for row in range(y, y + height):
@@ -567,11 +659,13 @@ def _candidate_masks(image, x, y, width, height):
         for band_top, band_bottom in bands:
             band_mask = cleaned[band_top:band_bottom]
             spans = _column_spans(band_mask)
-            # Examine up to four neighboring runs. This is linear in the
-            # number of spans and the total candidate cap bounds OCR work.
+            # Examine bounded neighboring runs. Percentage callers use at
+            # most four; the strict current/max reader permits a longer token.
+            # The shared cap keeps polling predictable in a noisy ROI.
             sequences = [
                 (first, first + count - 1)
-                for count in range(min(4, len(spans)), 0, -1)
+                for count in range(
+                    min(max_glyphs, len(spans)), min_glyphs - 1, -1)
                 for first in range(len(spans) - count + 1)]
             for first, last in sequences:
                 left, right = spans[first][0], spans[last][1]
@@ -595,7 +689,7 @@ def _candidate_masks(image, x, y, width, height):
                     continue
                 seen.add(signature)
                 candidates.append((candidate, bounds, last - first + 1))
-                if len(candidates) >= 384:
+                if len(candidates) >= candidate_cap:
                     return candidates
     return candidates
 
@@ -653,14 +747,38 @@ def _recognize_mask(mask):
     aspects = []
     for index, run in enumerate(runs):
         observed = _normalized_bits(run)
+        # Calibration normally has a stable margin.  When capture-coordinate
+        # rounding clips one or two physical rows, supplement the normal
+        # templates only at heights consistent with an eight-row bitmap at an
+        # integer scale.  A complete eight-row bar or frame never gets these
+        # permissive edge variants.
+        run_height = len(run)
+        missing_edge_rows = 8 - run_height
+        edge_templates = (
+            _ocr_edge_templates()
+            if missing_edge_rows in (1, 2) else None)
         choices = []
-        allowed = _OCR_GLYPHS if index == len(runs) - 1 else _OCR_GLYPHS[:-1]
+        allowed = (
+            _DIGIT_GLYPHS + "%"
+            if index == len(runs) - 1 else _DIGIT_GLYPHS)
         for glyph in allowed:
             score = 0.0
             for template in templates[glyph]:
                 score = max(score, _glyph_similarity(observed, template))
                 if score >= .999:
                     break
+            if edge_templates is not None:
+                edge_score = 0.0
+                for template in edge_templates[glyph]:
+                    edge_score = max(
+                        edge_score, _glyph_similarity(observed, template))
+                    if edge_score >= .999:
+                        break
+                # Prefer a complete token whenever both are available.  The
+                # small bounded penalty does not make clipped text invalid;
+                # it only stops a six-row component band from replacing an
+                # intact eight-row label in the fitted saved ROI.
+                score = max(score, edge_score * .985)
             choices.append((score, glyph))
         choices.sort(reverse=True)
         best_score, glyph = choices[0]
@@ -694,6 +812,128 @@ def _recognize_mask(mask):
     if shape < .53 or min(scores) < .46 or confidence < MIN_CONFIDENCE:
         return (None, confidence)
     return (value, confidence)
+
+
+def _glyph_choice(run, allowed):
+    """Return the best bounded template choice for one compact glyph."""
+    observed = _normalized_bits(run)
+    run_height = len(run)
+    edge_templates = (
+        _ocr_edge_templates() if 8 - run_height in (1, 2) else None)
+    choices = []
+    for glyph in allowed:
+        score = 0.0
+        for template in _ocr_templates()[glyph]:
+            score = max(score, _glyph_similarity(observed, template))
+            if score >= .999:
+                break
+        if edge_templates is not None:
+            edge_score = 0.0
+            for template in edge_templates[glyph]:
+                edge_score = max(
+                    edge_score, _glyph_similarity(observed, template))
+                if edge_score >= .999:
+                    break
+            score = max(score, edge_score * .985)
+        choices.append((score, glyph))
+    choices.sort(reverse=True)
+    if not choices:
+        return (0.0, "", 0.0)
+    runner_up = choices[1][0] if len(choices) > 1 else 0.0
+    return (choices[0][0], choices[0][1], choices[0][0] - runner_up)
+
+
+def _ratio_value(tokens, scores, margins):
+    text = "".join(tokens)
+    if text.count("/") != 1:
+        return None
+    current_text, maximum_text = text.split("/", 1)
+    if not (current_text.isdigit() and maximum_text.isdigit()):
+        return None
+    if not (1 <= len(current_text) <= 6 and 1 <= len(maximum_text) <= 6):
+        return None
+    if ((len(current_text) > 1 and current_text.startswith("0")) or
+            (len(maximum_text) > 1 and maximum_text.startswith("0"))):
+        return None
+    current, maximum = int(current_text), int(maximum_text)
+    if maximum <= 0 or current < 0 or current > maximum:
+        return None
+    shape = sum(scores) / len(scores)
+    separation = sum(max(0.0, value) for value in margins) / len(margins)
+    confidence = min(1.0, shape * .84 + min(.16, separation * 1.8))
+    if shape < .55 or min(scores) < .47 or confidence < MIN_CONFIDENCE:
+        return None
+    return current, maximum, confidence, len(tokens)
+
+
+def _recognize_ratio_mask(mask):
+    """Recognize a strict ``current/max`` token from one candidate mask.
+
+    The small EQ slash has a right overhang that can share columns with the
+    first maximum digit.  Try a bounded slash+digit decomposition for exactly
+    one run rather than accepting arbitrary touching glyphs.
+    """
+    runs = _glyph_runs(mask)
+    if not 2 <= len(runs) <= 12:
+        return None
+    digit_choices = [_glyph_choice(run, _DIGIT_GLYPHS) for run in runs]
+    results = []
+
+    def add_result(slash_index, slash_choice, split_digit=None):
+        tokens, scores, margins = [], [], []
+        for index, digit_choice in enumerate(digit_choices):
+            if index == slash_index:
+                score, glyph, margin = slash_choice
+                tokens.append(glyph)
+                scores.append(score)
+                margins.append(margin)
+                if split_digit is not None:
+                    d_score, d_glyph, d_margin = split_digit
+                    tokens.append(d_glyph)
+                    scores.append(d_score)
+                    margins.append(d_margin)
+                continue
+            score, glyph, margin = digit_choice
+            tokens.append(glyph)
+            scores.append(score)
+            margins.append(margin)
+        parsed = _ratio_value(tokens, scores, margins)
+        if parsed is not None:
+            results.append(parsed)
+
+    for index, run in enumerate(runs):
+        direct = _glyph_choice(run, _DIGIT_GLYPHS + "/")
+        if direct[1] == "/":
+            add_result(index, direct)
+
+        height, width = len(run), len(run[0])
+        if height < 5 or not 6 <= width <= 11:
+            continue
+        # A slash is 3-6 pixels wide at the native compact size. It may
+        # overlap the next digit by up to three columns because of its italic
+        # overhang, but the two pieces must cover the complete merged run.
+        for slash_width in range(3, min(6, width - 2) + 1):
+            for overlap in range(0, min(3, slash_width - 1) + 1):
+                digit_start = slash_width - overlap
+                if not 2 <= width - digit_start <= 7:
+                    continue
+                slash_run = _tight_mask(
+                    [row[:slash_width] for row in run])
+                digit_run = _tight_mask(
+                    [row[digit_start:] for row in run])
+                if not slash_run or not digit_run:
+                    continue
+                slash_choice = _glyph_choice(
+                    slash_run, _DIGIT_GLYPHS + "/")
+                if slash_choice[1] != "/" or slash_choice[0] < .54:
+                    continue
+                digit_choice = _glyph_choice(digit_run, _DIGIT_GLYPHS)
+                if digit_choice[0] < .47:
+                    continue
+                add_result(index, slash_choice, digit_choice)
+    if not results:
+        return None
+    return max(results, key=lambda result: result[2])
 
 
 def _same_token_region(first, second):
@@ -813,9 +1053,138 @@ def read_visible_percent(image, normalized_rect):
         "Visible number reading", "number", tuple(best_bounds))
 
 
+def read_visible_current_max(image, normalized_rect):
+    """Read one strict ``current/max`` label and calculate its percentage."""
+    rect = sanitize_normalized_rect(normalized_rect)
+    if image is None or image.isNull() or not rect:
+        return VitalReading(
+            None, 0.0, False, "Visible current/max not calibrated",
+            "current_max")
+    x, y, width, height = denormalize_rect(
+        rect, (image.width(), image.height()))
+    if width < 8 or height < 5:
+        return VitalReading(
+            None, 0.0, False, "Current/max area is too small",
+            "current_max")
+    recognized = []
+    recognition_cache = {}
+    perfect_tokens = []
+    mask_candidates = _candidate_masks(
+            image, x, y, width, height, min_glyphs=2, max_glyphs=12,
+            candidate_cap=256)
+    for mask, bounds, span_count in mask_candidates:
+        left, top, token_width, token_height = bounds
+        # Do not salvage a valid substring from a larger invalid token such as
+        # ``2595/1674`` -> ``595/1674``. A compact adjacent glyph extends the
+        # same row by 3-8 pixels and increases the threshold-mask span count.
+        # Same-span threshold halos and distant labels do not meet this test.
+        if any(
+                other_spans > span_count and
+                abs(other_bounds[1] - top) <= 1 and
+                abs(other_bounds[3] - token_height) <= 2 and
+                other_bounds[0] <= left and
+                other_bounds[0] + other_bounds[2] >= left + token_width and
+                ((3 <= left - other_bounds[0] <= 8 and
+                  other_bounds[0] + other_bounds[2] -
+                  (left + token_width) <= 2) or
+                 (3 <= other_bounds[0] + other_bounds[2] -
+                  (left + token_width) <= 8 and
+                  left - other_bounds[0] <= 2))
+                for _other_mask, other_bounds, other_spans
+                in mask_candidates):
+            continue
+        if any(
+                outer_left <= left and outer_top <= top and
+                outer_left + outer_width >= left + token_width and
+                outer_top + outer_height >= top + token_height
+                for outer_left, outer_top, outer_width, outer_height
+                in perfect_tokens):
+            continue
+        signature = (len(mask), len(mask[0]), tuple(
+            sum((1 << column) for column, value in enumerate(row) if value)
+            for row in mask))
+        if signature not in recognition_cache:
+            recognition_cache[signature] = _recognize_ratio_mask(mask)
+        result = recognition_cache[signature]
+        if result is None:
+            continue
+        current, maximum, confidence, character_count = result
+        rank = confidence + min(12, character_count - 1) * .006
+        recognized.append((
+            rank, confidence, current, maximum, bounds, character_count))
+        if confidence >= .999 and character_count >= 3:
+            perfect_tokens.append(bounds)
+    if not recognized:
+        return VitalReading(
+            None, 0.0, False,
+            "Visible current/max number is unreadable; alerts paused",
+            "current_max")
+
+    unique = {}
+    for candidate in recognized:
+        key = (candidate[2], candidate[3], candidate[4])
+        if key not in unique or candidate[0] > unique[key][0]:
+            unique[key] = candidate
+    clustered = []
+    for candidate in sorted(unique.values(), reverse=True):
+        if any(
+                candidate[2:4] == kept[2:4] and
+                _same_token_region(candidate[4], kept[4])
+                for kept in clustered):
+            continue
+        clustered.append(candidate)
+
+    filtered = []
+    for candidate in clustered:
+        _rank, confidence, _current, _maximum, bounds, count = candidate
+        left, top, token_width, token_height = bounds
+        contained = False
+        for other in clustered:
+            if other is candidate or other[5] <= count:
+                continue
+            o_left, o_top, o_width, o_height = other[4]
+            if (o_left <= left and o_top <= top and
+                    o_left + o_width >= left + token_width and
+                    o_top + o_height >= top + token_height and
+                    other[1] >= confidence - .10):
+                contained = True
+                break
+        if not contained:
+            filtered.append(candidate)
+    recognized = sorted(filtered or clustered, reverse=True)
+    best_rank, confidence, current, maximum, bounds, _count = recognized[0]
+    alternatives = [
+        candidate for candidate in recognized[1:]
+        if (not _same_token_region(candidate[4], bounds) and
+            candidate[0] >= best_rank - .065)]
+    if alternatives:
+        return VitalReading(
+            None, round(confidence, 3), False,
+            "Multiple current/max numbers detected; use a smaller area",
+            "current_max")
+    percent = current / maximum * 100.0
+    return VitalReading(
+        percent, round(confidence, 3), True,
+        f"Visible current/max reading {current}/{maximum}",
+        "current_max", tuple(bounds), current, maximum)
+
+
 def read_vital_bar(image, bar):
     """Read one sanitized vital exclusively from its visible-number ROI."""
     bar = sanitize_vital_bar(bar, 0)
+    if bar["type"] in {"my_hp", "my_mana"}:
+        number_format = bar.get("number_format", "")
+        if number_format == "current_max":
+            return read_visible_current_max(image, bar["rect"])
+        if number_format == "percentage":
+            return read_visible_percent(image, bar["rect"])
+        # Missing format marks a legacy saved percentage ROI. Preserve that
+        # behavior first, then permit current/max only if percent OCR is truly
+        # unreadable. New calibrations always persist an explicit format.
+        reading = read_visible_percent(image, bar["rect"])
+        if reading.valid:
+            return reading
+        return read_visible_current_max(image, bar["rect"])
     return read_visible_percent(image, bar["rect"])
 
 
