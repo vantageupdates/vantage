@@ -343,4 +343,9 @@ accessibility final result: PASS
   `3B63B26D46917A79151827FF2EA90A713D67591DF3AEA00807A6FAA1C66B4C12`.
 - Candidate archive inspection confirms `TERMS-AND-PRIVACY.md` and `zeroconf`
   are included.
-- **PENDING:** public release/update-channel verification.
+- Public release verification: **PASS**. Stable release URL:
+  <https://github.com/vantageupdates/vantage/releases/tag/v1.44.100>.
+- Public `Vantage.exe` asset size: **75,857,093 bytes**. GitHub digest:
+  `sha256:3b63b26d46917a79151827ff2ea90a713d67591df3aea00807a6faa1c66b4c12`.
+- A freshly downloaded public asset matches the tested candidate hash and size
+  byte-for-byte.
