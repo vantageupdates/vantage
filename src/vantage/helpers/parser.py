@@ -752,6 +752,50 @@ class ParserWindow(QWidget):
         return [item[2] for item in sorted(
             candidates, key=lambda item: (item[0], item[1]), reverse=True)]
 
+    @staticmethod
+    def _is_header_focus_target(widget, surface):
+        """Return whether a restored header target can safely take focus."""
+        if widget is None:
+            return False
+        try:
+            return bool(
+                widget.isVisibleTo(surface) and widget.isEnabled() and
+                widget.focusPolicy() != Qt.FocusPolicy.NoFocus)
+        except RuntimeError:
+            return False
+
+    def _header_restore_focus_target(self, preferred):
+        """Find the closest usable target after closing header overflow."""
+        if self._is_header_focus_target(preferred, self._surface):
+            return preferred
+
+        # Composite controls can contain several real keyboard targets. If
+        # the remembered child became disabled while its parent was hidden,
+        # prefer an enabled sibling before leaving that logical control.
+        try:
+            parent = (
+                preferred.parentWidget() if preferred is not None else None)
+        except RuntimeError:
+            parent = None
+        if parent is not None:
+            layout = parent.layout()
+            if layout is not None:
+                for index in range(layout.count()):
+                    candidate = layout.itemAt(index).widget()
+                    if (candidate is not preferred and
+                            self._is_header_focus_target(
+                                candidate, self._surface)):
+                        return candidate
+
+        # The permanent chrome controls are a stable final destination when
+        # an overflowed action was removed, deleted, or has no usable sibling.
+        for candidate in (
+                self._settings_button, self._roll_button,
+                self._minimize_button, self._button):
+            if self._is_header_focus_target(candidate, self._surface):
+                return candidate
+        return None
+
     def _pack_header_controls(self):
         """Move lower-priority actions into one menu before any collision."""
         if self._packing_header or not hasattr(self, "_header_overflow_button"):
@@ -789,7 +833,11 @@ class ParserWindow(QWidget):
                         (focused is not None and widget.isAncestorOf(focused)))
                     if contains_focus:
                         focus_to_overflow = True
-                        newly_hidden_focus = widget
+                        # Preserve the actual keyboard target inside a
+                        # composite header control. Restoring the container
+                        # itself can drop focus when that container is a
+                        # non-focusable frame (for example Quick Bar volume).
+                        newly_hidden_focus = focused
                     widget.hide()
                     self._header_overflowed.append(widget)
                     required = self._header_menu_required_width(widgets)
@@ -803,11 +851,14 @@ class ParserWindow(QWidget):
                 self._header_overflow_button.setFocus(
                     Qt.FocusReason.TabFocusReason)
             elif (not self._header_overflowed and
-                    restore_from_overflow is not None and
-                    restore_from_overflow.isVisibleTo(self._surface)):
+                  focused is self._header_overflow_button):
+                restore_target = self._header_restore_focus_target(
+                    restore_from_overflow)
                 self._header_focus_restore = None
-                self._scale_scene.setFocusItem(self._scale_proxy)
-                restore_from_overflow.setFocus(Qt.FocusReason.TabFocusReason)
+                if restore_target is not None:
+                    self._scale_scene.setFocusItem(self._scale_proxy)
+                    restore_target.setFocus(
+                        Qt.FocusReason.TabFocusReason)
             elif not self._header_overflowed:
                 self._header_focus_restore = None
             self._rebuild_header_overflow_menu()
@@ -1713,11 +1764,26 @@ class ParserWindow(QWidget):
     def _update_uniform_scale(self):
         """Scale by width while making height a real list viewport."""
         if self._scale_view and self._scale_proxy:
-            logical_width = max(1, int(self._logical_surface_width))
             viewport = self._scale_view.viewport().size()
-            scale = max(
-                self._effective_minimum_scale(),
-                viewport.width() / logical_width)
+            design_width = max(1, int(self._design_size.width()))
+            if (self._native_surface and not self._collapsed and
+                    viewport.width() >= design_width):
+                # Native canvases (currently the map) must gain real drawing
+                # area when their window is widened. Scaling the authored
+                # 400 px surface above 100% enlarged the header and toolbar
+                # instead, which made an expanded map look as if it exploded.
+                logical_width = max(1, viewport.width())
+                scale = 1.0
+            else:
+                logical_width = max(1, int(self._logical_surface_width))
+                # A native surface that was previously wide returns to its
+                # authored width before scaling down at compact sizes.
+                if self._native_surface and not self._collapsed:
+                    logical_width = design_width
+                scale = max(
+                    self._effective_minimum_scale(),
+                    viewport.width() / logical_width)
+            self._logical_surface_width = logical_width
             self._update_header_scale_compensation(scale)
             logical_height = max(
                 self._minimum_logical_surface_height(),

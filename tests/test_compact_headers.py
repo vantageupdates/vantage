@@ -112,7 +112,10 @@ def test_parser_headers_are_compact_and_controls_never_overlap(tmp_path):
         for state_name, state in states.items():
             if not isinstance(state, dict) or 'height' not in state:
                 continue
-            assert state['height'] <= 22
+            # Quick Bar alone carries two explicit 24x24 master-volume
+            # targets. Other parser headers retain the original 22 px cap.
+            height_limit = 24 if panel_name == 'quickbar' else 22
+            assert state['height'] <= height_limit
             assert state['overlaps'] == []
             assert state['chrome_overlaps'] == [], (panel_name, state_name)
             assert state['inside'] is True, (panel_name, state_name)

@@ -139,6 +139,7 @@ class MapCanvas(QGraphicsView):
         self._pan_press_pos = QPoint()
         self._pan_announced = False
         self._manual_view = False
+        self._focused_poi = None
         # Parent the HUD to the view, not its scrolling viewport. Otherwise
         # centering or zooming the map would scroll the HUD off-screen too.
         self.location_overlay = MapLocationOverlay(self)
@@ -177,6 +178,7 @@ class MapCanvas(QGraphicsView):
         else:
             self._data = map_data
             self._manual_view = False
+            self._focused_poi = None
             self._scene.clear()
             self._z_index = 0
             self._draw()
@@ -386,8 +388,23 @@ class MapCanvas(QGraphicsView):
             self.setAccessibleDescription(description)
 
     def _layout_poi_labels(self, current_z_level, labels_visible):
-        """Pack every visible POI label in viewport space without overlap."""
-        if not labels_visible or not self._data:
+        """Show only POI labels that fit cleanly in the current viewport.
+
+        The POI selector remains the complete label index.  The canvas is a
+        visual overview, so dense maps deliberately hide excess labels rather
+        than stacking them or pulling them into remote screen-edge lanes.
+        """
+        if not self._data:
+            return
+
+        # update_() resets every label to its natural map anchor. Hide the
+        # complete set before packing so labels beyond the density budget do
+        # not leak through at those anchors.
+        for z in self._data.keys():
+            for point in self._data[z]['poi']:
+                point.text.setVisible(False)
+                point.leader.setVisible(False)
+        if not labels_visible:
             return
 
         viewport_bounds = QRectF(self.viewport().rect()).adjusted(
@@ -410,17 +427,20 @@ class MapCanvas(QGraphicsView):
                     continue
                 bounds = point.text.boundingRect()
                 labels.append((
+                    point is not self._focused_poi,
                     z != current_z_level,
                     -int(point.location.size),
                     anchor.y(), anchor.x(), point.label.casefold(),
                     point, anchor, bounds.width(), bounds.height()))
-        labels.sort(key=lambda entry: entry[:5])
-        # A compact viewport has finite label lanes.  Very dense city maps
-        # can contain 200+ POIs; keep every label at its map anchor, but only
-        # run collision packing for the number the viewport can display as
-        # distinct rows.  This keeps /loc refreshes responsive.
+        labels.sort(key=lambda entry: entry[:6])
+        # Budget by physical viewport area because labels ignore the map
+        # transform and consume device pixels. A small zoom bonus lets a user
+        # reveal more labels as the visible map area becomes less dense.
+        viewport_area = max(
+            1.0, viewport_bounds.width() * viewport_bounds.height())
+        zoom_bonus = max(0, min(8, int(max(0.0, self._scale) * 4.0)))
         pack_limit = max(
-            24, min(72, int(viewport_bounds.height() // 18.0) * 3))
+            10, min(36, int(viewport_area // 12000.0) + zoom_bonus))
         labels = labels[:pack_limit]
 
         inverse, invertible = self.viewportTransform().inverted()
@@ -458,41 +478,25 @@ class MapCanvas(QGraphicsView):
         for (*_, point, anchor, width, height) in labels:
             candidates = self._poi_label_candidates(
                 anchor, width, height, viewport_bounds)
-            best_rect = None
-            best_score = None
-            for index, rect in enumerate(candidates):
+            placed_rect = None
+            for rect in candidates:
                 probe = rect.adjusted(-2.0, -1.0, 2.0, 1.0)
-                inside = rect.intersected(viewport_bounds)
-                outside_area = max(
-                    0.0, (rect.width() * rect.height()) -
-                    (inside.width() * inside.height()))
-                overlap_area = 0.0
-                for blocker in nearby_occupied(probe):
-                    overlap = probe.intersected(blocker)
-                    overlap_area += max(
-                        0.0, overlap.width() * overlap.height())
-                center = rect.center()
-                distance = ((center.x() - anchor.x()) ** 2 +
-                            (center.y() - anchor.y()) ** 2) ** 0.5
-                score = (outside_area * 1000.0) + (
-                    overlap_area * 100.0) + (distance * 0.05) + (
-                        index * 0.001)
-                if best_score is None or score < best_score:
-                    best_score = score
-                    best_rect = rect
-                if outside_area == 0.0 and overlap_area == 0.0:
-                    best_rect = rect
+                if (viewport_bounds.contains(rect) and not any(
+                        probe.intersects(blocker)
+                        for blocker in nearby_occupied(probe))):
+                    placed_rect = rect
                     break
 
-            if best_rect is None:
+            if placed_rect is None:
                 continue
-            point.text.setPos(inverse.map(best_rect.topLeft()))
-            padded = best_rect.adjusted(-2.0, -1.0, 2.0, 1.0)
+            point.text.setPos(inverse.map(placed_rect.topLeft()))
+            point.text.setVisible(True)
+            padded = placed_rect.adjusted(-2.0, -1.0, 2.0, 1.0)
             add_occupied(padded)
 
             nearest = QPointF(
-                min(max(anchor.x(), best_rect.left()), best_rect.right()),
-                min(max(anchor.y(), best_rect.top()), best_rect.bottom()))
+                min(max(anchor.x(), placed_rect.left()), placed_rect.right()),
+                min(max(anchor.y(), placed_rect.top()), placed_rect.bottom()))
             distance = ((nearest.x() - anchor.x()) ** 2 +
                         (nearest.y() - anchor.y()) ** 2) ** 0.5
             if distance > 3.5:
@@ -515,34 +519,13 @@ class MapCanvas(QGraphicsView):
                    anchor.y() + gap, width, height),
         ]
         row_step = height + 3.0
-        for ring in range(1, 11):
+        for ring in range(1, 5):
             for direction in (-1.0, 1.0):
                 row_y = centered_y + (direction * row_step * ring)
                 candidates.extend((
                     QRectF(anchor.x() + gap, row_y, width, height),
                     QRectF(anchor.x() - width - gap,
                            row_y, width, height)))
-        # Dense merchant hubs can contain more labels than the local rings
-        # can place.  Add nearest-first viewport lanes as a final fallback so
-        # every visible label stays readable instead of stacking in the map's
-        # center.  Leader lines preserve the relationship to the map anchor.
-        lane_rects = []
-        lane_x = (
-            viewport_bounds.left(),
-            viewport_bounds.center().x() - (width / 2.0),
-            viewport_bounds.right() - width)
-        row_step = height + 3.0
-        row_y = viewport_bounds.top()
-        while row_y + height <= viewport_bounds.bottom():
-            for x in lane_x:
-                rect = QRectF(x, row_y, width, height)
-                center = rect.center()
-                distance = ((center.x() - anchor.x()) ** 2 +
-                            (center.y() - anchor.y()) ** 2)
-                lane_rects.append((distance, rect))
-            row_y += row_step
-        candidates.extend(
-            rect for _, rect in sorted(lane_rects, key=lambda row: row[0]))
         return candidates
 
     def center(self):
@@ -593,6 +576,7 @@ class MapCanvas(QGraphicsView):
             self._z_index = self._data.geometry.z_groups.index(located_z)
         except ValueError:
             pass
+        self._focused_poi = point
         self._manual_view = True
         self.update_()
         # QGraphicsView clamps centerOn at scene edges. Extend only the

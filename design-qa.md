@@ -1,4 +1,4 @@
-# Vantage Companion 1.44.101 design QA
+# Vantage Companion 1.44.102 design QA
 
 release verification: pending
 
@@ -350,7 +350,7 @@ independent accessibility review: PASS
 - A freshly downloaded public asset matches the tested candidate hash and size
   byte-for-byte.
 
-## 1.44.101 release evidence
+## 1.44.101 release evidence (historical)
 
 - Diagnosis: closely arriving alerts were submitted sentence-by-sentence with
   `QTextToSpeech.say()` while voice, rate, pitch, and volume were reapplied.
@@ -385,3 +385,12 @@ independent accessibility review: PASS
   `sha256:ef3e1dcedc875d1c45ea6404e1260b4a8316db1ec8d1e42d50b44ad15fd9c63c`.
 - A fresh public download matched the local candidate byte-for-byte with
   SHA-256 `EF3E1DCEDC875D1C45EA6404E1260B4A8316DB1EC8D1E42D50B44AD15FD9C63C`.
+
+## 1.44.102 release evidence
+
+- Candidate scope: expose a compact notification-volume rocker directly in
+  Quick Bar, reduce map-label crowding while keeping every destination
+  available from the POI selector, and preserve the user's expanded Map size
+  through collapse/expand instead of letting header controls inflate it.
+- Focused interaction, responsive-header, accessibility, complete-suite,
+  portable-build, self-test, and public-release verification: **PENDING**.

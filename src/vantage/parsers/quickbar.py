@@ -9,10 +9,11 @@ from PySide6.QtCore import QEvent, QSize, Qt, QTimer
 from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QFrame, QLabel, QProgressBar, QSizePolicy,
-    QToolButton, QVBoxLayout)
+    QToolButton, QVBoxLayout, QWidget)
 
 from vantage.helpers import config
-from vantage.helpers.audio import audio_muted
+from vantage.helpers.audio import (
+    audio_muted, master_volume, set_master_volume)
 from vantage.helpers.icons import game_icon
 from vantage.helpers.parser import ParserWindow
 from vantage.helpers.quickbar_items import QUICKBAR_ITEMS
@@ -252,6 +253,7 @@ class QuickBar(ParserWindow):
         self._title_icon.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._setup_actions()
+        self._set_header_tab_order()
         # The logical buttons remain 27 px, while the inherited graphics view
         # scales their complete replica. Do not let QGraphicsView's scene size
         # hint become a large native minimum width.
@@ -273,6 +275,8 @@ class QuickBar(ParserWindow):
         self.refresh_state()
 
     def _setup_actions(self):
+        self._setup_volume_rocker()
+
         self.action_frame = QFrame()
         self.action_frame.setObjectName("QuickBarActions")
         self.action_layout = QBoxLayout(QBoxLayout.Direction.LeftToRight)
@@ -416,6 +420,129 @@ class QuickBar(ParserWindow):
             self.notification_rail, 0,
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
 
+    def _setup_volume_rocker(self):
+        """Add a compact, keyboard-operable master-volume header control."""
+        self.volume_rocker = QFrame()
+        self.volume_rocker.setObjectName("QuickBarVolumeRocker")
+        self.volume_rocker.setProperty("HeaderPriority", 100)
+        self.volume_rocker.setToolTip(
+            "Notification volume · changes WAV and spoken alert volume "
+            "without changing Master Mute")
+
+        layout = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self.volume_decrease_button = QToolButton()
+        self.volume_decrease_button.setObjectName(
+            "QuickBarOrientationButton")
+        self.volume_decrease_button.setAutoRaise(True)
+        self.volume_decrease_button.setText("−")
+        self.volume_decrease_button.setFixedSize(24, 24)
+        self.volume_decrease_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.volume_decrease_button.setAccessibleName(
+            "Decrease notification volume")
+        self.volume_decrease_button.setAccessibleDescription(
+            "Decrease every WAV and spoken notification by 5 percent")
+        self.volume_decrease_button.setToolTip(
+            "Decrease notification volume by 5%")
+        self.volume_decrease_button.clicked.connect(
+            lambda _checked=False: self._adjust_master_volume(-5))
+        layout.addWidget(self.volume_decrease_button)
+
+        self.volume_value_label = QLabel()
+        self.volume_value_label.setObjectName("QuickBarVolumeValue")
+        self.volume_value_label.setFixedWidth(28)
+        self.volume_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.volume_value_label.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.volume_value_label.setToolTip(
+            "Current notification volume; zero is silent but does not turn "
+            "on Master Mute")
+        layout.addWidget(self.volume_value_label)
+
+        self.volume_increase_button = QToolButton()
+        self.volume_increase_button.setObjectName(
+            "QuickBarOrientationButton")
+        self.volume_increase_button.setAutoRaise(True)
+        self.volume_increase_button.setText("+")
+        self.volume_increase_button.setFixedSize(24, 24)
+        self.volume_increase_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.volume_increase_button.setAccessibleName(
+            "Increase notification volume")
+        self.volume_increase_button.setAccessibleDescription(
+            "Increase every WAV and spoken notification by 5 percent")
+        self.volume_increase_button.setToolTip(
+            "Increase notification volume by 5%")
+        self.volume_increase_button.clicked.connect(
+            lambda _checked=False: self._adjust_master_volume(5))
+        layout.addWidget(self.volume_increase_button)
+
+        self.volume_rocker.setLayout(layout)
+        self.menu_area.addWidget(self.volume_rocker)
+        self._sync_volume_rocker()
+
+    def _set_header_tab_order(self):
+        """Keep keyboard traversal aligned with the visible title-bar order."""
+        if (self.volume_rocker.isHidden() and
+                self._header_overflow_button.isVisible()):
+            QWidget.setTabOrder(
+                self._button, self._header_overflow_button)
+            QWidget.setTabOrder(
+                self._header_overflow_button, self._settings_button)
+        else:
+            QWidget.setTabOrder(self._button, self.volume_decrease_button)
+            QWidget.setTabOrder(
+                self.volume_decrease_button, self.volume_increase_button)
+            QWidget.setTabOrder(
+                self.volume_increase_button, self._settings_button)
+        QWidget.setTabOrder(self._settings_button, self._roll_button)
+        QWidget.setTabOrder(self._roll_button, self._minimize_button)
+
+    def _pack_header_controls(self):
+        """Pack the title bar, then mirror its visible keyboard order."""
+        super()._pack_header_controls()
+        if hasattr(self, "volume_rocker"):
+            self._set_header_tab_order()
+
+    def _adjust_master_volume(self, delta):
+        """Apply and persist one rocker step without changing mute state."""
+        set_master_volume(master_volume() + int(delta))
+        config.save()
+        self._sync_volume_rocker()
+
+    def _sync_volume_rocker(self):
+        """Mirror the authoritative live setting into the compact readout."""
+        value = master_volume()
+        focused = self._surface.focusWidget() or QApplication.focusWidget()
+        if value <= 0:
+            if self._header_focus_restore is self.volume_decrease_button:
+                self._header_focus_restore = self.volume_increase_button
+            if focused is self.volume_decrease_button:
+                self._scale_scene.setFocusItem(self._scale_proxy)
+                self.volume_increase_button.setFocus(
+                    Qt.FocusReason.TabFocusReason)
+        elif value >= 100:
+            if self._header_focus_restore is self.volume_increase_button:
+                self._header_focus_restore = self.volume_decrease_button
+            if focused is self.volume_increase_button:
+                self._scale_scene.setFocusItem(self._scale_proxy)
+                self.volume_decrease_button.setFocus(
+                    Qt.FocusReason.TabFocusReason)
+        text = f"{value}%"
+        self.volume_value_label.setText(text)
+        self.volume_value_label.setAccessibleName(
+            f"Notification volume, {value} percent")
+        self.volume_value_label.setAccessibleDescription(
+            "Scales every WAV and spoken notification. Zero percent is "
+            "silent but does not turn on Master Mute.")
+        self.volume_rocker.setAccessibleName(
+            f"Notification volume, {value} percent")
+        self.volume_rocker.setAccessibleDescription(
+            "Use the decrease and increase buttons to change every WAV and "
+            "spoken notification without changing Master Mute")
+        self.volume_decrease_button.setEnabled(value > 0)
+        self.volume_increase_button.setEnabled(value < 100)
+
     def _setup_tick_readout(self):
         self.tick_readout = QFrame()
         self.tick_readout.setObjectName("QuickBarTick")
@@ -470,6 +597,11 @@ class QuickBar(ParserWindow):
             interactive_height -= rail.height()
         return max(
             self._minimum_scale,
+            # Keep the horizontal launcher recoverable at the established
+            # width and target scale. Adding a few authored header pixels
+            # must not make the entire command strip (and every action
+            # target in it) eligible to shrink further.
+            0.375,
             72 / max(1, self._design_size.width()),
             18 / max(1, interactive_height))
 
@@ -645,8 +777,18 @@ class QuickBar(ParserWindow):
         item_count = len(visible_widgets)
         margins = self.action_layout.contentsMargins()
         spacing = self.action_layout.spacing()
-        header_height = (
-            self._menu.sizeHint().height() if self._header_visible else 0)
+        # The 24 px rocker is created before the Quick Bar's first show. Make
+        # the title layout consume its fixed target immediately so a later
+        # settings refresh cannot grow the authored window by five pixels.
+        self.menu_area.activate()
+        self._menu_content.activate()
+        if self._header_visible:
+            header_height = self._menu.sizeHint().height()
+            if not vertical:
+                header_height = max(
+                    header_height, self.volume_rocker.sizeHint().height())
+        else:
+            header_height = 0
         header_width = (
             self._compact_header_width() if self._header_visible else 0)
 
@@ -819,6 +961,7 @@ class QuickBar(ParserWindow):
     def refresh_state(self):
         if not self._buttons:
             return
+        self._sync_volume_rocker()
         for name, target in self._window_targets.items():
             button = self._buttons.get(name)
             if not button:

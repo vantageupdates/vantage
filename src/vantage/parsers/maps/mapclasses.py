@@ -76,9 +76,9 @@ class PointOfInterest:
         # values to HTML's relative <font size> scale made overview labels
         # render like headings.  Keep a compact point-size scale instead.
         self._base_point_size = max(
-            7.5, min(8.5, 6.0 + (float(self.location.size) * 0.75)))
+            7.25, min(8.0, 5.8 + (float(self.location.size) * 0.7)))
         self._point_size = self._base_point_size
-        self.text.document().setDocumentMargin(1.5)
+        self.text.document().setDocumentMargin(1.0)
         self.leader = QGraphicsLineItem()
         leader_pen = QPen(QColor('#8d846f'), 1.0)
         leader_pen.setCosmetic(True)

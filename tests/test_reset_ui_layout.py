@@ -198,6 +198,14 @@ app.quit()
 
 
 def test_reset_ui_layout_is_confirmed_presentation_only_and_transactional(tmp_path):
+    # Keep Reset UI Layout aligned with the authored Quick Bar height. The
+    # notification-volume rocker adds a permanent 5 px row; restoring the old
+    # 67 px geometry makes the live window grow after the reset and prevents
+    # the persisted presentation from matching what the user sees.
+    from vantage.helpers import config
+    assert config.UI_PRESENTATION_DEFAULTS[('quickbar', 'geometry')] == [
+        10, 10, 779, 72]
+
     env = os.environ.copy()
     env['QT_QPA_PLATFORM'] = 'offscreen'
     env['PYTHONPATH'] = str(ROOT / 'src')

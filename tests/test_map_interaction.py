@@ -73,6 +73,43 @@ maps.show()
 maps.resize(640, 420)
 app.processEvents()
 
+# Wide native maps gain real canvas width at 1:1 instead of magnifying their
+# header. A roll/expand cycle must restore the exact chosen physical size.
+maps.resize(800, 520)
+app.processEvents()
+app.processEvents()
+expanded_size = [maps.width(), maps.height()]
+expanded_scale = float(maps._scale_view.transform().m11())
+expanded_surface_width = maps._surface.width()
+maps._set_collapsed(True)
+app.processEvents()
+rolled_scale = float(maps._scale_view.transform().m11())
+maps._set_collapsed(False)
+app.processEvents()
+app.processEvents()
+restored_size = [maps.width(), maps.height()]
+restored_scale = float(maps._scale_view.transform().m11())
+
+# Castle Mistmoore is intentionally dense. Only cleanly packed labels should
+# appear on the canvas, while the complete index remains in the POI menu.
+maps._load_zone('castle mistmoore')
+maps._map.fit_overview()
+app.processEvents()
+mist_points = maps._all_pois()
+mist_visible = [point for point in mist_points if point.text.isVisible()]
+mist_rects = [point.text.deviceTransform(
+    maps._map.viewportTransform()).mapRect(point.text.boundingRect())
+    for point in mist_visible]
+mist_viewport = maps._map.viewport().rect().adjusted(4, 4, -4, -4)
+mist_inside = all(mist_viewport.contains(rect.toRect())
+                  for rect in mist_rects)
+mist_separate = all(
+    not rect.adjusted(-1, -1, 1, 1).intersects(
+        other.adjusted(-1, -1, 1, 1))
+    for index, rect in enumerate(mist_rects)
+    for other in mist_rects[index + 1:])
+mist_selector_count = len(maps._poi_actions)
+
 zone = maps._map._data.zone
 cache = _wiki_zone_cache_path(zone)
 cache.parent.mkdir(parents=True, exist_ok=True)
@@ -158,6 +195,17 @@ maps._loot_dialog.close()
 app.processEvents()
 
 print(json.dumps({
+    'expanded_size': expanded_size,
+    'expanded_scale': expanded_scale,
+    'expanded_surface_width': expanded_surface_width,
+    'rolled_scale': rolled_scale,
+    'restored_size': restored_size,
+    'restored_scale': restored_scale,
+    'mist_total': len(mist_points),
+    'mist_visible': len(mist_visible),
+    'mist_inside': mist_inside,
+    'mist_separate': mist_separate,
+    'mist_selector_count': mist_selector_count,
     'actions': [action.text() for action in maps._poi_actions],
     'plain_center': plain_center,
     'plain_center_delta': plain_center_delta,
@@ -322,7 +370,7 @@ def test_poi_labels_remain_readable_in_overview_and_respect_toggle():
         canvas.close()
 
 
-def test_west_commonlands_overview_packs_all_poi_labels_without_overlap():
+def test_west_commonlands_overview_hides_excess_labels_without_overlap():
     app = _app()
     original = dict(config.data.setdefault("maps", {}))
     canvas = MapCanvas()
@@ -349,15 +397,23 @@ def test_west_commonlands_overview_packs_all_poi_labels_without_overlap():
         canvas.fit_overview()
         app.processEvents()
 
-        label_rects = []
+        all_points = []
+        visible_points = []
         for z in canvas._data.keys():
             for point in canvas._data[z]["poi"]:
-                label_rects.append(
-                    point.text.deviceTransform(
-                        canvas.viewportTransform()).mapRect(
-                            point.text.boundingRect()))
+                all_points.append(point)
+                if point.text.isVisible():
+                    visible_points.append(point)
 
-        assert len(label_rects) == 19
+        label_rects = [
+            point.text.deviceTransform(
+                canvas.viewportTransform()).mapRect(point.text.boundingRect())
+            for point in visible_points]
+
+        assert len(all_points) == 19
+        assert 0 < len(visible_points) < len(all_points)
+        assert all(not point.leader.isVisible()
+                   for point in all_points if not point.text.isVisible())
         viewport = canvas.viewport().rect().adjusted(4, 4, -4, -4)
         assert all(viewport.contains(rect.toRect()) for rect in label_rects)
         for index, rect in enumerate(label_rects):
@@ -434,6 +490,16 @@ def test_map_poi_selector_centers_and_opens_cached_native_loot(tmp_path):
         check=True, capture_output=True, text=True, timeout=30)
     result = json.loads(completed.stdout.strip().splitlines()[-1])
 
+    assert result['expanded_size'] == [800, 520]
+    assert result['expanded_scale'] == pytest.approx(1.0)
+    assert result['expanded_surface_width'] > 400
+    assert result['rolled_scale'] == pytest.approx(1.0)
+    assert result['restored_size'] == result['expanded_size']
+    assert result['restored_scale'] == pytest.approx(1.0)
+    assert 0 < result['mist_visible'] < result['mist_total']
+    assert result['mist_inside'] is True
+    assert result['mist_separate'] is True
+    assert result['mist_selector_count'] == result['mist_total']
     assert len(result['actions']) == 3
     assert sum(action.startswith('◆ ') for action in result['actions']) == 2
     assert any(action.startswith('• Plain exit') for action in result['actions'])
