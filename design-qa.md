@@ -392,5 +392,21 @@ independent accessibility review: PASS
   Quick Bar, reduce map-label crowding while keeping every destination
   available from the POI selector, and preserve the user's expanded Map size
   through collapse/expand instead of letting header controls inflate it.
-- Focused interaction, responsive-header, accessibility, complete-suite,
-  portable-build, self-test, and public-release verification: **PENDING**.
+- Focused integrated verification for Quick Bar, maps, responsive headers, and
+  settings: **26 passed**. Reset/minimum regression verification: **10 passed**.
+- Independent accessibility review: **PASS**, with no remaining findings after
+  boundary/overflow focus, 24x24 targets, tab order, dense-map, and native-scale
+  review.
+- Full automated test suite: **1,523 passed, 2 skipped** in **688.40 seconds**.
+- PyInstaller **6.22.2** one-file build: **PASS**. Portable self-test exited
+  `0`, reporting version `1.44.102`.
+- Candidate and public `Vantage.exe` size: **75,864,262 bytes**. SHA-256:
+  `7AB9386B52D9F01BECA9F419E60D13E484B4C927518AC549230DE888BBFCEC33`.
+- Public release verification: **PASS**. The latest stable, non-draft,
+  non-prerelease release is
+  <https://github.com/vantageupdates/vantage/releases/tag/v1.44.102>.
+- Direct public asset:
+  <https://github.com/vantageupdates/vantage/releases/download/v1.44.102/Vantage.exe>.
+  GitHub digest:
+  `sha256:7ab9386b52d9f01beca9f419e60d13e484b4c927518ac549230de888bbfcec33`.
+- A fresh public download matched the local candidate byte-for-byte.
