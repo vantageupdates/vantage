@@ -107,6 +107,41 @@ def test_mobile_guild_selector_accepts_only_saved_guild_profiles():
     assert OpenDKP.mobile_select(harness, "not-saved") is False
 
 
+def test_mobile_guild_snapshot_keeps_every_member_searchable():
+    """A character beyond the old first-page cap must reach Mobile search."""
+    standings = [{
+        "CharacterName": f"Member{index:04d}",
+        "CharacterClass": "Cleric",
+        "CharacterLevel": 60,
+        "CharacterRank": "Raider",
+        "CurrentDKP": index,
+        "Calculated_30": 0.75,
+    } for index in range(620)]
+
+    class Status:
+        def text(self):
+            return "Public guild data ready"
+
+        def property(self, _name):
+            return "ready"
+
+    harness = SimpleNamespace(
+        client=SimpleNamespace(slug="castle", authenticated=False),
+        _guild_details={"Name": "Castle"},
+        _datasets={
+            "dkp": standings, "items": [], "raids": [],
+            "active_auctions": []},
+        guild_status=Status(), result_status=Status(),
+        _profile=lambda _slug: {"slug": "castle", "name": "Castle"},
+        _profiles=lambda: [{"slug": "castle", "name": "Castle"}],
+    )
+    snapshot = OpenDKP.mobile_snapshot(harness)
+    assert snapshot["standings_total"] == 620
+    assert len(snapshot["standings"]) == 620
+    assert snapshot["standings"][-1]["name"] == "Member0619"
+    assert snapshot["standings"][-1]["dkp"] == "619.0"
+
+
 def test_history_dates_sort_chronologically_and_support_date_event_search():
     app = QApplication.instance() or QApplication([])
     class FilterHarness:

@@ -5,11 +5,13 @@ from __future__ import annotations
 from collections import deque
 import time
 
-from PySide6.QtCore import QEvent, QSize, Qt, QTimer
+from PySide6.QtCore import (
+    QEasingCurve, QEvent, QPropertyAnimation, QSize, Qt, QTimer)
 from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtWidgets import (
-    QApplication, QBoxLayout, QFrame, QLabel, QProgressBar, QSizePolicy,
-    QToolButton, QVBoxLayout, QWidget)
+    QApplication, QBoxLayout, QFrame, QGraphicsOpacityEffect, QLabel,
+    QProgressBar, QSizePolicy, QSlider, QToolButton, QVBoxLayout, QWidget,
+    QWidgetAction)
 
 from vantage.helpers import config
 from vantage.helpers.audio import (
@@ -50,6 +52,19 @@ class QuickBarNotificationRail(QFrame):
         self._pending_channels = deque(maxlen=20)
         self._moving = False
         self._reduce_motion = False
+        self._fade_on_expire = False
+
+        self._opacity_effect = QGraphicsOpacityEffect(self)
+        self._opacity_effect.setOpacity(1.0)
+        self.setGraphicsEffect(self._opacity_effect)
+        self._fade_animation = QPropertyAnimation(
+            self._opacity_effect, b"opacity", self)
+        self._fade_animation.setDuration(550)
+        self._fade_animation.setStartValue(1.0)
+        self._fade_animation.setEndValue(0.0)
+        self._fade_animation.setEasingCurve(
+            QEasingCurve.Type.InOutQuad)
+        self._fade_animation.finished.connect(self._clear)
 
         self._scroll_timer = QTimer(self)
         self._scroll_timer.setInterval(24)
@@ -58,7 +73,7 @@ class QuickBarNotificationRail(QFrame):
         self._clear_timer = QTimer(self)
         self._clear_timer.setSingleShot(True)
         self._clear_timer.setInterval(5000)
-        self._clear_timer.timeout.connect(self._clear)
+        self._clear_timer.timeout.connect(self._expire_current)
 
     @staticmethod
     def _channel_label(channel):
@@ -108,6 +123,8 @@ class QuickBarNotificationRail(QFrame):
                    if self._pending_channels else "SYSTEM")
         self._scroll_timer.stop()
         self._clear_timer.stop()
+        self._fade_animation.stop()
+        self._opacity_effect.setOpacity(1.0)
         self._label.setText(clean)
         self._channel.setText(channel)
         self._channel.setGeometry(1, 1, 82, self.height() - 2)
@@ -123,6 +140,15 @@ class QuickBarNotificationRail(QFrame):
         self.setAccessibleDescription(
             f"Marquee notification; {len(self._pending)} more queued")
         self._announce_accessibly(spoken)
+        # Combat summaries can be much wider than the rail and previously
+        # remained visible for a long marquee pass. Give them a bounded,
+        # readable dwell, then fade them out so the Quick Bar is available
+        # for the next event. Reduced-motion users get the same timeout with
+        # an immediate clear instead of an opacity animation.
+        self._fade_on_expire = channel == "COMBAT" and not self._reduce_motion
+        if channel == "COMBAT":
+            self._clear_timer.setInterval(4500)
+            self._clear_timer.start()
         if self._reduce_motion:
             self._moving = False
             # Preserve the meaningful type + source without moving or
@@ -133,7 +159,9 @@ class QuickBarNotificationRail(QFrame):
             self._label.setFixedWidth(max(1, self.width() - 90))
             self._label.setGeometry(87, 1, self._label.width(), self.height() - 2)
             self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._clear_timer.start()
+            if channel != "COMBAT":
+                self._clear_timer.setInterval(5000)
+                self._clear_timer.start()
         else:
             self._moving = True
             self._label.setAlignment(
@@ -163,7 +191,18 @@ class QuickBarNotificationRail(QFrame):
             self._label.setFixedWidth(max(1, self.width() - 90))
             self._label.setGeometry(87, 1, self._label.width(), self.height() - 2)
             self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._fade_on_expire = False
+            self._clear_timer.setInterval(5000)
             self._clear_timer.start()
+
+    def _expire_current(self):
+        """Fade bounded notices, or clear immediately when motion is reduced."""
+        if (self._fade_on_expire and self._label.isVisible() and
+                self.isVisible()):
+            self._scroll_timer.stop()
+            self._fade_animation.start()
+            return
+        self._clear()
 
     def _advance(self):
         if not self.isVisible() or not self._label.isVisible():
@@ -181,6 +220,9 @@ class QuickBarNotificationRail(QFrame):
     def _clear_current(self):
         self._scroll_timer.stop()
         self._clear_timer.stop()
+        self._fade_animation.stop()
+        self._opacity_effect.setOpacity(1.0)
+        self._fade_on_expire = False
         self._moving = False
         self._label.clear()
         self._label.hide()
@@ -199,6 +241,24 @@ class QuickBarNotificationRail(QFrame):
     def hideEvent(self, event):
         super().hideEvent(event)
         self._scroll_timer.stop()
+
+
+class QuickBarVolumeSlider(QSlider):
+    """Ignore stray wheel input until the user explicitly focuses volume."""
+
+    def __init__(self, parent=None):
+        super().__init__(Qt.Orientation.Horizontal, parent)
+        self._last_focus_reason = None
+
+    def focusInEvent(self, event):
+        self._last_focus_reason = event.reason()
+        super().focusInEvent(event)
+
+    def wheelEvent(self, event):
+        if not self.hasFocus():
+            event.ignore()
+            return
+        super().wheelEvent(event)
 
 
 class QuickBar(ParserWindow):
@@ -421,65 +481,122 @@ class QuickBar(ParserWindow):
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
 
     def _setup_volume_rocker(self):
-        """Add a compact, keyboard-operable master-volume header control."""
+        """Add a compact native notification-volume slider to the header."""
         self.volume_rocker = QFrame()
         self.volume_rocker.setObjectName("QuickBarVolumeRocker")
         self.volume_rocker.setProperty("HeaderPriority", 100)
+        self.volume_rocker.setAccessibleName("Notification volume control")
+        self.volume_rocker.setAccessibleDescription(
+            "Contains the notification volume slider and its percentage")
         self.volume_rocker.setToolTip(
             "Notification volume · changes WAV and spoken alert volume "
             "without changing Master Mute")
 
         layout = QBoxLayout(QBoxLayout.Direction.LeftToRight)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        self.volume_decrease_button = QToolButton()
-        self.volume_decrease_button.setObjectName(
-            "QuickBarOrientationButton")
-        self.volume_decrease_button.setAutoRaise(True)
-        self.volume_decrease_button.setText("−")
-        self.volume_decrease_button.setFixedSize(24, 24)
-        self.volume_decrease_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.volume_decrease_button.setAccessibleName(
-            "Decrease notification volume")
-        self.volume_decrease_button.setAccessibleDescription(
-            "Decrease every WAV and spoken notification by 5 percent")
-        self.volume_decrease_button.setToolTip(
-            "Decrease notification volume by 5%")
-        self.volume_decrease_button.clicked.connect(
-            lambda _checked=False: self._adjust_master_volume(-5))
-        layout.addWidget(self.volume_decrease_button)
+        layout.setContentsMargins(3, 0, 3, 0)
+        layout.setSpacing(2)
 
         self.volume_value_label = QLabel()
         self.volume_value_label.setObjectName("QuickBarVolumeValue")
-        self.volume_value_label.setFixedWidth(28)
         self.volume_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.volume_value_label.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.volume_value_label.setToolTip(
             "Current notification volume; zero is silent but does not turn "
             "on Master Mute")
+        label_width = self._configure_percentage_label(
+            self.volume_value_label)
+        # Preserve enough native-slider travel for direct manipulation while
+        # adapting to the real 100% text width at the active system font.
+        slider_width = max(64, min(82, 122 - label_width))
+        self.volume_slider = QuickBarVolumeSlider()
+        self._configure_volume_slider(
+            self.volume_slider, width=slider_width)
+        self.volume_value_label.setBuddy(self.volume_slider)
+        layout.addWidget(self.volume_slider)
         layout.addWidget(self.volume_value_label)
-
-        self.volume_increase_button = QToolButton()
-        self.volume_increase_button.setObjectName(
-            "QuickBarOrientationButton")
-        self.volume_increase_button.setAutoRaise(True)
-        self.volume_increase_button.setText("+")
-        self.volume_increase_button.setFixedSize(24, 24)
-        self.volume_increase_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.volume_increase_button.setAccessibleName(
-            "Increase notification volume")
-        self.volume_increase_button.setAccessibleDescription(
-            "Increase every WAV and spoken notification by 5 percent")
-        self.volume_increase_button.setToolTip(
-            "Increase notification volume by 5%")
-        self.volume_increase_button.clicked.connect(
-            lambda _checked=False: self._adjust_master_volume(5))
-        layout.addWidget(self.volume_increase_button)
+        self.volume_rocker.setFixedSize(
+            3 + slider_width + 2 + label_width + 3, 24)
 
         self.volume_rocker.setLayout(layout)
         self.menu_area.addWidget(self.volume_rocker)
-        self._sync_volume_rocker()
+
+        self._volume_save_timer = QTimer(self)
+        self._volume_save_timer.setSingleShot(True)
+        self._volume_save_timer.setInterval(180)
+        self._volume_save_timer.timeout.connect(self._save_master_volume)
+        self.volume_slider.valueChanged.connect(
+            lambda value, slider=self.volume_slider:
+            self._volume_slider_changed(value, slider))
+        self.volume_slider.sliderReleased.connect(self._save_master_volume)
+        self._overflow_volume_slider = None
+        self._overflow_volume_label = None
+        self._header_overflow_menu.installEventFilter(self)
+        self._header_overflow_menu.aboutToShow.connect(
+            self._queue_overflow_volume_focus)
+        self._sync_volume_slider()
+
+    @staticmethod
+    def _configure_percentage_label(label):
+        """Reserve the rendered 100% width plus readable side breathing room."""
+        width = max(
+            label.minimumSizeHint().width(),
+            label.fontMetrics().horizontalAdvance("100%") + 8)
+        label.setFixedWidth(width)
+        return width
+
+    @staticmethod
+    def _configure_volume_slider(slider, width):
+        """Apply one compact, high-contrast Vantage slider presentation."""
+        slider.setObjectName("QuickBarVolumeSlider")
+        slider.setRange(0, 100)
+        slider.setSingleStep(1)
+        slider.setPageStep(10)
+        slider.setTracking(True)
+        slider.setFixedSize(width, 24)
+        slider.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        slider.setAccessibleName("Notification volume")
+        slider.setAccessibleDescription(
+            "Scales every WAV and text to speech notification. Master Mute "
+            "is a separate control.")
+        slider.setToolTip(
+            "Notification volume · Arrow keys 1% · Page Up/Down 10% · "
+            "Home/End 0% or 100% · Master Mute remains separate")
+        slider.setStyleSheet("""
+            QSlider#QuickBarVolumeSlider::groove:horizontal {
+                height: 6px;
+                background: #1B232A;
+                border: 1px solid #70818D;
+                border-radius: 3px;
+            }
+            QSlider#QuickBarVolumeSlider::sub-page:horizontal {
+                background: #9A7541;
+                border: 1px solid #D2B66F;
+                border-radius: 3px;
+            }
+            QSlider#QuickBarVolumeSlider::add-page:horizontal {
+                background: #202A31;
+                border: 1px solid #70818D;
+                border-radius: 3px;
+            }
+            QSlider#QuickBarVolumeSlider::handle:horizontal {
+                width: 12px;
+                margin: -4px 0;
+                background: #F1E4BE;
+                border: 1px solid #846B38;
+                border-radius: 6px;
+            }
+            QSlider#QuickBarVolumeSlider::handle:horizontal:hover {
+                background: #FFF7DF;
+                border-color: #D2B66F;
+            }
+            QSlider#QuickBarVolumeSlider:focus::groove:horizontal {
+                border-color: #F0C778;
+            }
+            QSlider#QuickBarVolumeSlider:focus::handle:horizontal {
+                background: #FFFFFF;
+                border: 2px solid #F0C778;
+            }
+        """)
 
     def _set_header_tab_order(self):
         """Keep keyboard traversal aligned with the visible title-bar order."""
@@ -490,11 +607,8 @@ class QuickBar(ParserWindow):
             QWidget.setTabOrder(
                 self._header_overflow_button, self._settings_button)
         else:
-            QWidget.setTabOrder(self._button, self.volume_decrease_button)
-            QWidget.setTabOrder(
-                self.volume_decrease_button, self.volume_increase_button)
-            QWidget.setTabOrder(
-                self.volume_increase_button, self._settings_button)
+            QWidget.setTabOrder(self._button, self.volume_slider)
+            QWidget.setTabOrder(self.volume_slider, self._settings_button)
         QWidget.setTabOrder(self._settings_button, self._roll_button)
         QWidget.setTabOrder(self._roll_button, self._minimize_button)
 
@@ -504,44 +618,116 @@ class QuickBar(ParserWindow):
         if hasattr(self, "volume_rocker"):
             self._set_header_tab_order()
 
-    def _adjust_master_volume(self, delta):
-        """Apply and persist one rocker step without changing mute state."""
-        set_master_volume(master_volume() + int(delta))
-        config.save()
-        self._sync_volume_rocker()
+    def _header_overflow_candidates(self, widgets):
+        """Let the non-button volume composite participate in overflow."""
+        candidates = super()._header_overflow_candidates(widgets)
+        rocker = getattr(self, "volume_rocker", None)
+        if (rocker is not None and rocker in widgets and
+                not rocker.isHidden() and rocker not in candidates):
+            candidates.insert(0, rocker)
+        return candidates
 
-    def _sync_volume_rocker(self):
-        """Mirror the authoritative live setting into the compact readout."""
-        value = master_volume()
-        focused = self._surface.focusWidget() or QApplication.focusWidget()
-        if value <= 0:
-            if self._header_focus_restore is self.volume_decrease_button:
-                self._header_focus_restore = self.volume_increase_button
-            if focused is self.volume_decrease_button:
-                self._scale_scene.setFocusItem(self._scale_proxy)
-                self.volume_increase_button.setFocus(
-                    Qt.FocusReason.TabFocusReason)
-        elif value >= 100:
-            if self._header_focus_restore is self.volume_increase_button:
-                self._header_focus_restore = self.volume_decrease_button
-            if focused is self.volume_increase_button:
-                self._scale_scene.setFocusItem(self._scale_proxy)
-                self.volume_decrease_button.setFocus(
-                    Qt.FocusReason.TabFocusReason)
+    def _rebuild_header_overflow_menu(self):
+        """Expose the hidden volume slider inside More actions as well."""
+        self._overflow_volume_slider = None
+        self._overflow_volume_label = None
+        self._header_overflow_menu.setFocusProxy(None)
+        super()._rebuild_header_overflow_menu()
+        if self.volume_rocker not in self._header_overflowed:
+            return
+        menu = self._header_overflow_menu
+        host = QFrame(menu)
+        host.setObjectName("QuickBarOverflowVolume")
+        layout = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        layout.setContentsMargins(8, 3, 8, 3)
+        layout.setSpacing(6)
+        slider = QuickBarVolumeSlider(host)
+        self._configure_volume_slider(slider, width=116)
+        label = QLabel(host)
+        label.setObjectName("QuickBarVolumeValue")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._configure_percentage_label(label)
+        label.setBuddy(slider)
+        host.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        host.setFocusProxy(slider)
+        layout.addWidget(slider)
+        layout.addWidget(label)
+        host.setLayout(layout)
+        menu.setFocusProxy(slider)
+        action = QWidgetAction(menu)
+        action.setText("Notification volume")
+        action.setDefaultWidget(host)
+        before = menu.actions()[0] if menu.actions() else None
+        menu.insertAction(before, action)
+        self._overflow_volume_slider = slider
+        self._overflow_volume_label = label
+        slider.valueChanged.connect(
+            lambda value, control=slider:
+            self._volume_slider_changed(value, control))
+        slider.sliderReleased.connect(self._save_master_volume)
+        self._sync_volume_slider()
+
+    def _queue_overflow_volume_focus(self):
+        """Place keyboard users directly on the embedded overflow slider."""
+        slider = self._overflow_volume_slider
+        if slider is None:
+            return
+
+        def focus_slider():
+            try:
+                if (self._header_overflow_menu.isVisible() and
+                        slider.isVisibleTo(self._header_overflow_menu)):
+                    slider.setFocus(Qt.FocusReason.TabFocusReason)
+            except RuntimeError:
+                return
+
+        # QMenu applies its own active-action focus immediately after
+        # aboutToShow. Reassert once that native popup setup is complete so
+        # arrows, Page Up/Down, Home, and End reach the embedded QSlider.
+        QTimer.singleShot(0, focus_slider)
+        QTimer.singleShot(20, focus_slider)
+
+    def _volume_slider_changed(self, value, source):
+        """Apply changes live and coalesce durable writes while dragging."""
+        value = set_master_volume(value)
+        self._sync_volume_slider(value)
+        if source.isSliderDown():
+            self._volume_save_timer.stop()
+        else:
+            self._volume_save_timer.start()
+
+    def _save_master_volume(self):
+        """Persist the final slider value once after a drag or key burst."""
+        self._volume_save_timer.stop()
+        config.save()
+
+    def _sync_volume_slider(self, value=None):
+        """Mirror the authoritative setting without feedback or disk writes."""
+        value = master_volume() if value is None else max(0, min(100, int(value)))
+        sliders = [self.volume_slider]
+        overflow_slider = getattr(self, "_overflow_volume_slider", None)
+        if overflow_slider is not None:
+            sliders.append(overflow_slider)
+        for slider in sliders:
+            try:
+                blocked = slider.blockSignals(True)
+                slider.setValue(value)
+                slider.blockSignals(blocked)
+            except RuntimeError:
+                continue
         text = f"{value}%"
         self.volume_value_label.setText(text)
-        self.volume_value_label.setAccessibleName(
-            f"Notification volume, {value} percent")
+        self.volume_value_label.setAccessibleName(f"{value} percent")
         self.volume_value_label.setAccessibleDescription(
-            "Scales every WAV and spoken notification. Zero percent is "
-            "silent but does not turn on Master Mute.")
-        self.volume_rocker.setAccessibleName(
-            f"Notification volume, {value} percent")
-        self.volume_rocker.setAccessibleDescription(
-            "Use the decrease and increase buttons to change every WAV and "
-            "spoken notification without changing Master Mute")
-        self.volume_decrease_button.setEnabled(value > 0)
-        self.volume_increase_button.setEnabled(value < 100)
+            "Readout for the adjacent notification volume slider")
+        overflow_label = getattr(self, "_overflow_volume_label", None)
+        if overflow_label is not None:
+            try:
+                overflow_label.setText(text)
+                overflow_label.setAccessibleName(f"{value} percent")
+            except RuntimeError:
+                pass
 
     def _setup_tick_readout(self):
         self.tick_readout = QFrame()
@@ -640,6 +826,34 @@ class QuickBar(ParserWindow):
         """The Quick Bar contains commands and does not parse log lines."""
 
     def eventFilter(self, watched, event):
+        if (watched is self._header_overflow_menu and
+                event.type() == QEvent.Type.KeyPress and
+                self._header_overflow_menu.isVisible()):
+            slider = self._overflow_volume_slider
+            if slider is not None:
+                key = event.key()
+                if key in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
+                    slider.setFocus(Qt.FocusReason.TabFocusReason)
+                    return True
+                value = slider.value()
+                if key == Qt.Key.Key_Home:
+                    value = slider.minimum()
+                elif key == Qt.Key.Key_End:
+                    value = slider.maximum()
+                elif key in (Qt.Key.Key_Right, Qt.Key.Key_Up):
+                    value += slider.singleStep()
+                elif key in (Qt.Key.Key_Left, Qt.Key.Key_Down):
+                    value -= slider.singleStep()
+                elif key == Qt.Key.Key_PageUp:
+                    value += slider.pageStep()
+                elif key == Qt.Key.Key_PageDown:
+                    value -= slider.pageStep()
+                else:
+                    return super().eventFilter(watched, event)
+                slider.setFocus(Qt.FocusReason.TabFocusReason)
+                slider.setValue(max(
+                    slider.minimum(), min(slider.maximum(), value)))
+                return True
         if ((watched in self._target_names or
              watched in self._dialog_targets) and
                 event.type() in (QEvent.Type.Show, QEvent.Type.Hide)):
@@ -961,7 +1175,7 @@ class QuickBar(ParserWindow):
     def refresh_state(self):
         if not self._buttons:
             return
-        self._sync_volume_rocker()
+        self._sync_volume_slider()
         for name, target in self._window_targets.items():
             button = self._buttons.get(name)
             if not button:
@@ -1024,25 +1238,29 @@ class QuickBar(ParserWindow):
 
         muted = audio_muted()
         mute_button = self._buttons["mute"]
+        sound_dialog = getattr(
+            self._application, "_feature_settings_instances", {}).get(
+                "Sounds")
+        sound_open = bool(sound_dialog is not None and sound_dialog.isVisible())
         mute_button.blockSignals(True)
-        mute_button.setChecked(muted)
+        mute_button.setChecked(sound_open)
         mute_button.blockSignals(False)
         mute_dot = self._enabled_dots.get("mute")
         if mute_dot is not None:
-            mute_dot.setVisible(muted)
-            mute_dot.raise_()
+            mute_dot.setVisible(sound_open)
+            if sound_open:
+                mute_dot.raise_()
         blocked = str(getattr(
             self._application, "_last_audio_blocked", "None yet"))
         played = str(getattr(
             self._application, "_last_audio", "None yet"))
+        sound_state = "all sounds muted" if muted else (
+            f"master volume {master_volume()} percent")
         mute_button.setToolTip(
-            (("All Vantage audio is blocked · last played: " + played +
-              " · last prevented: " + blocked)
-             if muted else
-             ("Mute all Vantage sounds · last played: " + played +
-              " · last prevented: " + blocked)))
+            "Open Sounds · " + sound_state + " · last played: " +
+            played + " · last prevented: " + blocked)
         mute_button.setAccessibleDescription(
-            "All sounds are muted" if muted else "Sounds are active")
+            "Open the Sounds center; " + sound_state)
 
         status = str(getattr(
             self._application, "_log_status", "NO LOGS")).strip().upper()
@@ -1345,7 +1563,11 @@ class QuickBar(ParserWindow):
         elif key == "log_help":
             self._application.show_log_help()
         elif key == "mute":
-            self._application.toggle_audio_muted()
+            dialog = self._application.show_feature_settings(
+                "Sounds", owner=self)
+            if dialog not in self._dialog_targets:
+                self._dialog_targets[dialog] = key
+                dialog.installEventFilter(self)
         elif key == "quit":
             self._application.quit_vantage(confirm=True, parent=self)
         QTimer.singleShot(0, self.refresh_state)
@@ -1377,6 +1599,9 @@ class QuickBar(ParserWindow):
             self._scale_view.setFocus(Qt.FocusReason.OtherFocusReason)
             QTimer.singleShot(0, focus_embedded_action)
 
+        # Restore the logical child immediately for keyboard tests and screen
+        # readers, then repeat after the native window activation settles.
+        focus_embedded_action()
         QTimer.singleShot(0, activate_launcher)
         return True
 

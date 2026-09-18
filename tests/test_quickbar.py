@@ -13,13 +13,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 SCRIPT = r"""
 import json
-from PySide6.QtCore import QPointF, QSize, Qt
-from PySide6.QtGui import QFont, QPainter
+from PySide6.QtCore import QPoint, QPointF, QSize, Qt
+from PySide6.QtGui import QAccessible, QFont, QPainter, QWheelEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QScrollArea
+from PySide6.QtWidgets import (
+    QApplication, QScrollArea, QSlider, QWidgetAction)
 from vantage.helpers import config
 from vantage.helpers.application import VantageApp
-from vantage.helpers.audio import audio_muted, set_master_volume
+from vantage.helpers.audio import (
+    audio_muted, set_audio_muted, set_master_volume)
 from vantage.helpers.icons import game_icon
 from vantage.helpers.quickbar_items import QUICKBAR_ITEM_KEYS
 
@@ -28,6 +30,22 @@ app = VantageApp([])
 bar = app._parsers_dict['quickbar']
 maps = app._parsers_dict['maps']
 app.processEvents()
+
+def relative_luminance(color):
+    channels = [int(color[index:index + 2], 16) / 255
+                for index in (1, 3, 5)]
+    channels = [
+        value / 12.92 if value <= 0.04045 else
+        ((value + 0.055) / 1.055) ** 2.4
+        for value in channels]
+    return (0.2126 * channels[0] + 0.7152 * channels[1] +
+            0.0722 * channels[2])
+
+def contrast_ratio(first, second):
+    lighter, darker = sorted(
+        (relative_luminance(first), relative_luminance(second)),
+        reverse=True)
+    return round((lighter + 0.05) / (darker + 0.05), 2)
 
 initial = {
     'orientation': bar._orientation,
@@ -61,125 +79,209 @@ initial = {
         bar._buttons[key].isCheckable() for key in bar._DIALOG_ACTIONS),
     'volume_visible': bar.volume_rocker.isVisible(),
     'volume_priority': bar.volume_rocker.property('HeaderPriority'),
-    'volume_compact': bar.volume_rocker.sizeHint().width() <= 80,
-    'volume_button_sizes': [
-        [bar.volume_decrease_button.width(),
-         bar.volume_decrease_button.height()],
-        [bar.volume_increase_button.width(),
-         bar.volume_increase_button.height()],
-    ],
+    'volume_compact': bar.volume_rocker.width() <= 130,
+    'volume_control_size': [
+        bar.volume_rocker.width(), bar.volume_rocker.height()],
+    'volume_slider_size': [
+        bar.volume_slider.width(), bar.volume_slider.height()],
+    'volume_semantics': {
+        'native': isinstance(bar.volume_slider, QSlider),
+        'horizontal': (
+            bar.volume_slider.orientation() == Qt.Orientation.Horizontal),
+        'range': [bar.volume_slider.minimum(), bar.volume_slider.maximum()],
+        'steps': [
+            bar.volume_slider.singleStep(), bar.volume_slider.pageStep()],
+        'name': bar.volume_slider.accessibleName(),
+        'description': bar.volume_slider.accessibleDescription(),
+        'role_slider': QAccessible.queryAccessibleInterface(
+            bar.volume_slider).role() == QAccessible.Role.Slider,
+        'focusable': (
+            bar.volume_slider.focusPolicy() != Qt.FocusPolicy.NoFocus),
+        'label_focusable': (
+            bar.volume_value_label.focusPolicy() != Qt.FocusPolicy.NoFocus),
+        'label_width': bar.volume_value_label.width(),
+        'label_required': (
+            bar.volume_value_label.fontMetrics().horizontalAdvance('100%') +
+            8),
+        'focus_style': ':focus' in bar.volume_slider.styleSheet(),
+        'contrast': [
+            contrast_ratio('#70818D', '#1B232A'),
+            contrast_ratio('#9A7541', '#1B232A'),
+            contrast_ratio('#F1E4BE', '#9A7541'),
+        ],
+    },
     'header_tab_order': [
-        bar._button.nextInFocusChain() is bar.volume_decrease_button,
-        bar.volume_decrease_button.nextInFocusChain() is
-        bar.volume_increase_button,
-        bar.volume_increase_button.nextInFocusChain() is
-        bar._settings_button,
+        bar._button.nextInFocusChain() is bar.volume_slider,
+        bar.volume_slider.nextInFocusChain() is bar._settings_button,
         bar._settings_button.nextInFocusChain() is bar._roll_button,
         bar._roll_button.nextInFocusChain() is bar._minimize_button,
     ],
 }
 
-# The header rocker is a live view of the same master volume used by Settings.
-# Its buttons must work for pointer and keyboard users, save each change, and
-# clamp without turning the separate Master Mute switch on.
+# The native header slider is a live view of the same master volume used by
+# Settings. Dragging updates audio continuously but writes once on release;
+# keyboard bursts coalesce through the short save timer. Master Mute is
+# deliberately independent.
+def focus_header_control(control):
+    bar.activateWindow()
+    bar._scale_scene.setFocusItem(bar._scale_proxy)
+    control.setFocus(Qt.FocusReason.TabFocusReason)
+    app.processEvents()
+    return bar._surface.focusWidget()
+
 set_master_volume(50)
 app._signals['settings'].config_updated.emit()
 app.processEvents()
 volume_from_settings = {
+    'value': bar.volume_slider.value(),
     'text': bar.volume_value_label.text(),
-    'name': bar.volume_rocker.accessibleName(),
-    'description': bar.volume_rocker.accessibleDescription(),
+    'name': bar.volume_slider.accessibleName(),
+    'description': bar.volume_slider.accessibleDescription(),
 }
-QTest.mouseClick(
-    bar.volume_increase_button, Qt.MouseButton.LeftButton)
+
+real_config_save = config.save
+save_calls = []
+def tracked_config_save():
+    save_calls.append(config.data['general']['master_volume'])
+    return real_config_save()
+config.save = tracked_config_save
+set_audio_muted(True)
+bar.refresh_state()
+
+slider = bar.volume_slider
+slider_start = QPoint(slider.width() // 2, slider.height() // 2)
+slider_end = QPoint(slider.width() - 6, slider.height() // 2)
+QTest.mousePress(
+    slider, Qt.MouseButton.LeftButton, pos=slider_start)
+QTest.mouseMove(slider, slider_end, delay=20)
+app.processEvents()
+pointer_during_drag = {
+    'value': slider.value(),
+    'writes': list(save_calls),
+}
+QTest.mouseRelease(
+    slider, Qt.MouseButton.LeftButton, pos=slider_end)
 app.processEvents()
 with open(config._filename, encoding='utf-8') as saved_file:
     saved_after_pointer = json.load(saved_file)['general']['master_volume']
 volume_after_pointer = {
-    'value': saved_after_pointer,
+    'live_value': slider.value(),
+    'saved_value': saved_after_pointer,
     'text': bar.volume_value_label.text(),
     'muted': audio_muted(),
+    'writes': list(save_calls),
 }
-bar.volume_decrease_button.setFocus(Qt.FocusReason.TabFocusReason)
-QTest.keyClick(bar.volume_decrease_button, Qt.Key.Key_Space)
+
+# Native key behavior includes exact 1% arrows, 10% pages, and Home/End.
+set_audio_muted(False)
+set_master_volume(50)
+bar.refresh_state()
+bar._volume_save_timer.stop()
+save_calls.clear()
+focus_header_control(slider)
+QTest.keyClick(slider, Qt.Key.Key_Home)
+home_value = slider.value()
+QTest.keyClick(slider, Qt.Key.Key_PageUp)
+page_value = slider.value()
+QTest.keyClick(slider, Qt.Key.Key_PageDown)
+page_down_value = slider.value()
+QTest.keyClick(slider, Qt.Key.Key_PageUp)
+QTest.keyClick(slider, Qt.Key.Key_Right)
+arrow_value = slider.value()
+QTest.keyClick(slider, Qt.Key.Key_End)
+keyboard_before_debounce = list(save_calls)
+QTest.qWait(220)
 app.processEvents()
 volume_after_keyboard = {
-    'value': config.data['general']['master_volume'],
+    'home': home_value,
+    'page_up': page_value,
+    'page_down': page_down_value,
+    'right': arrow_value,
+    'end': slider.value(),
     'text': bar.volume_value_label.text(),
+    'writes_before_debounce': keyboard_before_debounce,
+    'writes_after_debounce': list(save_calls),
+    'focused': bar._surface.focusWidget() is slider,
+    'enabled_at_boundary': slider.isEnabled(),
 }
-set_master_volume(99)
+
+# Wheel input is ignored until the slider itself has explicit keyboard focus.
+set_master_volume(50)
 bar.refresh_state()
-QTest.mouseClick(
-    bar.volume_increase_button, Qt.MouseButton.LeftButton)
-upper_clamp = {
-    'value': config.data['general']['master_volume'],
-    'increase_enabled': bar.volume_increase_button.isEnabled(),
+bar._volume_save_timer.stop()
+bar._settings_button.setFocus(Qt.FocusReason.TabFocusReason)
+app.processEvents()
+wheel_pos = QPointF(slider.rect().center())
+wheel_global = QPointF(slider.mapToGlobal(slider.rect().center()))
+unfocused_wheel = QWheelEvent(
+    wheel_pos, wheel_global, QPoint(), QPoint(0, 120),
+    Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+    Qt.ScrollPhase.ScrollUpdate, False)
+QApplication.sendEvent(slider, unfocused_wheel)
+wheel_unfocused_value = slider.value()
+focus_header_control(slider)
+focused_wheel = QWheelEvent(
+    wheel_pos, wheel_global, QPoint(), QPoint(0, 120),
+    Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+    Qt.ScrollPhase.ScrollUpdate, False)
+QApplication.sendEvent(slider, focused_wheel)
+wheel_guard = {
+    'unfocused': wheel_unfocused_value,
+    'focused_changed': slider.value() != wheel_unfocused_value,
 }
-set_master_volume(1)
-bar.refresh_state()
-QTest.keyClick(bar.volume_decrease_button, Qt.Key.Key_Space)
-lower_clamp = {
-    'value': config.data['general']['master_volume'],
-    'decrease_enabled': bar.volume_decrease_button.isEnabled(),
-}
+
+# External Settings refresh updates both value and readout without feeding a
+# save back through the slider.
+bar._volume_save_timer.stop()
+save_calls.clear()
 set_master_volume(65)
 app._signals['settings'].config_updated.emit()
 app.processEvents()
 volume_resynced = {
+    'value': slider.value(),
     'text': bar.volume_value_label.text(),
     'label_name': bar.volume_value_label.accessibleName(),
-    'decrease_name': bar.volume_decrease_button.accessibleName(),
-    'increase_name': bar.volume_increase_button.accessibleName(),
-    'decrease_tooltip': bar.volume_decrease_button.toolTip(),
-    'increase_tooltip': bar.volume_increase_button.toolTip(),
-    'keyboard_focusable': (
-        bar.volume_decrease_button.focusPolicy() != Qt.FocusPolicy.NoFocus and
-        bar.volume_increase_button.focusPolicy() != Qt.FocusPolicy.NoFocus),
+    'writes': list(save_calls),
+    'muted': audio_muted(),
 }
+config.save = real_config_save
 
-def focus_header_button(button):
-    bar.activateWindow()
-    bar._scale_scene.setFocusItem(bar._scale_proxy)
-    button.setFocus(Qt.FocusReason.TabFocusReason)
-    app.processEvents()
-    return bar._surface.focusWidget()
-
-# A final step must not strand keyboard focus on the button that becomes
-# disabled at the volume boundary.
-set_master_volume(1)
-bar.refresh_state()
-lower_focus_before = focus_header_button(bar.volume_decrease_button)
-bar._adjust_master_volume(-5)
-app.processEvents()
-lower_focus_after = bar._surface.focusWidget()
-set_master_volume(99)
-bar.refresh_state()
-upper_focus_before = focus_header_button(bar.volume_increase_button)
-bar._adjust_master_volume(5)
-app.processEvents()
-upper_focus_after = bar._surface.focusWidget()
-boundary_focus = {
-    'lower_before': lower_focus_before is bar.volume_decrease_button,
-    'lower_after': lower_focus_after is bar.volume_increase_button,
-    'upper_before': upper_focus_before is bar.volume_increase_button,
-    'upper_after': upper_focus_after is bar.volume_decrease_button,
-}
-
-# When the composite rocker moves into overflow, remember the focused child,
-# not its non-focusable QFrame. If that child becomes disabled while hidden,
-# restore its enabled sibling and never strand focus on the hidden More button.
-set_master_volume(50)
-bar.refresh_state()
+# When the composite slider moves into overflow, remember and restore the
+# focused slider itself. The overflow menu supplies the same native control.
 original_design = QSize(bar._design_size)
 original_logical_width = bar._logical_surface_width
-focus_header_button(bar.volume_increase_button)
+focus_header_control(slider)
 bar._design_size = QSize(180, original_design.height())
 bar._logical_surface_width = 180
 bar._pack_header_controls()
+bar._overflow_volume_slider.setValue(72)
+app.processEvents()
+overflow_live_value = {
+    'master': config.data['general']['master_volume'],
+    'header': slider.value(),
+    'overflow': bar._overflow_volume_slider.value(),
+    'label': bar.volume_value_label.text(),
+}
+bar._volume_save_timer.stop()
 overflow_focus = {
     'rocker_hidden': bar.volume_rocker.isHidden(),
     'overflow_visible': bar._header_overflow_button.isVisible(),
-    'saved_child': bar._header_focus_restore is bar.volume_increase_button,
+    'saved_child': bar._header_focus_restore is slider,
+    'overflow_slider': (
+        bar._overflow_volume_slider is not None and
+        bar._overflow_volume_slider.accessibleName() ==
+        'Notification volume'),
+    'live_value': overflow_live_value,
+    'menu_action_count': len(bar._header_overflow_menu.actions()),
+    'volume_widget_actions': sum(
+        isinstance(action, QWidgetAction) and
+        action.defaultWidget() is not None
+        for action in bar._header_overflow_menu.actions()),
+    'empty_actions': sum(
+        not action.text().strip() and
+        (not isinstance(action, QWidgetAction) or
+         action.defaultWidget() is None)
+        for action in bar._header_overflow_menu.actions()),
     'tab_order': [
         bar._button.nextInFocusChain() is bar._header_overflow_button,
         bar._header_overflow_button.nextInFocusChain() is
@@ -188,35 +290,68 @@ overflow_focus = {
         bar._roll_button.nextInFocusChain() is bar._minimize_button,
     ],
 }
+
+# Open the actual QMenu and exercise its embedded QWidgetAction by keyboard.
+# The about-to-show focus transfer must put the real focus widget on the
+# native slider before any key is sent.
+menu_keyboard = {}
+def exercise_overflow_menu():
+    control = bar._overflow_volume_slider
+    menu_keyboard['menu_visible'] = bar._header_overflow_menu.isVisible()
+    menu_keyboard['focus_proxy'] = (
+        bar._header_overflow_menu.focusProxy() is control)
+    QTest.keyClick(bar._header_overflow_menu, Qt.Key.Key_Tab)
+    menu_keyboard['tab_focus_requested'] = (
+        control._last_focus_reason == Qt.FocusReason.TabFocusReason)
+    QTest.keyClick(bar._header_overflow_menu, Qt.Key.Key_Home)
+    home = control.value()
+    QTest.keyClick(bar._header_overflow_menu, Qt.Key.Key_PageUp)
+    page_up = control.value()
+    QTest.keyClick(bar._header_overflow_menu, Qt.Key.Key_Right)
+    arrow = control.value()
+    QTest.keyClick(bar._header_overflow_menu, Qt.Key.Key_End)
+    end = control.value()
+    QTest.keyClick(bar._header_overflow_menu, Qt.Key.Key_PageDown)
+    page_down = control.value()
+    menu_keyboard['values'] = [home, page_up, arrow, end, page_down]
+    menu_keyboard['menu_stayed_open'] = (
+        bar._header_overflow_menu.isVisible())
+    bar._header_overflow_menu.close()
+
+set_master_volume(50)
+bar.refresh_state()
+bar._header_overflow_menu.popup(
+    bar._header_overflow_button.mapToGlobal(
+        bar._header_overflow_button.rect().bottomLeft()))
+QTest.qWait(35)
+app.processEvents()
+exercise_overflow_menu()
+QTest.qWait(220)
+app.processEvents()
+menu_keyboard['saved'] = config.data['general']['master_volume']
+overflow_focus['keyboard_menu'] = menu_keyboard
+
 bar._scale_scene.setFocusItem(bar._scale_proxy)
 bar._header_overflow_button.setFocus(Qt.FocusReason.TabFocusReason)
 set_master_volume(100)
 bar.refresh_state()
 app.processEvents()
 overflow_focus.update({
-    'disabled_child_redirected': (
-        bar._header_focus_restore is bar.volume_decrease_button),
-    'increase_disabled': not bar.volume_increase_button.isEnabled(),
+    'saved_child_unchanged': bar._header_focus_restore is slider,
+    'overflow_value': bar._overflow_volume_slider.value(),
     'overflow_kept_focus': (
         bar._surface.focusWidget() is bar._header_overflow_button),
 })
-# Also exercise ParserWindow's safety net with a deliberately stale disabled
-# child, as another composite header control may not proactively redirect it.
-bar._header_focus_restore = bar.volume_increase_button
 bar._design_size = original_design
 bar._logical_surface_width = original_logical_width
 bar._pack_header_controls()
 app.processEvents()
 overflow_focus.update({
     'rocker_restored': bar.volume_rocker.isVisible(),
-    'focus_restored': (
-        bar._surface.focusWidget() is bar.volume_decrease_button),
+    'focus_restored': bar._surface.focusWidget() is slider,
     'restored_tab_order': [
-        bar._button.nextInFocusChain() is bar.volume_decrease_button,
-        bar.volume_decrease_button.nextInFocusChain() is
-        bar.volume_increase_button,
-        bar.volume_increase_button.nextInFocusChain() is
-        bar._settings_button,
+        bar._button.nextInFocusChain() is slider,
+        slider.nextInFocusChain() is bar._settings_button,
         bar._settings_button.nextInFocusChain() is bar._roll_button,
         bar._roll_button.nextInFocusChain() is bar._minimize_button,
     ],
@@ -291,6 +426,7 @@ app.processEvents()
 menu, actions = bar._build_window_context_menu()
 buttons_only = {
     'header_visible': bar._menu.isVisible(),
+    'volume_visible': bar.volume_rocker.isVisible(),
     'height': bar._design_size.height(),
     'window_height': bar.height(),
     'show_header_checked': actions['quickbar_header'].isChecked(),
@@ -332,10 +468,11 @@ vertical = {
     'volume_visible': bar.volume_rocker.isVisible(),
 }
 
-settings = app._settings
-settings.select_section('Quick Bar')
+settings = app.show_feature_settings('Quick Bar', owner=bar)
 settings_page = {
     'selected': settings._list_widget.currentItem().text(),
+    'dedicated': settings._scoped_section == 'Quick Bar',
+    'navigation_hidden': not settings._list_widget.isVisible(),
     'orientation_control': settings._widget_stack.findChild(
         type(settings._section_combo), 'quickbar:orientation') is not None,
     'header_control': settings._widget_stack.findChild(
@@ -353,20 +490,40 @@ settings_page = {
             f'quickbar:show_{key}') is not None
         for key in QUICKBAR_ITEM_KEYS),
 }
+global_settings = app._settings
 bar._trigger('settings')
 app.processEvents()
 settings_open = {
-    'visible': settings.isVisible(),
+    'visible': global_settings.isVisible(),
     'checked': bar._buttons['settings'].isChecked(),
     'dot': bar._enabled_dots['settings'].isVisible(),
 }
 bar._trigger('settings')
 app.processEvents()
 settings_closed = {
-    'visible': settings.isVisible(),
+    'visible': global_settings.isVisible(),
     'checked': bar._buttons['settings'].isChecked(),
     'dot': bar._enabled_dots['settings'].isVisible(),
 }
+muted_before_sound_center = audio_muted()
+bar._trigger('mute')
+app.processEvents()
+sound_center = app._feature_settings_instances['Sounds']
+sound_center_state = {
+    'visible': sound_center.isVisible(),
+    'section': sound_center._list_widget.currentItem().text(),
+    'sections': sound_center._list_widget.count(),
+    'navigation_hidden': not sound_center._list_widget.isVisible(),
+    'button_name': bar._buttons['mute'].accessibleName(),
+    'button_checked': bar._buttons['mute'].isChecked(),
+    'dot': bar._enabled_dots['mute'].isVisible(),
+    'mute_unchanged': audio_muted() == muted_before_sound_center,
+}
+sound_center.reject()
+QTest.qWait(20)
+app.processEvents()
+sound_center_state['focus_restored'] = (
+    bar._surface.focusWidget() is bar._buttons['mute'])
 
 print(json.dumps({
     'initial': initial,
@@ -379,6 +536,7 @@ print(json.dumps({
     'settings': settings_page,
     'settings_open': settings_open,
     'settings_closed': settings_closed,
+    'sound_center': sound_center_state,
     'support_calls': support_calls,
     'reload_calls': reload_calls,
     'online_log': online_log,
@@ -386,12 +544,11 @@ print(json.dumps({
     'disconnected_log': disconnected_log,
     'update_ready': update_ready,
     'volume_from_settings': volume_from_settings,
+    'pointer_during_drag': pointer_during_drag,
     'volume_after_pointer': volume_after_pointer,
     'volume_after_keyboard': volume_after_keyboard,
-    'upper_clamp': upper_clamp,
-    'lower_clamp': lower_clamp,
+    'wheel_guard': wheel_guard,
     'volume_resynced': volume_resynced,
-    'boundary_focus': boundary_focus,
     'overflow_focus': overflow_focus,
 }))
 app.quit()
@@ -771,58 +928,99 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
     assert initial['volume_visible'] is True
     assert initial['volume_priority'] == 100
     assert initial['volume_compact'] is True
-    assert initial['volume_button_sizes'] == [[24, 24], [24, 24]]
-    assert initial['header_tab_order'] == [True] * 5
-    assert result['volume_from_settings'] == {
-        'text': '50%',
-        'name': 'Notification volume, 50 percent',
+    assert initial['volume_control_size'][0] <= 130
+    assert initial['volume_control_size'][1] == 24
+    assert 64 <= initial['volume_slider_size'][0] <= 82
+    assert initial['volume_slider_size'][1] == 24
+    semantics = initial['volume_semantics']
+    assert semantics['label_width'] >= semantics['label_required']
+    assert all(ratio >= 3.0 for ratio in semantics['contrast'])
+    assert {
+        key: value for key, value in semantics.items()
+        if key not in {'label_width', 'label_required', 'contrast'}
+    } == {
+        'native': True,
+        'horizontal': True,
+        'range': [0, 100],
+        'steps': [1, 10],
+        'name': 'Notification volume',
         'description': (
-            'Use the decrease and increase buttons to change every WAV and '
-            'spoken notification without changing Master Mute'),
+            'Scales every WAV and text to speech notification. Master Mute '
+            'is a separate control.'),
+        'role_slider': True,
+        'focusable': True,
+        'label_focusable': False,
+        'focus_style': True,
     }
-    assert result['volume_after_pointer'] == {
-        'value': 55,
-        'text': '55%',
-        'muted': False,
-    }
-    assert result['volume_after_keyboard'] == {
+    assert initial['header_tab_order'] == [True] * 4
+    assert result['volume_from_settings'] == {
         'value': 50,
         'text': '50%',
+        'name': 'Notification volume',
+        'description': (
+            'Scales every WAV and text to speech notification. Master Mute '
+            'is a separate control.'),
     }
-    assert result['upper_clamp'] == {
-        'value': 100,
-        'increase_enabled': False,
+    assert result['pointer_during_drag']['value'] > 50
+    assert result['pointer_during_drag']['writes'] == []
+    pointer = result['volume_after_pointer']
+    assert pointer['live_value'] == pointer['saved_value']
+    assert pointer['live_value'] == result['pointer_during_drag']['value']
+    assert pointer['text'] == f"{pointer['live_value']}%"
+    assert pointer['muted'] is True
+    assert pointer['writes'] == [pointer['live_value']]
+    assert result['volume_after_keyboard'] == {
+        'home': 0,
+        'page_up': 10,
+        'page_down': 0,
+        'right': 11,
+        'end': 100,
+        'text': '100%',
+        'writes_before_debounce': [],
+        'writes_after_debounce': [100],
+        'focused': True,
+        'enabled_at_boundary': True,
     }
-    assert result['lower_clamp'] == {
-        'value': 0,
-        'decrease_enabled': False,
+    assert result['wheel_guard'] == {
+        'unfocused': 50,
+        'focused_changed': True,
     }
     assert result['volume_resynced'] == {
+        'value': 65,
         'text': '65%',
-        'label_name': 'Notification volume, 65 percent',
-        'decrease_name': 'Decrease notification volume',
-        'increase_name': 'Increase notification volume',
-        'decrease_tooltip': 'Decrease notification volume by 5%',
-        'increase_tooltip': 'Increase notification volume by 5%',
-        'keyboard_focusable': True,
-    }
-    assert result['boundary_focus'] == {
-        'lower_before': True,
-        'lower_after': True,
-        'upper_before': True,
-        'upper_after': True,
+        'label_name': '65 percent',
+        'writes': [],
+        'muted': False,
     }
     assert result['overflow_focus'] == {
         'rocker_hidden': True,
         'overflow_visible': True,
         'saved_child': True,
+        'overflow_slider': True,
+        'live_value': {
+            'master': 72,
+            'header': 72,
+            'overflow': 72,
+            'label': '72%',
+        },
+        'menu_action_count': 1,
+        'volume_widget_actions': 1,
+        'empty_actions': 0,
         'tab_order': [True] * 4,
-        'disabled_child_redirected': True,
-        'increase_disabled': True,
+        'keyboard_menu': {
+            'menu_visible': True,
+            'focus_proxy': True,
+            'tab_focus_requested': True,
+            'values': [0, 10, 11, 100, 90],
+            'menu_stayed_open': True,
+            'saved': 90,
+        },
+        'saved_child_unchanged': True,
+        'overflow_value': 100,
         'overflow_kept_focus': True,
         'rocker_restored': True,
         'focus_restored': True,
-        'restored_tab_order': [True] * 5,
+        'restored_tab_order': [True] * 4,
     }
     assert result['online_log']['status'] == 'online'
     assert result['online_log']['online'] is True
@@ -856,6 +1054,7 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
     assert result['tick_readout']['progress'] == 1000
     assert 'click to toggle' in result['tick_readout']['tooltip']
     assert result['buttons_only']['header_visible'] is False
+    assert result['buttons_only']['volume_visible'] is False
     assert result['buttons_only']['height'] < result['header_height']
     assert result['buttons_only']['window_height'] <= \
         result['buttons_only']['height'] + 1
@@ -884,6 +1083,8 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
     assert vertical['volume_visible'] is False
     assert result['settings'] == {
         'selected': 'Quick Bar',
+        'dedicated': True,
+        'navigation_hidden': True,
         'orientation_control': True,
         'header_control': True,
         'tick_control': True,
@@ -899,6 +1100,17 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
         'visible': False,
         'checked': False,
         'dot': False,
+    }
+    assert result['sound_center'] == {
+        'visible': True,
+        'section': 'Sounds',
+        'sections': 1,
+        'navigation_hidden': True,
+        'button_name': 'Sounds',
+        'button_checked': True,
+        'dot': True,
+        'mute_unchanged': True,
+        'focus_restored': True,
     }
 
 

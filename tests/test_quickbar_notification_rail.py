@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 SCRIPT = r"""
 import json
+from PySide6.QtTest import QTest
 from vantage.helpers import config
 from vantage.helpers.application import VantageApp
 
@@ -93,6 +94,30 @@ reduced = {
     'clear_pending': rail._clear_timer.isActive(),
 }
 
+# Long combat summaries get a bounded dwell and then fade instead of
+# occupying the Quick Bar for the duration of an entire marquee pass.
+rail._clear()
+config.data['general']['reduce_motion'] = False
+app._queue_quickbar_notice(
+    'Combat parse · 12,345 DPS · a deliberately long encounter summary',
+    channel='combat')
+app.processEvents()
+combat_before_fade = {
+    'channel': rail._channel.text(),
+    'visible': rail._label.isVisible(),
+    'expiry_pending': rail._clear_timer.isActive(),
+    'fade_enabled': rail._fade_on_expire,
+}
+rail._fade_animation.setDuration(1)
+rail._expire_current()
+QTest.qWait(80)
+app.processEvents()
+combat_after_fade = {
+    'visible': rail._label.isVisible(),
+    'scrolling': rail._scroll_timer.isActive(),
+    'opacity_reset': rail._opacity_effect.opacity() == 1.0,
+}
+
 rail._clear()
 bar.hide()
 app._queue_quickbar_notice('Must not replay')
@@ -123,6 +148,8 @@ print(json.dumps({
     'cleared': cleared,
     'not_replayed': not_replayed,
     'reduced': reduced,
+    'combat_before_fade': combat_before_fade,
+    'combat_after_fade': combat_after_fade,
     'hidden_consumed': hidden_consumed,
     'hidden_replayed': hidden_replayed,
     'vertical': vertical,
@@ -170,12 +197,23 @@ def test_quickbar_notification_rail_shows_one_event_then_clears(tmp_path):
         'scrolling': False,
         'clear_pending': True,
     }
+    assert result['combat_before_fade'] == {
+        'channel': 'COMBAT',
+        'visible': True,
+        'expiry_pending': True,
+        'fade_enabled': True,
+    }
+    assert result['combat_after_fade'] == {
+        'visible': False,
+        'scrolling': False,
+        'opacity_reset': True,
+    }
     assert result['hidden_consumed'] == {
         'text_visible': False,
         'scrolling': False,
         'clear_pending': False,
-        # All four visible notices announced; the hidden notice did not.
-        'announcement_count': 4,
+        # All five visible notices announced; the hidden notice did not.
+        'announcement_count': 5,
     }
     assert result['hidden_replayed'] is False
     assert result['vertical'] == {

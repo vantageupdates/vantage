@@ -194,6 +194,14 @@ def test_mobile_page_accessibility_updates_preserve_the_private_session():
         " Showing saved data while Vantage reconnects. If its private"
         " address changed, scan the new QR.',true" not in _MOBILE_PAGE)
     assert "syncGuildOptions(guildData)" in _MOBILE_PAGE
+    assert "function announceGuild(text,deferred=false)" in _MOBILE_PAGE
+    assert "setTimeout(()=>announce(guildStatus,text),500)" in _MOBILE_PAGE
+    assert "renderGuild(true)" in _MOBILE_PAGE
+    assert "announceGuild(message,deferAnnouncement)" in _MOBILE_PAGE
+    assert "announceGuild('Loading DKP and guild records…')" in _MOBILE_PAGE
+    assert "Open guild sheet '+String(item.name||'')+" in _MOBILE_PAGE
+    assert "border:1px solid #68727b" in _MOBILE_PAGE
+    assert "border:1px solid #596169" not in _MOBILE_PAGE
     assert "pendingZone||data.selected" in _MOBILE_PAGE
     assert "function stableReplace" in _MOBILE_PAGE
     assert "contains(document.activeElement)" in _MOBILE_PAGE

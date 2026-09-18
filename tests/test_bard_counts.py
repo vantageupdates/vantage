@@ -72,7 +72,7 @@ config.data['spells']['bard_count_enabled'] = True
 config.data['spells']['bard_count_overlay'] = False
 config.data['spells']['bard_count_audio'] = False
 spells._bard_config_updated()
-app._settings._set_values()
+spell_settings = app.show_feature_settings('Buffs & Triggers', owner=spells)
 stamp = datetime.datetime(2026, 8, 30, 12, 0, 0)
 for index in range(5):
     spells.parse(stamp, f'A death beetle {index} winces.')
@@ -85,7 +85,7 @@ names = {
     'spells:bard_count_enabled', 'spells:bard_count_overlay',
     'spells:bard_count_audio'}
 checks = [
-    widget for widget in app._settings.scaled_surface.findChildren(QCheckBox)
+    widget for widget in spell_settings.scaled_surface.findChildren(QCheckBox)
     if widget.objectName() in names]
 print(json.dumps({
     'visible': spells._bard_group.isVisible(),

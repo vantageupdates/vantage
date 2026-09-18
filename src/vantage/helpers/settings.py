@@ -2,7 +2,8 @@ import csv
 import functools
 import re
 
-from PySide6.QtCore import Qt, QObject, QSize, Signal, QStringListModel
+from PySide6.QtCore import (
+    QEvent, Qt, QObject, QSize, QTimer, Signal, QStringListModel)
 from PySide6.QtGui import QColor, QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QFormLayout, QFrame,
                              QHeaderView, QHBoxLayout, QLabel, QListWidget,
@@ -10,7 +11,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QFormLayou
                              QDoubleSpinBox, QSlider, QSpinBox, QStackedWidget,
                              QPushButton,
                              QSplitter, QTableWidget, QTableWidgetItem,
-                             QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
+                             QTabBar, QTabWidget, QToolButton, QTreeWidget,
+                             QTreeWidgetItem,
                              QTreeWidgetItemIterator, QVBoxLayout,
                              QWidget, QComboBox, QLineEdit,
                              QMessageBox, QColorDialog, QApplication, QFileDialog,
@@ -247,11 +249,14 @@ class GinaImportPreviewDialog(UniformScaleDialog):
 
 class SettingsWindow(UniformScaleDialog):
 
-    def __init__(self):
+    def __init__(self, section=None, parent=None):
         super().__init__(
-            QSize(720, 520), minimum_size=QSize(216, 156),
+            QSize(720, 520), parent, minimum_size=QSize(216, 156),
             initial_size=QSize(612, 442))
-        self.setWindowTitle('Vantage · Settings')
+        self._scoped_section = str(section or '').strip()
+        self.setWindowTitle(
+            f'Vantage · {self._scoped_section} Settings'
+            if self._scoped_section else 'Vantage · Settings')
         self._master_volume_before_edit = master_volume()
         self._settings_saved = False
 
@@ -299,7 +304,18 @@ class SettingsWindow(UniformScaleDialog):
                 'Sharing': 'spawn', 'Appearance': 'compact',
                 'Quick Bar': 'compact',
             }
+            visible_sections = (
+                {self._scoped_section} if self._scoped_section else
+                {'General', 'Sounds', 'Sharing', 'Appearance'})
+            self._visible_sections = set(visible_sections)
             for setting_name, stacked_widget in settings:
+                if setting_name not in visible_sections:
+                    # _create_settings also registers route/trigger controls
+                    # used by save/preview helpers. Keep excluded pages alive
+                    # without exposing them in this scoped window.
+                    stacked_widget.setParent(self.scaled_surface)
+                    stacked_widget.hide()
+                    continue
                 item = QListWidgetItem(game_icon(
                     section_icons.get(setting_name, 'settings')), setting_name)
                 item.setToolTip(f'Open the {setting_name} settings section')
@@ -314,10 +330,23 @@ class SettingsWindow(UniformScaleDialog):
                 page_layout = stacked_widget.layout()
                 if isinstance(page_layout, QFormLayout):
                     polish_form(page_layout)
-                self._widget_stack.addWidget(scrollable(
-                    stacked_widget, 'SettingsPageScroll'))
+                page_scroll = scrollable(
+                    stacked_widget, 'SettingsPageScroll')
+                page_scroll.setAccessibleName(f'{setting_name} settings')
+                page_scroll.setAccessibleDescription(
+                    f'Scrollable {setting_name} settings page')
+                self._widget_stack.addWidget(page_scroll)
 
             self._list_widget.setCurrentRow(0)
+            if self._scoped_section:
+                self.select_section(self._scoped_section)
+                # A feature-owned settings surface shows only that feature;
+                # it is not a disguised route back into the global settings
+                # directory. Save/Cancel and the complete page stay intact.
+                self._list_widget.hide()
+                self._section_combo.hide()
+                self._widget_stack.setAccessibleName(
+                    f'{self._scoped_section} settings')
         self._list_widget.setMaximumWidth(
             self._list_widget.minimumSizeHint().width())
 
@@ -327,26 +356,35 @@ class SettingsWindow(UniformScaleDialog):
         buttons.setObjectName('SettingsButtons')
         buttons_layout = QHBoxLayout()
         buttons_layout.setContentsMargins(0, 0, 0, 0)
-        save_button = QPushButton('Save')
-        save_button.setObjectName('PrimaryAction')
-        save_button.setIcon(game_icon('spawn'))
-        save_button.setAutoDefault(False)
-        save_button.setAccessibleName('Save Vantage settings')
-        save_button.setToolTip('Save every changed setting and close this window')
-        save_button.clicked.connect(self._save)
-        buttons_layout.addWidget(save_button)
-        cancel_button = QPushButton('Cancel')
-        cancel_button.setAutoDefault(False)
-        cancel_button.setAccessibleName('Cancel Vantage settings')
-        cancel_button.setToolTip('Discard unsaved changes and close this window')
-        cancel_button.clicked.connect(self._cancelled)
-        buttons_layout.addWidget(cancel_button)
+        self._save_button = QPushButton('Save')
+        self._save_button.setObjectName('PrimaryAction')
+        self._save_button.setIcon(game_icon('spawn'))
+        self._save_button.setAutoDefault(False)
+        self._save_button.setAccessibleName('Save Vantage settings')
+        self._save_button.setToolTip(
+            'Save every changed setting and close this window')
+        self._save_button.clicked.connect(self._save)
+        buttons_layout.addWidget(self._save_button)
+        self._cancel_button = QPushButton('Cancel')
+        self._cancel_button.setAutoDefault(False)
+        self._cancel_button.setAccessibleName('Cancel Vantage settings')
+        self._cancel_button.setToolTip(
+            'Discard unsaved changes and close this window')
+        self._cancel_button.clicked.connect(self._cancelled)
+        buttons_layout.addWidget(self._cancel_button)
         buttons_layout.insertStretch(0)
         buttons.setLayout(buttons_layout)
         layout.addLayout(top_layout, 1)
         layout.addWidget(buttons, 0)
 
         self.scaled_surface.setLayout(layout)
+
+        if self._scoped_section:
+            self._scoped_focus_controls = self._scoped_page_controls()
+            for control in self._scoped_focus_controls:
+                control.installEventFilter(self)
+        else:
+            self._scoped_focus_controls = []
 
         self._set_values()
 
@@ -376,40 +414,43 @@ class SettingsWindow(UniformScaleDialog):
                 hexcolor = hex(widget.currentColor().rgb()).replace('0xff', '#')
                 config.data[key1][key2] = hexcolor
         trigger_sounds_changed = False
-        custom_timers = config.data.get('spells', {}).get('custom_timers', [])
-        for item_index, field_index, combo in self._trigger_sound_routes:
-            if item_index >= len(custom_timers):
-                continue
-            item = custom_timers[item_index]
-            if not isinstance(item, list):
-                continue
-            while len(item) <= field_index:
-                item.append('')
-            selected = str(combo.currentData() or '')
-            if item[field_index] != selected:
-                item[field_index] = selected
-                trigger_sounds_changed = True
-        for route_key, delivery, picker in self._notification_route_widgets:
-            route = NOTIFICATION_ROUTES[route_key]
-            current = normalized_route_settings(
-                config.data.get('sounds', {}).get('routes', {}).get(route_key),
-                route)
-            current['delivery'] = str(delivery.currentData() or 'off')
-            if current['delivery'] == 'sound':
-                current['sound'] = str(picker.currentData() or '')
-            elif current['delivery'] == 'voice':
-                current['voice'] = str(picker.currentData() or '')
-            config.data.setdefault('sounds', {}).setdefault(
-                'routes', {})[route_key] = current
-        config.data.setdefault('sounds', {})['starting_delivery'] = str(
-            self.audio_starting_style.currentData() or 'sound')
-        for route_key, legacy_key in (
-                ('smart_timer', 'timer_default'),
-                ('raid_encounter', 'raid_encounter'),
-                ('market_sale', 'market_sale'),
-                ('death_loop', 'safety_alert')):
-            config.data['sounds'][legacy_key] = \
-                config.data['sounds']['routes'][route_key]['sound']
+        if 'Buffs & Triggers' in self._visible_sections:
+            custom_timers = config.data.get(
+                'spells', {}).get('custom_timers', [])
+            for item_index, field_index, combo in self._trigger_sound_routes:
+                if item_index >= len(custom_timers):
+                    continue
+                item = custom_timers[item_index]
+                if not isinstance(item, list):
+                    continue
+                while len(item) <= field_index:
+                    item.append('')
+                selected = str(combo.currentData() or '')
+                if item[field_index] != selected:
+                    item[field_index] = selected
+                    trigger_sounds_changed = True
+        if 'Sounds' in self._visible_sections:
+            for route_key, delivery, picker in self._notification_route_widgets:
+                route = NOTIFICATION_ROUTES[route_key]
+                current = normalized_route_settings(
+                    config.data.get('sounds', {}).get(
+                        'routes', {}).get(route_key), route)
+                current['delivery'] = str(delivery.currentData() or 'off')
+                if current['delivery'] == 'sound':
+                    current['sound'] = str(picker.currentData() or '')
+                elif current['delivery'] == 'voice':
+                    current['voice'] = str(picker.currentData() or '')
+                config.data.setdefault('sounds', {}).setdefault(
+                    'routes', {})[route_key] = current
+            config.data.setdefault('sounds', {})['starting_delivery'] = str(
+                self.audio_starting_style.currentData() or 'sound')
+            for route_key, legacy_key in (
+                    ('smart_timer', 'timer_default'),
+                    ('raid_encounter', 'raid_encounter'),
+                    ('market_sale', 'market_sale'),
+                    ('death_loop', 'safety_alert')):
+                config.data['sounds'][legacy_key] = \
+                    config.data['sounds']['routes'][route_key]['sound']
         config.save()
         set_audio_muted(config.data['general'].get('audio_muted', False))
         set_master_volume(config.data['general'].get('master_volume', 100))
@@ -434,6 +475,82 @@ class SettingsWindow(UniformScaleDialog):
         self._settings_saved = False
         self._set_values()
         super().showEvent(event)
+        if self._scoped_section:
+            QTimer.singleShot(0, self._focus_scoped_page)
+        else:
+            QTimer.singleShot(
+                0, lambda: self._list_widget.setFocus(
+                    Qt.FocusReason.ShortcutFocusReason))
+
+    def _focus_scoped_page(self):
+        """Give a feature-owned settings window an immediate named target."""
+        current = self.scaled_surface.focusWidget()
+        if current is not None:
+            current.clearFocus()
+        self._dialog_view.setAccessibleName(
+            f'{self._scoped_section} settings')
+        self._dialog_view.setAccessibleDescription(
+            f'Feature settings window for {self._scoped_section}')
+        self._dialog_view.setFocus(Qt.FocusReason.ShortcutFocusReason)
+
+    def _first_scoped_control(self):
+        """Return the first usable control inside the one visible page."""
+        page = self._widget_stack.currentWidget()
+        if page is None:
+            return None
+        candidate = page.nextInFocusChain()
+        visited = set()
+        while candidate is not page and id(candidate) not in visited:
+            visited.add(id(candidate))
+            if (page.isAncestorOf(candidate) and candidate.isVisibleTo(page)
+                    and candidate.isEnabled()
+                    and candidate.focusPolicy() != Qt.FocusPolicy.NoFocus):
+                return candidate
+            candidate = candidate.nextInFocusChain()
+        return page
+
+    def _scoped_page_controls(self):
+        """Build the visible page's logical keyboard cycle."""
+        page = self._widget_stack.currentWidget()
+        if page is None:
+            return [self._save_button, self._cancel_button]
+        controls = []
+        candidate = page.nextInFocusChain()
+        visited = set()
+        while candidate is not page and id(candidate) not in visited:
+            visited.add(id(candidate))
+            parent = candidate.parentWidget()
+            internal_editor = (
+                isinstance(candidate, QLineEdit) and
+                isinstance(parent, (QSpinBox, QDoubleSpinBox, QComboBox)))
+            if (page.isAncestorOf(candidate) and candidate.isVisibleTo(page)
+                    and candidate.isEnabled()
+                    and candidate.focusPolicy() != Qt.FocusPolicy.NoFocus
+                    and not internal_editor
+                    and not isinstance(candidate, QTabWidget)):
+                controls.append(candidate)
+            candidate = candidate.nextInFocusChain()
+        controls.extend((self._save_button, self._cancel_button))
+        return controls
+
+    def eventFilter(self, watched, event):
+        if (self._scoped_section and event.type() == QEvent.Type.KeyPress
+                and watched in self._scoped_focus_controls):
+            key = event.key()
+            shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            tab = key == Qt.Key.Key_Tab and not shift
+            backtab = key == Qt.Key.Key_Backtab or (
+                key == Qt.Key.Key_Tab and shift)
+            if tab or backtab:
+                index = self._scoped_focus_controls.index(watched)
+                offset = 1 if tab else -1
+                target = self._scoped_focus_controls[
+                    (index + offset) % len(self._scoped_focus_controls)]
+                target.setFocus(
+                    Qt.FocusReason.TabFocusReason if tab else
+                    Qt.FocusReason.BacktabFocusReason)
+                return True
+        return super().eventFilter(watched, event)
 
     def closeEvent(self, _):
         if not self._settings_saved:
@@ -1282,58 +1399,6 @@ class SettingsWindow(UniformScaleDialog):
         csl.addRow('Log visibility', combat_visibility)
         combat_settings.setLayout(csl)
         stacked_widgets.append(('Combat', combat_settings))
-
-        heal_settings = QFrame()
-        hsl = QFormLayout()
-        hsl.addRow(SettingsHeader('COMPLETE HEAL CHAIN'))
-        heal_enabled = QCheckBox()
-        heal_enabled.setObjectName('heals:enabled')
-        heal_enabled.setToolTip(
-            'Parse Complete Heal calls even while the Heal Chain panel is hidden')
-        hsl.addRow('Enable chain monitor', heal_enabled)
-        heal_interval = QSpinBox()
-        heal_interval.setRange(1, 9)
-        heal_interval.setSuffix(' s')
-        heal_interval.setObjectName('heals:interval')
-        heal_interval.setToolTip(
-            'Expected spacing; an in-game !KI1 through !KI9 call updates it')
-        hsl.addRow('Cleric spacing', heal_interval)
-        cast_seconds = QSpinBox()
-        cast_seconds.setRange(1, 20)
-        cast_seconds.setSuffix(' s')
-        cast_seconds.setObjectName('heals:cast_seconds')
-        cast_seconds.setToolTip('Length of the moving Complete Heal cast rail')
-        hsl.addRow('Cast rail length', cast_seconds)
-        hotkey_format = QLineEdit()
-        hotkey_format.setObjectName('heals:hotkey_format')
-        hotkey_format.setPlaceholderText('### - CH - tankname')
-        hotkey_format.setToolTip(
-            'Use ### where the cleric order appears and tankname where the tank appears')
-        hsl.addRow('Announcement format', hotkey_format)
-        format_legend = QLabel(
-            'Required tokens:  ### = cleric order · tankname = heal target\n'
-            'Examples: “AAA - CH - Vulak” or “ST CCC CH -- Dain”')
-        format_legend.setWordWrap(True)
-        format_legend.setObjectName('TriggerTokenLegend')
-        hsl.addRow('Format legend', format_legend)
-        own_marker = QLineEdit()
-        own_marker.setObjectName('heals:own_marker')
-        own_marker.setPlaceholderText('Auto-detect from your own call')
-        own_marker.setMaxLength(3)
-        own_marker.setToolTip(
-            'Optional marker such as AAA; leave empty to learn it from a “You” call')
-        hsl.addRow('Your cleric order', own_marker)
-        notify_turn = QCheckBox()
-        notify_turn.setObjectName('heals:notify_turn')
-        notify_turn.setToolTip('Show a Vantage overlay when your marker is next')
-        hsl.addRow('Alert when you are next', notify_turn)
-        privacy = QLabel(
-            'Local only · reads the linked EQ log · no raid data is sent to an external server.')
-        privacy.setWordWrap(True)
-        privacy.setObjectName('CombatDataNotice')
-        hsl.addRow('Data handling', privacy)
-        heal_settings.setLayout(hsl)
-        stacked_widgets.append(('Heal Chain', heal_settings))
 
         market_settings = QFrame()
         mrsl = QFormLayout()

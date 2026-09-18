@@ -11,6 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = r"""
 import datetime
 import json
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
 from vantage.helpers.application import VantageApp
 
 app = VantageApp([])
@@ -24,6 +26,40 @@ live_text = heals.header_countdown.text()
 heals._set_collapsed(True)
 app.processEvents()
 rolled_visible = heals.header_countdown.isVisibleTo(heals._surface)
+heals._set_collapsed(False)
+heals.show()
+app.processEvents()
+heals._show_inline_settings()
+app.processEvents()
+heal_settings = {
+    'tab': heals.tabs.tabText(heals.tabs.currentIndex()),
+    'same_window': heals.tabs.currentWidget() is heals.settings_tab,
+    'enabled': heals.monitor_enabled.isChecked(),
+    'format': heals.hotkey_format.text(),
+}
+for _ in range(7):
+    QTest.keyClick(app.focusWidget(), Qt.Key.Key_Tab)
+    app.processEvents()
+heal_settings['tab_wrap'] = heals._surface.focusWidget().accessibleName()
+QTest.keyClick(app.focusWidget(), Qt.Key.Key_Backtab)
+app.processEvents()
+heal_settings['backtab_wrap'] = heals._surface.focusWidget().accessibleName()
+combat_settings = app.show_feature_settings(
+    'Combat', owner=app._parsers_dict['combat'])
+app.processEvents()
+dedicated_settings = {
+    'section_count': combat_settings._list_widget.count(),
+    'section': combat_settings._list_widget.currentItem().text(),
+    'navigation_hidden': not combat_settings._list_widget.isVisible(),
+    'title': combat_settings.windowTitle(),
+    'initial_focus': app.focusWidget().accessibleName(),
+    'page_name': combat_settings._widget_stack.currentWidget().accessibleName(),
+}
+for _ in range(6):
+    QTest.keyClick(app.focusWidget(), Qt.Key.Key_Tab)
+    app.processEvents()
+dedicated_settings['tab_wrap'] = \
+    combat_settings.scaled_surface.focusWidget().accessibleName()
 
 headers = {}
 for name, panel in app._parsers_dict.items():
@@ -42,6 +78,8 @@ print(json.dumps({
     'live_text': live_text,
     'rolled_visible': rolled_visible,
     'header_countdown_tooltip': bool(heals.header_countdown.toolTip()),
+    'heal_settings': heal_settings,
+    'dedicated_settings': dedicated_settings,
     'headers': headers,
 }))
 app.quit()
@@ -62,6 +100,21 @@ def test_each_window_has_local_settings_and_heal_timer_stays_in_header(tmp_path)
     assert result['live_text'].endswith('s')
     assert result['rolled_visible'] is True
     assert result['header_countdown_tooltip'] is True
+    assert result['heal_settings'] == {
+        'tab': 'Settings', 'same_window': True, 'enabled': True,
+        'format': '### - CH - tankname',
+        'tab_wrap': 'Toggle window frame',
+        'backtab_wrap': 'Alert when you are next'}
+    assert result['dedicated_settings'] == {
+        'section_count': 1,
+        'section': 'Combat',
+        'navigation_hidden': True,
+        'title': 'Vantage · Combat Settings',
+        'initial_focus': 'Combat settings',
+        'page_name': 'Combat settings',
+        'tab_wrap': (
+            'Finish a fight after this many seconds without visible damage'),
+    }
     assert set(result['headers']) >= {
         'maps', 'spells', 'timers', 'combat', 'heals', 'market', 'tick'}
     assert all(item['settings_tooltip'] for item in result['headers'].values())

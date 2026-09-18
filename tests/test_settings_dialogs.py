@@ -20,6 +20,7 @@ from vantage.parsers.spells import CustomTrigger
 
 app = VantageApp([])
 settings = SettingsWindow()
+trigger_settings = SettingsWindow('Buffs & Triggers')
 preview = GinaImportPreviewDialog([
     CustomTrigger(
         name='Entrance {S}', text='{S} has been entranced.',
@@ -35,7 +36,7 @@ app.processEvents()
 master_volume = settings.master_volume_slider
 master_volume.setValue(40)
 app.processEvents()
-settings._list_widget.setCurrentRow(4)
+settings.select_section('Sounds')
 settings._list_widget.setFocus()
 app.processEvents()
 selected_rect = settings._list_widget.visualItemRect(
@@ -60,11 +61,12 @@ QFileDialog.getOpenFileName = staticmethod(
 settings._choose_notification_sound(timer_sound)
 custom_sound = timer_sound.currentData()
 trigger_saved = None
-if settings._trigger_sound_routes:
-    item_index, field_index, trigger_combo = settings._trigger_sound_routes[0]
+if trigger_settings._trigger_sound_routes:
+    item_index, field_index, trigger_combo = trigger_settings._trigger_sound_routes[0]
     trigger_combo.setCurrentIndex(
         trigger_combo.findData('builtin:arcane-bloom'))
     trigger_saved = [item_index, field_index]
+trigger_settings._save()
 settings._save()
 # Reuse the same SettingsWindow for two more editing sessions. Both ways of
 # dismissing it must restore the value saved by the immediately prior session.
@@ -93,6 +95,9 @@ print(json.dumps({
         config.data['spells']['custom_timers'][trigger_saved[0]][trigger_saved[1]]
         if trigger_saved else ''),
     'settings_stack': settings._widget_stack.count(),
+    'feature_sections': trigger_settings._list_widget.count(),
+    'feature_name': trigger_settings._list_widget.currentItem().text(),
+    'feature_navigation_hidden': not trigger_settings._list_widget.isVisible(),
     'preview_rows': preview.table.rowCount(),
     'selected': [trigger.name for trigger in preview.selected_triggers()],
     'preview_tooltip': bool(preview.table.toolTip()),
@@ -116,6 +121,7 @@ print(json.dumps({
 }))
 preview.close()
 settings.close()
+trigger_settings.close()
 app.quit()
 """
 
@@ -130,8 +136,12 @@ def test_settings_and_gtt_preview_open_as_independent_dialogs(tmp_path):
         check=True, capture_output=True, text=True, timeout=30)
     result = json.loads(completed.stdout.strip().splitlines()[-1])
     assert result['settings_sections'] == result['settings_stack']
-    assert result['settings_sections'] >= 8
-    assert 'Sounds' in result['section_names']
+    assert result['settings_sections'] == 4
+    assert result['section_names'] == [
+        'General', 'Sounds', 'Sharing', 'Appearance']
+    assert result['feature_sections'] == 1
+    assert result['feature_name'] == 'Buffs & Triggers'
+    assert result['feature_navigation_hidden'] is True
     assert result['sound_routes'] >= 5
     assert min(result['sound_choices']) == 21
     assert max(result['sound_choices']) == 22
@@ -146,7 +156,7 @@ def test_settings_and_gtt_preview_open_as_independent_dialogs(tmp_path):
     assert result['settings_spacing'] == 1
     assert result['settings_uniform_rows'] is True
     assert 27 <= result['settings_row_height'] <= 30
-    assert result['settings_page_sync'] == 4
+    assert result['settings_page_sync'] == 1
     # The selected navigation row is a restrained blue-charcoal surface, not
     # the old solid brown form-field treatment.
     red, green, blue = result['settings_selected_center']

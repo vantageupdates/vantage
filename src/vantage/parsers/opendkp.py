@@ -878,7 +878,7 @@ class OpenDKP(ParserWindow):
             return False
         request = QNetworkRequest(QUrl(csv_url))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.102")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.103")
         request.setAttribute(
             QNetworkRequest.Attribute.RedirectPolicyAttribute,
             QNetworkRequest.RedirectPolicy.NoLessSafeRedirectPolicy)
@@ -1501,6 +1501,10 @@ class OpenDKP(ParserWindow):
             "authenticated": bool(self.client.authenticated),
             "loading": self.guild_status.property("state") == "loading",
             "status": status,
+            # A guild roster is the searchable source, not a first-page
+            # preview. Keep every public standing here so Mobile can find a
+            # character even when they sort beyond the first 500 names. The
+            # phone still renders a bounded visible slice after filtering.
             "standings": [{
                 "name": _clean(row.get("CharacterName")),
                 "class": _clean(row.get("CharacterClass")),
@@ -1508,7 +1512,8 @@ class OpenDKP(ParserWindow):
                 "rank": _clean(row.get("CharacterRank")),
                 "dkp": _number(row.get("CurrentDKP"), 1),
                 "attendance": _percent(row.get("Calculated_30")),
-            } for row in standings[:500]],
+            } for row in standings],
+            "standings_total": len(standings),
             "loot": [{
                 "date": _date_text(row.get("Timestamp")),
                 "item": _clean(row.get("ItemName")),

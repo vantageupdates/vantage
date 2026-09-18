@@ -1357,10 +1357,10 @@ class ParserWindow(QWidget):
             opacity_actions[action] = opacity
         menu.addSeparator()
         section = self._settings_section()
-        full_settings = menu.addAction(f"All {section} Settings…")
+        full_settings = menu.addAction(f"Open {section} Settings…")
         full_settings.setIcon(game_icon("settings"))
         full_settings.setToolTip(
-            f"Open the complete {section} settings page")
+            f"Open the dedicated {section} settings window")
         selected = menu.exec(
             self._settings_button.mapToGlobal(
                 self._settings_button.rect().bottomLeft()))
@@ -1389,7 +1389,7 @@ class ParserWindow(QWidget):
         elif selected in opacity_actions:
             self._set_window_opacity(opacity_actions[selected])
         elif selected == full_settings:
-            QApplication.instance().show_settings(section)
+            QApplication.instance().show_feature_settings(section, owner=self)
 
     def _set_always_on_top(self, enabled):
         geometry = self.geometry()

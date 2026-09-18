@@ -58,7 +58,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=102,
+    patch=103,
     build=""
 )
 
@@ -181,6 +181,7 @@ class VantageApp(QApplication):
         self._finish_update_spell_handoff_restore()
         self._splash.step("Preparing lightweight on-demand tools…", 82)
         self._settings_instance = None
+        self._feature_settings_instances = {}
         self._update_dialog_instance = None
         self._log_monitor_dialog_instance = None
         self._update_controller = UpdateController(CURRENT_VERSION, self)
@@ -791,6 +792,9 @@ class VantageApp(QApplication):
             surface = getattr(self, attribute, None)
             if surface is not None and surface not in surfaces:
                 surfaces.append(surface)
+        for surface in self._feature_settings_instances.values():
+            if surface is not None and surface not in surfaces:
+                surfaces.append(surface)
         return surfaces
 
     def _secondary_visibility(self):
@@ -1071,6 +1075,52 @@ class VantageApp(QApplication):
         self._settings.raise_()
         self._settings.activateWindow()
         return self._settings
+
+    def show_feature_settings(self, section, owner=None):
+        """Open one feature-owned settings surface, never the global list."""
+        section = str(section or "Appearance")
+        dialog = self._feature_settings_instances.get(section)
+        if dialog is None:
+            from vantage.helpers.settings import SettingsWindow
+            dialog = SettingsWindow(section=section, parent=owner)
+            dialog.finished.connect(
+                lambda _result, current=dialog:
+                self._restore_feature_settings_focus(current))
+            self._feature_settings_instances[section] = dialog
+        elif owner is not None and dialog.parentWidget() is not owner:
+            # Appearance is shared by more than one tool. Keep the cached
+            # dialog owned by the window that most recently opened it so Qt's
+            # window stack and our explicit focus return agree.
+            dialog.setParent(owner, dialog.windowFlags())
+        dialog._feature_settings_owner = owner
+        dialog._set_values()
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+        return dialog
+
+    def _restore_feature_settings_focus(self, dialog):
+        """Return keyboard focus to the launcher that opened this dialog."""
+        owner = getattr(dialog, "_feature_settings_owner", None)
+        if owner is None:
+            return
+        section = str(getattr(dialog, "_scoped_section", ""))
+        restore_action = getattr(owner, "restore_action_focus", None)
+        if section == "Sounds" and callable(restore_action):
+            restore_action("mute")
+            return
+        launcher = getattr(owner, "_settings_button", None)
+        if launcher is None or not launcher.isEnabled():
+            return
+
+        def restore_launcher():
+            QApplication.setActiveWindow(owner)
+            scale_view = getattr(owner, "_scale_view", None)
+            if scale_view is not None:
+                scale_view.setFocus(Qt.FocusReason.OtherFocusReason)
+            launcher.setFocus(Qt.FocusReason.OtherFocusReason)
+
+        QTimer.singleShot(0, restore_launcher)
 
     def quit_vantage(self, confirm=True, parent=None):
         """Close Vantage after a safe-by-default manual confirmation.

@@ -410,3 +410,26 @@ independent accessibility review: PASS
   GitHub digest:
   `sha256:7ab9386b52d9f01beca9f419e60d13e484b4c927518ac549230de888bbfcec33`.
 - A fresh public download matched the local candidate byte-for-byte.
+
+## 1.44.103 release evidence
+
+- Mobile Guild DKP now searches the complete standings roster instead of the
+  initial display slice. An unfiltered view remains bounded for responsive
+  rendering, while a name search displays every matching member.
+- Guild loading, empty, and result states are announced accessibly; search
+  announcements are debounced for 500 ms while visible filtering remains
+  immediate. Guild source links keep their visible label in the accessible
+  name, and input boundaries meet non-text contrast requirements.
+- Feature settings now live with their owning window. Heal Chain includes its
+  settings in the Heal Chain window, and the Quick Bar Sounds action opens the
+  dedicated sound center without changing mute state.
+- Quick Bar notification volume uses a native slider, combat notices expire,
+  scoped settings have a complete keyboard cycle, and closing Sounds restores
+  focus to the current launcher.
+- Independent accessibility review: **PASS**. Focused verification:
+  **40 passed**.
+- Full automated test suite: **1,524 passed, 2 skipped** in **695.72 seconds**.
+- PyInstaller **6.22.2** one-file build: **PASS**. Portable self-test exited
+  `0`, reporting version `1.44.103`.
+- Candidate `dist/Vantage.exe` size: **75,876,036 bytes**. SHA-256:
+  `2544ED5D8AFDC8C3C9E9B93FDE62BA2F5386EA85B6091A1D5003E3F815CA73E5`.

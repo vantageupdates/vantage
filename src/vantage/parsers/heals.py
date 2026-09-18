@@ -2,11 +2,11 @@
 
 import datetime
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtWidgets import (
-    QApplication, QAbstractItemView, QHeaderView, QLabel, QMessageBox, QProgressBar,
-    QPushButton, QSpinBox, QTabWidget, QTableWidget, QTableWidgetItem,
-    QVBoxLayout, QWidget)
+    QApplication, QAbstractItemView, QCheckBox, QFormLayout, QHeaderView,
+    QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QSpinBox,
+    QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from vantage.helpers import config
 from vantage.helpers.heal_rail import HealRailWidget
@@ -106,10 +106,13 @@ class HealChain(ParserWindow):
         self.tabs.addTab(self.rails, "Rails")
         self.tabs.addTab(self.live, "Live")
         self.tabs.addTab(self.history, "History")
+        self.settings_tab = self._build_settings_tab()
+        self.tabs.addTab(self.settings_tab, "Settings")
         ensure_tab_tooltips(self.tabs, {
             "Rails": "Show each tank's active Complete Heal rotation rail",
             "Live": "Show casts that are active or recently interrupted",
             "History": "Show the bounded Complete Heal session history",
+            "Settings": "Configure this Heal Chain window here",
         })
         self.content.addWidget(self.tabs, 1)
         QWidget.setTabOrder(self._button, self.interval)
@@ -122,12 +125,174 @@ class HealChain(ParserWindow):
         QWidget.setTabOrder(self._settings_button, self._roll_button)
         QWidget.setTabOrder(self._roll_button, self._minimize_button)
         QWidget.setTabOrder(self._minimize_button, self.tabs)
+        QWidget.setTabOrder(self.notify_turn, self._button)
+        self.monitor_enabled.installEventFilter(self)
+        self.notify_turn.installEventFilter(self)
+        self._button.installEventFilter(self)
 
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setInterval(250)
         self._refresh_timer.timeout.connect(self.refresh)
         self._refresh_timer.start()
         self.refresh()
+
+    def _build_settings_tab(self):
+        """Keep every Heal Chain option inside the Heal Chain window."""
+        page = QWidget()
+        page.setObjectName("HealChainSettingsPage")
+        form = QFormLayout(page)
+        form.setContentsMargins(10, 8, 10, 8)
+        form.setSpacing(7)
+
+        self.monitor_enabled = QCheckBox("Read Complete Heal calls")
+        self.monitor_enabled.setAccessibleName("Enable Heal Chain monitor")
+        self.monitor_enabled.setToolTip(
+            "Parse Complete Heal calls even while this panel is hidden")
+        form.addRow("Monitor", self.monitor_enabled)
+
+        self.settings_interval = QSpinBox()
+        self.settings_interval.setRange(1, 9)
+        self.settings_interval.setSuffix(" s")
+        self.settings_interval.setAccessibleName("Cleric spacing")
+        self.settings_interval.setToolTip(
+            "Expected time between clerics; the header control mirrors this")
+        form.addRow("Cleric spacing", self.settings_interval)
+
+        self.cast_seconds = QSpinBox()
+        self.cast_seconds.setRange(1, 20)
+        self.cast_seconds.setSuffix(" s")
+        self.cast_seconds.setAccessibleName("Cast rail length")
+        self.cast_seconds.setToolTip(
+            "Length of the moving Complete Heal cast rail")
+        form.addRow("Cast rail length", self.cast_seconds)
+
+        self.hotkey_format = QLineEdit()
+        self.hotkey_format.setPlaceholderText("### - CH - tankname")
+        self.hotkey_format.setAccessibleName("Heal announcement format")
+        self.hotkey_format.setToolTip(
+            "Use ### for cleric order and tankname for the target")
+        form.addRow("Announcement format", self.hotkey_format)
+
+        self.own_marker = QLineEdit()
+        self.own_marker.setMaxLength(3)
+        self.own_marker.setPlaceholderText("Auto-detect")
+        self.own_marker.setAccessibleName("Your cleric order")
+        self.own_marker.setToolTip(
+            "Optional marker such as AAA; blank learns it from your own call")
+        form.addRow("Your cleric order", self.own_marker)
+
+        self.notify_turn = QCheckBox("Alert when your marker is next")
+        self.notify_turn.setAccessibleName("Alert when you are next")
+        form.addRow("Turn alert", self.notify_turn)
+
+        note = QLabel(
+            "Changes save here immediately. Required format tokens: "
+            "### = cleric order · tankname = heal target.")
+        note.setObjectName("CombatDataNotice")
+        note.setWordWrap(True)
+        form.addRow("", note)
+
+        self._load_embedded_settings()
+        self.monitor_enabled.toggled.connect(self._save_embedded_settings)
+        self.settings_interval.valueChanged.connect(
+            self._settings_interval_changed)
+        self.cast_seconds.valueChanged.connect(self._save_embedded_settings)
+        self.hotkey_format.editingFinished.connect(
+            self._save_embedded_settings)
+        self.own_marker.editingFinished.connect(
+            self._save_embedded_settings)
+        self.notify_turn.toggled.connect(self._save_embedded_settings)
+        return page
+
+    def _load_embedded_settings(self):
+        settings = config.data["heals"]
+        pairs = (
+            (self.monitor_enabled, settings["enabled"]),
+            (self.settings_interval, settings["interval"]),
+            (self.cast_seconds, settings["cast_seconds"]),
+            (self.hotkey_format, settings["hotkey_format"]),
+            (self.own_marker, settings.get("own_marker", "")),
+            (self.notify_turn, settings.get("notify_turn", True)),
+        )
+        for widget, value in pairs:
+            widget.blockSignals(True)
+            if isinstance(widget, QCheckBox):
+                widget.setChecked(bool(value))
+            elif isinstance(widget, QSpinBox):
+                widget.setValue(int(value))
+            else:
+                widget.setText(str(value))
+            widget.blockSignals(False)
+
+    def _settings_interval_changed(self, value):
+        self.interval.blockSignals(True)
+        self.interval.setValue(value)
+        self.interval.blockSignals(False)
+        self._save_embedded_settings()
+
+    def _save_embedded_settings(self, *_args):
+        settings = config.data["heals"]
+        settings.update({
+            "enabled": self.monitor_enabled.isChecked(),
+            "interval": self.settings_interval.value(),
+            "cast_seconds": self.cast_seconds.value(),
+            "hotkey_format": self.hotkey_format.text().strip() or
+                             "### - CH - tankname",
+            "own_marker": self.own_marker.text().strip().upper(),
+            "notify_turn": self.notify_turn.isChecked(),
+        })
+        self._tracker.configure(
+            settings["hotkey_format"], settings["interval"],
+            settings["cast_seconds"])
+        config.save()
+        self.refresh()
+
+    def _show_inline_settings(self):
+        """The header gear opens the local Settings tab, not global Settings."""
+        if self._collapsed:
+            self._toggle_rollup()
+        self.tabs.setCurrentWidget(self.settings_tab)
+        self.tabs.setFocus(Qt.FocusReason.ShortcutFocusReason)
+
+    def _parser_settings_config_update_watcher(self):
+        super()._parser_settings_config_update_watcher()
+        self._load_embedded_settings()
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            if watched is self.notify_turn and key == Qt.Key.Key_Tab \
+                    and not shift:
+                self._focus_embedded_control(
+                    self._button, Qt.FocusReason.TabFocusReason)
+                return True
+            if watched is self.monitor_enabled and (
+                    key == Qt.Key.Key_Backtab or
+                    (key == Qt.Key.Key_Tab and shift)):
+                self._focus_embedded_control(
+                    self.tabs, Qt.FocusReason.BacktabFocusReason)
+                return True
+            if watched is self._button and (
+                    key == Qt.Key.Key_Backtab or
+                    (key == Qt.Key.Key_Tab and shift)):
+                self._focus_embedded_control(
+                    self.notify_turn, Qt.FocusReason.BacktabFocusReason)
+                return True
+        return super().eventFilter(watched, event)
+
+    def _focus_embedded_control(self, control, reason):
+        """Move focus across the scaled Qt proxy without losing the child."""
+        if control is None or not control.isVisibleTo(self._surface):
+            return False
+        self._surface.setFocusProxy(control)
+        self._scale_scene.setActivePanel(self._scale_proxy)
+        self._scale_proxy.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._scale_scene.setFocusItem(self._scale_proxy, reason)
+        self._scale_proxy.setFocus(reason)
+        self._surface.setFocus(reason)
+        control.setFocus(reason)
+        return control.hasFocus() or self._surface.focusWidget() is control
 
     @staticmethod
     def _make_table(headers):
@@ -149,6 +314,10 @@ class HealChain(ParserWindow):
     def _interval_changed(self, value):
         self._tracker.interval = value
         config.data["heals"]["interval"] = value
+        if hasattr(self, "settings_interval"):
+            self.settings_interval.blockSignals(True)
+            self.settings_interval.setValue(value)
+            self.settings_interval.blockSignals(False)
         config.save()
         self.refresh()
 
