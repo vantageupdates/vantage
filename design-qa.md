@@ -439,3 +439,24 @@ independent accessibility review: PASS
   `sha256:2544ed5d8afdc8c3c9e9b93fde62ba2f5386ea85b6091a1d5003e3f815ca73e5`.
 - A fresh public download matched the tested candidate hash and size
   byte-for-byte.
+
+## 1.44.104 release evidence
+
+- Quick Bar notification volume now uses a compact Vantage dark/gold control
+  instead of the generic native-looking presentation. The 4 px track, 10 px
+  thumb, muted surface, and percentage readout remain within **130×24 px**.
+- Sounds uses a clean speaker icon and continues to open the Sounds center
+  only. A separate slashed-speaker Master Mute toggle sits before the slider
+  with checked state, dynamic ON/OFF text, and a hollow/filled status dot.
+- The same mute and volume controls remain available in header overflow.
+  Keyboard, wheel guard, native slider semantics, focus restoration, and
+  large-font sizing are preserved.
+- Independent accessibility review: **PASS**. Measured component/focus
+  contrast ratios are 3.67, 3.88, 3.32, 11.21, and 9.07:1.
+- Focused Quick Bar, notification, settings, and update verification:
+  **11 passed**. Geometry regression verification: **4 passed**.
+- Full automated test suite: **1,524 passed, 2 skipped** in **679.17 seconds**.
+- PyInstaller **6.22.2** one-file build: **PASS**. Portable self-test exited
+  `0`, reporting version `1.44.104`.
+- Candidate `dist/Vantage.exe` size: **75,877,233 bytes**. SHA-256:
+  `44C5A63CFAD4D0B7BEC675CC07988FC94D9B7547BD794B7FE6A00887D0F00581`.

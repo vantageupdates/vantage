@@ -481,33 +481,52 @@ class QuickBar(ParserWindow):
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
 
     def _setup_volume_rocker(self):
-        """Add a compact native notification-volume slider to the header."""
+        """Add compact, branded master-audio controls to the header."""
         self.volume_rocker = QFrame()
         self.volume_rocker.setObjectName("QuickBarVolumeRocker")
         self.volume_rocker.setProperty("HeaderPriority", 100)
-        self.volume_rocker.setAccessibleName("Notification volume control")
+        self.volume_rocker.setAccessibleName("Notification audio controls")
         self.volume_rocker.setAccessibleDescription(
-            "Contains the notification volume slider and its percentage")
+            "Contains Master Mute, notification volume, and its percentage")
         self.volume_rocker.setToolTip(
-            "Notification volume · changes WAV and spoken alert volume "
-            "without changing Master Mute")
+            "Master Mute and notification volume for WAV and spoken alerts")
+        self.volume_rocker.setStyleSheet("""
+            QFrame#QuickBarVolumeRocker {
+                background: #11181D;
+                border: 1px solid #40505C;
+                border-radius: 5px;
+            }
+        """)
 
         layout = QBoxLayout(QBoxLayout.Direction.LeftToRight)
-        layout.setContentsMargins(3, 0, 3, 0)
+        layout.setContentsMargins(2, 0, 2, 0)
         layout.setSpacing(2)
+
+        self.master_mute_button, self._master_mute_dot = \
+            self._new_master_mute_control(self.volume_rocker)
+        layout.addWidget(self.master_mute_button)
 
         self.volume_value_label = QLabel()
         self.volume_value_label.setObjectName("QuickBarVolumeValue")
         self.volume_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.volume_value_label.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.volume_value_label.setStyleSheet("""
+            QLabel#QuickBarVolumeValue {
+                color: #E6D7AB;
+                background: transparent;
+                border: 0;
+                font-weight: 600;
+            }
+        """)
         self.volume_value_label.setToolTip(
             "Current notification volume; zero is silent but does not turn "
             "on Master Mute")
         label_width = self._configure_percentage_label(
             self.volume_value_label)
-        # Preserve enough native-slider travel for direct manipulation while
-        # adapting to the real 100% text width at the active system font.
-        slider_width = max(64, min(82, 122 - label_width))
+        # Preserve a usable slider while keeping the entire composite inside
+        # the former 130 px header budget. A larger system font gives the
+        # readout more room before the slider reaches its 44 px floor.
+        slider_width = self._compact_volume_slider_width(label_width)
         self.volume_slider = QuickBarVolumeSlider()
         self._configure_volume_slider(
             self.volume_slider, width=slider_width)
@@ -515,7 +534,7 @@ class QuickBar(ParserWindow):
         layout.addWidget(self.volume_slider)
         layout.addWidget(self.volume_value_label)
         self.volume_rocker.setFixedSize(
-            3 + slider_width + 2 + label_width + 3, 24)
+            2 + 24 + 2 + slider_width + 2 + label_width + 2, 24)
 
         self.volume_rocker.setLayout(layout)
         self.menu_area.addWidget(self.volume_rocker)
@@ -528,12 +547,70 @@ class QuickBar(ParserWindow):
             lambda value, slider=self.volume_slider:
             self._volume_slider_changed(value, slider))
         self.volume_slider.sliderReleased.connect(self._save_master_volume)
+        self._overflow_master_mute_button = None
+        self._overflow_master_mute_dot = None
         self._overflow_volume_slider = None
         self._overflow_volume_label = None
+        self._overflow_keyboard_target = "mute"
         self._header_overflow_menu.installEventFilter(self)
         self._header_overflow_menu.aboutToShow.connect(
             self._queue_overflow_volume_focus)
         self._sync_volume_slider()
+        self._sync_master_mute_controls()
+
+    def _new_master_mute_control(self, parent):
+        """Create one compact mute toggle with a persistent state marker."""
+        button = QToolButton(parent)
+        button.setObjectName("QuickBarMuteToggle")
+        button.setAutoRaise(True)
+        button.setCheckable(True)
+        button.setFixedSize(24, 24)
+        button.setIcon(game_icon("ph-mute"))
+        button.setIconSize(QSize(15, 15))
+        button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        button.setStyleSheet("""
+            QToolButton#QuickBarMuteToggle {
+                background: transparent;
+                border: 1px solid transparent;
+                border-radius: 4px;
+                padding: 0;
+            }
+            QToolButton#QuickBarMuteToggle:hover {
+                background: #202A31;
+                border-color: #7A8992;
+            }
+            QToolButton#QuickBarMuteToggle:checked {
+                background: #3A2B20;
+                border-color: #B98A4A;
+            }
+            QToolButton#QuickBarMuteToggle:focus {
+                background: #202A31;
+                border: 2px solid #F0C778;
+            }
+            QToolButton#QuickBarMuteToggle:checked:focus {
+                background: #3A2B20;
+                border: 2px solid #F0C778;
+            }
+        """)
+        dot = QFrame(button)
+        dot.setObjectName("QuickBarMuteStateDot")
+        dot.setFixedSize(6, 6)
+        dot.move(16, 2)
+        dot.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        dot.setStyleSheet("""
+            QFrame#QuickBarMuteStateDot[State="off"] {
+                background: transparent;
+                border: 1px solid #778A96;
+                border-radius: 3px;
+            }
+            QFrame#QuickBarMuteStateDot[State="on"] {
+                background: #F0C778;
+                border: 1px solid #4B3515;
+                border-radius: 3px;
+            }
+        """)
+        button.clicked.connect(self._toggle_master_mute)
+        return button, dot
 
     @staticmethod
     def _configure_percentage_label(label):
@@ -543,6 +620,11 @@ class QuickBar(ParserWindow):
             label.fontMetrics().horizontalAdvance("100%") + 8)
         label.setFixedWidth(width)
         return width
+
+    @staticmethod
+    def _compact_volume_slider_width(label_width):
+        """Share the old 130 px rocker budget with mute and large text."""
+        return max(44, min(64, 98 - max(0, int(label_width))))
 
     @staticmethod
     def _configure_volume_slider(slider, width):
@@ -562,39 +644,44 @@ class QuickBar(ParserWindow):
             "Notification volume · Arrow keys 1% · Page Up/Down 10% · "
             "Home/End 0% or 100% · Master Mute remains separate")
         slider.setStyleSheet("""
+            QSlider#QuickBarVolumeSlider {
+                background: transparent;
+                border: 1px solid transparent;
+                border-radius: 4px;
+            }
             QSlider#QuickBarVolumeSlider::groove:horizontal {
-                height: 6px;
-                background: #1B232A;
-                border: 1px solid #70818D;
-                border-radius: 3px;
+                height: 4px;
+                background: #182127;
+                border: 1px solid #687A86;
+                border-radius: 2px;
             }
             QSlider#QuickBarVolumeSlider::sub-page:horizontal {
                 background: #9A7541;
                 border: 1px solid #D2B66F;
-                border-radius: 3px;
+                border-radius: 2px;
             }
             QSlider#QuickBarVolumeSlider::add-page:horizontal {
-                background: #202A31;
-                border: 1px solid #70818D;
-                border-radius: 3px;
+                background: #202B32;
+                border: 1px solid #687A86;
+                border-radius: 2px;
             }
             QSlider#QuickBarVolumeSlider::handle:horizontal {
-                width: 12px;
+                width: 10px;
                 margin: -4px 0;
                 background: #F1E4BE;
                 border: 1px solid #846B38;
-                border-radius: 6px;
+                border-radius: 5px;
             }
             QSlider#QuickBarVolumeSlider::handle:horizontal:hover {
                 background: #FFF7DF;
                 border-color: #D2B66F;
             }
-            QSlider#QuickBarVolumeSlider:focus::groove:horizontal {
-                border-color: #F0C778;
+            QSlider#QuickBarVolumeSlider:focus {
+                border: 2px solid #F0C778;
             }
             QSlider#QuickBarVolumeSlider:focus::handle:horizontal {
                 background: #FFFFFF;
-                border: 2px solid #F0C778;
+                border: 1px solid #846B38;
             }
         """)
 
@@ -607,7 +694,9 @@ class QuickBar(ParserWindow):
             QWidget.setTabOrder(
                 self._header_overflow_button, self._settings_button)
         else:
-            QWidget.setTabOrder(self._button, self.volume_slider)
+            QWidget.setTabOrder(self._button, self.master_mute_button)
+            QWidget.setTabOrder(
+                self.master_mute_button, self.volume_slider)
             QWidget.setTabOrder(self.volume_slider, self._settings_button)
         QWidget.setTabOrder(self._settings_button, self._roll_button)
         QWidget.setTabOrder(self._roll_button, self._minimize_button)
@@ -629,8 +718,11 @@ class QuickBar(ParserWindow):
 
     def _rebuild_header_overflow_menu(self):
         """Expose the hidden volume slider inside More actions as well."""
+        self._overflow_master_mute_button = None
+        self._overflow_master_mute_dot = None
         self._overflow_volume_slider = None
         self._overflow_volume_label = None
+        self._overflow_keyboard_target = "mute"
         self._header_overflow_menu.setFocusProxy(None)
         super()._rebuild_header_overflow_menu()
         if self.volume_rocker not in self._header_overflowed:
@@ -638,9 +730,13 @@ class QuickBar(ParserWindow):
         menu = self._header_overflow_menu
         host = QFrame(menu)
         host.setObjectName("QuickBarOverflowVolume")
+        host.setAccessibleName("Notification audio controls")
+        host.setAccessibleDescription(
+            "Contains Master Mute, notification volume, and its percentage")
         layout = QBoxLayout(QBoxLayout.Direction.LeftToRight)
         layout.setContentsMargins(8, 3, 8, 3)
         layout.setSpacing(6)
+        mute_button, mute_dot = self._new_master_mute_control(host)
         slider = QuickBarVolumeSlider(host)
         self._configure_volume_slider(slider, width=116)
         label = QLabel(host)
@@ -650,43 +746,92 @@ class QuickBar(ParserWindow):
         self._configure_percentage_label(label)
         label.setBuddy(slider)
         host.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        host.setFocusProxy(slider)
+        host.setFocusProxy(mute_button)
+        layout.addWidget(mute_button)
         layout.addWidget(slider)
         layout.addWidget(label)
         host.setLayout(layout)
-        menu.setFocusProxy(slider)
+        menu.setFocusProxy(mute_button)
         action = QWidgetAction(menu)
         action.setText("Notification volume")
         action.setDefaultWidget(host)
         before = menu.actions()[0] if menu.actions() else None
         menu.insertAction(before, action)
+        self._overflow_master_mute_button = mute_button
+        self._overflow_master_mute_dot = mute_dot
         self._overflow_volume_slider = slider
         self._overflow_volume_label = label
+        mute_button.installEventFilter(self)
+        slider.installEventFilter(self)
         slider.valueChanged.connect(
             lambda value, control=slider:
             self._volume_slider_changed(value, control))
         slider.sliderReleased.connect(self._save_master_volume)
         self._sync_volume_slider()
+        self._sync_master_mute_controls()
 
     def _queue_overflow_volume_focus(self):
-        """Place keyboard users directly on the embedded overflow slider."""
-        slider = self._overflow_volume_slider
-        if slider is None:
+        """Place keyboard users on the first embedded audio control."""
+        button = self._overflow_master_mute_button
+        if button is None:
             return
 
-        def focus_slider():
+        def focus_audio_controls():
             try:
                 if (self._header_overflow_menu.isVisible() and
-                        slider.isVisibleTo(self._header_overflow_menu)):
-                    slider.setFocus(Qt.FocusReason.TabFocusReason)
+                        button.isVisibleTo(self._header_overflow_menu)):
+                    button.setFocus(Qt.FocusReason.TabFocusReason)
             except RuntimeError:
                 return
 
         # QMenu applies its own active-action focus immediately after
         # aboutToShow. Reassert once that native popup setup is complete so
         # arrows, Page Up/Down, Home, and End reach the embedded QSlider.
-        QTimer.singleShot(0, focus_slider)
-        QTimer.singleShot(20, focus_slider)
+        QTimer.singleShot(0, focus_audio_controls)
+        QTimer.singleShot(20, focus_audio_controls)
+
+    def _toggle_master_mute(self, _checked=False):
+        """Toggle the authoritative audio kill switch, independent of volume."""
+        self._application.toggle_audio_muted()
+        self._sync_master_mute_controls()
+
+    def _sync_master_mute_controls(self):
+        """Mirror Master Mute into header and overflow affordances."""
+        muted = audio_muted()
+        controls = (
+            (getattr(self, "master_mute_button", None),
+             getattr(self, "_master_mute_dot", None)),
+            (getattr(self, "_overflow_master_mute_button", None),
+             getattr(self, "_overflow_master_mute_dot", None)),
+        )
+        state = "ON" if muted else "OFF"
+        for button, dot in controls:
+            if button is None:
+                continue
+            try:
+                blocked = button.blockSignals(True)
+                button.setChecked(muted)
+                button.blockSignals(blocked)
+                button.setProperty("State", state.casefold())
+                button.setAccessibleName(f"Master Mute: {state}")
+                button.setAccessibleDescription(
+                    "Toggle all Vantage sound and speech. " +
+                    ("All notification audio is muted." if muted else
+                     "Notification audio is active."))
+                button.setToolTip(
+                    f"Master Mute {state} · " +
+                    ("click to restore Vantage audio" if muted else
+                     "click to silence all Vantage audio"))
+                if dot is not None:
+                    dot.setProperty("State", state.casefold())
+                    dot.setAccessibleName(f"Master Mute {state} indicator")
+                    style = dot.style()
+                    style.unpolish(dot)
+                    style.polish(dot)
+                    dot.update()
+                    dot.raise_()
+            except RuntimeError:
+                continue
 
     def _volume_slider_changed(self, value, source):
         """Apply changes live and coalesce durable writes while dragging."""
@@ -826,15 +971,47 @@ class QuickBar(ParserWindow):
         """The Quick Bar contains commands and does not parse log lines."""
 
     def eventFilter(self, watched, event):
-        if (watched is self._header_overflow_menu and
+        overflow_controls = (
+            getattr(self, "_overflow_master_mute_button", None),
+            getattr(self, "_overflow_volume_slider", None),
+        )
+        if ((watched is self._header_overflow_menu or
+             watched in overflow_controls) and
                 event.type() == QEvent.Type.KeyPress and
                 self._header_overflow_menu.isVisible()):
+            mute_button = self._overflow_master_mute_button
             slider = self._overflow_volume_slider
-            if slider is not None:
+            if mute_button is not None and slider is not None:
                 key = event.key()
                 if key in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
-                    slider.setFocus(Qt.FocusReason.TabFocusReason)
+                    reverse = (
+                        key == Qt.Key.Key_Backtab or
+                        bool(event.modifiers() &
+                             Qt.KeyboardModifier.ShiftModifier))
+                    current = QApplication.focusWidget()
+                    if watched is self._header_overflow_menu:
+                        target = mute_button if reverse else slider
+                    elif reverse:
+                        target = (mute_button if current is slider else slider)
+                    else:
+                        target = (slider if current is mute_button else
+                                  mute_button)
+                    reason = (Qt.FocusReason.BacktabFocusReason if reverse else
+                              Qt.FocusReason.TabFocusReason)
+                    self._overflow_keyboard_target = (
+                        "slider" if target is slider else "mute")
+                    target.setFocus(reason)
                     return True
+                if ((watched is mute_button or
+                     watched is self._header_overflow_menu) and
+                        key in (Qt.Key.Key_Space, Qt.Key.Key_Return,
+                                Qt.Key.Key_Enter)):
+                    mute_button.click()
+                    return True
+                if (watched is not slider and not (
+                        watched is self._header_overflow_menu and
+                        self._overflow_keyboard_target == "slider")):
+                    return super().eventFilter(watched, event)
                 value = slider.value()
                 if key == Qt.Key.Key_Home:
                     value = slider.minimum()
@@ -1000,7 +1177,7 @@ class QuickBar(ParserWindow):
             header_height = self._menu.sizeHint().height()
             if not vertical:
                 header_height = max(
-                    header_height, self.volume_rocker.sizeHint().height())
+                    header_height, self.volume_rocker.height())
         else:
             header_height = 0
         header_width = (
@@ -1176,6 +1353,7 @@ class QuickBar(ParserWindow):
         if not self._buttons:
             return
         self._sync_volume_slider()
+        self._sync_master_mute_controls()
         for name, target in self._window_targets.items():
             button = self._buttons.get(name)
             if not button:

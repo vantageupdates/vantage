@@ -23,7 +23,7 @@ QUICKBAR_ITEMS = (
     ("link_logs", "Connect Logs: Auto or Manual", "ph-folder-open", "logs"),
     ("log_help", "How to Link Logs", "ph-file-search", "logs"),
     ("log_profiles", "Log Profiles", "ph-stack", "logs"),
-    ("mute", "Sounds", "ph-mute", "audio"),
+    ("mute", "Sounds", "ph-speaker", "audio"),
     ("about", "About & Licenses", "ph-info", "system"),
     # Frequently checked status/recovery controls stay beside shutdown.
     ("log_status", "Log Status", "ph-pulse", "logs"),

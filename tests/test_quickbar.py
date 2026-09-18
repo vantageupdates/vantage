@@ -17,7 +17,7 @@ from PySide6.QtCore import QPoint, QPointF, QSize, Qt
 from PySide6.QtGui import QAccessible, QFont, QPainter, QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
-    QApplication, QScrollArea, QSlider, QWidgetAction)
+    QApplication, QLabel, QScrollArea, QSlider, QToolButton, QWidgetAction)
 from vantage.helpers import config
 from vantage.helpers.application import VantageApp
 from vantage.helpers.audio import (
@@ -84,6 +84,19 @@ initial = {
         bar.volume_rocker.width(), bar.volume_rocker.height()],
     'volume_slider_size': [
         bar.volume_slider.width(), bar.volume_slider.height()],
+    'mute_semantics': {
+        'native': isinstance(bar.master_mute_button, QToolButton),
+        'checkable': bar.master_mute_button.isCheckable(),
+        'checked': bar.master_mute_button.isChecked(),
+        'name': bar.master_mute_button.accessibleName(),
+        'description': bar.master_mute_button.accessibleDescription(),
+        'size': [bar.master_mute_button.width(),
+                 bar.master_mute_button.height()],
+        'dot_state': bar._master_mute_dot.property('State'),
+        'dot_visible': bar._master_mute_dot.isVisible(),
+        'icon_visible': not bar.master_mute_button.icon().isNull(),
+        'focus_style': ':focus' in bar.master_mute_button.styleSheet(),
+    },
     'volume_semantics': {
         'native': isinstance(bar.volume_slider, QSlider),
         'horizontal': (
@@ -105,17 +118,34 @@ initial = {
             8),
         'focus_style': ':focus' in bar.volume_slider.styleSheet(),
         'contrast': [
-            contrast_ratio('#70818D', '#1B232A'),
-            contrast_ratio('#9A7541', '#1B232A'),
+            contrast_ratio('#687A86', '#182127'),
+            contrast_ratio('#9A7541', '#182127'),
             contrast_ratio('#F1E4BE', '#9A7541'),
+            contrast_ratio('#F0C778', '#11181D'),
+            contrast_ratio('#D0B675', '#11181D'),
         ],
     },
     'header_tab_order': [
-        bar._button.nextInFocusChain() is bar.volume_slider,
+        bar._button.nextInFocusChain() is bar.master_mute_button,
+        bar.master_mute_button.nextInFocusChain() is bar.volume_slider,
         bar.volume_slider.nextInFocusChain() is bar._settings_button,
         bar._settings_button.nextInFocusChain() is bar._roll_button,
         bar._roll_button.nextInFocusChain() is bar._minimize_button,
     ],
+}
+
+large_label = QLabel()
+large_font = QFont(large_label.font())
+large_font.setPointSizeF(max(14.0, large_font.pointSizeF() * 1.5))
+large_label.setFont(large_font)
+large_label_width = bar._configure_percentage_label(large_label)
+large_slider_width = bar._compact_volume_slider_width(large_label_width)
+initial['large_font_layout'] = {
+    'label_width': large_label_width,
+    'label_required': large_label.fontMetrics().horizontalAdvance('100%') + 8,
+    'slider_width': large_slider_width,
+    'composite_width': 2 + 24 + 2 + large_slider_width + 2 +
+                       large_label_width + 2,
 }
 
 # The native header slider is a live view of the same master volume used by
@@ -271,6 +301,10 @@ overflow_focus = {
         bar._overflow_volume_slider is not None and
         bar._overflow_volume_slider.accessibleName() ==
         'Notification volume'),
+    'overflow_mute': (
+        bar._overflow_master_mute_button is not None and
+        bar._overflow_master_mute_button.accessibleName() ==
+        'Master Mute: OFF'),
     'live_value': overflow_live_value,
     'menu_action_count': len(bar._header_overflow_menu.actions()),
     'volume_widget_actions': sum(
@@ -297,9 +331,27 @@ overflow_focus = {
 menu_keyboard = {}
 def exercise_overflow_menu():
     control = bar._overflow_volume_slider
+    mute_control = bar._overflow_master_mute_button
     menu_keyboard['menu_visible'] = bar._header_overflow_menu.isVisible()
     menu_keyboard['focus_proxy'] = (
-        bar._header_overflow_menu.focusProxy() is control)
+        bar._header_overflow_menu.focusProxy() is mute_control)
+    menu_keyboard['initial_focus'] = QApplication.focusWidget() is mute_control
+    QTest.keyClick(bar._header_overflow_menu, Qt.Key.Key_Backtab)
+    QTest.keyClick(bar._header_overflow_menu, Qt.Key.Key_Space)
+    menu_keyboard['mute_on'] = {
+        'checked': mute_control.isChecked(),
+        'state': mute_control.property('State'),
+        'dot': bar._overflow_master_mute_dot.property('State'),
+        'audio_muted': audio_muted(),
+        'menu_open': bar._header_overflow_menu.isVisible(),
+    }
+    QTest.keyClick(bar._header_overflow_menu, Qt.Key.Key_Space)
+    menu_keyboard['mute_off'] = {
+        'checked': mute_control.isChecked(),
+        'state': mute_control.property('State'),
+        'dot': bar._overflow_master_mute_dot.property('State'),
+        'audio_muted': audio_muted(),
+    }
     QTest.keyClick(bar._header_overflow_menu, Qt.Key.Key_Tab)
     menu_keyboard['tab_focus_requested'] = (
         control._last_focus_reason == Qt.FocusReason.TabFocusReason)
@@ -350,12 +402,39 @@ overflow_focus.update({
     'rocker_restored': bar.volume_rocker.isVisible(),
     'focus_restored': bar._surface.focusWidget() is slider,
     'restored_tab_order': [
-        bar._button.nextInFocusChain() is slider,
+        bar._button.nextInFocusChain() is bar.master_mute_button,
+        bar.master_mute_button.nextInFocusChain() is slider,
         slider.nextInFocusChain() is bar._settings_button,
         bar._settings_button.nextInFocusChain() is bar._roll_button,
         bar._roll_button.nextInFocusChain() is bar._minimize_button,
     ],
 })
+
+# The dedicated header toggle changes Master Mute without opening Sounds.
+set_audio_muted(False)
+bar.refresh_state()
+focus_header_control(bar.master_mute_button)
+QTest.keyClick(bar.master_mute_button, Qt.Key.Key_Space)
+header_mute = {
+    'on': {
+        'checked': bar.master_mute_button.isChecked(),
+        'state': bar.master_mute_button.property('State'),
+        'dot': bar._master_mute_dot.property('State'),
+        'name': bar.master_mute_button.accessibleName(),
+        'audio_muted': audio_muted(),
+        'sounds_open': bool(
+            getattr(app, '_feature_settings_instances', {}).get('Sounds') and
+            app._feature_settings_instances['Sounds'].isVisible()),
+    },
+}
+QTest.keyClick(bar.master_mute_button, Qt.Key.Key_Space)
+header_mute['off'] = {
+    'checked': bar.master_mute_button.isChecked(),
+    'state': bar.master_mute_button.property('State'),
+    'dot': bar._master_mute_dot.property('State'),
+    'name': bar.master_mute_button.accessibleName(),
+    'audio_muted': audio_muted(),
+}
 
 app._log_status = 'ONLINE'
 bar.refresh_state()
@@ -550,6 +629,7 @@ print(json.dumps({
     'wheel_guard': wheel_guard,
     'volume_resynced': volume_resynced,
     'overflow_focus': overflow_focus,
+    'header_mute': header_mute,
 }))
 app.quit()
 """
@@ -862,8 +942,11 @@ def test_quickbar_uses_one_distinct_icon_per_action():
     from vantage.helpers.quickbar_items import QUICKBAR_ITEMS
 
     icons = [icon for _key, _label, icon, _group in QUICKBAR_ITEMS]
+    catalog = {key: icon for key, _label, icon, _group in QUICKBAR_ITEMS}
     assert len(icons) == len(set(icons))
     assert all(icon.startswith("ph-") for icon in icons)
+    assert catalog["mute"] == "ph-speaker"
+    assert (ROOT / "data" / "ui" / "icons" / "ph-speaker.svg").is_file()
     assert QUICKBAR_ITEMS[-1][0] == "support"
 
 
@@ -930,8 +1013,26 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
     assert initial['volume_compact'] is True
     assert initial['volume_control_size'][0] <= 130
     assert initial['volume_control_size'][1] == 24
-    assert 64 <= initial['volume_slider_size'][0] <= 82
+    assert 44 <= initial['volume_slider_size'][0] <= 64
     assert initial['volume_slider_size'][1] == 24
+    assert initial['mute_semantics'] == {
+        'native': True,
+        'checkable': True,
+        'checked': False,
+        'name': 'Master Mute: OFF',
+        'description': (
+            'Toggle all Vantage sound and speech. Notification audio is '
+            'active.'),
+        'size': [24, 24],
+        'dot_state': 'off',
+        'dot_visible': True,
+        'icon_visible': True,
+        'focus_style': True,
+    }
+    assert initial['large_font_layout']['label_width'] >= \
+        initial['large_font_layout']['label_required']
+    assert 44 <= initial['large_font_layout']['slider_width'] <= 64
+    assert initial['large_font_layout']['composite_width'] <= 130
     semantics = initial['volume_semantics']
     assert semantics['label_width'] >= semantics['label_required']
     assert all(ratio >= 3.0 for ratio in semantics['contrast'])
@@ -952,7 +1053,7 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
         'label_focusable': False,
         'focus_style': True,
     }
-    assert initial['header_tab_order'] == [True] * 4
+    assert initial['header_tab_order'] == [True] * 5
     assert result['volume_from_settings'] == {
         'value': 50,
         'text': '50%',
@@ -997,19 +1098,34 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
         'overflow_visible': True,
         'saved_child': True,
         'overflow_slider': True,
+        'overflow_mute': True,
         'live_value': {
             'master': 72,
             'header': 72,
             'overflow': 72,
             'label': '72%',
         },
-        'menu_action_count': 1,
+        'menu_action_count': 2,
         'volume_widget_actions': 1,
         'empty_actions': 0,
         'tab_order': [True] * 4,
         'keyboard_menu': {
             'menu_visible': True,
             'focus_proxy': True,
+            'initial_focus': False,
+            'mute_on': {
+                'checked': True,
+                'state': 'on',
+                'dot': 'on',
+                'audio_muted': True,
+                'menu_open': True,
+            },
+            'mute_off': {
+                'checked': False,
+                'state': 'off',
+                'dot': 'off',
+                'audio_muted': False,
+            },
             'tab_focus_requested': True,
             'values': [0, 10, 11, 100, 90],
             'menu_stayed_open': True,
@@ -1020,7 +1136,24 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
         'overflow_kept_focus': True,
         'rocker_restored': True,
         'focus_restored': True,
-        'restored_tab_order': [True] * 4,
+        'restored_tab_order': [True] * 5,
+    }
+    assert result['header_mute'] == {
+        'on': {
+            'checked': True,
+            'state': 'on',
+            'dot': 'on',
+            'name': 'Master Mute: ON',
+            'audio_muted': True,
+            'sounds_open': False,
+        },
+        'off': {
+            'checked': False,
+            'state': 'off',
+            'dot': 'off',
+            'name': 'Master Mute: OFF',
+            'audio_muted': False,
+        },
     }
     assert result['online_log']['status'] == 'online'
     assert result['online_log']['online'] is True
