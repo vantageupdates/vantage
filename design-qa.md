@@ -699,5 +699,12 @@ independent accessibility review: PASS
 - Candidate `dist/Vantage.exe` Windows file/product version: **1.44.108**.
   Size: **75,901,951 bytes**. SHA-256:
   `2B15921006E5C87EAE1349C4E888B8D2269560A77B6B96A666471A76DEB9D286`.
-- Public release/download verification is **pending**. This entry does not
-  claim that final gate has passed.
+- Public release verification: **PASS**. Stable/latest release URL:
+  <https://github.com/vantageupdates/vantage/releases/tag/v1.44.108>.
+- The release is neither draft nor prerelease and contains exactly one named
+  asset, `Vantage.exe`. GitHub reports **75,901,951 bytes** and digest
+  `sha256:2b15921006e5c87eae1349c4e888b8d2269560a77b6b96a666471a76deb9d286`.
+- A fresh public download reports Windows file/product version **1.44.108**
+  and matched the tested candidate size and SHA-256 byte-for-byte. Annotated
+  tag `v1.44.108` dereferences to release commit
+  `057fc0d7e3982ca9e1a90fec331e88f969dd60f0`.
