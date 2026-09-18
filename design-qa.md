@@ -518,3 +518,9 @@ independent accessibility review: PASS
   preferred SAPI backend and its runtime fallback ship together.
 - Candidate `dist/Vantage.exe` size: **75,881,731 bytes**. SHA-256:
   `29D214DCA4F1B507B69B33DBF0E748619282E164A509A8D987C916C9FDB219E4`.
+- Public release verification: **PASS**. Stable release URL:
+  <https://github.com/vantageupdates/vantage/releases/tag/v1.44.106>.
+- Public `Vantage.exe` size: **75,881,731 bytes**. GitHub digest:
+  `sha256:29d214dca4f1b507b69b33dbf0e748619282e164a509a8d987c916c9fdb219e4`.
+- A fresh public download matched the locally tested candidate hash and size
+  byte-for-byte.
