@@ -433,3 +433,9 @@ independent accessibility review: PASS
   `0`, reporting version `1.44.103`.
 - Candidate `dist/Vantage.exe` size: **75,876,036 bytes**. SHA-256:
   `2544ED5D8AFDC8C3C9E9B93FDE62BA2F5386EA85B6091A1D5003E3F815CA73E5`.
+- Public release verification: **PASS**. Stable release URL:
+  <https://github.com/vantageupdates/vantage/releases/tag/v1.44.103>.
+- Public `Vantage.exe` size: **75,876,036 bytes**. GitHub digest:
+  `sha256:2544ed5d8afdc8c3c9e9b93fde62ba2f5386ea85b6091a1d5003e3f815ca73e5`.
+- A fresh public download matched the tested candidate hash and size
+  byte-for-byte.
