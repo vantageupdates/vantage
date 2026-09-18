@@ -177,6 +177,193 @@ class _NativeSpeech(_Speech):
         self.stateChanged.emit(self._state)
 
 
+def test_windows_speech_engine_prefers_persistent_sapi_backend(monkeypatch):
+    app = _App()
+    speech = _Speech()
+
+    class SpeechFactory:
+        calls = []
+
+        @staticmethod
+        def availableEngines():
+            return ['mock', 'winrt', 'sapi']
+
+        def __new__(cls, *args):
+            cls.calls.append(args)
+            return speech
+
+    monkeypatch.setattr(audio.sys, 'platform', 'win32')
+    monkeypatch.setattr(audio, 'QTextToSpeech', SpeechFactory)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, '_SPEECH', None)
+    monkeypatch.setattr(audio, '_DEFAULT_VOICE_NAME', '')
+
+    assert audio._speech_engine() is speech
+    assert audio._speech_engine() is speech
+    assert SpeechFactory.calls == [('sapi', app)]
+
+
+def test_windows_speech_engine_falls_back_when_sapi_creation_fails(
+        monkeypatch):
+    app = _App()
+    fallback = _Speech()
+
+    class SpeechFactory:
+        calls = []
+
+        @staticmethod
+        def availableEngines():
+            return ['sapi', 'winrt']
+
+        def __new__(cls, *args):
+            cls.calls.append(args)
+            if len(args) == 2 and args[0] == 'sapi':
+                raise RuntimeError('SAPI unavailable')
+            return fallback
+
+    monkeypatch.setattr(audio.sys, 'platform', 'win32')
+    monkeypatch.setattr(audio, 'QTextToSpeech', SpeechFactory)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, '_SPEECH', None)
+    monkeypatch.setattr(audio, '_DEFAULT_VOICE_NAME', '')
+
+    assert audio._speech_engine() is fallback
+    assert SpeechFactory.calls == [('sapi', app), (app,)]
+
+
+def test_sapi_engine_keeps_serial_queue_without_interrupting_active_phrase(
+        monkeypatch):
+    app = _App()
+    speech = _Speech()
+    timers = _TimerHarness()
+    config.data = {
+        'general': {'audio_muted': False, 'master_volume': 100},
+        'spells': {'audio_profiles': {}}}
+
+    class SpeechFactory:
+        @staticmethod
+        def availableEngines():
+            return ['sapi', 'winrt']
+
+        def __new__(cls, *_args):
+            return speech
+
+    monkeypatch.setattr(audio.sys, 'platform', 'win32')
+    monkeypatch.setattr(audio, 'QTextToSpeech', SpeechFactory)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, 'QTimer', timers)
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, '_SPEECH', None)
+    monkeypatch.setattr(audio, '_DEFAULT_VOICE_NAME', '')
+
+    assert audio.speak_text('First complete phrase', replace_pending=True)
+    assert audio.speak_text('Second complete phrase', replace_pending=True)
+    assert speech.messages == ['First complete phrase']
+    assert speech.stop_count == 0
+
+    speech.complete()
+    timers.run_next(audio._SPEECH_GAP_MS)
+    assert speech.messages == [
+        'First complete phrase', 'Second complete phrase']
+    assert speech.stop_count == 0
+
+
+def test_failed_native_sapi_is_quarantined_and_next_alert_uses_fallback(
+        monkeypatch):
+    app = _App()
+    failed = _NativeSpeech()
+    fallback = _Speech()
+    config.data = {
+        'general': {'audio_muted': False, 'master_volume': 100},
+        'spells': {'audio_profiles': {}}}
+
+    class SpeechFactory:
+        calls = []
+
+        @staticmethod
+        def availableEngines():
+            return ['sapi', 'winrt']
+
+        def __new__(cls, *args):
+            cls.calls.append(args)
+            return failed if len(args) == 2 else fallback
+
+    monkeypatch.setattr(audio.sys, 'platform', 'win32')
+    monkeypatch.setattr(audio, 'QTextToSpeech', SpeechFactory)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, '_SPEECH', None)
+    monkeypatch.setattr(audio, '_SPEECH_ENGINE_NAME', '')
+    monkeypatch.setattr(audio, '_FAILED_SPEECH_ENGINES', set())
+
+    assert audio.speak_text(
+        'Possibly spoken', source='Active route', channel='spells')
+    assert audio.speak_text(
+        'Waiting behind it', source='Waiting route', channel='spells')
+    failed.synthesize_next()
+    failed._state = 'Error'
+    failed.stateChanged.emit(failed._state)
+
+    assert audio._SPEECH is None
+    assert audio._SPEECH_PENDING == []
+    assert failed.deleted is True
+    assert app.blocked[-2:] == [
+        ('Active route', 'speech backend error', 'spells'),
+        ('Waiting route', 'speech backend error', 'spells')]
+    assert 'sapi' in audio._FAILED_SPEECH_ENGINES
+
+    assert audio.speak_text('Fresh fallback alert', channel='spells')
+    assert audio._SPEECH is fallback
+    assert fallback.messages == ['Fresh fallback alert']
+    assert SpeechFactory.calls == [('sapi', app), (app,)]
+
+
+def test_failed_serial_sapi_drops_affected_work_then_uses_fallback(
+        monkeypatch):
+    app = _App()
+    failed = _Speech()
+    fallback = _Speech()
+    config.data = {
+        'general': {'audio_muted': False, 'master_volume': 100},
+        'spells': {'audio_profiles': {}}}
+
+    class SpeechFactory:
+        @staticmethod
+        def availableEngines():
+            return ['sapi', 'winrt']
+
+        def __new__(cls, *args):
+            return failed if len(args) == 2 else fallback
+
+    monkeypatch.setattr(audio.sys, 'platform', 'win32')
+    monkeypatch.setattr(audio, 'QTextToSpeech', SpeechFactory)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, '_SPEECH', None)
+    monkeypatch.setattr(audio, '_SPEECH_ENGINE_NAME', '')
+    monkeypatch.setattr(audio, '_FAILED_SPEECH_ENGINES', set())
+
+    assert audio.speak_text(
+        'Serial active', source='Serial active route', channel='spells')
+    assert audio.speak_text(
+        'Serial pending', source='Serial pending route', channel='spells')
+    failed._state = 'Error'
+    failed.stateChanged.emit(failed._state)
+
+    assert failed.messages == ['Serial active']
+    assert audio._SPEECH_PENDING == []
+    assert app.blocked[-2:] == [
+        ('Serial active route', 'speech backend error', 'spells'),
+        ('Serial pending route', 'speech backend error', 'spells')]
+    assert audio.speak_text('Recovered serial alert', channel='spells')
+    assert fallback.messages == ['Recovered serial alert']
+
+
 class _App:
     def __init__(self):
         self.events = []

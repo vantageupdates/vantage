@@ -1,5 +1,6 @@
 """Volume-aware alert audio and the built-in Vantage sound gallery."""
 
+import sys
 from pathlib import Path
 
 from PySide6.QtCore import QTimer, QUrl
@@ -88,6 +89,8 @@ _SPEECH_EPOCH = 0
 _SPEECH_REQUEST_ID = 0
 _SPEECH_APPLIED_ENGINE = None
 _SPEECH_APPLIED_SETTINGS = {}
+_SPEECH_ENGINE_NAME = ""
+_FAILED_SPEECH_ENGINES = set()
 
 # Automatic alerts share one local Windows voice. Older backends retain a
 # short serial gap, while current Qt uses its continuous native queue. Cap only
@@ -309,13 +312,57 @@ def save_profile_audio_settings(
     return True
 
 
+def _create_speech_engine(app):
+    """Create one stable local TTS backend, preferring Windows SAPI.
+
+    Qt's Windows ``winrt`` plugin routes synthesized PCM through QAudioSink.
+    That extra playback layer has proved vulnerable to gaps when Vantage or
+    EverQuest loses foreground priority.  The ``sapi`` plugin talks directly
+    to the long-established Windows SAPI backend and is the steadier choice
+    for repeated game alerts.  Keep the platform default as a compatibility
+    fallback for systems/builds where SAPI is absent or cannot initialize.
+    """
+    global _SPEECH_ENGINE_NAME
+    if QTextToSpeech is None:
+        return None
+    preferred = ""
+    if sys.platform == "win32":
+        try:
+            engines = tuple(str(name) for name in
+                            QTextToSpeech.availableEngines())
+        except (AttributeError, RuntimeError, TypeError):
+            engines = ()
+        preferred = next(
+            (name for name in engines if name.casefold() == "sapi"), "")
+        if preferred.casefold() in _FAILED_SPEECH_ENGINES:
+            preferred = ""
+    if preferred:
+        try:
+            speech = QTextToSpeech(preferred, app)
+            _SPEECH_ENGINE_NAME = preferred.casefold()
+            return speech
+        except (RuntimeError, TypeError, ValueError):
+            # Some Qt deployments advertise a plugin whose system component
+            # is unavailable. The default engine still preserves TTS.
+            pass
+    try:
+        speech = QTextToSpeech(app)
+        _SPEECH_ENGINE_NAME = "default"
+        return speech
+    except (RuntimeError, TypeError, ValueError):
+        _SPEECH_ENGINE_NAME = ""
+        return None
+
+
 def _speech_engine():
     global _SPEECH, _DEFAULT_VOICE_NAME
     app = QApplication.instance()
     if not app or QTextToSpeech is None:
         return None
     if _SPEECH is None:
-        _SPEECH = QTextToSpeech(app)
+        _SPEECH = _create_speech_engine(app)
+    if _SPEECH is None:
+        return None
     if not _DEFAULT_VOICE_NAME:
         try:
             _DEFAULT_VOICE_NAME = _SPEECH.voice().name()
@@ -694,9 +741,12 @@ def _poll_speech_state(speech, epoch, request_id=0):
     if speech is not _SPEECH or epoch != _SPEECH_EPOCH:
         return
     state = _current_speech_state(speech)
+    if state == "error":
+        _discard_failed_speech(speech)
+        return
     if _SPEECH_ACTIVE:
         active_id = int(_SPEECH_ACTIVE.get("id", -1))
-        if state in ("ready", "error"):
+        if state == "ready":
             _finish_active_speech(speech, active_id)
             return
         if state:
@@ -727,24 +777,26 @@ def _speech_state_changed(speech, state):
     if speech is not _SPEECH:
         return
     state_name = _speech_state_name(state)
+    if state_name == "error":
+        _discard_failed_speech(speech)
+        return
     if _SPEECH_NATIVE_QUEUE:
-        if state_name == "error":
-            _discard_failed_native_speech(speech)
-        elif state_name == "ready":
+        if state_name == "ready":
             _SPEECH_ACTIVE = None
         return
-    if state_name in ("ready", "error") and _SPEECH_ACTIVE:
+    if state_name == "ready" and _SPEECH_ACTIVE:
         _finish_active_speech(speech, _SPEECH_ACTIVE.get("id", -1))
-    elif (state_name in ("ready", "error") and _SPEECH_PENDING and
+    elif (state_name == "ready" and _SPEECH_PENDING and
           not _SPEECH_GAP_PENDING):
         _start_next_speech(speech)
 
 
-def _discard_failed_native_speech(speech):
-    """Report aborted native work and retire the failed engine without retry."""
+def _discard_failed_speech(speech):
+    """Report aborted work and retire a failed engine without retrying text."""
     global _SPEECH, _SPEECH_BOUND_ENGINE, _SPEECH_STATE_SIGNAL
     global _SPEECH_ABOUT_SIGNAL, _SPEECH_NATIVE_QUEUE
     global _SPEECH_APPLIED_ENGINE, _SPEECH_APPLIED_SETTINGS
+    global _SPEECH_ENGINE_NAME
     if speech is not _SPEECH:
         return
     affected = []
@@ -752,6 +804,9 @@ def _discard_failed_native_speech(speech):
         affected.append(_SPEECH_ACTIVE)
     affected.extend(_SPEECH_PENDING)
     app = QApplication.instance()
+    failed_engine = str(_SPEECH_ENGINE_NAME or "").casefold()
+    if failed_engine:
+        _FAILED_SPEECH_ENGINES.add(failed_engine)
 
     # Detach all logical work before callbacks report the failure. This makes
     # re-entrant notification handling see an empty scheduler and ensures none
@@ -764,6 +819,7 @@ def _discard_failed_native_speech(speech):
     _SPEECH_NATIVE_QUEUE = False
     _SPEECH_APPLIED_ENGINE = None
     _SPEECH_APPLIED_SETTINGS = {}
+    _SPEECH_ENGINE_NAME = ""
     for request in affected:
         _report_blocked(
             app, request.get("source", "Vantage speech"),

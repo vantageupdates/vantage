@@ -489,3 +489,32 @@ independent accessibility review: PASS
   `sha256:37bbca38eaa75e00f1ae723c70605b66e3620e750764bc3b6ad857dae31420ed`.
 - A fresh public download matched the tested candidate hash and size
   byte-for-byte.
+
+## 1.44.106 release evidence
+
+- Windows text-to-speech now explicitly prefers Qt's stable **SAPI** backend
+  instead of the WinRT/QAudioSink path that could stutter or cut phrases when
+  Vantage or EverQuest was running in the background.
+- The speech engine remains persistent, automatic alerts remain serialized in
+  FIFO order, and ordinary queued notifications never interrupt the phrase
+  already being spoken. Systems without a usable SAPI plugin safely retain
+  Qt's platform-default fallback.
+- If SAPI reports a delayed runtime error, it is quarantined for the remainder
+  of the session and the next new alert uses Qt's platform fallback. Active
+  and waiting requests are reported and discarded without retrying text that
+  may already have been spoken.
+- Real-host backend verification: **PASS**. SAPI initialized in the Ready
+  state with two installed voices and native enqueue/about-to-synthesize
+  support.
+- Independent accessibility re-review: **PASS**. The prior runtime-fallback
+  reliability finding is closed, with no remaining findings.
+- Focused audio-profile and speech-scheduler verification: **39 passed** in
+  **1.46 seconds**.
+- Full automated test suite: **1,529 passed, 2 skipped** in **665.16 seconds**.
+- PyInstaller **6.22.2** one-file build: **PASS**. Portable self-test exited
+  `0`, reporting version `1.44.106`.
+- Packaged archive verification: **PASS**. Both
+  `qtexttospeech_sapi.dll` and `qtexttospeech_winrt.dll` are included so the
+  preferred SAPI backend and its runtime fallback ship together.
+- Candidate `dist/Vantage.exe` size: **75,881,731 bytes**. SHA-256:
+  `29D214DCA4F1B507B69B33DBF0E748619282E164A509A8D987C916C9FDB219E4`.
