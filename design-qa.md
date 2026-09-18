@@ -593,5 +593,11 @@ independent accessibility review: PASS
   `qtexttospeech_sapi.dll` and `qtexttospeech_winrt.dll` are included.
 - Candidate `dist/Vantage.exe` size: **75,901,131 bytes**. SHA-256:
   `828F5A1DFDBC08E19AC8BF7378AAA15BEAF824E8ED30240377BB3B0CB9C40E98`.
-- Public release verification remains pending and is intentionally not claimed
-  before the stable release is published and freshly downloaded.
+- Public release verification: **PASS**. Stable release URL:
+  <https://github.com/vantageupdates/vantage/releases/tag/v1.44.107>.
+- The release is neither draft nor prerelease and contains exactly one named
+  asset, `Vantage.exe`. GitHub reports **75,901,131 bytes** and digest
+  `sha256:828f5a1dfdbc08e19ac8bf7378aaa15beaf824e8ed30240377bb3b0cb9c40e98`.
+- A fresh public download matched the tested candidate size and SHA-256
+  byte-for-byte. The stable tag and remote `main` both resolve to release
+  commit `11ffe6740125bdd579ff69d6293bf92c1b436785`.
