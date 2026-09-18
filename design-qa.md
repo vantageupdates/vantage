@@ -601,3 +601,103 @@ independent accessibility review: PASS
 - A fresh public download matched the tested candidate size and SHA-256
   byte-for-byte. The stable tag and remote `main` both resolve to release
   commit `11ffe6740125bdd579ff69d6293bf92c1b436785`.
+
+## 1.44.108 release evidence
+
+- Local diagnosis confirmed that Companion update discovery, download, and
+  checkpoint creation succeeded, but the final executable replacement did
+  not. The installed `D:\Vantage.exe` remained at **1.44.106** and matched the
+  published 1.44.106 size and SHA-256. Its handoff sidecar was created at
+  **02:51:38** without an `update_applied_at` stamp, and the unchanged old
+  executable relaunched about **37 seconds** later.
+- Root cause: the updater accepted `--wait-pid` but never waited on that PID.
+  The still-running parent kept the target executable locked through the old
+  35-second replacement timeout. The fix performs a read-only wait on the
+  exact handed-off Windows process handle, never closes or terminates a user
+  process, and retains a bounded **90-second** replacement/recovery window.
+- All verified-update exits now use one application shutdown path so the
+  heartbeat stops and Qt can release the executable cleanly. A failed handoff
+  shows actionable English text in the overlay and Quick Bar instead of
+  silently restarting into the old version.
+- Live no-cache discovery verification selected the newest stable exact
+  Companion `vX.Y.Z` release while independently identifying the newest
+  `vantage-ui-vX.Y.Z` release. Drafts, prereleases, UI releases, and stale
+  network cache cannot mask Companion discovery; VantageUI discovery remains
+  independent.
+- Focused updater, heartbeat, dialog, handoff, and recovery verification:
+  **82 passed** in **46.31 seconds**. The updated handoff module completed
+  **13 passed** in **22.07 seconds**, and the critical update cross-section
+  completed **5 passed** in **5.85 seconds**.
+- Real Windows wait probe: **PASS**. A hidden helper process was observed by
+  exact PID until exit in approximately **452 ms**, without termination or
+  modification of the process.
+- Accessibility review: **PASS**, with no findings. Failure status is visible
+  English text with an accessible name, is announced once through the bounded
+  Quick Bar rail, does not rely on color, and existing keyboard update paths
+  remain unchanged.
+- The first full-suite candidate audit completed with **1,542 passed, 2
+  skipped, and 1 failed** in **705.30 seconds**. The sole failure exposed an
+  event-ordering race in exact Quick Bar geometry reload: theme repolishing
+  rebuilt its content-derived logical height before the application's physical
+  rectangle restore, allowing a queued scale pass to reduce a saved
+  **608×56 px** bar to **608×52 px**.
+- Remediation records the exact live rectangle before the theme/settings
+  signal is emitted. Immediate and deferred Quick Bar scale passes therefore
+  recognize the rectangle as authored throughout the refresh rather than
+  racing the later restore. The formerly flaky exact-geometry test passed
+  **5 consecutive runs** (approximately 15 seconds each), and reset-layout,
+  replica-size, scaled-interaction, and Quick Bar regression coverage completed
+  with **10 passed** in **57.76 seconds**.
+- The second full-suite candidate audit completed with **1,542 passed, 2
+  skipped, and 1 failed** in **724.40 seconds**. The remediated Quick Bar
+  geometry test passed. The sole failure was instead a timer-resize test child
+  process exiting with Windows status **0xC0000005** and no assertion or JSON
+  output.
+- Windows Error Reporting identifies that incident at **03:40:38** as an
+  access violation in `python313.dll` during interpreter/native-extension
+  finalization; it does not identify the Timer parser or Qt Graphics View as
+  the faulting module. At the test's assertion boundary the bounded focus
+  reveal was settled and inactive, accessibility announcements were
+  synchronous, and Qt-owned timers retained normal QObject parents.
+- Bounded reproduction found no product failure: the timer-resize test passed
+  **15/15 isolated runs**; five stress sequences combining exact geometry,
+  scaled interaction, and timer resize passed **15/15 tests**; and a further
+  **10/10 shutdown-focused runs** passed. No assertion, resize, focus,
+  scrollbar, accessibility, or teardown failure reproduced. A speculative
+  cleanup prototype was discarded rather than changing product behavior
+  without causal evidence. The incident is classified as a native
+  interpreter/test-infrastructure finalization flake pending a clean suite.
+- The third full-suite candidate audit again completed with **1,542 passed, 2
+  skipped, and 1 failed**. Timer resize and exact Quick Bar geometry both
+  passed. The sole failure was the synthetic trigger-action child exiting with
+  **0xC0000005** before its flushed result or `os._exit(0)` boundary. Windows
+  Error Reporting records the **04:04:21** incident in `Qt6Widgets.dll` at
+  offset `0x34d590`.
+- Unlike the prior timer incident, this failure reproduced on the second
+  isolated run. Stage-level diagnostics localized it to checking a trigger
+  back On: the `itemChanged` handler synchronously persisted, cleared, and
+  rebuilt the `QTreeWidget`, deleting the signal-emitting item while native Qt
+  still owned the dispatch stack.
+- Remediation persists checkbox, rename, and drag/drop changes in the existing
+  tree. It updates visible **On/Off** text/tooltips and refreshes the editor
+  without deleting live items; explicit out-of-signal reload callers retain
+  the full rebuild path. The regression now also asserts that the same tree
+  item survives both Off and On transitions.
+- Post-remediation trigger-action verification passed **15 consecutive runs**.
+  A nearby trigger tree/group/runtime/TTS/basic-alert/settings stress set
+  completed with **20 passed** in **46.52 seconds**. Together with the full
+  suite and focused runs, every authored assertion has executed successfully;
+  the clean post-remediation suite below is the final test gate.
+- Final complete-suite verification: **1,543 passed, 2 skipped** in **730.81
+  seconds**. This supersedes all candidate-audit failures above: exact Quick
+  Bar geometry, timer resize, and trigger state/Test actions all passed in the
+  same clean run.
+- PyInstaller **6.22.2** one-file build: **PASS**. Portable self-test exited
+  `0`, reporting version `1.44.108` from an isolated temporary profile.
+- Packaged archive verification: **PASS**. Both
+  `qtexttospeech_sapi.dll` and `qtexttospeech_winrt.dll` are included.
+- Candidate `dist/Vantage.exe` Windows file/product version: **1.44.108**.
+  Size: **75,901,951 bytes**. SHA-256:
+  `2B15921006E5C87EAE1349C4E888B8D2269560A77B6B96A666471A76DEB9D286`.
+- Public release/download verification is **pending**. This entry does not
+  claim that final gate has passed.

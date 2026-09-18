@@ -1,7 +1,9 @@
 import pytest
+from PySide6.QtNetwork import QNetworkRequest
 
 from vantage.helpers.updater import (
-    ASSET_NAME, parse_release_payload, select_companion_release)
+    ASSET_NAME, RELEASE_HISTORY_API, UpdateController,
+    parse_release_payload, select_companion_release)
 
 
 def _release(**changes):
@@ -62,6 +64,31 @@ def test_history_selects_newest_exact_companion_and_skips_ui_namespace():
     ui_release = _release(tag_name="vantage-ui-v9.0.0")
     assert str(select_companion_release(
         [older, ui_release, newer]).version) == "1.45.0"
+
+
+def test_history_skips_later_ui_draft_and_prerelease_companion_entries():
+    stable = _release(tag_name="v1.45.0")
+    stable["assets"][0]["browser_download_url"] = stable["assets"][0][
+        "browser_download_url"].replace("/v1.44.0/", "/v1.45.0/")
+    draft = _release(tag_name="v9.0.0", draft=True)
+    prerelease = _release(tag_name="v8.0.0", prerelease=True)
+    ui_release = _release(tag_name="vantage-ui-v99.0.0")
+
+    selected = select_companion_release(
+        [ui_release, draft, prerelease, stable])
+
+    assert selected.tag == "v1.45.0"
+
+
+def test_release_history_request_bypasses_stale_network_cache():
+    request = UpdateController._request(None, RELEASE_HISTORY_API)
+
+    assert bytes(request.rawHeader("Cache-Control")) == b"no-cache"
+    assert request.attribute(
+        QNetworkRequest.Attribute.CacheLoadControlAttribute) == (
+            QNetworkRequest.CacheLoadControl.AlwaysNetwork)
+    assert request.attribute(
+        QNetworkRequest.Attribute.CacheSaveControlAttribute) is False
 
 
 def test_newest_named_companion_asset_malformed_fails_not_fallback():

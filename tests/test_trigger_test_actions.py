@@ -49,6 +49,7 @@ dialog._activated()
 original = dialog._custom_triggers['Mob is casting']
 original_delivery = original.delivery
 original_sound = original.sound_path
+original_tree_item = item
 
 # The visible tree state persists immediately and the live Spells parser is
 # refreshed by the existing settings signal without changing delivery data.
@@ -66,10 +67,12 @@ runtime._custom_timers = [(
 disabled_runtime_audio = Spells._line_has_custom_audio(
     runtime,
     'a soothebrine seahorse begins to cast a spell.')
+disabled_item_preserved = find_mob_item() is original_tree_item
 
 item = find_mob_item()
 dialog._triggers.setCurrentItem(item)
 item.setCheckState(0, Qt.CheckState.Checked)
+enabled_item_preserved = find_mob_item() is original_tree_item
 enabled = next(
     CustomTrigger(*row) for row in config.data['spells']['custom_timers']
     if row[0] == 'Mob is casting')
@@ -116,6 +119,8 @@ result = {
     'tree_headers': [dialog._triggers.headerItem().text(index)
                      for index in range(dialog._triggers.columnCount())],
     'tree_state': find_mob_item().text(1),
+    'tree_item_preserved': [
+        disabled_item_preserved, enabled_item_preserved],
     'disabled_saved': disabled.enabled,
     'enabled_saved': enabled.enabled,
     'delivery_preserved': (
@@ -162,6 +167,7 @@ def test_trigger_test_routes_and_visible_toggle_state(tmp_path):
 
     assert result['tree_headers'] == ['Trigger library', 'State', 'Scope']
     assert result['tree_state'] == 'On'
+    assert result['tree_item_preserved'] == [True, True]
     assert result['disabled_saved'] is False
     assert result['enabled_saved'] is True
     assert result['delivery_preserved'] is True

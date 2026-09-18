@@ -450,20 +450,25 @@ def test_update_apply_parser_forwards_handoff_only_after_verified_success(
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
     launches = []
     stamps = []
+    waits = []
     monkeypatch.setattr(update_apply.sys, 'executable', str(source))
+    monkeypatch.setattr(
+        update_apply, '_wait_for_process_exit',
+        lambda pid: waits.append(pid) or True)
     monkeypatch.setattr(
         update_apply, '_launch_target',
         lambda path, **kwargs: launches.append((path, kwargs)))
     monkeypatch.setattr(
         update_apply, '_stamp_spell_handoff', lambda: stamps.append(True))
     result = update_apply.apply_staged_update([
-        '--apply-update', '--target', str(target), '--wait-pid', '0',
+        '--apply-update', '--target', str(target), '--wait-pid', '2468',
         '--digest', 'sha256:' + digest, '--from-version', '1.44.54',
         '--open-vantage-ui'])
     assert result == 0
     assert launches[0][1]['open_vantage_ui'] is True
     assert launches[0][1]['updated_from'] == '1.44.54'
     assert stamps == [True]
+    assert waits == [2468]
 
     launches.clear()
     result = update_apply.apply_staged_update([
@@ -473,6 +478,39 @@ def test_update_apply_parser_forwards_handoff_only_after_verified_success(
     assert result == 1
     assert launches and launches[0][1].get('open_vantage_ui', False) is False
     assert stamps == [True]
+
+
+def test_update_apply_keeps_old_binary_and_gives_actionable_retry_when_exit_stalls(
+        monkeypatch, tmp_path):
+    from vantage.helpers import update_apply
+
+    source = tmp_path / 'staged' / 'Vantage.exe'
+    source.parent.mkdir()
+    source.write_bytes(b'MZverified-new')
+    target = tmp_path / 'installed' / 'Vantage.exe'
+    target.parent.mkdir()
+    original = b'MZold-still-running'
+    target.write_bytes(original)
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    launches = []
+    monkeypatch.setattr(update_apply.sys, 'executable', str(source))
+    monkeypatch.setattr(
+        update_apply, '_wait_for_process_exit', lambda _pid: False)
+    monkeypatch.setattr(
+        update_apply, '_launch_target',
+        lambda path, **kwargs: launches.append((path, kwargs)))
+
+    result = update_apply.apply_staged_update([
+        '--apply-update', '--target', str(target), '--wait-pid', '2468',
+        '--digest', 'sha256:' + digest, '--from-version', '1.44.106'])
+
+    assert result == 1
+    assert target.read_bytes() == original
+    assert len(launches) == 1
+    error = launches[0][1]['error']
+    assert 'did not finish closing' in error
+    assert 'Close any extra Vantage windows' in error
+    assert 'open Updates and choose Try again' in error
 
 
 def test_checkpoint_does_not_report_success_when_fresh_process_would_read_stale(
@@ -779,3 +817,24 @@ def test_quick_update_checkpoint_failure_does_not_hide_tray_or_quit():
     assert 'live buffs and timers' in toast.message
     assert 'cancelled' in toast.message
     assert 'remains open' in toast.message
+
+
+def test_quick_update_success_uses_verified_exit_path():
+    from vantage.helpers.application import VantageApp
+
+    launches = []
+    exits = []
+
+    class _Controller:
+        def launch_installer(self, info, path):
+            launches.append((info, path))
+
+    host = SimpleNamespace(
+        _update_controller=_Controller(),
+        exit_for_verified_update=lambda: exits.append(True))
+    info = object()
+
+    assert VantageApp.install_quick_update(
+        host, info, 'verified.exe') is True
+    assert launches == [(info, 'verified.exe')]
+    assert exits == [True]

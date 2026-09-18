@@ -1000,6 +1000,26 @@ class QuickBar(ParserWindow):
 
         QTimer.singleShot(0, restore_exact_saved_geometry)
 
+    def prepare_presentation_refresh(self, geometry):
+        """Lock a UI refresh to the physical rectangle it started with.
+
+        Theme repolishing emits the shared settings signal before the
+        application reaches its final geometry-restoration loop.  The Quick
+        Bar rebuilds its content-derived design height in that signal.  If a
+        queued resize handler runs in between, it can aspect-snap the live
+        window to the new design height and race the final restore.  Record
+        the refresh snapshot before the signal is emitted so every immediate
+        and deferred scale pass recognizes the exact rectangle as authored.
+        """
+        try:
+            expected = tuple(int(value) for value in geometry)
+        except (TypeError, ValueError):
+            return
+        if len(expected) != 4:
+            return
+        self._geometry_save_timer.stop()
+        self._saved_presentation_geometry = expected
+
     def _effective_minimum_scale(self):
         # A one-row command strip can remain recoverable at 18 px high; using
         # the generic panel's 48 px floor would prevent a compact top bar.

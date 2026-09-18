@@ -8,6 +8,7 @@ the stable path. No permanent updater executable is installed.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import hashlib
 import hmac
 import json
@@ -26,6 +27,8 @@ _SPELL_HANDOFF_FILENAME = "update-spell-handoff.json"
 _SPELL_HANDOFF_MAX_BYTES = 1024 * 1024
 _SPELL_HANDOFF_MAX_ROWS = 512
 _SPELL_HANDOFF_MAX_AGE_SECONDS = 24 * 60 * 60
+_OLD_PROCESS_EXIT_TIMEOUT_SECONDS = 90.0
+_TARGET_REPLACE_TIMEOUT_SECONDS = 90.0
 
 
 def _json_bytes(value):
@@ -105,6 +108,59 @@ def file_sha256(path):
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _wait_for_process_exit(pid, timeout=_OLD_PROCESS_EXIT_TIMEOUT_SECONDS):
+    """Wait for the exact old Vantage child without terminating any process."""
+    try:
+        process_id = int(pid)
+        wait_seconds = max(0.0, float(timeout))
+    except (TypeError, ValueError):
+        return False
+    if process_id <= 0 or process_id == os.getpid():
+        return True
+    if os.name == "nt":
+        # SYNCHRONIZE is read-only process access. It lets the staged updater
+        # wait for the app that explicitly handed off without enumerating,
+        # closing, or terminating any other user process.
+        synchronize = 0x00100000
+        wait_object_0 = 0x00000000
+        wait_timeout = 0x00000102
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int,
+                                         ctypes.c_uint32]
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p,
+                                                  ctypes.c_uint32]
+        kernel32.WaitForSingleObject.restype = ctypes.c_uint32
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        handle = kernel32.OpenProcess(synchronize, False, process_id)
+        if not handle:
+            # The handed-off PID already disappearing is the common success
+            # path between process creation and this early updater mode.
+            return True
+        try:
+            milliseconds = min(
+                0xFFFFFFFE, max(0, round(wait_seconds * 1000)))
+            result = kernel32.WaitForSingleObject(handle, milliseconds)
+            if result == wait_object_0:
+                return True
+            if result == wait_timeout:
+                return False
+            return False
+        finally:
+            kernel32.CloseHandle(handle)
+
+    deadline = time.monotonic() + wait_seconds
+    while time.monotonic() < deadline:
+        try:
+            os.kill(process_id, 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            return False
+        time.sleep(0.1)
+    return False
 
 
 def _validated_cleanup_dir(path):
@@ -190,6 +246,11 @@ def apply_staged_update(arguments=None):
             if executable.read(2) != b"MZ":
                 raise ValueError("The staged update is not a Windows executable.")
 
+        if not _wait_for_process_exit(options.wait_pid):
+            raise TimeoutError(
+                "Vantage did not finish closing. Close any extra Vantage "
+                "windows, then open Updates and choose Try again.")
+
         # The PyInstaller parent may briefly retain the old image after its Qt
         # child exits. Copy beside it first, then retry only the atomic swap.
         staged = target.with_name(f".{target.stem}.update{target.suffix}")
@@ -197,7 +258,7 @@ def apply_staged_update(arguments=None):
         if file_sha256(staged).casefold() != expected:
             raise ValueError("The local update copy failed verification.")
 
-        deadline = time.monotonic() + 35.0
+        deadline = time.monotonic() + _TARGET_REPLACE_TIMEOUT_SECONDS
         last_error = None
         while time.monotonic() < deadline:
             try:
@@ -208,7 +269,9 @@ def apply_staged_update(arguments=None):
                 last_error = error
                 time.sleep(0.25)
         if last_error is not None:
-            raise OSError("Windows did not release the old Vantage executable")
+            raise OSError(
+                "Windows still had Vantage.exe open. Close any extra Vantage "
+                "windows, then open Updates and choose Try again.")
 
         # The old process has fully exited before the successful swap above,
         # so this one-shot stamp is necessarily newer than its final config

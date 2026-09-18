@@ -60,7 +60,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=107,
+    patch=108,
     build=""
 )
 
@@ -287,10 +287,16 @@ class VantageApp(QApplication):
             if open_ui_after_update:
                 QTimer.singleShot(0, self.open_vantage_ui)
         elif update_error:
+            update_error = " ".join(update_error.split())[:1000]
+            self._update_check_state = (
+                "retrying" if self._update_auto_enabled else "disabled")
+            self._update_check_error = update_error
             self.show_overlay_notification(
                 "Vantage update",
                 update_error, msecs=8500, overlay_id="alerts",
                 text_color="#E08372")
+            self._queue_quickbar_notice(
+                "Vantage update failed", update_error, channel="system")
         self._schedule_update_check(UPDATE_INITIAL_DELAY_MS)
 
     @property
@@ -799,6 +805,14 @@ class VantageApp(QApplication):
             }
             for parser in self._parsers:
                 parser._save_geometry()
+                prepare_refresh = getattr(
+                    parser, "prepare_presentation_refresh", None)
+                if callable(prepare_refresh):
+                    # This must happen before the theme/settings signal. The
+                    # Quick Bar derives a new logical height while handling
+                    # that signal and otherwise a queued scale pass can race
+                    # the physical-geometry restore below.
+                    prepare_refresh(window_geometry[parser])
             self._apply_theme()
             self._signals["settings"].config_updated.emit()
             for parser in self._parsers:
@@ -1589,9 +1603,18 @@ class VantageApp(QApplication):
             if toast:
                 toast._failed(f"Update could not start: {error}")
             return False
-        self._system_tray.setVisible(False)
-        self.quit()
+        self.exit_for_verified_update()
         return True
+
+    def exit_for_verified_update(self):
+        """Finish a verified handoff without changing the user's layout."""
+        self._update_heartbeat.stop()
+        self._system_tray.setVisible(False)
+        # Parser close handlers otherwise treat Qt's shutdown as a person
+        # closing every tool and can write transitional hidden/toggled state.
+        # The verified checkpoint has already persisted gameplay state.
+        config.APP_EXIT = True
+        self.quit()
 
     def checkpoint_for_update(self):
         """Persist and verify countdown state before another EXE can start."""

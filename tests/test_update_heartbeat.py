@@ -189,14 +189,14 @@ def test_update_heartbeat_starts_fast_retries_and_updates_quickbar(tmp_path):
     assert result['constants'] == [3000, 15000, 60000, 60000]
     assert result['initial']['active'] is True
     assert result['initial']['interval'] == 3000
-    assert 'Vantage 1.44.107 installed' in result['initial']['tooltip']
+    assert 'Vantage 1.44.108 installed' in result['initial']['tooltip']
     assert result['initial']['button_text'] == 'Updated'
     assert result['initial']['badge_text'] == '✓'
     assert result['initial']['receipt_announcements'] == [[
-        'Update complete. Vantage 1.44.107 installed · was 1.44.44.',
+        'Update complete. Vantage 1.44.108 installed · was 1.44.44.',
         'AnnouncementPoliteness.Polite']]
     assert result['initial']['update_toast_visible'] is False
-    update_message = 'Vantage updated · 1.44.44 → 1.44.107'
+    update_message = 'Vantage updated · 1.44.44 → 1.44.108'
     assert update_message in (
         [result['initial']['rail_text']] + result['initial']['rail_pending'])
     assert result['initial']['vantage_ui_visible'] is True
@@ -236,3 +236,74 @@ def test_update_heartbeat_starts_fast_retries_and_updates_quickbar(tmp_path):
         'state': 'idle',
         'interval': 60000,
     }
+
+
+UPDATE_FAILURE_SCRIPT = r"""
+import json
+import os
+from PySide6.QtTest import QTest
+import vantage.parsers.quickbar as quickbar_module
+
+announcements = []
+class AccessibleRecorder:
+    @staticmethod
+    def updateAccessibility(event):
+        announcements.append(event.message())
+quickbar_module.QAccessible = AccessibleRecorder
+
+from vantage.helpers import config
+from vantage.helpers.application import VantageApp
+
+config.data['general']['startup_window_state'] = 'normal'
+config.data['general']['update_check'] = True
+os.environ['VANTAGE_UPDATE_ERROR'] = (
+    'Update could not be installed: Vantage did not finish closing. '
+    'Close any extra Vantage windows, then open Updates and choose Try again.')
+app = VantageApp([])
+app.processEvents()
+bar = app._parsers_dict['quickbar']
+bar.refresh_state()
+QTest.qWait(40)
+app.processEvents()
+button = bar._buttons['updates']
+rail = bar.notification_rail
+messages = [rail._label.text()] + [notice[1] for notice in rail._pending]
+for _index in range(8):
+    if not rail._pending:
+        break
+    rail._clear()
+    app.processEvents()
+print(json.dumps({
+    'state': button.property('UpdateState'),
+    'name': button.accessibleName(),
+    'error': app._update_check_error,
+    'messages': messages,
+    'announcements': announcements,
+}))
+app._update_heartbeat.stop()
+app.quit()
+"""
+
+
+def test_failed_install_restart_is_visible_actionable_and_announced(tmp_path):
+    env = os.environ.copy()
+    env['QT_QPA_PLATFORM'] = 'offscreen'
+    env['PYTHONPATH'] = str(ROOT / 'src')
+    env['VANTAGE_DATA_DIR'] = str(tmp_path / 'profile')
+    completed = subprocess.run(
+        [sys.executable, '-c', UPDATE_FAILURE_SCRIPT], cwd=ROOT, env=env,
+        check=True, capture_output=True, text=True, timeout=30)
+    result = json.loads(completed.stdout.strip().splitlines()[-1])
+
+    assert result['state'] == 'retrying'
+    assert result['name'] == (
+        'Vantage update check will retry automatically')
+    assert 'Close any extra Vantage windows' in result['error']
+    notice = next(
+        message for message in result['messages']
+        if message.startswith('Vantage update failed'))
+    assert 'open Updates and choose Try again' in notice
+    assert sum(
+        announcement.startswith('SYSTEM: Vantage update failed') and
+        'open Updates and choose Try again' in announcement
+        for announcement in result['announcements']) == 1

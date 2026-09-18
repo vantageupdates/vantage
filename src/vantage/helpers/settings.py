@@ -2057,7 +2057,8 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._triggers.setMaximumHeight(190)
         self._triggers.itemSelectionChanged.connect(self._activated)
         self._triggers.itemChanged.connect(self._tree_item_changed)
-        self._triggers.structure_changed.connect(self._persist_tree_structure)
+        self._triggers.structure_changed.connect(
+            lambda: self._persist_tree_structure(reload_tree=False))
         layout.addWidget(self._triggers)
 
         action_bar = ResponsiveActionBar(86)
@@ -3099,9 +3100,13 @@ class CustomTriggerSettings(UniformScaleDialog):
 
     def _tree_item_changed(self, *_):
         if not self._tree_loading:
-            self._persist_tree_structure()
+            # QTreeWidget is still inside its native itemChanged dispatch.
+            # Clearing/rebuilding it here deletes the emitting item while Qt
+            # still owns the signal stack and can fault in Qt6Widgets. The
+            # visible tree already contains the edit, so persist it in place.
+            self._persist_tree_structure(reload_tree=False)
 
-    def _persist_tree_structure(self):
+    def _persist_tree_structure(self, reload_tree=True):
         """Commit drag/drop, rename and enable changes into runtime config."""
         if self._tree_loading:
             return
@@ -3134,6 +3139,9 @@ class CustomTriggerSettings(UniformScaleDialog):
                 group_order += 1
                 new_groups[path] = definition
                 item.setData(0, TRIGGER_ITEM_ID, path)
+                item.setText(1, 'On' if definition['enabled'] else 'Off')
+                item.setToolTip(
+                    1, f"Group is {item.text(1)}; press Space to toggle")
                 for index in range(item.childCount()):
                     visit(item.child(index), path)
                 return
@@ -3144,6 +3152,9 @@ class CustomTriggerSettings(UniformScaleDialog):
                     trigger.category = parent_path or 'Default'
                     trigger.enabled = (
                         item.checkState(0) == Qt.CheckState.Checked)
+                    item.setText(1, 'On' if trigger.enabled else 'Off')
+                    item.setToolTip(
+                        1, f"Trigger is {item.text(1)}")
                     trigger_order.append(name)
 
         for index in range(self._triggers.topLevelItemCount()):
@@ -3160,7 +3171,11 @@ class CustomTriggerSettings(UniformScaleDialog):
             for path, definition in new_groups.items()}
         spells['trigger_order'] = trigger_order
         self._save_to_config()
-        self._load_from_config(selected_name, selected_group)
+        if reload_tree:
+            self._load_from_config(selected_name, selected_group)
+        else:
+            # Refresh the editor fields without deleting any live tree item.
+            self._activated()
 
     def _add_group(self):
         parent = self._selected_group_path()
