@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 SCRIPT = r"""
 import json
+import time
 from PySide6.QtTest import QTest
 from vantage.helpers import config
 from vantage.helpers.application import VantageApp
@@ -53,7 +54,7 @@ app._queue_quickbar_notice('Manastone for sale · Trader')
 app.processEvents()
 queued = {
     'current': rail._label.text(),
-    'pending': list(rail._pending),
+    'pending': [notice[1] for notice in rail._pending],
 }
 
 # The same or older event ID is a refresh, not a new live announcement.
@@ -80,6 +81,40 @@ cleared = {
 bar.refresh_state()
 app.processEvents()
 not_replayed = rail._label.isVisible()
+
+# Events accepted before a Quick Bar refresh remain in the application queue;
+# restoring the surface drains every event in original order.
+rail.discard_all()
+detached_bar = app._parsers_dict.pop('quickbar')
+app._queue_quickbar_notice('Burst first', channel='chat')
+app._queue_quickbar_notice('Burst second', channel='market')
+burst_held = [notice[1] for notice in app._quickbar_notice_queue]
+app._parsers_dict['quickbar'] = detached_bar
+bar.refresh_state()
+app.processEvents()
+burst = {
+    'held': burst_held,
+    'current': rail._label.text(),
+    'channel': rail._channel.text(),
+    'pending': [notice[1] for notice in rail._pending],
+}
+rail.discard_all()
+
+# A notice held beyond the bounded live-event window expires silently.
+before_stale = len(announcements)
+rail.hide()
+rail.present(
+    rail._notice_id + 1, 'Expired notice', available=True,
+    created_at=time.monotonic() - 60)
+app._quickbar_notice_id = rail._notice_id
+stale_pending_before_show = len(rail._pending)
+rail.show()
+app.processEvents()
+stale = {
+    'pending_before_show': stale_pending_before_show,
+    'visible': rail._label.isVisible(),
+    'announcement_delta': len(announcements) - before_stale,
+}
 
 config.data['general']['reduce_motion'] = True
 app.show_overlay_notification(
@@ -119,18 +154,41 @@ combat_after_fade = {
 }
 
 rail._clear()
+# A temporary rail hide during layout keeps accepted notices in order and
+# announces each only when it is actually presented.
+before_temporary = len(announcements)
+rail.hide()
+app._queue_quickbar_notice('Layout-hidden first', channel='spells')
+app._queue_quickbar_notice('Layout-hidden second', channel='spells')
+temporary_pending = [notice[1] for notice in rail._pending]
+rail.show()
+app.processEvents()
+temporary_visible = {
+    'current': rail._label.text(),
+    'pending': [notice[1] for notice in rail._pending],
+    'new_announcements': announcements[before_temporary:],
+}
+rail._clear()
+
+# Removing the Quick Bar through its actual toggle intent must consume new
+# live events instead of replaying them when it is opened later.
+bar._toggled = False
+config.data['quickbar']['toggled'] = False
 bar.hide()
+before_hidden = len(announcements)
 app._queue_quickbar_notice('Must not replay')
 app.processEvents()
 hidden_consumed = {
     'text_visible': rail._label.isVisible(),
     'scrolling': rail._scroll_timer.isActive(),
     'clear_pending': rail._clear_timer.isActive(),
-    'announcement_count': len(announcements),
+    'announcement_delta': len(announcements) - before_hidden,
 }
 bar.show()
 app.processEvents()
 hidden_replayed = rail._label.isVisible()
+bar._toggled = True
+config.data['quickbar']['toggled'] = True
 
 config.data['quickbar']['orientation'] = 'vertical'
 app._signals['settings'].config_updated.emit()
@@ -147,9 +205,13 @@ print(json.dumps({
     'seen_after_first': seen_after_first,
     'cleared': cleared,
     'not_replayed': not_replayed,
+    'burst': burst,
+    'stale': stale,
     'reduced': reduced,
     'combat_before_fade': combat_before_fade,
     'combat_after_fade': combat_after_fade,
+    'temporary_pending': temporary_pending,
+    'temporary_visible': temporary_visible,
     'hidden_consumed': hidden_consumed,
     'hidden_replayed': hidden_replayed,
     'vertical': vertical,
@@ -192,6 +254,17 @@ def test_quickbar_notification_rail_shows_one_event_then_clears(tmp_path):
     assert result['cleared'] == {
         'text': '', 'visible': False, 'scrolling': False}
     assert result['not_replayed'] is False
+    assert result['burst'] == {
+        'held': ['Burst first', 'Burst second'],
+        'current': 'Burst first',
+        'channel': 'CHAT',
+        'pending': ['Burst second'],
+    }
+    assert result['stale'] == {
+        'pending_before_show': 1,
+        'visible': False,
+        'announcement_delta': 0,
+    }
     assert result['reduced'] == {
         'text': 'Manastone for sale · Trader',
         'scrolling': False,
@@ -208,12 +281,19 @@ def test_quickbar_notification_rail_shows_one_event_then_clears(tmp_path):
         'scrolling': False,
         'opacity_reset': True,
     }
+    assert result['temporary_pending'] == [
+        'Layout-hidden first', 'Layout-hidden second']
+    assert result['temporary_visible'] == {
+        'current': 'Layout-hidden first',
+        'pending': ['Layout-hidden second'],
+        'new_announcements': [
+            'BUFFS / SPELLS: Layout-hidden first'],
+    }
     assert result['hidden_consumed'] == {
         'text_visible': False,
         'scrolling': False,
         'clear_pending': False,
-        # All five visible notices announced; the hidden notice did not.
-        'announcement_count': 5,
+        'announcement_delta': 0,
     }
     assert result['hidden_replayed'] is False
     assert result['vertical'] == {

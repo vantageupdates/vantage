@@ -273,6 +273,7 @@ def test_scaled_panels_keep_keyboard_pointer_and_tooltips(tmp_path):
             result["timer_required_physical_height"],
             result["timer_screen_height"])],
         "combat": [130, 75],
+        "random_parser": [108, 75],
         "heals": [130, 55], "market": [245, 155],
         "opendkp": [245, 155],
             "zones": [225, 140], "quests": [225, 145],
@@ -287,6 +288,7 @@ def test_scaled_panels_keep_keyboard_pointer_and_tooltips(tmp_path):
     assert result["missing_by_panel"] == {
         "quickbar": [], "maps": [], "spells": [], "tick": [],
         "timers": [], "combat": [],
+        "random_parser": [],
         "heals": [], "market": [], "opendkp": [], "zones": [], "quests": [],
         "items_notes": [],
         "vantage_ui": [],

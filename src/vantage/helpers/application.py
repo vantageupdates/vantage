@@ -1,4 +1,5 @@
 import copy
+from collections import deque
 import math
 import os
 import time
@@ -41,6 +42,7 @@ from vantage.parsers.market import GEAR_COLUMN_DEFAULT_WIDTHS, GreenMarket
 from vantage.parsers.opendkp import OpenDKP
 from vantage.parsers.zones import Zones
 from vantage.parsers.quests import Quests
+from vantage.parsers.random_parser import RandomParser
 from vantage.parsers.items_notes import ItemsNotes
 from vantage.parsers.log_searcher import LogSearcher
 from vantage.parsers.vantage_ui import VantageUI, version_is_newer
@@ -58,7 +60,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=106,
+    patch=107,
     build=""
 )
 
@@ -124,6 +126,10 @@ class VantageApp(QApplication):
         self._quickbar_notice = ""
         self._quickbar_notice_channel = "system"
         self._quickbar_notice_at = 0.0
+        # Keep accepted notices until the Quick Bar has actually taken them.
+        # A single "latest notice" slot lost bursts whenever several parser
+        # events arrived before Qt completed one refresh/layout cycle.
+        self._quickbar_notice_queue = deque(maxlen=40)
         self._last_update_success = ""
         self._tell_audio_cooldown = TellAudioCooldown()
         set_audio_muted(config.data['general'].get('audio_muted', False))
@@ -321,6 +327,7 @@ class VantageApp(QApplication):
         self._splash.step(
             "Preparing combat, Market, guild data, Zones, Quests, and VantageUI…", 70)
         combat = Combat()
+        random_parser = RandomParser()
         heals = HealChain()
         market = GreenMarket()
         opendkp = OpenDKP()
@@ -338,6 +345,7 @@ class VantageApp(QApplication):
             "tick": tick,
             "timers": timers,
             "combat": combat,
+            "random_parser": random_parser,
             "heals": heals,
             "market": market,
             "opendkp": opendkp,
@@ -357,6 +365,7 @@ class VantageApp(QApplication):
             self._parsers_dict["tick"],
             self._parsers_dict["timers"],
             self._parsers_dict["combat"],
+            self._parsers_dict["random_parser"],
             self._parsers_dict["heals"],
             self._parsers_dict["market"],
             self._parsers_dict["opendkp"],
@@ -709,12 +718,45 @@ class VantageApp(QApplication):
     def _queue_quickbar_notice(self, *parts, channel="system"):
         """Send one compact event description to the Quick Bar rail."""
         cleaned = [" ".join(str(part).split()) for part in parts if part]
+        message = " · ".join(cleaned)
+        if not message:
+            return
         self._quickbar_notice_id = int(getattr(
             self, "_quickbar_notice_id", 0)) + 1
-        self._quickbar_notice = " · ".join(cleaned)
+        self._quickbar_notice = message
         self._quickbar_notice_channel = str(channel or "system")
         self._quickbar_notice_at = time.monotonic()
+        queue = getattr(self, "_quickbar_notice_queue", None)
+        if queue is None:
+            queue = self._quickbar_notice_queue = deque(maxlen=40)
+        queue.append((
+            self._quickbar_notice_id, message,
+            self._quickbar_notice_channel, self._quickbar_notice_at))
         self._refresh_quickbar()
+
+    def _take_quickbar_notices(self, *, discard=False, max_age=30.0):
+        """Drain fresh Quick Bar notices in order, or intentionally discard.
+
+        A hidden widget during a Qt layout/reparent pass is not a user choice,
+        so callers decide whether the configured surface is intentionally off.
+        The time bound prevents an old burst from replaying after a long stall.
+        """
+        queue = getattr(self, "_quickbar_notice_queue", None)
+        if not queue:
+            return []
+        now = time.monotonic()
+        notices = []
+        while queue:
+            notice = queue.popleft()
+            if discard:
+                continue
+            try:
+                created = float(notice[3])
+            except (IndexError, TypeError, ValueError):
+                created = now
+            if now - created <= max(1.0, float(max_age)):
+                notices.append(notice)
+        return notices
 
     def _refresh_quickbar(self):
         quickbar = getattr(self, "_parsers_dict", {}).get("quickbar")

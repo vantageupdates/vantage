@@ -107,6 +107,14 @@ UI_PRESENTATION_DEFAULTS = {
     ('combat', 'always_on_top'): True,
     ('combat', 'frameless'): True,
     ('combat', 'collapsed'): False,
+    ('random_parser', 'geometry'): [650, 410, 430, 300],
+    ('random_parser', 'toggled'): False,
+    ('random_parser', 'opacity'): 94,
+    ('random_parser', 'clickthrough'): False,
+    ('random_parser', 'auto_hide_menu'): False,
+    ('random_parser', 'always_on_top'): True,
+    ('random_parser', 'frameless'): True,
+    ('random_parser', 'collapsed'): False,
     ('heals', 'geometry'): [560, 700, 520, 220],
     ('heals', 'toggled'): False,
     ('heals', 'opacity'): 94,
@@ -282,7 +290,7 @@ def _normalize_quest_checklist_steps(value):
         total_bytes += size
     return normalized
 
-BASIC_ALERTS_VERSION = 4
+BASIC_ALERTS_VERSION = 5
 BASIC_ALERTS = (
     ["Invisibility Fading", "You feel yourself starting to appear*", "00:00:00", "",
      "builtin:danger-double", "INVISIBILITY FADING", True, False, "Vantage · Basics"],
@@ -328,6 +336,47 @@ BASIC_ALERTS = (
      "Insufficient mana", False, "", False, "", False, "", "", False,
      "sound", "", 85, 0, "off", "", 100, 0, "off", "", 100, 0,
      "", 0.75],
+    ["Target too far", r"^Your target is too far away, get closer!$",
+     "00:00:00", "", "builtin:soft-tick", "Target too far", True, True,
+     "Vantage · Basics", "Vantage · Basics", "alerts", "restart", "", "",
+     "Exact classic P99 spell range failure line.",
+     "none", 0, 0, "", "", "", "", 0, "", [],
+     "Target too far", False, "", False, "", False, "", "", False,
+     "sound", "", 85, 0, "off", "", 100, 0, "off", "", 100, 0,
+     "", 1.0],
+    ["Target out of range", r"^Your target is out of range, get closer!$",
+     "00:00:00", "", "builtin:soft-tick", "Target out of range", True, True,
+     "Vantage · Basics", "Vantage · Basics", "alerts", "restart", "", "",
+     "Exact classic P99 spell range failure line.",
+     "none", 0, 0, "", "", "", "", 0, "", [],
+     "Target out of range", False, "", False, "", False, "", "", False,
+     "sound", "", 85, 0, "off", "", 100, 0, "off", "", 100, 0,
+     "", 1.0],
+    ["Cannot see target", r"^You can't see your target from here\.$",
+     "00:00:00", "", "builtin:soft-tick", "Cannot see target", True, True,
+     "Vantage · Basics", "Vantage · Basics", "alerts", "restart", "", "",
+     "Exact classic P99 line-of-sight failure line.",
+     "none", 0, 0, "", "", "", "", 0, "", [],
+     "Cannot see target", False, "", False, "", False, "", "", False,
+     "sound", "", 85, 0, "off", "", 100, 0, "off", "", 100, 0,
+     "", 1.0],
+    ["No target selected",
+     r"^You must first select a target for this spell!$",
+     "00:00:00", "", "builtin:soft-tick", "No target selected", True, True,
+     "Vantage · Basics", "Vantage · Basics", "alerts", "restart", "", "",
+     "Exact classic P99 missing-target spell failure line.",
+     "none", 0, 0, "", "", "", "", 0, "", [],
+     "No target selected", False, "", False, "", False, "", "", False,
+     "sound", "", 85, 0, "off", "", 100, 0, "off", "", 100, 0,
+     "", 1.0],
+    ["Spell not recovered", r"^You haven't recovered yet\.\.\.$",
+     "00:00:00", "", "builtin:soft-tick", "Spell not recovered", True, True,
+     "Vantage · Basics", "Vantage · Basics", "alerts", "restart", "", "",
+     "Exact classic P99 spell-recovery failure line.",
+     "none", 0, 0, "", "", "", "", 0, "", [],
+     "Spell not recovered", False, "", False, "", False, "", "", False,
+     "sound", "", 85, 0, "off", "", 100, 0, "off", "", 100, 0,
+     "", 1.0],
 )
 
 
@@ -875,12 +924,13 @@ def verify_settings():
             translated = next(
                 (basic for basic in BASIC_ALERTS if basic[1] == item[1]),
                 None)
-            # A case-only variant of the v4 seed may be a customized copy.
-            # Preserve all of its fields during the version bump.
-            preserve_v4_custom = (
-                translated and translated[0] == "Insufficient mana" and
+            # Same-name rows are user-editable built-ins. Preserve every field
+            # during catalog migrations; only translate an older differently
+            # named stock row that is still identified by its pattern.
+            preserve_named_custom = (
+                translated and
                 item[0].casefold() == translated[0].casefold())
-            if translated and not preserve_v4_custom:
+            if translated and not preserve_named_custom:
                 item[0] = translated[0]
                 item[5] = translated[5]
                 item[8] = translated[8]
@@ -1255,6 +1305,28 @@ def verify_settings():
             'all', 'clear', 900, 1800, 3600, 7200, 14400, 28800, 86400}:
         chat_time_filter = 'all'
     data['combat']['chat_time_filter'] = chat_time_filter
+
+    # Standalone zero-based EQ /random scoreboard.
+    data['random_parser'] = data.get('random_parser', {})
+    if not isinstance(data['random_parser'], dict):
+        data['random_parser'] = {}
+    data['random_parser']['geometry'] = get_setting(
+        data['random_parser'].get('geometry', [650, 410, 430, 300]),
+        [650, 410, 430, 300],
+        lambda value: (
+            isinstance(value, list) and len(value) == 4 and
+            all(isinstance(item, int) for item in value) and
+            value[2] > 0 and value[3] > 0))
+    for key, default in (
+            ('toggled', False), ('clickthrough', False),
+            ('auto_hide_menu', False), ('always_on_top', True),
+            ('frameless', True), ('collapsed', False)):
+        data['random_parser'][key] = get_setting(
+            data['random_parser'].get(key, default), default)
+    data['random_parser']['clickthrough'] = False
+    data['random_parser']['opacity'] = get_setting(
+        data['random_parser'].get('opacity', 94), 94,
+        lambda value: 25 <= value <= 100)
     export_defaults = {
         'output_channel': '', 'separator': ' | ', 'top_players': 10,
         'show_opponent': True, 'show_damage': True,

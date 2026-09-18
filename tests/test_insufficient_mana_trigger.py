@@ -55,7 +55,7 @@ def test_insufficient_mana_v3_migration_round_trip_and_idempotence(
             row for row in config.data["spells"]["custom_timers"]
             if row[0] == "Insufficient mana"]
         assert len(rows) == 1
-        assert config.data["spells"]["basic_alerts_version"] == 4
+        assert config.data["spells"]["basic_alerts_version"] == 5
 
         trigger = CustomTrigger(*rows[0])
         serialized = trigger.to_list()
@@ -102,7 +102,7 @@ def test_insufficient_mana_migration_preserves_customized_same_name(
             row for row in config.data["spells"]["custom_timers"]
             if row[0].casefold() == "insufficient mana"]
         assert matches == [custom]
-        assert config.data["spells"]["basic_alerts_version"] == 4
+        assert config.data["spells"]["basic_alerts_version"] == 5
     finally:
         config.data = previous
 

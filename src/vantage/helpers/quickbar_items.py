@@ -9,6 +9,7 @@ QUICKBAR_ITEMS = (
     ("vitals", "Vitals Monitor", "ph-vitals", "windows"),
     ("tick", "Server Tick", "ph-gauge", "windows"),
     ("combat", "Combat Parser", "ph-sword", "windows"),
+    ("random_parser", "Random Parser", "ph-pulse-quiet", "windows"),
     ("heals", "Heal Chain", "ph-heal", "windows"),
     ("market", "Market", "ph-storefront", "windows"),
     ("opendkp", "Guild DKP & More", "ph-gavel", "windows"),

@@ -30,6 +30,9 @@ class _Owner:
     def edit_timer(self, _timer_id):
         pass
 
+    def clone_timer(self, _timer_id):
+        pass
+
     def delete_timer(self, _timer_id):
         pass
 
@@ -81,7 +84,7 @@ def test_timer_row_actions_keep_a_direct_keyboard_order_without_volume():
         row.controls.layout().itemAt(index).widget()
         for index in range(row.controls.layout().count())]
 
-    assert len(controls) == 7
+    assert len(controls) == 8
     assert all(isinstance(control, QPushButton) for control in controls)
     assert all(
         control.focusPolicy() == Qt.FocusPolicy.StrongFocus
@@ -92,6 +95,7 @@ def test_timer_row_actions_keep_a_direct_keyboard_order_without_volume():
         "Clear Crystal Fang",
         "Confirm death of Crystal Fang",
         "Confirm spawn of Crystal Fang",
+        "Clone Crystal Fang",
         "Edit Crystal Fang",
         "Delete Crystal Fang",
     ]
@@ -340,7 +344,7 @@ def test_timer_row_uses_border_light_crisp_controls():
         for button in row.findChildren(QPushButton))
     assert row.controls.layout().spacing() == 0
     assert row.controls.size() == TimerRow.CONTROLS_SIZE
-    assert TimerRow.CONTROLS_SIZE == QSize(184, 28)
+    assert TimerRow.CONTROLS_SIZE == QSize(210, 28)
     assert row.minimumHeight() == TimerRow.DETAILED_MINIMUM_HEIGHT
     assert not hasattr(row, "volume")
     assert row.controls.findChildren(QSpinBox) == []

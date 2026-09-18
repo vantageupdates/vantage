@@ -156,13 +156,20 @@ class TableColumnManager(QObject):
     def _view_ref(view):
         return weakref.ref(view)
 
+    @staticmethod
+    def _header(view):
+        """Return the horizontal header shared by tables and tree views."""
+        if isinstance(view, QTreeView):
+            return view.header()
+        return view.horizontalHeader()
+
     def eventFilter(self, watched, event):
         view = watched if isinstance(watched, (QTableView, QTreeView)) else None
         if view is not None:
             if event.type() == QEvent.Type.Show:
                 self._schedule_configure(view)
             elif event.type() == QEvent.Type.LayoutRequest:
-                header = view.horizontalHeader()
+                header = self._header(view)
                 if (header is not None and header.count() and
                         (header.stretchLastSection() or any(
                             header.sectionResizeMode(column) !=
@@ -246,7 +253,7 @@ class TableColumnManager(QObject):
         if isinstance(view.window(), QFileDialog):
             return
         model = view.model()
-        header = view.horizontalHeader()
+        header = self._header(view)
         count = model.columnCount() if model is not None else 0
         if count <= 0 or header is None:
             return
@@ -360,7 +367,7 @@ class TableColumnManager(QObject):
         if self.INSTRUCTIONS not in description:
             view.setAccessibleDescription(
                 f"{description} {self.INSTRUCTIONS}".strip())
-        header = view.horizontalHeader()
+        header = self._header(view)
         name = view.accessibleName().strip() or "this table"
         if not header.accessibleName().strip():
             header.setAccessibleName(f"Resizable columns for {name}")
@@ -370,7 +377,7 @@ class TableColumnManager(QObject):
             "Shift+F10 for keyboard controls")
 
     def _menu_column(self, view, source, point):
-        header = view.horizontalHeader()
+        header = self._header(view)
         column = -1
         if source is header and point.x() >= 0:
             column = header.logicalIndexAt(point)
@@ -469,7 +476,7 @@ class TableColumnManager(QObject):
         width = max(self.MIN_WIDTH, min(
             self.MAX_WIDTH, view.columnWidth(column)))
         view.setColumnWidth(column, width)
-        view.horizontalHeader().setSectionResizeMode(
+        self._header(view).setSectionResizeMode(
             column, QHeaderView.ResizeMode.Interactive)
         self._announce_width(view, column)
 
@@ -489,7 +496,7 @@ class TableColumnManager(QObject):
         if view is None:
             return
         try:
-            header = view.horizontalHeader()
+            header = self._header(view)
             if id(header) in self._applying:
                 return
             key = self._column_key(view)
@@ -520,7 +527,7 @@ class TableColumnManager(QObject):
         if not defaults or len(defaults) != view.model().columnCount():
             return False
         self._storage().pop(key, None)
-        header = view.horizontalHeader()
+        header = self._header(view)
         self._applying.add(id(header))
         try:
             for column, width in enumerate(defaults):
@@ -550,7 +557,7 @@ class TableColumnManager(QObject):
             widths = storage.get(key, self._defaults.get(key, []))
             if len(widths) != view.model().columnCount():
                 continue
-            header = view.horizontalHeader()
+            header = self._header(view)
             self._applying.add(id(header))
             try:
                 for column, width in enumerate(widths):

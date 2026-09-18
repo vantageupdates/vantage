@@ -111,6 +111,29 @@ AUTO_TIMER_COLORS = (
 MAX_CROSS_ZONE_WATCHES = 64
 
 
+TIMER_CLONE_CONFIGURATION_FIELDS = (
+    "name", "respawn_seconds", "kill_seconds", "warning_seconds", "color",
+    "smart", "zone", "mob_pattern", "death_mobs", "sound_path", "volume",
+    "delivery", "tts_text", "tts_voice", "tts_pitch", "source",
+    "automatic", "timer_mode",
+)
+
+
+def clone_timer_configuration(timer):
+    """Copy saved timer configuration into a fresh, idle runtime identity."""
+    values = timer.to_dict()
+    clone = SpawnTimerState(**{
+        key: values[key] for key in TIMER_CLONE_CONFIGURATION_FIELDS
+        if key in values})
+    # Be explicit even though the dataclass defaults already start idle. This
+    # keeps cloning safe if future configuration fields are added around the
+    # persisted runtime fields.
+    clone.reset()
+    clone.cycles = 0
+    clone.warning_sent = False
+    return clone
+
+
 def extract_log_timer_command(text):
     """Parse the established StartTimer/PigTimer chat command syntax."""
     match = LOG_TIMER_COMMAND.search(str(text or ''))
@@ -298,20 +321,45 @@ class TimerProgressBar(QProgressBar):
 
 
 class TimerEditDialog(UniformScaleDialog):
-    def __init__(self, timer=None, parent=None):
+    def __init__(self, timer=None, parent=None, clone_source=None):
         super().__init__(
             QSize(560, 660), parent, minimum_size=QSize(200, 232))
         self.timer = timer
+        self.clone_source = clone_source
         self.color = timer.color if timer else "#B38C52"
-        self.setWindowTitle("Edit Smart Timer" if timer else "New Smart Timer")
+        self.setWindowTitle(
+            "Clone Smart Timer" if clone_source is not None else
+            "Edit Smart Timer" if timer else "New Smart Timer")
 
         form = polish_form(QFormLayout())
         self._timer_form = form
         form.setSpacing(5)
+        if clone_source is not None:
+            self.clone_notice = QLabel(
+                "NEW INDEPENDENT TIMER · Change the timer name or add/change "
+                "a death mob or trigger before saving.")
+            self.clone_notice.setWordWrap(True)
+            self.clone_notice.setObjectName("TimerCloneNotice")
+            self.clone_notice.setAccessibleName(
+                "Clone timer change required")
+            self.clone_notice.setAccessibleDescription(
+                "This is a new independent timer. Change its name or death "
+                "matching list before Save becomes valid; the original is "
+                "never overwritten.")
+            self.clone_notice.setToolTip(
+                "The clone starts READY with a new identity and cannot "
+                "overwrite the original timer")
+            form.addRow(self.clone_notice)
+        else:
+            self.clone_notice = None
         self.name = QLineEdit(timer.name if timer else "")
         self.name.setPlaceholderText("Example: Quillmane")
         self.name.setToolTip(
             "A short label shown on the timer row, overlays, and phone view")
+        if clone_source is not None:
+            self.name.setAccessibleDescription(
+                "Change this name, or change the death matching list, before "
+                "saving the independent clone.")
         form.addRow("Name", self.name)
 
         self.timer_mode = QComboBox()
@@ -699,6 +747,12 @@ class TimerEditDialog(UniformScaleDialog):
             "Scrollable timer fields, death matches, and notification options")
         layout.addWidget(self._form_scroll, 1)
         layout.addWidget(buttons)
+        if clone_source is not None:
+            QTimer.singleShot(0, self._focus_clone_name)
+
+    def _focus_clone_name(self):
+        self.name.setFocus(Qt.FocusReason.OtherFocusReason)
+        self.name.selectAll()
 
     def _pick_color(self):
         selected = QColorDialog.getColor(QColor(self.color), self, "Timer Color")
@@ -997,21 +1051,48 @@ class TimerEditDialog(UniformScaleDialog):
         if not self.name.text().strip():
             QMessageBox.warning(self, "Name Required", "Enter a name for the timer.")
             self.name.setFocus()
-            return
+            return False
         if parse_duration_input(self.respawn.text()) <= 0:
             QMessageBox.warning(
                 self, "Invalid Respawn Time",
                 "Use 3 for three minutes, 3:50, or 1:03:50.")
             self.respawn.setFocus()
-            return
+            return False
         if (self.timer_mode.currentData() == TIMER_MODE_SPAWN and
                 parse_duration_input(self.kill.text()) <= 0):
             QMessageBox.warning(
                 self, "Invalid Kill Time",
                 "Use 3 for three minutes, 3:50, or 1:03:50.")
             self.kill.setFocus()
-            return
+            return False
+        if self.clone_source is not None and not self._clone_has_required_change():
+            QMessageBox.warning(
+                self, "Change Required",
+                "This clone must have a different timer name or a changed "
+                "death mob / trigger list before it can be saved. The "
+                "original timer will not be changed.")
+            self.name.setFocus(Qt.FocusReason.OtherFocusReason)
+            self.name.selectAll()
+            return False
         self.accept()
+        return True
+
+    def _clone_has_required_change(self):
+        source = self.clone_source
+        if source is None:
+            return True
+        if self.name.text().strip() != str(source.name or "").strip():
+            return True
+        current_mobs = self._death_mob_names()
+        source_mobs = normalize_death_mobs(source.death_mobs)
+        if current_mobs != source_mobs:
+            return True
+        # Legacy patterns remain editable through migration to the visible
+        # death-match list. Preserve their exact value until that list changes.
+        current_pattern = (
+            "" if self._death_list_changed or current_mobs else
+            self.mob_pattern.text().strip())
+        return current_pattern != str(source.mob_pattern or "").strip()
 
     def apply(self, timer=None):
         timer = timer or SpawnTimerState(
@@ -1279,7 +1360,7 @@ class TimerWatchDialog(UniformScaleDialog):
 class TimerRow(QFrame):
     COMPACT_MINIMUM_HEIGHT = 40
     DETAILED_MINIMUM_HEIGHT = 82
-    CONTROLS_SIZE = QSize(184, 28)
+    CONTROLS_SIZE = QSize(210, 28)
 
     def __init__(self, timer, owner):
         super().__init__()
@@ -1398,6 +1479,20 @@ class TimerRow(QFrame):
         self.spawned_button.setToolTip("Mob spawned: start estimated kill time")
         self.spawned_button.clicked.connect(self._spawned)
         controls_layout.addWidget(self.spawned_button)
+
+        self.clone_button = QPushButton()
+        self._polish_action(self.clone_button)
+        self.clone_button.setIcon(game_icon("copy"))
+        self.clone_button.setAccessibleName(f"Clone {timer.name}")
+        self.clone_button.setAccessibleDescription(
+            "Opens a new independent timer prefilled from this timer. Change "
+            "the timer name or death match before saving; the original is "
+            "never overwritten.")
+        self.clone_button.setToolTip(
+            f"Clone {timer.name} into a new READY timer with its own identity")
+        self.clone_button.clicked.connect(
+            lambda: owner.clone_timer(timer.timer_id))
+        controls_layout.addWidget(self.clone_button)
 
         edit = QPushButton()
         self._polish_action(edit)
@@ -1560,7 +1655,7 @@ class TimerRow(QFrame):
             timer.timer_mode == TIMER_MODE_SPAWN)
         self.spawned_button.setVisible(
             timer.timer_mode == TIMER_MODE_SPAWN)
-        control_count = 7 if timer.timer_mode == TIMER_MODE_SPAWN else 5
+        control_count = 8 if timer.timer_mode == TIMER_MODE_SPAWN else 6
         self.controls.setFixedSize(control_count * 26 + 2, 28)
         compact = bool(getattr(
             self.owner, "is_compact",
@@ -2583,6 +2678,39 @@ class SpawnTimers(ParserWindow):
             dialog.apply(timer)
             self._refresh_all_view_filters()
             self.state_changed(layout_changed=True)
+
+    def clone_timer(self, timer_id):
+        """Create an independently editable copy without runtime state."""
+        controller = self if self._is_primary else self._controller
+        original = controller._states.get(timer_id)
+        if original is None:
+            return None
+        clone = clone_timer_configuration(original)
+        dialog = TimerEditDialog(
+            clone, self, clone_source=original)
+        if not dialog.exec():
+            return None
+        dialog.apply(clone)
+        # The clone helper supplies a fresh identity, but protect the original
+        # even if a future dialog/import path mutates that field.
+        while clone.timer_id in controller._states:
+            clone.timer_id = uuid.uuid4().hex
+        controller._register_timer(clone)
+
+        # An explicitly watched timer should produce a watched clone in the
+        # same view. Zone-filter visibility continues to work normally.
+        for view in tuple(controller._views):
+            settings = view._view_settings()
+            watched = settings.get("watch_timer_ids", [])
+            if (isinstance(watched, list) and timer_id in watched and
+                    clone.timer_id not in watched):
+                settings["watch_timer_ids"] = (
+                    watched + [clone.timer_id])[:MAX_CROSS_ZONE_WATCHES]
+        controller._refresh_all_view_filters()
+        controller.state_changed(layout_changed=True)
+        controller.announce(
+            f"CLONED · {original.name} → {clone.name} · new READY timer")
+        return clone
 
     def delete_timer(self, timer_id):
         timer = self._states[timer_id]

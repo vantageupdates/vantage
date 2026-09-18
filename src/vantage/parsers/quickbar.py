@@ -50,7 +50,7 @@ class QuickBarNotificationRail(QFrame):
         self._label.hide()
         self._notice_id = 0
         self._pending = deque(maxlen=20)
-        self._pending_channels = deque(maxlen=20)
+        self._notice_max_age = 30.0
         self._moving = False
         self._reduce_motion = False
         self._fade_on_expire = False
@@ -91,7 +91,7 @@ class QuickBarNotificationRail(QFrame):
         }.get(str(channel or "").casefold(), "SYSTEM")
 
     def present(self, notice_id, text, reduce_motion=False, available=True,
-                channel="system"):
+                channel="system", created_at=None):
         """Queue a notice for one complete marquee pass in arrival order."""
         try:
             notice_id = int(notice_id)
@@ -99,29 +99,38 @@ class QuickBarNotificationRail(QFrame):
             return
         if notice_id <= self._notice_id or not str(text or "").strip():
             return
+        clean = " ".join(str(text).split())
         self._notice_id = notice_id
         self._reduce_motion = bool(reduce_motion)
-        clean = " ".join(str(text).split())
-        # Hidden/vertical rails consume the event immediately. A notice is a
-        # live event, not history that should surprise the user hours later.
-        if not available or not self.isVisible():
+        # ``available=False`` is reserved for an intentional user choice such
+        # as vertical mode or a disabled rail. Ordinary temporary widget
+        # hiding must not consume the notice before it can render.
+        if not available:
             return
-        self._pending.append(clean)
-        self._pending_channels.append(self._channel_label(channel))
+        try:
+            created_at = float(created_at)
+        except (TypeError, ValueError):
+            created_at = time.monotonic()
+        self._pending.append((
+            notice_id, clean, self._channel_label(channel), created_at))
         if self._label.isVisible():
             self.setAccessibleDescription(
                 f"{len(self._pending)} more notification" +
                 ("s" if len(self._pending) != 1 else "") + " queued")
             return
-        self._show_next()
+        if self.isVisible():
+            self._show_next()
 
     def _show_next(self):
-        if not self._pending or not self.isVisible():
+        if not self.isVisible():
+            return
+        now = time.monotonic()
+        while self._pending and now - self._pending[0][3] > self._notice_max_age:
+            self._pending.popleft()
+        if not self._pending:
             self._clear_current()
             return
-        clean = self._pending.popleft()
-        channel = (self._pending_channels.popleft()
-                   if self._pending_channels else "SYSTEM")
+        _notice_id, clean, channel, _created_at = self._pending.popleft()
         self._scroll_timer.stop()
         self._clear_timer.stop()
         self._fade_animation.stop()
@@ -236,12 +245,20 @@ class QuickBarNotificationRail(QFrame):
 
     def showEvent(self, event):
         super().showEvent(event)
+        if not self._label.isVisible() and self._pending:
+            self._show_next()
+            return
         if self._moving and self._label.isVisible():
             self._scroll_timer.start()
 
     def hideEvent(self, event):
         super().hideEvent(event)
         self._scroll_timer.stop()
+
+    def discard_all(self):
+        """Forget active and queued notices when the rail is intentionally off."""
+        self._pending.clear()
+        self._clear_current()
 
 
 class QuickBarVolumeSlider(QSlider):
@@ -951,6 +968,38 @@ class QuickBar(ParserWindow):
         self._toggled = True
         self.show()
 
+    def apply_saved_presentation(self):
+        """Apply the saved client rectangle without a late aspect snap."""
+        geometry = list(config.data.get("quickbar", {}).get(
+            "geometry", self._geometry))
+        if len(geometry) != 4:
+            super().apply_saved_presentation()
+            return
+        expected = tuple(int(value) for value in geometry)
+        self._preserving_saved_geometry = True
+        try:
+            super().apply_saved_presentation()
+            self.setGeometry(*expected)
+        finally:
+            self._preserving_saved_geometry = False
+        # Resize events posted by setGeometry are delivered after this method
+        # returns. Remember the authored/saved rectangle so those deferred
+        # events update the scaled content without rewriting the window size.
+        self._saved_presentation_geometry = expected
+
+        def restore_exact_saved_geometry(saved=expected):
+            current = config.data.get("quickbar", {}).get("geometry", [])
+            try:
+                still_current = tuple(int(value) for value in current) == saved
+            except (TypeError, ValueError):
+                still_current = False
+            if still_current and not self._collapsed:
+                # Content scaling was already calculated by the base method;
+                # this final assignment protects the user's exact viewport.
+                self.setGeometry(*saved)
+
+        QTimer.singleShot(0, restore_exact_saved_geometry)
+
     def _effective_minimum_scale(self):
         # A one-row command strip can remain recoverable at 18 px high; using
         # the generic panel's 48 px floor would prevent a compact top bar.
@@ -968,8 +1017,7 @@ class QuickBar(ParserWindow):
             # width and target scale. Adding a few authored header pixels
             # must not make the entire command strip (and every action
             # target in it) eligible to shrink further.
-            0.375,
-            72 / max(1, self._design_size.width()),
+            292 / max(1, self._design_size.width()),
             18 / max(1, interactive_height))
 
     def _refresh_title_icon(self):
@@ -984,6 +1032,12 @@ class QuickBar(ParserWindow):
 
     def _update_uniform_scale(self):
         """Keep a command strip tight instead of creating an empty viewport."""
+        if getattr(self, "_preserving_saved_geometry", False):
+            return super()._update_uniform_scale()
+        saved = getattr(self, "_saved_presentation_geometry", None)
+        if (saved is not None and not self._collapsed and
+                (self.width(), self.height()) == saved[2:]):
+            return super()._update_uniform_scale()
         if (not self._collapsed and not self._snapping_height
                 and getattr(self, "_design_size", None)):
             # The Quick Bar is a shrink-wrapped launcher, not a content
@@ -1127,10 +1181,16 @@ class QuickBar(ParserWindow):
 
     def _apply_quickbar_settings(self, preserve_scale=True):
         settings = config.data["quickbar"]
+        prior_size = QSize(self.size())
+        prior_orientation = self._orientation
         prior_width_scale = (
             self.width() / max(1, self._design_size.width()))
         self._orientation = settings.get("orientation", "horizontal")
         vertical = self._orientation == "vertical"
+        # Keep the growing catalog inside the established authored footprint
+        # by packing adjacent 24 px targets without shrinking any target.
+        # Overflow remains available at physically narrow saved sizes.
+        self.action_layout.setSpacing(0)
         self._header_visible = bool(settings.get("show_header", True))
         self._menu.setVisible(self._header_visible)
         self._menu.setEnabled(self._header_visible)
@@ -1197,6 +1257,14 @@ class QuickBar(ParserWindow):
         rail_visible = bool(
             settings.get("show_notification_ticker", True) and not vertical)
         self.notification_rail.setVisible(rail_visible)
+        if not rail_visible:
+            # Orientation and the ticker preference are explicit user choices,
+            # unlike a momentary hide caused by a layout pass.
+            self.notification_rail.discard_all()
+            discard = getattr(
+                self._application, "_take_quickbar_notices", None)
+            if callable(discard):
+                discard(discard=True)
         self.notification_rail.set_motion_reduced(
             config.data["general"].get("reduce_motion", False))
         if tick_visible:
@@ -1244,10 +1312,15 @@ class QuickBar(ParserWindow):
             action_height = (
                 margins.top() + margins.bottom() +
                 max((widget.height() for widget in visible_widgets), default=24))
-            rail_width = max(120, action_width - 24)
+            authored_width = max(779, action_width, header_width)
+            # The rail spans the authored Quick Bar minus the final 24 px
+            # action target. Deriving it from action_width alone left a thin,
+            # inconsistent gap when zero-spacing packing kept the catalog
+            # narrower than the established 779 px surface.
+            rail_width = max(120, authored_width - 24)
             self.notification_rail.setFixedWidth(rail_width)
             design_size = QSize(
-                max(120, action_width, header_width),
+                authored_width,
                 header_height + action_height +
                 (self.notification_rail.height() if rail_visible else 0))
         # Quick Bar height is content-derived. Preserve its horizontal scale
@@ -1255,11 +1328,38 @@ class QuickBar(ParserWindow):
         # smaller of width/height and accumulating a rounding shrink each time.
         self._set_design_size(design_size, preserve_scale=False)
         if preserve_scale and not self._collapsed:
-            scale = max(
-                self._effective_minimum_scale(), min(1.0, prior_width_scale))
-            self.resize(
-                round(design_size.width() * scale),
-                round(design_size.height() * scale))
+            if prior_orientation == self._orientation:
+                # Status/catalog changes must not rewrite the user's exact
+                # physical rectangle. The existing viewport handles narrow
+                # saved bars while every authored target remains 24 px.
+                self.resize(prior_size)
+
+                def restore_physical_size(
+                        expected_orientation=prior_orientation,
+                        expected_size=QSize(prior_size)):
+                    # Style repolishing can post a late size-hint resize after
+                    # this method returns. Reassert the exact saved rectangle
+                    # once that layout event has drained.
+                    saved_geometry = config.data.get(
+                        "quickbar", {}).get("geometry", [])
+                    saved_size = (
+                        list(saved_geometry[2:4])
+                        if isinstance(saved_geometry, list) else [])
+                    if (self._orientation == expected_orientation and
+                            not self._collapsed and saved_size == [
+                                expected_size.width(),
+                                expected_size.height()]):
+                        self.resize(expected_size)
+                        self._update_uniform_scale()
+
+                QTimer.singleShot(0, restore_physical_size)
+            else:
+                scale = max(
+                    self._effective_minimum_scale(),
+                    min(1.0, prior_width_scale))
+                self.resize(
+                    round(design_size.width() * scale),
+                    round(design_size.height() * scale))
         self._update_uniform_scale()
         self._fit_to_available_screen()
 
@@ -1599,14 +1699,30 @@ class QuickBar(ParserWindow):
         self._sync_support_animation()
         if self._tick_snapshot is not None:
             self._server_tick_update(self._tick_snapshot)
-        notice_id = getattr(self._application, "_quickbar_notice_id", 0)
-        notice = getattr(self._application, "_quickbar_notice", "")
-        self.notification_rail.present(
-            notice_id, notice,
-            config.data["general"].get("reduce_motion", False),
-            available=self.isVisible() and self.notification_rail.isVisible(),
-            channel=getattr(
-                self._application, "_quickbar_notice_channel", "system"))
+        rail_configured = bool(
+            getattr(self, "_toggled", True) and
+            config.data["quickbar"].get("show_notification_ticker", True) and
+            config.data["quickbar"].get("orientation", "horizontal") ==
+            "horizontal")
+        take_notices = getattr(
+            self._application, "_take_quickbar_notices", None)
+        if callable(take_notices):
+            notices = take_notices(discard=not rail_configured)
+        else:
+            notices = [(
+                getattr(self._application, "_quickbar_notice_id", 0),
+                getattr(self._application, "_quickbar_notice", ""),
+                getattr(
+                    self._application, "_quickbar_notice_channel", "system"),
+                getattr(self._application, "_quickbar_notice_at", time.monotonic()))]
+        if not rail_configured:
+            self.notification_rail.discard_all()
+        else:
+            for notice_id, notice, channel, created_at in notices:
+                self.notification_rail.present(
+                    notice_id, notice,
+                    config.data["general"].get("reduce_motion", False),
+                    available=True, channel=channel, created_at=created_at)
 
     def _sync_support_animation(self):
         support = self._buttons.get("support")

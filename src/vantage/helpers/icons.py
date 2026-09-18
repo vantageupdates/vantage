@@ -16,6 +16,7 @@ WINDOW_ICONS = {
     "tick": "ph-gauge",
     "timers": "ph-countdown",
     "combat": "ph-sword",
+    "random_parser": "ph-pulse-quiet",
     "heals": "ph-heal",
     "market": "ph-storefront",
     "opendkp": "ph-gavel",

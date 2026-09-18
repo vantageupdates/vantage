@@ -524,3 +524,74 @@ independent accessibility review: PASS
   `sha256:29d214dca4f1b507b69b33dbf0e748619282e164a509a8d987c916c9fdb219e4`.
 - A fresh public download matched the locally tested candidate hash and size
   byte-for-byte.
+
+## 1.44.107 release evidence
+
+- Quick Bar notifications now move through bounded FIFO queues instead of a
+  single overwriteable slot. Bursts retain arrival order, temporary Qt layout
+  hides no longer consume notices, and intentionally hidden, vertical, or
+  disabled rails discard live events instead of replaying stale history.
+- Rail notices expire after **30 seconds** and accessibility announcements fire
+  exactly once, when the notice is actually presented. Combat dwell/fade and
+  reduced-motion behavior remain bounded.
+- The editable Vantage Basics catalog now includes exact, anchored Project
+  1999 failure triggers for target too far, target out of range, blocked line
+  of sight, no selected target, and spell recovery delay. Each uses the common
+  Sound / TTS / Off editor and a repeat guard; same-name user customizations
+  survive the catalog migration.
+- Random Parser is a separate Quick Bar window using the exact two-line EQ log
+  result format observed in local Project 1999 logs. Typed chat lookalikes,
+  malformed/stale pairs, nonzero lower bounds, and out-of-range results are
+  ignored.
+- Random Parser locks a round to the first accepted **0-N** range and accepts
+  one roll per case-insensitive player name. Mismatched ranges and rerolls are
+  rejected until Clear, Reset, or New Round. Winner and tied-winner states are
+  written in the table and summary in addition to gold/bold styling.
+- Independent accessibility review: **PASS**. Native controls remain keyboard
+  reachable with accessible names and tooltips; notification order is
+  announced once; Random Parser exposes winner, tie, round, and range in text
+  rather than relying on color.
+- Integrated Quick Bar, Random Parser, geometry/minimize persistence, update
+  heartbeat, and basic-trigger verification: **21 passed** in **70.56 seconds**.
+  A broader notification/audio-routing regression set also completed with
+  **40 passed** in **33.94 seconds**.
+- The first full-suite candidate audit completed with **1,529 passed, 2
+  skipped, and 4 failed** in **704.60 seconds**. The failures were all UI
+  integration regressions: Quick Bar reset visibility, its established 292 px
+  minimum, Random Parser table-header tooltips, and exact saved-width reload.
+  Remediation keeps every action target at 24 px while packing the authored
+  strip inside its existing 779 px design width, restores exact physical size
+  after deferred Qt layout work, records Random Parser's authored minimum, and
+  gives Player, Roll, and Result explicit header tooltips.
+- Post-remediation focused coverage for those four failures plus Quick Bar,
+  Random Parser, trigger routing/state, and Smart Timer cloning completed with
+  **51 passed** in **143.10 seconds**. The two exact-geometry regressions also
+  pass together (**2 passed** in **40.35 seconds**). The full suite has not yet
+  been rerun, so this entry does not claim a clean full-suite result.
+- Trigger-test audit found that the old per-control Test buttons only invoked
+  WAV/TTS primitives: they did not confirm the semantic Quick Bar/overlay
+  route or explain Master Mute, zero volume, or backend failure. The new
+  keyboard-reachable **Test trigger now** action tests Quick Bar, overlay, and
+  the selected Sound / TTS / Off route with a visible and announced result.
+  Individual triggers and groups now expose literal **On** or **Off** text in
+  the library, while the editor toggle reads **Trigger On/Off** and preserves
+  existing delivery data. Focused Sound, TTS, Off, persistence, and live
+  Mob-is-casting behavior are covered by the regression set above.
+- Smart Timers now offers a keyboard-reachable **Clone timer** action with an
+  accessible name, description, and tooltip. A clone deep-copies its zone,
+  duration, delivery, trigger/mob lists, and explicit watched/import placement,
+  while receiving a fresh identity and idle runtime state. Saving requires an
+  explicit name or trigger/mob change; cancel and validation failure never
+  mutate or overwrite the source. Focused clone/control coverage passed
+  **18 tests**.
+- Final complete-suite verification: **1,538 passed, 2 skipped** in **716.44
+  seconds**. This supersedes the earlier candidate-audit failures above; all
+  four integration regressions were remediated before the release build.
+- PyInstaller **6.22.2** one-file build: **PASS**. Portable self-test exited
+  `0`, reporting version `1.44.107` from an isolated temporary profile.
+- Packaged archive verification: **PASS**. Both
+  `qtexttospeech_sapi.dll` and `qtexttospeech_winrt.dll` are included.
+- Candidate `dist/Vantage.exe` size: **75,901,131 bytes**. SHA-256:
+  `828F5A1DFDBC08E19AC8BF7378AAA15BEAF824E8ED30240377BB3B0CB9C40E98`.
+- Public release verification remains pending and is intentionally not claimed
+  before the stable release is published and freshly downloaded.

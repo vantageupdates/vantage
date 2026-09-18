@@ -2034,15 +2034,19 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._triggers.setAccessibleName('Trigger group and trigger library')
         self._triggers.setToolTip(
             'Groups and triggers · drag a row to reorder it or move it into another group')
-        self._triggers.setHeaderLabels(('Trigger library', 'Scope'))
+        self._triggers.setHeaderLabels(('Trigger library', 'State', 'Scope'))
         self._triggers.headerItem().setToolTip(
             0, 'Nested trigger groups and individual trigger names')
         self._triggers.headerItem().setToolTip(
-            1, 'All characters or the exact character profile override')
+            1, 'Visible On or Off state for this trigger or group')
+        self._triggers.headerItem().setToolTip(
+            2, 'All characters or the exact character profile override')
         self._triggers.header().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch)
         self._triggers.header().setSectionResizeMode(
             1, QHeaderView.ResizeMode.ResizeToContents)
+        self._triggers.header().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.ResizeToContents)
         self._triggers.setSelectionMode(
             QAbstractItemView.SelectionMode.SingleSelection)
         self._triggers.setDragDropMode(
@@ -2147,11 +2151,37 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_time.setToolTip(
             'Timer duration; 3 means 3 minutes, and 3:50 or 1:03:50 are also accepted')
 
-        self._trigger_enabled = QCheckBox('Enabled')
+        self._trigger_enabled = QCheckBox('Trigger On')
         self._trigger_enabled.setChecked(True)
+        self._trigger_enabled.setAccessibleName('Individual trigger On or Off')
+        self._trigger_enabled.setAccessibleDescription(
+            'Press Space to switch only this trigger On or Off. The saved '
+            'Sound, text-to-speech, timer, and overlay settings are preserved.')
         self._trigger_enabled.setToolTip(
-            'Enable this trigger without changing the rest of its category')
+            'Turn only this trigger On or Off without changing its category '
+            'or delivery settings')
+        self._trigger_enabled.toggled.connect(self._sync_trigger_enabled_text)
         trigger_layout.addRow('Status', self._trigger_enabled)
+
+        self._test_trigger_button = QPushButton('Test trigger now')
+        self._test_trigger_button.setIcon(game_icon('play'))
+        self._test_trigger_button.setAccessibleName(
+            'Test selected trigger notification')
+        self._test_trigger_button.setAccessibleDescription(
+            'Sends a visible Quick Bar test and exercises the currently '
+            'selected Sound, text-to-speech, or Off delivery without waiting '
+            'for an EverQuest log line.')
+        self._test_trigger_button.setToolTip(
+            'Test this trigger\'s current Quick Bar, overlay, and audio route')
+        self._test_trigger_button.clicked.connect(self._test_trigger_action)
+        self._trigger_test_status = QLabel('Test status · ready')
+        self._trigger_test_status.setWordWrap(True)
+        self._trigger_test_status.setAccessibleName(
+            'Trigger test status: ready')
+        self._trigger_test_status.setAccessibleDescription(
+            'Result of the most recent trigger notification test.')
+        trigger_layout.addRow('Test action', self._test_trigger_button)
+        trigger_layout.addRow('Test status', self._trigger_test_status)
 
         self._trigger_regex = QCheckBox('Regular expression')
         self._trigger_regex.setToolTip(
@@ -2717,6 +2747,98 @@ class CustomTriggerSettings(UniformScaleDialog):
             self._trigger_delivery_changed(
                 delivery, sound_panel, speech_panel)
 
+    def _sync_trigger_enabled_text(self, enabled):
+        state = 'On' if enabled else 'Off'
+        self._trigger_enabled.setText(f'Trigger {state}')
+        self._trigger_enabled.setAccessibleName(
+            f'Individual trigger {state}')
+        self._trigger_enabled.setAccessibleDescription(
+            f'This trigger is {state}. Press Space to switch only this '
+            'trigger. Saved Sound, text-to-speech, timer, and overlay '
+            'settings are preserved.')
+
+    def _announce_trigger_test(self, message):
+        text = str(message or 'Test status · unavailable')
+        self._trigger_test_status.setText(text)
+        self._trigger_test_status.setAccessibleName(text)
+        self._trigger_test_status.setAccessibleDescription(
+            f'Latest trigger notification test result: {text}')
+        try:
+            QAccessible.updateAccessibility(
+                QAccessibleAnnouncementEvent(
+                    self._trigger_test_status, text))
+        except (AttributeError, RuntimeError, TypeError):
+            pass
+        return text
+
+    def _test_trigger_action(self):
+        """Exercise the selected trigger's complete user-facing route.
+
+        The former per-control Test buttons proved only that an audio primitive
+        could be called. They did not emit the Quick Bar message players rely
+        on, did not explain Master Mute/zero volume, and could be suppressed
+        merely because the Spells window was hidden. This explicit action is a
+        user request, so it bypasses window-visibility gating while continuing
+        to honor Master Mute and Master Volume.
+        """
+        name = self._trigger_name.text().strip() or 'Selected trigger'
+        semantic = (
+            self._trigger_alert.text().strip() or
+            self._trigger_tts.text().strip() or f'{name} matched')
+        # Token values require a real log match. Keep the test useful and
+        # honest instead of pretending to resolve a mob/spell capture.
+        semantic = re.sub(r'\{[^{}]+\}', 'sample', semantic)
+        app = QApplication.instance()
+        queue_notice = getattr(app, '_queue_quickbar_notice', None)
+        if callable(queue_notice):
+            try:
+                queue_notice(f'Test · {semantic}', channel='spells')
+            except TypeError:  # Compatible with lightweight host adapters.
+                queue_notice(f'Test · {semantic}')
+
+        overlay_id = str(self._trigger_overlay.currentData() or 'none')
+        show_overlay = getattr(app, 'show_overlay_notification', None)
+        if overlay_id != 'none' and callable(show_overlay):
+            show_overlay(
+                f'Test · {name}', semantic, msecs=3500,
+                overlay_id=overlay_id, register=False)
+
+        mode = str(self._trigger_delivery.currentData() or 'off')
+        if mode == 'sound':
+            sound = str(self._trigger_sound.currentData() or '')
+            played = bool(sound and play_alert(
+                sound, config.data['spells']['fade_sound_volume'], 1,
+                source=f'Test · {name}', channel='spells',
+                allow_hidden=True))
+            if audio_muted():
+                outcome = 'blocked by Master Mute'
+            elif master_volume() <= 0:
+                outcome = 'silent at 0% Master Volume'
+            elif not sound:
+                outcome = 'no Sound or WAV selected'
+            else:
+                outcome = 'Sound played' if played else 'Sound unavailable'
+        elif mode == 'tts':
+            speech = self._trigger_tts.text().strip() or semantic
+            speech = re.sub(r'\{[^{}]+\}', 'sample', speech)
+            played = bool(speak_text(
+                speech, self._trigger_tts_volume.value(),
+                self._trigger_interrupt_speech.isChecked(),
+                source=f'Test · {name} · speech', channel='spells',
+                allow_hidden=True,
+                voice_name=str(self._trigger_tts_voice.currentData() or ''),
+                pitch=self._trigger_tts_pitch.value()))
+            if audio_muted():
+                outcome = 'blocked by Master Mute'
+            elif master_volume() <= 0:
+                outcome = 'silent at 0% Master Volume'
+            else:
+                outcome = 'Text to speech queued' if played else \
+                    'Windows voice unavailable'
+        else:
+            outcome = 'audio Off; visual notification sent'
+        return self._announce_trigger_test(f'Test status · {outcome}')
+
     @staticmethod
     def _set_voice_combo(combo, voice_name):
         wanted = str(voice_name or '')
@@ -2844,7 +2966,9 @@ class CustomTriggerSettings(UniformScaleDialog):
                 pair[0].casefold()))
         for path, definition in ordered_groups:
             parent_path = path.rsplit('/', 1)[0] if '/' in path else ''
-            item = QTreeWidgetItem((path.rsplit('/', 1)[-1], 'All'))
+            enabled = bool(definition.get('enabled', True))
+            item = QTreeWidgetItem((
+                path.rsplit('/', 1)[-1], 'On' if enabled else 'Off', 'All'))
             item.setData(0, TRIGGER_ITEM_KIND, 'group')
             item.setData(0, TRIGGER_ITEM_ID, path)
             item.setFlags(
@@ -2852,12 +2976,14 @@ class CustomTriggerSettings(UniformScaleDialog):
                 Qt.ItemFlag.ItemIsDragEnabled | Qt.ItemFlag.ItemIsDropEnabled |
                 Qt.ItemFlag.ItemIsEditable)
             item.setCheckState(
-                0, Qt.CheckState.Checked if definition.get('enabled', True)
+                0, Qt.CheckState.Checked if enabled
                 else Qt.CheckState.Unchecked)
             item.setToolTip(
                 0, f'{path} · drag to nest or reorder · rename inline')
             item.setToolTip(
-                1, 'The checkbox is the global state; character overrides are edited below')
+                1, f"Group is {'On' if enabled else 'Off'}; press Space to toggle")
+            item.setToolTip(
+                2, 'The checkbox is the global state; character overrides are edited below')
             parent = group_items.get(parent_path)
             if parent:
                 parent.addChild(item)
@@ -2881,7 +3007,8 @@ class CustomTriggerSettings(UniformScaleDialog):
             if parent is None:
                 parent = group_items.get('Default')
             item = QTreeWidgetItem((
-                trigger.name, trigger.profile or 'All'))
+                trigger.name, 'On' if trigger.enabled else 'Off',
+                trigger.profile or 'All'))
             item.setData(0, TRIGGER_ITEM_KIND, 'trigger')
             item.setData(0, TRIGGER_ITEM_ID, trigger.name)
             item.setFlags(
@@ -2893,9 +3020,11 @@ class CustomTriggerSettings(UniformScaleDialog):
                 0, Qt.CheckState.Checked if trigger.enabled
                 else Qt.CheckState.Unchecked)
             item.setToolTip(
-                0, f'{trigger.name} · drag to move or reorder · check to enable')
+                0, f'{trigger.name} · drag to move or reorder · press Space to toggle')
             item.setToolTip(
-                1, trigger.profile or 'Runs for every character')
+                1, f"Trigger is {'On' if trigger.enabled else 'Off'}")
+            item.setToolTip(
+                2, trigger.profile or 'Runs for every character')
             if parent:
                 parent.addChild(item)
             else:
@@ -3163,6 +3292,7 @@ class CustomTriggerSettings(UniformScaleDialog):
         category = self._selected_group_path()
         self._current_trigger = ''
         self._clear()
+        self._test_trigger_button.setEnabled(True)
         self._trigger_category.setCurrentText(category)
         self._save_trigger_button.setEnabled(True)
         self._trigger_name.setPlaceholderText('<new>')
@@ -3286,10 +3416,12 @@ class CustomTriggerSettings(UniformScaleDialog):
             self._current_trigger = name
             self._display_trigger(self._custom_triggers[name])
             self._save_trigger_button.setEnabled(True)
+            self._test_trigger_button.setEnabled(True)
             return
         self._current_trigger = None
         path = self._selected_group_path()
         self._clear()
+        self._test_trigger_button.setEnabled(False)
         self._trigger_category.setCurrentText(path)
         self._category_changed()
         self._save_trigger_button.setEnabled(True)
