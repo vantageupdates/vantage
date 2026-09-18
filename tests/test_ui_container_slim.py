@@ -44,6 +44,21 @@ def test_native_slot_prefixes_preserve_sizes_and_indices(count):
     assert node('ContainerWindow').findtext('Style_Sizable') == 'false'
     assert node('ContainerWindow').findtext('Style_Closebox') == 'true'
 
+def test_native_minimize_preserves_fixed_non_scrolling_container_contract():
+    window = node('ContainerWindow')
+    assert window.findtext('Style_Minimizebox') == 'true'
+    assert window.findtext('Style_Closebox') == 'true'
+    assert window.findtext('Style_Sizable') == 'false'
+    assert window.findtext('Style_VScroll') == 'false'
+    assert window.findtext('Style_HScroll') == 'false'
+    assert [piece.text for piece in window.findall('Pieces')] == [
+        'Container_Label', 'Container_Icon',
+        *(f'ContainerSlot{i}' for i in range(1, 11)),
+        'Container_Combine', 'Container_CloseButton',
+        'AugmentList', 'Augment_Label', 'InsertButton', 'RemoveButton',
+        'DeleteButton', 'AugmentInfoLabel',
+    ]
+
 def test_slot_grid_has_equal_margins_and_tight_footer():
     width=rect('ContainerWindow')[2]
     left=rect('ContainerSlot1')[0]
