@@ -116,13 +116,23 @@ initial = {
         'label_required': (
             bar.volume_value_label.fontMetrics().horizontalAdvance('100%') +
             8),
-        'focus_style': ':focus' in bar.volume_slider.styleSheet(),
+        'custom_paint': type(bar.volume_slider).__name__ ==
+                        'QuickBarVolumeSlider',
+        'platform_parts_removed': '::' not in bar.volume_slider.styleSheet(),
+        'style_has_white': any(
+            token in bar.volume_slider.styleSheet().upper()
+            for token in ('#FFF', 'WHITE', 'IVORY')),
+        'visual_palette': dict(bar.volume_slider.VISUAL_COLORS),
+        'palette_has_near_white': any(
+            min(int(value[index:index + 2], 16)
+                for index in (1, 3, 5)) >= 235
+            for value in bar.volume_slider.VISUAL_COLORS.values()),
         'contrast': [
             contrast_ratio('#687A86', '#182127'),
             contrast_ratio('#9A7541', '#182127'),
-            contrast_ratio('#F1E4BE', '#9A7541'),
-            contrast_ratio('#F0C778', '#11181D'),
-            contrast_ratio('#D0B675', '#11181D'),
+            contrast_ratio('#362916', '#9A7541'),
+            contrast_ratio('#C6A15A', '#182127'),
+            contrast_ratio('#D0A45B', '#11181D'),
         ],
     },
     'header_tab_order': [
@@ -1036,9 +1046,18 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
     semantics = initial['volume_semantics']
     assert semantics['label_width'] >= semantics['label_required']
     assert all(ratio >= 3.0 for ratio in semantics['contrast'])
+    assert semantics['visual_palette'] == {
+        'rail': '#182127',
+        'rail_outline': '#687A86',
+        'fill': '#9A7541',
+        'thumb_ring': '#C6A15A',
+        'thumb_core': '#362916',
+        'focus': '#D0A45B',
+    }
     assert {
         key: value for key, value in semantics.items()
-        if key not in {'label_width', 'label_required', 'contrast'}
+        if key not in {
+            'label_width', 'label_required', 'contrast', 'visual_palette'}
     } == {
         'native': True,
         'horizontal': True,
@@ -1051,7 +1070,10 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
         'role_slider': True,
         'focusable': True,
         'label_focusable': False,
-        'focus_style': True,
+        'custom_paint': True,
+        'platform_parts_removed': True,
+        'style_has_white': False,
+        'palette_has_near_white': False,
     }
     assert initial['header_tab_order'] == [True] * 5
     assert result['volume_from_settings'] == {

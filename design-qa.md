@@ -466,3 +466,20 @@ independent accessibility review: PASS
   `sha256:44c5a63cfad4d0b7bec675cc07988fc94d9b7547bd794b7fe6a00887d0f00581`.
 - A fresh public download matched the tested candidate hash and size
   byte-for-byte.
+
+## 1.44.105 release evidence
+
+- Quick Bar notification volume is now custom-painted in Vantage charcoal and
+  bronze, removing the white/ivory native slider block in normal, hover,
+  pressed, and focused states while preserving its compact **130×24 px** size.
+- Native slider semantics, keyboard control, click/drag behavior, wheel guard,
+  Master Mute integration, and the overflow copy remain intact.
+- Independent accessibility review: **PASS**. Measured rail, outline, fill,
+  thumb, and focus contrast ratios are 3.67, 3.88, 3.36, 6.73, and 7.80:1.
+- Focused Quick Bar verification: **7 passed**. Combined Quick Bar and update
+  heartbeat regression verification: **8 passed**.
+- Full automated test suite: **1,524 passed, 2 skipped** in **739.67 seconds**.
+- PyInstaller **6.22.2** one-file build: **PASS**. Portable self-test exited
+  `0`, reporting version `1.44.105`.
+- Candidate `dist/Vantage.exe` size: **75,881,061 bytes**. SHA-256:
+  `37BBCA38EAA75E00F1AE723C70605B66E3620E750764BC3B6AD857DAE31420ED`.

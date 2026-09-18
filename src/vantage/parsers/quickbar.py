@@ -6,8 +6,9 @@ from collections import deque
 import time
 
 from PySide6.QtCore import (
-    QEasingCurve, QEvent, QPropertyAnimation, QSize, Qt, QTimer)
-from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
+    QEasingCurve, QEvent, QPointF, QPropertyAnimation, QSize, Qt, QTimer)
+from PySide6.QtGui import (
+    QAccessible, QAccessibleAnnouncementEvent, QColor, QPainter, QPen)
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QFrame, QGraphicsOpacityEffect, QLabel,
     QProgressBar, QSizePolicy, QSlider, QToolButton, QVBoxLayout, QWidget,
@@ -244,15 +245,85 @@ class QuickBarNotificationRail(QFrame):
 
 
 class QuickBarVolumeSlider(QSlider):
-    """Ignore stray wheel input until the user explicitly focuses volume."""
+    """Native slider behavior with deterministic Vantage painting."""
+
+    VISUAL_COLORS = {
+        "rail": "#182127",
+        "rail_outline": "#687A86",
+        "fill": "#9A7541",
+        "thumb_ring": "#C6A15A",
+        "thumb_core": "#362916",
+        "focus": "#D0A45B",
+    }
 
     def __init__(self, parent=None):
         super().__init__(Qt.Orientation.Horizontal, parent)
         self._last_focus_reason = None
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
 
     def focusInEvent(self, event):
         self._last_focus_reason = event.reason()
         super().focusInEvent(event)
+        self.update()
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        self.update()
+
+    def enterEvent(self, event):
+        super().enterEvent(event)
+        self.update()
+
+    def leaveEvent(self, event):
+        super().leaveEvent(event)
+        self.update()
+
+    def paintEvent(self, _event):
+        """Paint a thin rail without platform-native light slider fills."""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        colors = {
+            name: QColor(value) for name, value in self.VISUAL_COLORS.items()}
+
+        left = 6.0
+        right = max(left, float(self.width()) - 6.0)
+        center_y = float(self.height()) / 2.0
+        value_span = max(1, self.maximum() - self.minimum())
+        progress = (self.value() - self.minimum()) / value_span
+        if self.invertedAppearance():
+            progress = 1.0 - progress
+        thumb_x = left + (right - left) * max(0.0, min(1.0, progress))
+
+        painter.setPen(QPen(
+            colors["rail_outline"], 6.0, Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap))
+        painter.drawLine(QPointF(left, center_y), QPointF(right, center_y))
+        painter.setPen(QPen(
+            colors["rail"], 4.0, Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap))
+        painter.drawLine(QPointF(left, center_y), QPointF(right, center_y))
+        if thumb_x > left:
+            painter.setPen(QPen(
+                colors["fill"], 4.0, Qt.PenStyle.SolidLine,
+                Qt.PenCapStyle.RoundCap))
+            painter.drawLine(
+                QPointF(left, center_y), QPointF(thumb_x, center_y))
+
+        ring = colors["focus"] if self.hasFocus() else colors["thumb_ring"]
+        if self.underMouse() or self.isSliderDown():
+            ring = colors["focus"]
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(ring)
+        painter.drawEllipse(QPointF(thumb_x, center_y), 5.0, 5.0)
+        painter.setBrush(colors["thumb_core"])
+        painter.drawEllipse(QPointF(thumb_x, center_y), 2.75, 2.75)
+
+        if self.hasFocus():
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(colors["focus"], 2.0))
+            painter.drawRoundedRect(
+                1.0, 2.0, max(0.0, self.width() - 2.0),
+                max(0.0, self.height() - 4.0), 4.0, 4.0)
 
     def wheelEvent(self, event):
         if not self.hasFocus():
@@ -646,42 +717,7 @@ class QuickBar(ParserWindow):
         slider.setStyleSheet("""
             QSlider#QuickBarVolumeSlider {
                 background: transparent;
-                border: 1px solid transparent;
-                border-radius: 4px;
-            }
-            QSlider#QuickBarVolumeSlider::groove:horizontal {
-                height: 4px;
-                background: #182127;
-                border: 1px solid #687A86;
-                border-radius: 2px;
-            }
-            QSlider#QuickBarVolumeSlider::sub-page:horizontal {
-                background: #9A7541;
-                border: 1px solid #D2B66F;
-                border-radius: 2px;
-            }
-            QSlider#QuickBarVolumeSlider::add-page:horizontal {
-                background: #202B32;
-                border: 1px solid #687A86;
-                border-radius: 2px;
-            }
-            QSlider#QuickBarVolumeSlider::handle:horizontal {
-                width: 10px;
-                margin: -4px 0;
-                background: #F1E4BE;
-                border: 1px solid #846B38;
-                border-radius: 5px;
-            }
-            QSlider#QuickBarVolumeSlider::handle:horizontal:hover {
-                background: #FFF7DF;
-                border-color: #D2B66F;
-            }
-            QSlider#QuickBarVolumeSlider:focus {
-                border: 2px solid #F0C778;
-            }
-            QSlider#QuickBarVolumeSlider:focus::handle:horizontal {
-                background: #FFFFFF;
-                border: 1px solid #846B38;
+                border: 0;
             }
         """)
 
