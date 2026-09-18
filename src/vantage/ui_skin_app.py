@@ -56,7 +56,7 @@ def local_selection(eq_dir):
     prefix = updater.SKIN_FOLDER + "-v"
     version = folder[len(prefix):] if folder.startswith(prefix) else ""
     if not version or updater.folder_name(version) != folder:
-        raise updater.SkinUpdateError("La carpeta seleccionada de VantageUI no es válida.")
+        raise updater.SkinUpdateError("The selected VantageUI folder is invalid.")
     return version, folder
 
 
@@ -94,8 +94,8 @@ class SkinWindow:
         self.next_check = time.monotonic() + CHECK_SECONDS
         self.retry_at = 0.0
         self.test_mode = test_mode
-        self.status = tk.StringVar(root, "Selecciona tu carpeta de EverQuest para empezar.")
-        self.versions = tk.StringVar(root, "Instalada: sin registrar     Disponible: por comprobar")
+        self.status = tk.StringVar(root, "Select your EverQuest folder to get started.")
+        self.versions = tk.StringVar(root, "Installed: not registered     Available: not checked")
         self.destination = tk.StringVar(root)
         self.command = tk.StringVar(root)
         self._build()
@@ -136,41 +136,41 @@ class SkinWindow:
         outer.columnconfigure(0, weight=1)
         outer.rowconfigure(11, weight=1)
         ttk.Label(outer, text="VANTAGE COMPANION", style="Gold.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(outer, text="Tu UI, siempre al día.", style="Title.TLabel").grid(row=1, column=0, sticky="w", pady=(3, 6))
-        ttk.Label(outer, text="VantageUI para EverQuest Titanium / Project 1999", style="Muted.TLabel").grid(row=2, column=0, sticky="w", pady=(0, 20))
-        ttk.Label(outer, text="Carpeta de EverQuest · contiene eqgame.exe").grid(row=3, column=0, sticky="w", pady=(0, 6))
+        ttk.Label(outer, text="Your UI, always up to date.", style="Title.TLabel").grid(row=1, column=0, sticky="w", pady=(3, 6))
+        ttk.Label(outer, text="VantageUI for EverQuest Titanium / Project 1999", style="Muted.TLabel").grid(row=2, column=0, sticky="w", pady=(0, 20))
+        ttk.Label(outer, text="EverQuest folder · contains eqgame.exe").grid(row=3, column=0, sticky="w", pady=(0, 6))
         path_row = ttk.Frame(outer)
         path_row.grid(row=4, column=0, sticky="ew")
         path_row.columnconfigure(0, weight=1)
         self.path_entry = ttk.Entry(path_row, textvariable=self.eq)
         self.path_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
         self.path_entry.bind("<Return>", lambda event: self.refresh_local())
-        self.browse_button = ttk.Button(path_row, text="Elegir…", command=self.browse)
+        self.browse_button = ttk.Button(path_row, text="Browse…", command=self.browse)
         self.browse_button.grid(row=0, column=1)
         ttk.Label(outer, textvariable=self.destination, wraplength=650,
                   style="Muted.TLabel").grid(row=5, column=0, sticky="w", pady=(7, 12))
         ttk.Label(outer, textvariable=self.versions, style="Gold.TLabel").grid(row=6, column=0, sticky="w", pady=(0, 12))
         actions = ttk.Frame(outer)
         actions.grid(row=7, column=0, sticky="w")
-        self.check_button = ttk.Button(actions, text="Buscar actualizaciones", command=self.check)
+        self.check_button = ttk.Button(actions, text="Check for updates", command=self.check)
         self.check_button.pack(side="left", padx=(0, 8))
-        self.install_button = ttk.Button(actions, text="Actualizar UI", style="Primary.TButton", command=self.install)
+        self.install_button = ttk.Button(actions, text="Update UI", style="Primary.TButton", command=self.install)
         self.install_button.pack(side="left", padx=(0, 8))
-        self.restore_button = ttk.Button(actions, text="Restaurar anterior", command=self.restore)
+        self.restore_button = ttk.Button(actions, text="Restore previous", command=self.restore)
         self.restore_button.pack(side="left")
         auto = ttk.Frame(outer)
         auto.grid(row=8, column=0, sticky="ew", pady=(18, 12))
-        self.auto_button = ttk.Checkbutton(auto, text="Actualizar automáticamente mientras esta ventana esté abierta",
+        self.auto_button = ttk.Checkbutton(auto, text="Update automatically while this window is open",
                                            variable=self.automatic, command=self.toggle_auto)
         self.auto_button.pack(anchor="w")
         auto_hint = (
-            "Comprueba cada 5 minutos. Puede instalar con EQ abierto; la limpieza espera a que cierre."
+            "Checks every 5 minutes. Installation can run while EQ is open; cleanup waits until it closes."
             if self.allow_game_running else
-            "Comprueba cada 5 minutos. Cierra EverQuest antes de instalar o volver a la versión anterior.")
+            "Checks every 5 minutes. Close EverQuest before installing or restoring a previous version.")
         self.auto_hint = ttk.Label(auto, text=auto_hint, wraplength=650, style="Muted.TLabel")
         self.auto_hint.pack(anchor="w", pady=(4, 0))
         self.progress_value = tk.IntVar(root, 0)
-        self.progress_text = tk.StringVar(root, "Listo · 0%")
+        self.progress_text = tk.StringVar(root, "Ready · 0%")
         self.progressbar = ttk.Progressbar(
             outer, variable=self.progress_value, maximum=100,
             style="Update.Horizontal.TProgressbar")
@@ -178,22 +178,38 @@ class SkinWindow:
         ttk.Label(outer, textvariable=self.progress_text,
                   style="Muted.TLabel").grid(row=10, column=0, sticky="w")
         self.logbox = tk.Text(outer, height=6, bg="#10161a", fg=MUTED, font=("Segoe UI", 10),
-                              relief="flat", borderwidth=0, padx=12, pady=4, wrap="word", state="disabled")
+                              relief="flat", borderwidth=0, padx=12, pady=4, wrap="word",
+                              state="disabled", takefocus=True)
         self.logbox.grid(row=11, column=0, sticky="nsew")
+        self.logbox.bind("<Control-a>", self._select_all_log)
+        self.logbox.bind("<Control-c>", self._copy_log_selection)
+        for sequence, direction, units in (
+                ("<Up>", -1, "units"), ("<Down>", 1, "units"),
+                ("<Prior>", -1, "pages"), ("<Next>", 1, "pages")):
+            self.logbox.bind(
+                sequence,
+                lambda event, amount=direction, mode=units: self._scroll_log(amount, mode))
+        self.logbox.bind("<Home>", lambda event: self._move_log(0.0))
+        self.logbox.bind("<End>", lambda event: self._move_log(1.0))
         ttk.Label(outer, textvariable=self.status, wraplength=650).grid(row=12, column=0, sticky="w", pady=(12, 8))
         command_row = ttk.Frame(outer)
         command_row.grid(row=13, column=0, sticky="ew")
         command_row.columnconfigure(0, weight=1)
         ttk.Label(command_row, textvariable=self.command, wraplength=490,
                   style="Gold.TLabel").grid(row=0, column=0, sticky="w")
-        self.copy_button = ttk.Button(command_row, text="Copiar comando", command=self.copy_command)
+        self.copy_button = ttk.Button(command_row, text="Copy command", command=self.copy_command)
         self.copy_button.grid(row=0, column=1, padx=(10, 0))
-        ttk.Label(outer, text=f"Actualizador {app_version()} · No cambia otras skins ni INI.",
+        ttk.Label(outer, text=f"Updater {app_version()} · Does not change other skins or INI files.",
                   style="Muted.TLabel").grid(row=14, column=0, sticky="w", pady=(6, 0))
         self._version_text()
         self._controls()
 
     def _controls(self):
+        controls = (self.browse_button, self.check_button, self.install_button,
+                    self.restore_button, self.path_entry, self.auto_button,
+                    self.copy_button)
+        if (self.busy or self.confirming) and self.root.focus_get() in controls:
+            self.logbox.focus_set()
         for widget in (self.browse_button, self.check_button, self.restore_button, self.path_entry, self.auto_button):
             widget.configure(state="disabled" if self.busy or self.confirming else "normal")
         self.install_button.configure(state="normal" if self.release and not self.busy and not self.confirming else "disabled")
@@ -212,7 +228,7 @@ class SkinWindow:
             return
         self.root.clipboard_clear()
         self.root.clipboard_append(f"/loadskin {self.folder} 1")
-        self.status.set("Comando copiado. Pégalo en EverQuest para cargar esta carpeta.")
+        self.status.set("Command copied. Paste it in EverQuest to load this folder.")
 
     def _save(self):
         try:
@@ -224,8 +240,8 @@ class SkinWindow:
         except OSError as error:
             self.automatic.set(False)
             self.pending = False
-            self._log(f"No se pudo guardar la configuración: {error}")
-            self.status.set("Modo automático pausado: no se pudo guardar la configuración.")
+            self._log(f"Could not save settings.{updater.error_diagnostic(error)}")
+            self.status.set("Automatic mode paused: settings could not be saved.")
             return False
 
     def _confirm(self, title, text):
@@ -245,13 +261,34 @@ class SkinWindow:
         self.logbox.see("end")
         self.logbox.configure(state="disabled")
 
+    def _select_all_log(self, _event=None):
+        self.logbox.tag_add("sel", "1.0", "end-1c")
+        return "break"
+
+    def _copy_log_selection(self, _event=None):
+        try:
+            selection = self.logbox.get("sel.first", "sel.last")
+        except tk.TclError:
+            return "break"
+        self.root.clipboard_clear()
+        self.root.clipboard_append(selection)
+        return "break"
+
+    def _scroll_log(self, amount, units):
+        self.logbox.yview_scroll(amount, units)
+        return "break"
+
+    def _move_log(self, fraction):
+        self.logbox.yview_moveto(fraction)
+        return "break"
+
     def _version_text(self):
-        available = self.release.version if self.release else "por comprobar"
-        self.versions.set(f"Instalada: {self.installed or 'sin registrar'}     Disponible: {available}")
-        selected = self.folder or "sin carpeta versionada seleccionada"
-        next_folder = updater.folder_name(self.release.version) if self.release else "por comprobar"
-        self.destination.set(f"Seleccionada: {selected}\nPróxima instalación: uifiles\\{next_folder}")
-        self.command.set(f"/loadskin {self.folder} 1" if self.folder else "Instala o comprueba una versión para obtener su comando.")
+        available = self.release.version if self.release else "not checked"
+        self.versions.set(f"Installed: {self.installed or 'not registered'}     Available: {available}")
+        selected = self.folder or "no versioned folder selected"
+        next_folder = updater.folder_name(self.release.version) if self.release else "not checked"
+        self.destination.set(f"Selected: {selected}\nNext installation: uifiles\\{next_folder}")
+        self.command.set(f"/loadskin {self.folder} 1" if self.folder else "Install or check a version to get its command.")
 
     def _work(self, action, callback):
         if self.busy:
@@ -259,7 +296,7 @@ class SkinWindow:
         self.busy = True
         self.operation_eq = self.eq.get().strip()
         self.progress_value.set(0)
-        self.progress_text.set("Preparando · 0%")
+        self.progress_text.set("Preparing · 0%")
         self._controls()
         def run():
             try:
@@ -287,7 +324,7 @@ class SkinWindow:
                 if self.operation_eq and self.operation_eq != self.eq.get().strip():
                     self.operation_eq = ""
                     self._path_changed()
-                    self.status.set("La carpeta cambió. Comprueba la selección actual; la operación usó la carpeta anterior.")
+                    self.status.set("The folder changed. Check the current selection; the operation used the previous folder.")
                     continue
                 self.operation_eq = ""
                 if kind == "error":
@@ -295,24 +332,23 @@ class SkinWindow:
                     self.release = None
                     self.pending = False
                     self.retry_at = time.monotonic() + CHECK_SECONDS
-                    self.status.set("No se completó la operación. Revisa el registro.")
+                    self.status.set("The operation did not complete. Review the log.")
                     self.progress_text.set(
-                        f"Falló · {self.progress_value.get()}%")
-                    self._log(str(result))
-                    message = str(result).casefold()
+                        f"Failed · {self.progress_value.get()}%")
+                    self._log("The operation failed."
+                              f"{updater.error_diagnostic(result)}")
                     sharing = (
                         getattr(result, "winerror", None) in (32, 33) or
-                        "being used by another process" in message or
-                        "sharing violation" in message)
+                        getattr(result, "errno", None) in (16, 26))
                     if sharing:
                         self.status.set(
-                            f"La instalación se detuvo de forma segura: {result}. "
-                            "No recargues la UI; corrige el bloqueo y reintenta.")
+                            "The installation stopped safely. "
+                            "Do not reload the UI; resolve the lock and try again.")
                         self._log(
-                            "Windows mantiene un archivo en uso. Cierra la herramienta "
-                            "que usa ese archivo y reintenta; no recargues la UI todavía.")
+                            "Windows has a file in use. Close the application using that file "
+                            "and try again; do not reload the UI yet.")
                     elif isinstance(result, PermissionError):
-                        self._log("Windows no permite escribir aquí. Cierra el actualizador y usa clic derecho → Ejecutar como administrador.")
+                        self._log("Windows does not allow writing here. Close the updater, right-click it, and select Run as administrator.")
                 elif action == "check":
                     self.release, selection = result
                     self.installed, self.folder = selection
@@ -321,7 +357,7 @@ class SkinWindow:
                     start_automatic_install = (
                         self.automatic.get() and
                         update_available(self.installed, self.release.version))
-                    self.status.set("Hay una actualización disponible." if update_available(self.installed, self.release.version) else "Tu versión está al día. Se conservarán tus cambios locales.")
+                    self.status.set("An update is available." if update_available(self.installed, self.release.version) else "Your version is up to date. Your local changes will be preserved.")
                 else:
                     if action == "local":
                         self.installed, self.folder = result
@@ -329,17 +365,17 @@ class SkinWindow:
                         self.installed, self.folder = result.version, result.folder
                     self.known_eq = self.eq.get().strip()
                     if action == "local":
-                        self.status.set("Selección comprobada. La carpeta antigua VantageUI se conserva intacta; no se considera una instalación versionada.")
+                        self.status.set("Selection checked. The legacy VantageUI folder remains untouched; it is not treated as a versioned installation.")
                     else:
-                        self.status.set(f"Operación completada. En el juego: /loadskin {self.folder} 1")
+                        self.status.set(f"Operation complete. In game: /loadskin {self.folder} 1")
                         for warning in result.warnings:
                             self._log(warning)
                         if result.warnings:
-                            self.status.set(f"Instalación seleccionada: {self.folder}. Hay carpetas protegidas o limpieza pendiente; revisa el registro.")
+                            self.status.set(f"Selected installation: {self.folder}. Some folders are protected or cleanup is pending; review the log.")
                     if action in ("install", "restore"):
                         self.pending = False
                     self.progress_value.set(100)
-                    self.progress_text.set("Completado · 100%")
+                    self.progress_text.set("Complete · 100%")
                 self._version_text()
                 self._controls()
                 if action == "check" and start_automatic_install:
@@ -367,7 +403,7 @@ class SkinWindow:
         self._work("local", run)
 
     def browse(self):
-        chosen = filedialog.askdirectory(parent=self.root, title="Selecciona la carpeta que contiene eqgame.exe", initialdir=self.eq.get())
+        chosen = filedialog.askdirectory(parent=self.root, title="Select the folder containing eqgame.exe", initialdir=self.eq.get())
         if chosen:
             self.eq.set(chosen)
             self.refresh_local()
@@ -378,7 +414,7 @@ class SkinWindow:
         eq = self.eq.get().strip()
         self.pending = False
         self.next_check = time.monotonic() + CHECK_SECONDS
-        self.status.set("Consultando el release oficial de Vantage…")
+        self.status.set("Checking the official Vantage release…")
         self._save()
         def run():
             release = updater.check_release(progress=self.worker_progress)
@@ -398,28 +434,28 @@ class SkinWindow:
         if not automatic:
             next_folder = updater.folder_name(self.release.version)
             live_copy = (
-                "Si EverQuest está abierto, la instalación continuará sin cerrarlo. "
-                "No recargues la UI durante la operación; tras el éxito usa "
-                f"/loadskin {next_folder} 1. La limpieza de versiones antiguas esperará a que cierres el juego."
-                if self.allow_game_running else "EverQuest debe estar cerrado.")
-            if not self._confirm("Actualizar VantageUI", f"Se instalará uifiles\\{next_folder}.\nSe conservarán la versión seleccionada y dos anteriores de respaldo.\nLas carpetas modificadas, no administradas y VantageUI antigua no se borran.\n\n" + live_copy):
+                "If EverQuest is open, installation will continue without closing it. "
+                "Do not reload the UI during the operation; after it succeeds, use "
+                f"/loadskin {next_folder} 1. Cleanup of older versions will wait until the game closes."
+                if self.allow_game_running else "EverQuest must be closed.")
+            if not self._confirm("Update VantageUI", f"uifiles\\{next_folder} will be installed.\nThe selected version and two previous fallback versions will be kept.\nModified, unmanaged, and legacy VantageUI folders will not be deleted.\n\n" + live_copy):
                 self.automatic.set(False)
                 self.pending = False
                 self._save()
-                self.status.set("Actualización cancelada. Modo automático pausado.")
+                self.status.set("Update canceled. Automatic mode paused.")
                 return
         if self.busy:
             return
         selected, eq = self.release, self.eq.get().strip()
         self.pending = False
-        self.status.set("Actualizando — no recargues la UI todavía.")
+        self.status.set("Updating — do not reload the UI yet.")
         self._work("install", lambda: updater.install_release(
             selected, eq, self.backups, log=self.worker_log,
             allow_game_running=self.allow_game_running,
             progress=self.worker_progress))
 
     def restore(self):
-        if self.busy or not self._confirm("Restaurar VantageUI", "Se seleccionará la carpeta de la versión anterior conservada.\nNo se sobrescribirán archivos ni se cambiarán tus INI.\nDespués deberás cargar su comando en EverQuest.\n\nEverQuest debe estar cerrado."):
+        if self.busy or not self._confirm("Restore VantageUI", "The retained previous version folder will be selected.\nNo files will be overwritten and your INI files will not be changed.\nAfterward, load its command in EverQuest.\n\nEverQuest must be closed."):
             return
         if self.busy:
             return
@@ -427,7 +463,7 @@ class SkinWindow:
         self.pending = False
         self._save()
         eq = self.eq.get().strip()
-        self.status.set("Restaurando la instalación anterior…")
+        self.status.set("Restoring the previous installation…")
         self._work("restore", lambda: updater.rollback_last(
             eq, self.backups, log=self.worker_log,
             progress=self.worker_progress))
@@ -438,11 +474,11 @@ class SkinWindow:
         if self.automatic.get():
             self.check()
         else:
-            self.status.set("Actualizaciones automáticas desactivadas.")
+            self.status.set("Automatic updates disabled.")
 
     def close(self):
         if self.busy:
-            messagebox.showinfo("Operación en curso", "Espera a que termine la operación antes de cerrar.", parent=self.root)
+            messagebox.showinfo("Operation in progress", "Wait for the operation to finish before closing.", parent=self.root)
             return
         try:
             self._save()

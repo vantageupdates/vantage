@@ -1553,7 +1553,7 @@
     <RelativePosition>true</RelativePosition>
     <Location><X>129</X><Y>5</Y></Location>
     <Size><CX>56</CX><CY>14</CY></Size>
-    <Text>v1.44.89</Text>
+    <Text>v1.44.90</Text>
     <TextColor><R>218</R><G>195</G><B>147</B></TextColor>
     <NoWrap>true</NoWrap>
     <AlignCenter>true</AlignCenter>
@@ -1581,7 +1581,7 @@
     <Style_Closebox>true</Style_Closebox>
     <Style_Minimizebox>false</Style_Minimizebox>
     <Style_Border>true</Style_Border>
-    <Style_Sizable>false</Style_Sizable>
+    <Style_Sizable>true</Style_Sizable>
     <Pieces>HB_VantageBrandTab</Pieces>
     <Pieces>HB_VantageVersionLabel</Pieces>
     <Pieces>HB_PageLeftButton</Pieces>

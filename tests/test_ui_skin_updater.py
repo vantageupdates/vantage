@@ -83,6 +83,22 @@ def test_stable_release_binds_both_exact_assets_and_digests():
     assert updater.SKIN_FOLDER == "VantageUI"
 
 
+def test_error_diagnostic_excludes_localized_exception_text():
+    error = OSError("el archivo está ocupado")
+    error.winerror = 32
+    diagnostic = updater.error_diagnostic(error)
+    assert diagnostic == " [OSError, winerror=32]"
+    assert "el archivo está ocupado" not in diagnostic
+
+
+def test_error_diagnostic_keeps_only_fixed_safe_skin_error_category():
+    error = updater.SkinUpdateError(
+        "Retired UI folder contents changed; datos privados del usuario")
+    diagnostic = updater.error_diagnostic(error)
+    assert diagnostic == " [SkinUpdateError, folder contents changed]"
+    assert "datos privados" not in diagnostic
+
+
 @pytest.mark.parametrize("change", ["digest", "url", "size", "name", "duplicate", "cross-release"])
 def test_release_rejects_untrusted_assets(change):
     value = _api()

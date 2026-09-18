@@ -1,4 +1,7 @@
+import ast
 import json
+from pathlib import Path
+import re
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -65,7 +68,7 @@ def test_live_embedded_window_forwards_explicit_opt_in(window, monkeypatch):
     assert calls[0][1]['allow_game_running'] is True
     assert calls[0][1]['progress'] == window.worker_progress
     assert '/loadskin VantageUI-v1.44.51 1' in prompts[0][1]
-    assert 'No recargues' in prompts[0][1]
+    assert 'Do not reload' in prompts[0][1]
 
 
 def test_frozen_companion_uses_bundled_release_metadata(tmp_path, monkeypatch):
@@ -100,11 +103,12 @@ def test_unwritable_settings_pause_auto_and_do_not_prevent_close(window, monkeyp
     window.automatic.set(True)
     window.pending=True
     def fail(*args,**kwargs):
-        raise PermissionError('fixture denied')
+        raise PermissionError('permiso denegado')
     monkeypatch.setattr(gui.os,'replace',fail)
     assert window._save() is False
     assert not window.automatic.get() and not window.pending
-    assert 'configuración' in window.status.get()
+    assert 'settings could not be saved' in window.status.get()
+    assert 'permiso denegado' not in window.logbox.get('1.0', 'end')
     window.close()
 
 
@@ -144,11 +148,24 @@ def test_restore_confirmation_does_not_lose_action_to_auto_tick(window,monkeypat
 def test_error_reenables_controls_and_clears_pending(window):
     window.busy=True
     window.pending=True
-    window.events.put(('error','install',PermissionError('fixture denied')))
+    window.events.put(('error','install',PermissionError('permiso denegado')))
     window._pump()
     assert not window.busy and not window.pending
     assert str(window.check_button['state'])=='normal'
-    assert 'administrador' in window.logbox.get('1.0','end')
+    assert 'Run as administrator' in window.logbox.get('1.0','end')
+    assert 'permiso denegado' not in window.logbox.get('1.0','end')
+
+
+def test_localized_os_error_text_never_reaches_status_or_log(window):
+    error = OSError('el archivo está ocupado')
+    error.winerror = 32
+    window.busy = True
+    window.events.put(('error', 'install', error))
+    window._pump()
+    visible = window.status.get() + window.logbox.get('1.0', 'end')
+    assert 'el archivo está ocupado' not in visible
+    assert 'winerror=32' in visible
+    assert 'The installation stopped safely' in visible
 
 
 def test_check_error_does_not_start_auto_or_raise_unbound_local(window, monkeypatch):
@@ -162,7 +179,7 @@ def test_check_error_does_not_start_auto_or_raise_unbound_local(window, monkeypa
     assert not window.busy
     assert starts == []
     assert window.progress_value.get() < 100
-    assert 'No se completó' in window.status.get()
+    assert 'did not complete' in window.status.get()
 
 
 def test_automatic_update_starts_live_install_without_waiting(window,monkeypatch):
@@ -244,7 +261,7 @@ def test_completion_for_old_path_does_not_publish_stale_command(window):
     window._pump()
     assert not window.busy and not window.folder
     assert str(window.copy_button['state']) == 'disabled'
-    assert 'carpeta anterior' in window.status.get()
+    assert 'previous folder' in window.status.get()
 
 
 def test_operation_and_error_disable_copy(window, monkeypatch):
@@ -263,19 +280,19 @@ def test_retention_warning_does_not_report_install_failure(window):
     window.events.put(('done', 'install', gui.updater.InstallResult('1.44.52', 10, 'installed', 'VantageUI-v1.44.52', (warning,))))
     window._pump()
     assert warning in window.logbox.get('1.0', 'end')
-    assert 'pendiente' in window.status.get()
+    assert 'cleanup is pending' in window.status.get()
     assert window.command.get() == '/loadskin VantageUI-v1.44.52 1'
     assert window.progress_value.get() == 100
 
 
 def test_auto_hint_matches_game_running_policy(window, tk_master, tmp_path):
-    assert 'Cierra EverQuest' in window.auto_hint.cget('text')
+    assert 'Close EverQuest' in window.auto_hint.cget('text')
     root = tk.Toplevel(tk_master)
     root.withdraw()
     try:
         app = gui.SkinWindow(root, settings_dir=tmp_path, test_mode=True, allow_game_running=True)
-        assert 'Puede instalar con EQ abierto' in app.auto_hint.cget('text')
-        assert 'limpieza espera' in app.auto_hint.cget('text')
+        assert 'Installation can run while EQ is open' in app.auto_hint.cget('text')
+        assert 'cleanup waits' in app.auto_hint.cget('text')
     finally:
         root.destroy()
 
@@ -291,9 +308,9 @@ def test_minimum_window_keeps_versions_wrapped_status_and_log_visible(tk_master,
         app.release = SimpleNamespace(version='1.44.53')
         app._version_text()
         app.status.set(
-            'Estado detallado: la carpeta seleccionada permanece intacta mientras '
-            'se verifica la próxima versión disponible en el servidor oficial.')
-        log_line = 'Registro esencial visible en el tamaño mínimo.'
+            'Detailed status: the selected folder remains intact while the next '
+            'available version is verified against the official server.')
+        log_line = 'Essential log entry visible at minimum size.'
         app._log(log_line)
         root.geometry('720x650+10000+10000')
         root.deiconify()
@@ -312,10 +329,67 @@ def test_minimum_window_keeps_versions_wrapped_status_and_log_visible(tk_master,
         log_index = app.logbox.search(log_line, '1.0', 'end')
 
         assert (root.winfo_width(), root.winfo_height()) == (720, 650)
-        assert 'Seleccionada: VantageUI-v1.44.52' in app.destination.get()
-        assert 'Próxima instalación: uifiles\\VantageUI-v1.44.53' in app.destination.get()
+        assert 'Selected: VantageUI-v1.44.52' in app.destination.get()
+        assert 'Next installation: uifiles\\VantageUI-v1.44.53' in app.destination.get()
         assert destination_label.winfo_ismapped()
         assert status_label.winfo_ismapped() and status_label.winfo_height() > 24
         assert log_index and app.logbox.dlineinfo(log_index) is not None
     finally:
         root.destroy()
+
+
+def test_standalone_updater_visible_copy_is_english(window):
+    assert window.status.get() == 'Select your EverQuest folder to get started.'
+    assert window.versions.get() == 'Installed: not registered     Available: not checked'
+    assert window.browse_button.cget('text') == 'Browse…'
+    assert window.check_button.cget('text') == 'Check for updates'
+    assert window.install_button.cget('text') == 'Update UI'
+    assert window.restore_button.cget('text') == 'Restore previous'
+    assert window.auto_button.cget('text') == 'Update automatically while this window is open'
+    assert window.copy_button.cget('text') == 'Copy command'
+
+
+def test_log_is_keyboard_reachable_and_copyable_while_read_only(window, monkeypatch):
+    assert str(window.logbox.cget('takefocus')) in ('1', 'true', 'True')
+    assert window.logbox.cget('state') == 'disabled'
+    assert window.logbox.bind('<Control-a>')
+    assert window.logbox.bind('<Control-c>')
+    assert window.logbox.bind('<Prior>')
+    window._log('First line\nSecond line')
+    copied = []
+    monkeypatch.setattr(window.root, 'clipboard_clear', lambda: None)
+    monkeypatch.setattr(window.root, 'clipboard_append', copied.append)
+    assert window._select_all_log() == 'break'
+    assert window._copy_log_selection() == 'break'
+    assert copied == ['First line\nSecond line\n']
+    assert window.logbox.cget('state') == 'disabled'
+
+
+def test_standalone_updater_source_contains_no_spanish_visible_strings():
+    root = Path(__file__).resolve().parents[1]
+    sources = (
+        root / 'src' / 'vantage' / 'ui_skin_app.py',
+        root / 'src' / 'vantage' / 'helpers' / 'ui_skin_updater.py',
+    )
+    spanish = re.compile(
+        r'[\u00bf\u00a1]|\b(?:actualizador|actualización|actualizaciones|actualizar|'
+        r'automático|automáticas|carpeta|carpetas|comando|completado|comprobar|'
+        r'configuración|conservarán|disponible|elegir|falló|instalada|instalación|'
+        r'limpieza|operación|próxima|recargues|registro|restaurando|restaurar|'
+        r'selecciona|seleccionada|selección|versión)\b',
+        re.IGNORECASE,
+    )
+    violations = []
+    for source in sources:
+        source_text = source.read_text(encoding='utf-8')
+        assert not re.search(
+            r'str\((?:error|result)\)|\{(?:error|result)(?:![rsa])?\}',
+            source_text,
+        ), f'Raw exception text can reach visible copy in {source.name}'
+        tree = ast.parse(source_text, filename=str(source))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                match = spanish.search(node.value)
+                if match:
+                    violations.append(f'{source.name}:{node.lineno}: {match.group(0)!r}')
+    assert not violations, 'Spanish user-visible copy remains: ' + ', '.join(violations)

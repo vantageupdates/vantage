@@ -79,6 +79,26 @@ def _require(condition, message):
         raise SkinUpdateError(message)
 
 
+def error_diagnostic(error):
+    """Return language-neutral exception metadata without exposing OS text."""
+    details = [type(error).__name__]
+    if isinstance(error, SkinUpdateError) and error.args and isinstance(error.args[0], str):
+        message = error.args[0].casefold()
+        for marker, summary in (
+                ("links and junctions", "Links and junctions are not supported"),
+                ("contents changed", "folder contents changed"),
+                ("identity changed", "folder identity changed"),
+                ("folder changed", "folder changed")):
+            if marker in message:
+                details.append(summary)
+                break
+    for label in ("winerror", "errno"):
+        value = getattr(error, label, None)
+        if isinstance(value, int) and not isinstance(value, bool):
+            details.append(f"{label}={value}")
+    return " [" + ", ".join(details) + "]"
+
+
 def _digest(data):
     return hashlib.sha256(data).hexdigest()
 
@@ -829,7 +849,8 @@ def _selection_warnings(target, registry, name, log):
         try:
             _verified_tree(_exact_child(target, name), name, registry["managed"][name])
         except (SkinUpdateError, OSError) as error:
-            message = f"Preserved local changes in {name}; its files will not be overwritten: {error}"
+            message = (f"Preserved local changes in {name}; its files will not be overwritten."
+                       f"{error_diagnostic(error)}")
             log(message)
             return (message,)
     return ()
@@ -878,7 +899,8 @@ def _finish_pending(target, registry, snapshot, log, allow_game_running=False,
         except (SkinUpdateError, OSError) as error:
             # Never recursively clean an incomplete or changed stage. Remove only
             # the pending pointer so a later update can proceed in a fresh folder.
-            log(f"Incomplete staging folder preserved at {stage}: {error}")
+            log(f"Incomplete staging folder preserved at {stage}."
+                f"{error_diagnostic(error)}")
             registry["pending"] = None
             return registry, _save_registry(target, registry, snapshot), True
         _registry_unchanged(target, snapshot)
@@ -982,7 +1004,8 @@ def _prune(target, registry, snapshot, log):
             warn("Older managed UI folder cleanup is deferred while EverQuest is running.")
             return registry, snapshot, tuple(warnings)
     except Exception as error:
-        warn(f"UI installed; cleanup deferred because the game state is unknown: {error}")
+        warn("UI installed; cleanup deferred because the game state is unknown."
+             f"{error_diagnostic(error)}")
         return registry, snapshot, tuple(warnings)
     keep = _retained_folders(registry)
     for name in list(registry["managed"]):
@@ -1040,7 +1063,8 @@ def _prune(target, registry, snapshot, log):
             snapshot = _save_registry(target, registry, snapshot)
             log(f"Removed unchanged older managed folder {name}.")
         except Exception as error:
-            warn(f"UI selection is saved. Preserved older folder {name}; cleanup needs review: {error}")
+            warn(f"UI selection is saved. Preserved older folder {name}; cleanup needs review."
+                 f"{error_diagnostic(error)}")
             # A concurrent registry writer invalidates the whole remaining plan.
             try:
                 _registry_unchanged(target, snapshot)

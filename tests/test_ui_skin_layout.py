@@ -193,7 +193,14 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
     # Inventory sizing is independent: never enlarge Actions to match it.
     assert window.findtext("Style_VScroll") == "false"
     assert window.findtext("Style_HScroll") == "false"
-    assert window.findtext("Style_Sizable") == "false"
+    assert window.findtext("Style_Sizable") == "true"
+    # Native resizing clips the fixed inventory panel without moving the
+    # two-column hotbar. Secondary hotbars intentionally keep fixed geometry.
+    for suffix in ("2", "3", "4"):
+        secondary = _item(root, "Screen", f"HotButtonWnd{suffix}")
+        assert secondary.findtext("Style_Sizable") == "false"
+        assert secondary.findtext("Style_VScroll") == "false"
+        assert secondary.findtext("Style_HScroll") == "false"
     pieces = [piece.text.strip() for piece in window.findall("Pieces")]
 
     hotbuttons = {}
@@ -205,12 +212,14 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
         assert button.findtext("ScreenID") == name
         assert rect == (*expected_location, 40, 40)
         _assert_in_bounds(rect, window_size)
+        assert rect[0] + rect[2] <= 84
         assert pieces.count(name) == 1
         hotbuttons[name] = rect
         for tag, alias in (("InvSlot", f"HB_InvSlot{index}"), ("SpellGem", f"HB_SpellGem{index}")):
             layer = _item(root, tag, alias)
             assert layer.findtext("ScreenID") == alias
             assert _rect(layer) == rect
+            assert _rect(layer)[0] + _rect(layer)[2] <= 84
             assert pieces.count(alias) == 1
     _assert_nonoverlapping(hotbuttons)
 
@@ -266,6 +275,7 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
         assert slot.findtext("ScreenID") == name
         assert int(slot.findtext("EQType")) == eq_type
         rect = _rect(slot)
+        assert rect[0] >= 86
         gx, gy = gear_locations[name]
         assert rect == (gx, gy + header_height, 29, 29)
         _assert_in_bounds(rect, window_size)
@@ -280,6 +290,7 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
         assert slot.findtext("ScreenID") == name
         assert int(slot.findtext("EQType")) == 21 + index
         rect = _rect(slot)
+        assert rect[0] >= 86
         expected_location = (178, header_height + (1, 26, 52, 77, 103, 128, 154, 179)[index - 1])
         assert rect == (*expected_location, 25, 25)
         _assert_in_bounds(rect, window_size)
