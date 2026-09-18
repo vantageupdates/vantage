@@ -188,7 +188,7 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
     window = _item(root, "Screen", "HotButtonWnd")
     window_size = _pair(window, "Size", "CX", "CY")
     assert window_size == (215, 237)
-    # Only add a 22px identity band; retain the exact 215px body grid.
+    # Retain the 22px control rail and the exact 215px body grid.
     header_height = 22
     # Inventory sizing is independent: never enlarge Actions to match it.
     assert window.findtext("Style_VScroll") == "false"
@@ -317,43 +317,100 @@ def test_uniform_equipment_guard_rejects_the_previous_detached_ammo_slot():
         _assert_uniform_equipment_columns(equipment)
 
 
-def test_hotbar_gold_version_tab_is_bound_to_release_and_clear_of_the_grid():
+def test_hotbar_inventory_has_a_visible_native_resize_grip_without_a_fake_button():
     root = _root("EQUI_HotButtonWnd.xml")
     window = _item(root, "Screen", "HotButtonWnd")
-    label = _item(root, "Label", "HB_VantageVersionLabel")
-    tab = _item(root, "StaticAnimation", "HB_VantageBrandTab")
-    animation = _item(root, "Ui2DAnimation", "A_VantageBrandTab")
+    pieces = [p.text.strip() for p in window.findall("Pieces")]
+    assert pieces[0] == "HB_InventoryResizeGrip"
+    assert window.findtext("Style_Sizable") == "true"
+    assert window.findtext("TooltipReference") == (
+        "Drag the right edge left to hide inventory; drag it right to restore."
+    )
+
+    grip = _item(root, "StaticAnimation", "HB_InventoryResizeGrip")
+    assert grip.findtext("AutoStretch") == "true"
+    assert grip.findtext("LeftAnchorToLeft") == "false"
+    assert grip.findtext("RightAnchorToLeft") == "false"
+    assert int(grip.findtext("LeftAnchorOffset")) == 38
+    assert int(grip.findtext("RightAnchorOffset")) == 16
+    assert int(grip.findtext("TopAnchorOffset")) == 0
+    assert int(grip.findtext("BottomAnchorOffset")) == 22
+    assert grip.findtext("Animation") == "A_CursorResizeEW"
+    assert grip.findtext("AutoDraw") == "true"
+    assert not any(node.attrib.get("item") == "HB_InventoryResizeGrip"
+                   for node in root.findall("Button"))
+
+    shared = _root("EQUI_Animations.xml")
+    animation = _item(shared, "Ui2DAnimation", "A_CursorResizeEW")
+    frame = _only_frame(animation)
+    assert _rect(frame) == (40, 220, 22, 22)
+    assert frame.findtext("Texture") == "window_pieces01.tga"
+    # The right-anchored grip remains visible both fully open and at the
+    # 84px hotbar-only width. Keep it clear of the native 12px closebox;
+    # the 4px gap prevents the drag affordance from competing with Close.
+    native_closebox_width = 12
+    margin = 4
+    for width in (84, 215):
+        grip_bounds = (width - 38, width - 16)
+        closebox_bounds = (width - native_closebox_width, width)
+        assert 0 <= grip_bounds[0] < grip_bounds[1] <= width
+        assert grip_bounds[1] + margin <= closebox_bounds[0]
+
+    assert not any((node.attrib.get("item") or "").startswith("HB_Vantage") for node in root)
+
+
+def test_group_brand_and_version_are_bound_to_release_beside_the_resists():
+    root = _root("EQUI_GroupWindow.xml")
+    window = _item(root, "Screen", "GroupWindow")
+    label = _item(root, "Label", "GW_VantageVersionLabel")
+    mark = _item(root, "StaticAnimation", "GW_VantageBrandMark")
+    animation = _item(root, "Ui2DAnimation", "A_VantageGroupBrandMark")
     release = json.loads((SKIN_DIR.parent / "release.json").read_text())
     assert label.findtext("Text") == f"v{release['version']}"
-    assert label.findtext("Font") == "2"
+    assert label.findtext("Font") == "1"
     assert label.findtext("NoWrap") == label.findtext("AlignCenter") == "true"
     assert label.find("EQType") is None  # Never let live game data overwrite it.
-    assert _rect(label) == (129, 5, 56, 14)
+    assert _rect(label) == (5, 225, 116, 12)
     assert tuple(int(label.findtext(f"TextColor/{c}")) for c in "RGB") == (218, 195, 147)
-    assert _rect(tab) == (1, 1, 202, 20)
-    assert tab.findtext("Animation") == animation.attrib["item"]
-    assert tab.findtext("AutoDraw") == "true"
+    assert _rect(mark) == (5, 205, 116, 20)
+    assert mark.findtext("Animation") == animation.attrib["item"]
+    assert mark.findtext("AutoDraw") == "true"
     assert animation.findtext("Cycle") == "false"
     assert window.findtext("Style_Transparent") == "false"
     assert window.findtext("DrawTemplate") == "WDT_RoundedNoTitle"
-    assert _rect(window)[2:] == (215, 237)
-    assert list(root).index(animation) < list(root).index(tab) < list(root).index(label) < list(root).index(window)
+    window_size = _rect(window)[2:]
+    assert window_size == (284, 247)
+    assert list(root).index(animation) < list(root).index(mark) < list(root).index(label) < list(root).index(window)
     pieces = [p.text.strip() for p in window.findall("Pieces")]
-    assert pieces[:2] == ["HB_VantageBrandTab", "HB_VantageVersionLabel"]
-    assert pieces.count("HB_VantageBrandTab") == pieces.count("HB_VantageVersionLabel") == 1
-    for name in pieces[2:]:
-        node = next(n for n in root if n.attrib.get("item") == name)
-        x, y, width, height = _rect(node)
-        if x < 0:  # Existing hidden native paging controls remain hidden.
-            assert (x, y, width, height) == (-1, -1, 1, 1)
-        else:
-            assert y >= 23
-            _assert_in_bounds((x, y, width, height), (207, 229))
+    assert pieces.count("GW_VantageBrandMark") == pieces.count("GW_VantageVersionLabel") == 1
+    assert pieces.index("GW_VantageBrandMark") < pieces.index("GW_StatHPIcon")
+    # Group coordinates are measured against the client area, which excludes
+    # the four-pixel top and bottom frame from the outer screen height.
+    client_size = (window_size[0], window_size[1] - 4 - 4)
+    assert client_size == (284, 239)
+    for rect in (_rect(mark), _rect(label)):
+        _assert_in_bounds(rect, client_size)
+        assert rect[0] + rect[2] <= 126  # Left of the resist column.
+        assert rect[1] >= 205  # Below member five and its pet gauge.
+    assert client_size[1] - (_rect(label)[1] + _rect(label)[3]) == 2
+    _assert_nonoverlapping({"brand": _rect(mark), "version": _rect(label)})
+    pet = _item(root, "Gauge", "GW_PetGauge5")
+    assert _rect(pet)[1] + _rect(pet)[3] < _rect(mark)[1]
+    resist_nodes = [
+        _item(root, kind, name)
+        for kind, names in (
+            ("StaticAnimation", ("FRIcon", "CRIcon", "MRIcon", "PRIcon", "DRIcon")),
+            ("Label", ("FR", "CR", "MR", "PR", "DR")),
+        )
+        for name in names
+    ]
+    assert _rect(mark)[0] + _rect(mark)[2] <= min(_rect(node)[0] for node in resist_nodes)
+    assert _rect(label)[0] + _rect(label)[2] <= min(_rect(node)[0] for node in resist_nodes)
 
     frame = _only_frame(animation)
-    assert tab.findtext("TooltipReference") == "Vantage UI"
+    assert mark.findtext("TooltipReference") == "Vantage UI"
     assert frame.findtext("Texture") == "VantageBrandHeader.tga"
-    assert _rect(frame) == (2, 2, 202, 20)
+    assert _rect(frame) == (2, 2, 116, 20)
     _assert_in_bounds(_rect(frame), (256, 32))
     texture = _item(root, "TextureInfo", "VantageBrandHeader.tga")
     assert _pair(texture, "Size", "CX", "CY") == (256, 32)
@@ -362,9 +419,8 @@ def test_hotbar_gold_version_tab_is_bound_to_release_and_clear_of_the_grid():
     def alpha(x, y):
         return atlas[18 + (y * 256 + x) * 4 + 3]
     assert alpha(103, 12) == 255
-    assert all(alpha(x, y) <= 16 for x in (2, 203) for y in (2, 21))
-    assert all(alpha(x, y) == 0 for x in range(1, 205) for y in (1, 22))
-    assert all(alpha(x, y) == 0 for x in (1, 204) for y in range(1, 23))
+    assert all(alpha(x, y) == 0 for x in range(1, 119) for y in (1, 22))
+    assert all(alpha(1, y) == 0 for y in range(1, 23))
 
 
 def test_all_drawable_inventory_slots_use_the_dedicated_gold_border():

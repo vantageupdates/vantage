@@ -147,13 +147,14 @@ def load_release(path):
 def create_manifest(assets, release):
     validate_names(assets)
     # A visible skin version must identify this exact delivery. Refuse a stale
-    # tab rather than rewriting the canonical source or silently shipping it.
+    # group-window badge rather than rewriting the canonical source or silently
+    # shipping it.
     for name, data in assets.items():
-        if name.casefold() == "equi_hotbuttonwnd.xml":
-            labels = ET.fromstring(data).findall("./Label[@item='HB_VantageVersionLabel']")
+        if name.casefold() == "equi_groupwindow.xml":
+            labels = ET.fromstring(data).findall("./Label[@item='GW_VantageVersionLabel']")
             expected = "v" + release["version"]
             if len(labels) != 1 or labels[0].findtext("Text") != expected:
-                raise PackageError("Visible VantageUI version tab must match release: " + expected)
+                raise PackageError("Visible VantageUI group version must match release: " + expected)
     manifest = dict(release)
     manifest["files"] = [
         {"path": name, "size": len(assets[name]), "sha256": hashlib.sha256(assets[name]).hexdigest()}

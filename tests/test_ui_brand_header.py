@@ -78,15 +78,20 @@ def test_brand_and_control_atlases_have_reviewed_hashes():
         assert hashlib.sha256((SKIN / name).read_bytes()).hexdigest() == digest
 
 
-def test_native_version_is_static_readable_and_in_its_own_frame():
-    root = ET.parse(SKIN / 'EQUI_HotButtonWnd.xml').getroot()
-    label = root.find("Label[@item='HB_VantageVersionLabel']")
-    assert label.findtext('Font') == '2'
+def test_native_group_version_is_static_readable_below_the_wordmark():
+    root = ET.parse(SKIN / 'EQUI_GroupWindow.xml').getroot()
+    label = root.find("Label[@item='GW_VantageVersionLabel']")
+    mark = root.find("StaticAnimation[@item='GW_VantageBrandMark']")
+    assert label.findtext('Font') == '1'
     assert label.findtext('NoWrap') == label.findtext('AlignCenter') == 'true'
     assert label.find('EQType') is None
-    assert (int(label.findtext('Location/X')), int(label.findtext('Size/CX'))) == (129, 56)
+    assert (int(mark.findtext('Location/X')), int(mark.findtext('Location/Y'))) == (5, 205)
+    assert (int(label.findtext('Location/X')), int(label.findtext('Location/Y'))) == (5, 225)
+    assert int(label.findtext('Size/CX')) == 116
     rgb = [int(label.findtext('TextColor/' + c)) / 255 for c in 'RGB']
     def linear(v):
         return v / 12.92 if v <= .04045 else ((v + .055) / 1.055) ** 2.4
     luminance = sum(linear(v) * w for v, w in zip(rgb, (.2126, .7152, .0722)))
-    assert (luminance + .05) / (linear(16 / 255) + .05) > 9
+    background = [linear(v / 255) for v in (8, 11, 14)]
+    background_luminance = sum(v * w for v, w in zip(background, (.2126, .7152, .0722)))
+    assert (luminance + .05) / (background_luminance + .05) > 9

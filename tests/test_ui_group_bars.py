@@ -46,10 +46,14 @@ def test_all_three_bars_are_separated_and_percentage_is_not_under_a_fill():
     assert rect(node('StaticAnimation','GW_StatEXPIcon')) == (129,90,10,10)
     assert rect(node('Label','STR'))[1] == 152
     assert 152 - (bars[-1][1] + bars[-1][3]) == 4
+    group_size = rect(node('Screen','GroupWindow'))[2:]
+    assert group_size == (284,247)
+    top_frame_inset = bottom_frame_inset = 4
+    client_height = group_size[1] - top_frame_inset - bottom_frame_inset
+    assert client_height == 239
     for name in ('FR','CR','MR','PR','DR'):
         x,y,w,h = rect(node('Label',name))
-        assert y == 220 and y+h <= 243-8
-    assert rect(node('Screen','GroupWindow'))[2:] == (284,243)
+        assert y == 220 and y+h <= client_height
 
 
 @pytest.mark.parametrize('left,right',[('Invite','Disband'),('Follow','Decline')])

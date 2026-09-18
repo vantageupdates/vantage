@@ -89,7 +89,7 @@ def test_group_personal_stat_rows(stat,label,value,x,y,eq):
 
 def test_window_bounds_and_native_xp_fatigue_breath_remain_distinct():
     assert rect(node('ActionsWindow','Screen','ActionsWindow')) == (516,292,144,182)
-    assert rect(node('GroupWindow','Screen','GroupWindow')) == (516,78,284,243)
+    assert rect(node('GroupWindow','Screen','GroupWindow')) == (516,78,284,247)
     for name,eq in (('PlayerXPGauge','4'),('PlayerXPGauge_BG','4'),('P_Fatigue','3'),('P_Breath','8')):
         g=node('GroupWindow','Gauge',name)
         assert g.findtext('EQType') == eq

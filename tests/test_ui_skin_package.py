@@ -51,27 +51,27 @@ def test_manifest_exact_bytes_flat_entries_and_deterministic_archive(candidate):
 
 
 @pytest.mark.parametrize("label", [
-    "", '<Label item="HB_VantageVersionLabel"><Text>v1.44.51</Text></Label>',
-    '<Label item="HB_VantageVersionLabel"><Text>VantageUI</Text></Label>',
-    '<Label item="HB_VantageVersionLabel"><Text>v1.44.52</Text></Label>' * 2,
-    '<Label item="HB_VantageVersionLabel"><Text>VantageUI  v1.44.52</Text></Label>',
+    "", '<Label item="GW_VantageVersionLabel"><Text>v1.44.51</Text></Label>',
+    '<Label item="GW_VantageVersionLabel"><Text>VantageUI</Text></Label>',
+    '<Label item="GW_VantageVersionLabel"><Text>v1.44.52</Text></Label>' * 2,
+    '<Label item="GW_VantageVersionLabel"><Text>VantageUI  v1.44.52</Text></Label>',
 ])
 def test_package_refuses_missing_stale_or_duplicate_visible_version(candidate, label):
     skin, release, output = candidate
-    (skin / "EQUI_HotButtonWnd.xml").write_text("<XML>" + label + "</XML>")
-    with pytest.raises(package.PackageError, match="Visible VantageUI version tab"):
+    (skin / "EQUI_GroupWindow.xml").write_text("<XML>" + label + "</XML>")
+    with pytest.raises(package.PackageError, match="Visible VantageUI group version"):
         package.package_skin(skin, release, output)
     assert not output.exists()
 
 
 def test_package_preserves_correct_visible_version_bytes(candidate):
     skin, release, output = candidate
-    data = b'<XML><Label item="HB_VantageVersionLabel"><Text>v1.44.52</Text></Label></XML>'
-    (skin / "EQUI_HotButtonWnd.xml").write_bytes(data)
+    data = b'<XML><Label item="GW_VantageVersionLabel"><Text>v1.44.52</Text></Label></XML>'
+    (skin / "EQUI_GroupWindow.xml").write_bytes(data)
     package.package_skin(skin, release, output)
     with zipfile.ZipFile(output / package.PAYLOAD_NAME) as archive:
-        assert archive.read("EQUI_HotButtonWnd.xml") == data
-    assert (skin / "EQUI_HotButtonWnd.xml").read_bytes() == data
+        assert archive.read("EQUI_GroupWindow.xml") == data
+    assert (skin / "EQUI_GroupWindow.xml").read_bytes() == data
 
 
 @pytest.mark.parametrize("name", ["../bad.xml", "sub/bad.xml", "sub\\bad.xml", "C:\\bad.xml",
@@ -208,5 +208,5 @@ def test_repository_snapshot_parses_and_matches_release_contract():
     assert "EQUI_CastSpellWnd.xml" in assets
     assert "SIDL.xml" in assets
     release = package.load_release(root / "ui" / "release.json")
-    assert release == {"schema": 2, "version": "1.44.90",
-                       "skin_folder": "VantageUI-v1.44.90"}
+    assert release == {"schema": 2, "version": "1.44.91",
+                       "skin_folder": "VantageUI-v1.44.91"}

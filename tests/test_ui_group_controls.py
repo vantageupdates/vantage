@@ -45,7 +45,7 @@ def test_group_alias_buttons_keep_native_ids_and_fit_text_without_touching(name,
 
 
 def test_known_visible_top_row_clears_heading_and_preserves_player_column():
-    assert rect(node('Screen','GroupWindow')) == (516,78,284,243)
+    assert rect(node('Screen','GroupWindow')) == (516,78,284,247)
     left = rect(node('Button','GW_InviteButton'))
     right = rect(node('Button','GW_DisbandButton'))
     assert right[0]-(left[0]+left[2]) == 9
