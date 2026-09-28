@@ -894,5 +894,12 @@ independent accessibility review: PASS
   changes for both History and Find raid ticks. The complete focused feature,
   accessibility, scaled-panel, and tooltip set completed with **46 passed** in
   **27.24 seconds**; Python compilation, diff validation, English-only source
-  audit, and `ui/**` isolation are **PASS**. Final independent approval is still
-  pending; no build, tag, or release has been created.
+  audit, and `ui/**` isolation are **PASS**. Build, tag, and release remained
+  stopped until the independent approval recorded next.
+- Final independent accessibility/UI re-review at commit `305badd`:
+  **GENUINE PASS / UI-polish APPROVE**, with no remaining findings. Native
+  header sorting, combo selection, and keyboard sort-button activation remain
+  synchronized for both raid tables.
+- Exact release-candidate complete-suite verification after the final UI fix:
+  **1,571 passed, 2 skipped** in **698.70 seconds**. The candidate remained
+  unchanged during the run. Build and public verification follow below.
