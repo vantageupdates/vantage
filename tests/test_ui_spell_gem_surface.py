@@ -4,6 +4,8 @@ import importlib.util
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SKIN = ROOT / "ui" / "skin"
@@ -42,10 +44,18 @@ def test_background_is_neutral_restrained_and_keeps_3d_shading():
     ]
     assert all(red == green == blue for red, green, blue, _ in visible)
     values = {red for red, _, _, _ in visible}
-    assert min(values) == min(surface.BACKGROUND_SHADES) == 153
-    assert max(values) == max(surface.BACKGROUND_SHADES) == 242
-    assert pixel(data, 60, 34)[:3] == (242, 242, 242)
-    assert pixel(data, 60, 53)[:3] == (153, 153, 153)
+    expected_ramp = (
+        186, 206, 216, 223, 229, 232, 234, 232, 230, 227, 223, 220,
+        216, 212, 208, 202, 197, 192, 186, 180, 174, 168, 163, 158,
+        152, 148, 160, 184,
+    )
+    assert surface.BACKGROUND_SHADES == expected_ramp
+    assert tuple(pixel(data, 60, surface.BACKGROUND_TOP + y)[0]
+                 for y in range(surface.BACKGROUND_HEIGHT)) == expected_ramp
+    assert min(values) == min(expected_ramp) == 148
+    assert max(values) == max(expected_ramp) == 234
+    assert pixel(data, 60, 34)[:3] == (234, 234, 234)
+    assert pixel(data, 60, 53)[:3] == (148, 148, 148)
 
 
 def test_generator_is_idempotent_and_changes_only_background_rgb():
@@ -64,6 +74,12 @@ def test_generator_is_idempotent_and_changes_only_background_rgb():
     assert repaired[end:] == bytes(changed[end:])
     assert repaired[start + 3:end:4] == bytes(changed[start + 3:end:4])
 
+    alpha_changed = bytearray(data)
+    alpha_changed[offset + 3] = 37
+    alpha_preserved = surface.brighten_spell_gem_background(bytes(alpha_changed))
+    assert alpha_preserved[offset + 3] == 37
+    assert alpha_preserved[21::4] == bytes(alpha_changed[21::4])
+
 
 def linear_luminance(rgb):
     def linear(channel):
@@ -73,33 +89,48 @@ def linear_luminance(rgb):
                for channel, weight in zip(rgb, (.2126, .7152, .0722)))
 
 
-def test_ramp_reduces_linear_luminance_uniformly_by_about_seven_percent():
-    previous = (
-        198, 220, 230, 238, 244, 248, 250, 248, 246, 242, 238, 234, 230, 226,
-        222, 216, 210, 204, 198, 192, 186, 180, 174, 168, 162, 158, 170, 196,
+def test_ramp_applies_a_second_uniform_seven_percent_luminance_cut():
+    preceding = (
+        192, 213, 223, 230, 236, 240, 242, 240, 238, 234, 230, 227,
+        223, 219, 215, 209, 203, 198, 192, 186, 180, 174, 168, 163,
+        157, 153, 165, 190,
     )
     reductions = [
         1 - linear_luminance((new,) * 3) / linear_luminance((old,) * 3)
-        for old, new in zip(previous, surface.BACKGROUND_SHADES)
+        for old, new in zip(preceding, surface.BACKGROUND_SHADES)
     ]
-    assert all(0.063 <= reduction <= 0.075 for reduction in reductions)
+    assert all(0.064 <= reduction <= 0.075 for reduction in reductions)
     assert len(set(surface.BACKGROUND_SHADES)) > 20, 'Keep the original 3D ramp detail'
 
 
-def test_representative_runtime_tints_are_only_slightly_dimmer():
-    # At the brightest row, the neutral source changes from 250 to 242. The
-    # legacy client multiplies the source by its category color at runtime.
-    scale = max(surface.BACKGROUND_SHADES) / 250
+def contrast_ratio(first, second):
+    first_luminance = linear_luminance(first)
+    second_luminance = linear_luminance(second)
+    lighter = max(first_luminance, second_luminance)
+    darker = min(first_luminance, second_luminance)
+    return (lighter + .05) / (darker + .05)
+
+
+def test_representative_runtime_tints_are_more_restrained_with_measured_contrast():
+    # The legacy client multiplies the neutral source by its category color at
+    # runtime.  These measurements document the visual change without treating
+    # the shared dynamic tint surface as an accessibility-conformance claim.
+    cream = (231, 228, 222)
+    preceding_peak = 242
+    proposed_peak = max(surface.BACKGROUND_SHADES)
     measured = {
-        (160, 26, 26): (155, 25, 25),
-        (149, 161, 32): (144, 156, 31),
-        (61, 50, 162): (59, 48, 157),
+        (160, 26, 26): ((155, 25, 25), (150, 24, 24), 6.4983, 6.7810),
+        (149, 161, 32): ((144, 156, 31), (139, 151, 30), 2.3775, 2.5293),
+        (61, 50, 162): ((59, 48, 157), (57, 47, 152), 7.8974, 8.1367),
     }
-    for before, expected in measured.items():
-        after = tuple(round(channel * scale) for channel in before)
-        assert after == expected
-        reduction = 1 - linear_luminance(after) / linear_luminance(before)
-        assert 0.065 <= reduction <= 0.07
+    for source, (before, after, before_ratio, after_ratio) in measured.items():
+        assert tuple(round(channel * preceding_peak / 250)
+                     for channel in source) == before
+        assert tuple(round(channel * proposed_peak / 250)
+                     for channel in source) == after
+        assert contrast_ratio(cream, before) == pytest.approx(before_ratio, abs=.00005)
+        assert contrast_ratio(cream, after) == pytest.approx(after_ratio, abs=.00005)
+        assert contrast_ratio(cream, after) > contrast_ratio(cream, before)
 
 
 def test_original_cream_names_keep_native_bindings_without_new_drawables():

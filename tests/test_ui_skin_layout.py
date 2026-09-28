@@ -187,9 +187,11 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
     root = _root("EQUI_HotButtonWnd.xml")
     window = _item(root, "Screen", "HotButtonWnd")
     window_size = _pair(window, "Size", "CX", "CY")
-    assert window_size == (215, 237)
-    # Retain the 22px control rail and the exact 215px body grid.
-    header_height = 22
+    assert window_size == (215, 215)
+    # The native titlebar owns the move rail outside the client content. Keep
+    # only the one-pixel grid inset instead of reserving the removed 22px logo
+    # header a second time.
+    content_inset = 1
     # Inventory sizing is independent: never enlarge Actions to match it.
     assert window.findtext("Style_VScroll") == "false"
     assert window.findtext("Style_HScroll") == "false"
@@ -211,7 +213,7 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
     for index in range(1, 11):
         name = f"HB_Button{index}"
         button = _item(root, "Button", name)
-        expected_location = (1 + 41 * ((index - 1) % 2), 1 + header_height + 41 * ((index - 1) // 2))
+        expected_location = (1 + 41 * ((index - 1) % 2), content_inset + 41 * ((index - 1) // 2))
         rect = _rect(button)
         assert button.findtext("ScreenID") == name
         assert rect == (*expected_location, 40, 40)
@@ -281,13 +283,13 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
         rect = _rect(slot)
         assert rect[0] >= 86
         gx, gy = gear_locations[name]
-        assert rect == (gx, gy + header_height, 29, 29)
+        assert rect == (gx, gy, 29, 29)
         _assert_in_bounds(rect, window_size)
         assert pieces.count(name) == 1
         inventory[name] = rect
 
     assert set(gear_types.values()) == set(range(1, 22))
-    _assert_uniform_equipment_columns(inventory, y_offset=header_height)
+    _assert_uniform_equipment_columns(inventory)
     for index in range(1, 9):
         name = f"Newslot{index}"
         slot = _item(root, "InvSlot", name)
@@ -295,7 +297,7 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
         assert int(slot.findtext("EQType")) == 21 + index
         rect = _rect(slot)
         assert rect[0] >= 86
-        expected_location = (178, header_height + (1, 26, 52, 77, 103, 128, 154, 179)[index - 1])
+        expected_location = (178, (1, 26, 52, 77, 103, 128, 154, 179)[index - 1])
         assert rect == (*expected_location, 25, 25)
         _assert_in_bounds(rect, window_size)
         assert pieces.count(name) == 1
@@ -359,8 +361,10 @@ def test_hotbar_inventory_has_a_visible_native_resize_grip_without_a_fake_button
     assert grip.findtext("RightAnchorToLeft") == "false"
     assert int(grip.findtext("LeftAnchorOffset")) == 38
     assert int(grip.findtext("RightAnchorOffset")) == 16
-    assert int(grip.findtext("TopAnchorOffset")) == 0
-    assert int(grip.findtext("BottomAnchorOffset")) == 22
+    assert int(grip.findtext("TopAnchorOffset")) == 9
+    assert int(grip.findtext("BottomAnchorOffset")) == 1
+    assert grip.findtext("TopAnchorToTop") == "false"
+    assert grip.findtext("BottomAnchorToTop") == "false"
     assert grip.findtext("Animation") == "A_CursorResizeEW"
     assert grip.findtext("AutoDraw") == "true"
     assert not any(node.attrib.get("item") == "HB_InventoryResizeGrip"
@@ -373,16 +377,18 @@ def test_hotbar_inventory_has_a_visible_native_resize_grip_without_a_fake_button
     # The right-anchored grip remains visible both fully open and at the
     # 84px hotbar-only width. Keep it clear of the native 12px closebox;
     # the 4px gap prevents the resize affordance from competing with Close.
-    # The remaining reserved top rail exposes the native titlebar move target.
+    # The native titlebar is the move target, so client content can begin at
+    # y=1 without reserving the removed 22px logo header again.
     native_closebox_width = 12
     native_titlebar_height = 16
     margin = 4
-    rail_height = 22
-    assert native_titlebar_height < rail_height
+    window_height = _rect(window)[3]
+    assert window_height == 215
     assert min(_rect(_item(root, "Button", f"HB_Button{index}"))[1]
-               for index in range(1, 11)) == rail_height + 1
+               for index in range(1, 11)) == 1
     assert min(_rect(_item(root, "InvSlot", name))[1]
-               for name in ("Prim", "Sec", "Ammo")) == rail_height + 1
+               for name in ("Prim", "Sec", "Ammo")) == 1
+    assert native_titlebar_height + 1 == 17
     for width in (84, 215):
         grip_bounds = (width - 38, width - 16)
         closebox_bounds = (width - native_closebox_width, width)
@@ -391,7 +397,39 @@ def test_hotbar_inventory_has_a_visible_native_resize_grip_without_a_fake_button
         assert grip_bounds[1] + margin <= closebox_bounds[0]
         assert move_bounds[1] - move_bounds[0] >= 40
         assert move_bounds[1] <= grip_bounds[0]
-        assert rail_height == int(grip.findtext("BottomAnchorOffset"))
+
+    # Move the visual resize hint into the existing bottom clearance. The
+    # fixed item and hotbutton grids end at y=205, so it cannot cover a slot.
+    grip_vertical_bounds = (
+        window_height - int(grip.findtext("TopAnchorOffset")),
+        window_height - int(grip.findtext("BottomAnchorOffset")),
+    )
+    primary_content = []
+    for piece in pieces:
+        node = next((candidate for candidate in root
+                     if candidate.attrib.get("item") == piece), None)
+        if node is None or node.find("Location") is None or node.find("Size") is None:
+            continue
+        rect = _rect(node)
+        if rect[0] < 0 or rect[1] < 0:  # hidden native page controls
+            continue
+        _assert_in_bounds(rect, _rect(window)[2:])
+        primary_content.append(rect)
+    assert max(y + height for _, y, _, height in primary_content) == 205
+    assert grip_vertical_bounds == (206, 214)
+    assert max(y + height for _, y, _, height in primary_content) < grip_vertical_bounds[0]
+
+    # This compaction is primary-window-only; the three auxiliary hotbars keep
+    # their exact frame and first-button geometry.
+    assert {
+        suffix: (_rect(_item(root, "Screen", f"HotButtonWnd{suffix}"))[2:],
+                 _rect(_item(root, "Button", f"HB{suffix}_Button1")))
+        for suffix in ("2", "3", "4")
+    } == {
+        "2": ((91, 215), (1, 1, 40, 40)),
+        "3": ((665, 50), (1, 1, 40, 40)),
+        "4": ((665, 50), (1, 1, 40, 40)),
+    }
 
     # The native titlebar uses the real reserved rail. Never mask it with a
     # synthetic move/drag button that would steal clicks or shift content.

@@ -1,8 +1,9 @@
-"""Build the restrained neutral surface that EverQuest tints per spell gem.
+"""Build the muted neutral surface that EverQuest tints per spell gem.
 
 The client supplies the spell-category hue at runtime.  A dark or colored source
-surface multiplies that hue down, so the background atlas must stay neutral and
-bright while retaining enough vertical shading to read as a compact 3D control.
+surface multiplies that hue down, so the background atlas must remain neutral
+while retaining enough vertical shading to read as a compact 3D control.  This
+revision adds a second restrained luminance cut without altering runtime hues.
 """
 
 from __future__ import annotations
@@ -19,12 +20,14 @@ BACKGROUND_TOP = 28
 BACKGROUND_WIDTH = 120
 BACKGROUND_HEIGHT = 28
 
-# Neutral ramp with the original relief and a uniform 7% linear-luminance cut.
+# Neutral ramp with the original relief and a second uniform ~7% linear-luminance
+# cut.  This is roughly a 13.5%-14% total cut from the original source ramp.
 # Runtime spell hues stay unchanged because no baked hue is present; only their
-# intensity is reduced slightly (6.39%-7.49% after 8-bit rounding).
+# intensity is reduced modestly (6.47%-7.49% from the preceding ramp after
+# 8-bit rounding).
 BACKGROUND_SHADES = (
-    192, 213, 223, 230, 236, 240, 242, 240, 238, 234, 230, 227, 223, 219,
-    215, 209, 203, 198, 192, 186, 180, 174, 168, 163, 157, 153, 165, 190,
+    186, 206, 216, 223, 229, 232, 234, 232, 230, 227, 223, 220, 216, 212,
+    208, 202, 197, 192, 186, 180, 174, 168, 163, 158, 152, 148, 160, 184,
 )
 
 
