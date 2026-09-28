@@ -884,3 +884,15 @@ independent accessibility review: PASS
   scaled-panel, and tooltip-closure verification: **46 passed** in **26.68
   seconds**. Python compilation and `git diff --check` remain **PASS**. Final
   independent re-review is pending; build and publication remain stopped.
+- Final re-review found that native heading sorting could change the active
+  direction without refreshing the adjacent keyboard sort action. Both raid
+  tables now listen to `sortIndicatorChanged` and recompute the visible text
+  and accessible name as the exact **next** action. This label-only update
+  does not initiate sorting, so header clicks, selector changes, and button
+  activation remain synchronized without recursive side effects. Explicit
+  offscreen regressions exercise ascending and descending native-header
+  changes for both History and Find raid ticks. The complete focused feature,
+  accessibility, scaled-panel, and tooltip set completed with **46 passed** in
+  **27.24 seconds**; Python compilation, diff validation, English-only source
+  audit, and `ui/**` isolation are **PASS**. Final independent approval is still
+  pending; no build, tag, or release has been created.

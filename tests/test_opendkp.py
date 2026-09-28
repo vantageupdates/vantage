@@ -266,6 +266,15 @@ def test_my_raids_editor_and_sort_controls_are_keyboard_accessible(tmp_path):
                 Qt.SortOrder.AscendingOrder)
         assert widget.raid_sort_button.text() == "Sort descending"
         assert widget.raid_sort_button.accessibleName() == "Sort descending"
+        history_header = widget.my_raids_table.horizontalHeader()
+        history_header.setSortIndicator(0, Qt.SortOrder.DescendingOrder)
+        app.processEvents()
+        assert widget.raid_sort_button.text() == "Sort ascending"
+        assert widget.raid_sort_button.accessibleName() == "Sort ascending"
+        history_header.setSortIndicator(0, Qt.SortOrder.AscendingOrder)
+        app.processEvents()
+        assert widget.raid_sort_button.text() == "Sort descending"
+        assert widget.raid_sort_button.accessibleName() == "Sort descending"
         widget.raid_sort_column.setCurrentIndex(1)
         assert widget.raid_sort_button.text() == "Sort ascending"
         assert widget.raid_sort_button.accessibleName() == "Sort ascending"
@@ -344,6 +353,15 @@ def test_my_raids_tick_finder_is_compact_keyboard_accessible_and_adjustable(
         assert (widget.raid_log_table.horizontalHeader().sortIndicatorOrder() ==
                 Qt.SortOrder.AscendingOrder)
         assert widget.raid_log_sort_button.text() == "Sort descending"
+        finder_header = widget.raid_log_table.horizontalHeader()
+        finder_header.setSortIndicator(1, Qt.SortOrder.DescendingOrder)
+        app.processEvents()
+        assert widget.raid_log_sort_button.text() == "Sort ascending"
+        assert widget.raid_log_sort_button.accessibleName() == "Sort ascending"
+        finder_header.setSortIndicator(1, Qt.SortOrder.AscendingOrder)
+        app.processEvents()
+        assert widget.raid_log_sort_button.text() == "Sort descending"
+        assert widget.raid_log_sort_button.accessibleName() == "Sort descending"
     finally:
         widget.raid_ledger.close()
         page.deleteLater()

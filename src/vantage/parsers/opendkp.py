@@ -878,6 +878,10 @@ class OpenDKP(ParserWindow):
         self.my_raids_table.setAccessibleDescription(
             "Sortable raid verification table. Status is always written as text. "
             "Missing means review needed, not misconduct.")
+        self.my_raids_table.horizontalHeader().sortIndicatorChanged.connect(
+            lambda _section, _order: self._update_sort_action_label(
+                self.my_raids_table, self.raid_sort_column,
+                self.raid_sort_button))
         self.my_raids_table.itemSelectionChanged.connect(
             self._my_raid_selected)
         split.addWidget(self.my_raids_table)
@@ -1050,6 +1054,10 @@ class OpenDKP(ParserWindow):
             (0, Qt.SortOrder.DescendingOrder))
         self.raid_log_table.setAccessibleDescription(
             "Sortable results from every linked log. Drag heading dividers to resize columns.")
+        self.raid_log_table.horizontalHeader().sortIndicatorChanged.connect(
+            lambda _section, _order: self._update_sort_action_label(
+                self.raid_log_table, self.raid_log_sort_column,
+                self.raid_log_sort_button))
         self.raid_log_table.horizontalHeader().setStretchLastSection(False)
         for column, width in enumerate((155, 105, 105, 470, 210)):
             self.raid_log_table.setColumnWidth(column, width)
