@@ -902,4 +902,15 @@ independent accessibility review: PASS
   synchronized for both raid tables.
 - Exact release-candidate complete-suite verification after the final UI fix:
   **1,571 passed, 2 skipped** in **698.70 seconds**. The candidate remained
-  unchanged during the run. Build and public verification follow below.
+  unchanged during the run.
+- PyInstaller **6.22.2** one-file build: **PASS**. Portable self-test exited
+  `0` from an isolated profile and reported version **1.44.111**.
+- Recursive archive inspection: **PASS**. The candidate contains
+  `vantage.helpers.raid_ledger`, `vantage.helpers.log_search_cache`,
+  `vantage.parsers.opendkp`, `vantage.ui_skin_app`, both
+  `qtexttospeech_sapi.dll` and `qtexttospeech_winrt.dll`, and
+  `TERMS-AND-PRIVACY.md`.
+- Candidate `dist/Vantage.exe` Windows file/product version: **1.44.111**.
+  Size: **75,754,928 bytes**. SHA-256:
+  `BCE6DED346A4D22EF5FBB316FA33CD39A459D77E26391986AB94958744DD8688`.
+  Public release verification follows below.
