@@ -708,3 +708,51 @@ independent accessibility review: PASS
   and matched the tested candidate size and SHA-256 byte-for-byte. Annotated
   tag `v1.44.108` dereferences to release commit
   `057fc0d7e3982ca9e1a90fec331e88f969dd60f0`.
+
+## 1.44.109 release evidence
+
+- Added the private **My raids** journal inside **Guild DKP & More**. Local
+  SQLite sessions retain Start/End time, toon, server, zone, editable targets,
+  notes, RAID TICK evidence, and only complete identity-bound `/who` snapshots.
+  The `/who` footer is authoritative for both count and zone; incomplete,
+  duplicated, resumed-after-character-switch, or mixed-log captures are not
+  persisted.
+- Public OpenDKP comparison remains read-only. Each check is bound to the
+  selected guild and a unique request generation, so stale list, detail, and
+  failure responses cannot overwrite a newer check. Manual RaidId links take
+  precedence; otherwise candidate raids are restricted to the safe date/time
+  window and ranked by proximity.
+- OpenDKP tick credit uses the current API relationship exactly: the selected
+  toon must appear in each parent `Ticks[].Characters[]`, and only that parent
+  tick's `Value` contributes to the displayed total. Local evidence and private
+  notes survive every remote verification result and guild change.
+- Status is always explicit text: **Not checked**, **Pending — needs review**,
+  **Verified**, or **Missing — review needed**. Missing is also explained in
+  the interface as a review state that does not imply misconduct.
+- Accessibility review: **PASS**, with no remaining findings. The editor is a
+  named group with native labels and buddies; fields remain disabled until a
+  session is selected; Tab exits the notes editor; status announcements are
+  polite and deduplicated; End raid returns focus to Start raid; and the table
+  has keyboard sort controls whose visible and accessible action names match
+  the actual next sort direction. The specialist independently confirmed all
+  six remediation areas and ran the OpenDKP test file successfully.
+- The embedded VantageUI updater's user-facing interface was converted fully
+  to English. A case-insensitive source audit for Spanish UI vocabulary and
+  accented Spanish text returned no matches. Its isolated no-network self-test
+  returned `PASS`; `ui/**` remained unchanged because this is a Companion-only
+  release.
+- Focused raid-ledger, OpenDKP, guild spreadsheet, embedded updater, and update
+  heartbeat verification: **64 passed** in **11.29 seconds**. The narrower
+  raid-ledger/OpenDKP/spreadsheet set completed with **37 passed** in **0.72
+  seconds**. Python compilation and `git diff --check` also passed.
+- Complete-suite verification: **1,560 passed, 2 skipped** in **668.89
+  seconds**.
+- PyInstaller **6.22.2** one-file build: **PASS**. Portable self-test exited
+  `0` from an isolated profile and reported version **1.44.109**.
+- Packaged archive verification: **PASS**. The archive contains
+  `vantage.helpers.raid_ledger`, `vantage.parsers.opendkp`,
+  `vantage.ui_skin_app`, `qtexttospeech_sapi.dll`, and
+  `qtexttospeech_winrt.dll`.
+- Candidate `dist/Vantage.exe` Windows file/product version: **1.44.109**.
+  Size: **75,933,259 bytes**. SHA-256:
+  `9851AA34CA2A890320A8EDA42211AEBE4957E06AB3B8D9D44DAE754C8672CA42`.

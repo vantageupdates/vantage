@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import re
 import statistics
 from urllib.parse import quote
 import uuid
@@ -13,9 +14,9 @@ from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent, QColor
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QComboBox, QDialog, QDialogButtonBox,
-    QFormLayout, QFrame, QGridLayout, QHeaderView, QLabel, QLineEdit,
+    QFormLayout, QFrame, QGridLayout, QGroupBox, QHeaderView, QLabel, QLineEdit,
     QListWidget, QMessageBox, QProgressBar, QPushButton, QSpinBox, QSplitter,
-    QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QHBoxLayout,
+    QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout, QHBoxLayout,
     QToolButton, QWidget)
 
 from vantage.helpers import config
@@ -26,6 +27,11 @@ from vantage.helpers.opendkp import (
     OpenDkpClient, auction_bids, auction_id, auction_item_name,
     normalize_guild_slug, rows_from_payload, watch_matches)
 from vantage.helpers.parser import ParserWindow
+from vantage.helpers.raid_ledger import (
+    MISSING, NOT_CHECKED, PENDING, VERIFIED, RaidLedger,
+    parse_timestamp, raid_time_matches, remote_raid_id, remote_raid_name,
+    remote_raid_timestamp,
+    remote_tick_evidence)
 from vantage.helpers.responsive import (
     ensure_tab_tooltips, ensure_table_header_tooltips)
 
@@ -62,6 +68,37 @@ def _date_text(value, with_time=False):
         return local.strftime("%b %d, %Y · %I:%M %p" if with_time else "%b %d, %Y")
     raw = str(value or "").strip()
     return raw[:24] if raw else "—"
+
+
+def _raid_tick_phrases():
+    """Return the bounded user-configured phrases that announce a raid tick."""
+    values = config.data.get("opendkp", {}).get(
+        "raid_tick_phrases", ["RAID TICK"])
+    if not isinstance(values, list):
+        values = []
+    phrases = []
+    for value in values:
+        phrase = " ".join(str(value or "").split())[:96]
+        if phrase and phrase.casefold() not in {
+                item.casefold() for item in phrases}:
+            phrases.append(phrase)
+    return phrases[:16] or ["RAID TICK"]
+
+
+def _raid_request_context(operation):
+    """Return ``(kind, token, raid_id)`` for legacy and correlated requests."""
+    value = str(operation or "")
+    if value == "raid_ledger":
+        return "list", "", ""
+    if value.startswith("raid_ledger|"):
+        return "list", value.partition("|")[2], ""
+    if value.startswith("raid_ledger_detail|"):
+        parts = value.split("|", 2)
+        return "detail", parts[1] if len(parts) > 1 else "", (
+            parts[2] if len(parts) > 2 else "")
+    if value.startswith("raid_ledger_detail:"):
+        return "detail", "", value.partition(":")[2]
+    return "", "", ""
 
 
 def _parse_date(value):
@@ -219,8 +256,117 @@ class OpenDKP(ParserWindow):
     MAX_TABLE_ROWS = 2000
     MAX_SHEET_TABLE_ROWS = 3000
 
-    def parse(self, _timestamp, _text):
-        """OpenDKP is network-driven and intentionally ignores EQ log lines."""
+    WHO_HEADER = re.compile(r"^Players in (?P<zone>.+?):$", re.IGNORECASE)
+    WHO_ROW = re.compile(
+        r"^\[[^\]]+\]\s+(?:(?:<AFK>|\*GM\*)\s+)*"
+        r"(?P<name>[A-Za-z][A-Za-z'`-]{1,63})\b")
+    WHO_END = re.compile(
+        r"^There (?:are (?P<count>\d+|no) players|is (?P<one>1) player) "
+        r"in (?P<zone>.+?)\.$", re.IGNORECASE)
+    ZONE_LINE = re.compile(
+        r"^You have entered (?P<zone>.+?)\.$", re.IGNORECASE)
+    RAID_CHAT = re.compile(
+        r"^(?P<speaker>.+?) (?:(?:tells|tell) "
+        r"(?:the raid|the guild|the group|your raid|your guild|you)|"
+        r"(?:says|say) to (?:your|the) (?:raid|guild|group)), "
+        r"['\"](?P<message>.+)['\"]$", re.IGNORECASE)
+
+    def parse(self, timestamp, text):
+        """Capture local raid evidence for the active EQ log identity."""
+        line = str(text or "").strip()
+        character, server, context_zone = self._raid_identity()
+        if not character:
+            return None
+        key = (server.casefold(), character.casefold())
+        previous_key = getattr(self, "_last_raid_identity", None)
+        if key != previous_key:
+            if previous_key is not None:
+                # A complete /who belongs to one log identity. Never resume a
+                # partial capture after another toon/server becomes active.
+                self._who_captures.pop(previous_key, None)
+            self._last_raid_identity = key
+            self._schedule_my_raids_refresh()
+        zone_match = self.ZONE_LINE.match(line)
+        if zone_match:
+            zone = zone_match.group("zone").strip()
+            active = self.raid_ledger.active_session(character, server)
+            if active is not None:
+                self.raid_ledger.update_session(active["id"], zone=zone)
+                self._schedule_my_raids_refresh()
+            context_zone = zone
+
+        header = self.WHO_HEADER.match(line)
+        if header:
+            self._who_captures[key] = {
+                "identity": key, "zone": header.group("zone").strip(),
+                "members": [], "lines": 0}
+            active = self.raid_ledger.active_session(character, server)
+            if active is not None:
+                self._set_my_raids_status(
+                    f"Reading /who for {character}…", "loading", announce=True)
+            return None
+
+        capture = self._who_captures.get(key)
+        if capture is not None:
+            if capture.get("identity") != key:
+                self._who_captures.pop(key, None)
+                return None
+            capture["lines"] += 1
+            row = self.WHO_ROW.match(line)
+            if row:
+                capture["members"].append(row.group("name"))
+            end = self.WHO_END.match(line)
+            if end:
+                self._who_captures.pop(key, None)
+                expected = 1 if end.group("one") else (
+                    0 if str(end.group("count")).casefold() == "no"
+                    else int(end.group("count")))
+                members = capture["members"]
+                unique_members = {member.casefold() for member in members}
+                active = self.raid_ledger.active_session(character, server)
+                if (active is not None and len(members) == expected and
+                        len(unique_members) == expected):
+                    # The footer is the authoritative completion record for
+                    # both result count and zone.
+                    footer_zone = end.group("zone").strip()
+                    roster_zone = footer_zone
+                    self.raid_ledger.add_roster(
+                        active["id"], timestamp,
+                        roster_zone, members)
+                    if roster_zone:
+                        self.raid_ledger.update_session(
+                            active["id"], zone=roster_zone)
+                    self._set_my_raids_status(
+                        f"Saved complete /who snapshot with {expected} players",
+                        "ready", announce=True)
+                    self._schedule_my_raids_refresh()
+                elif active is not None:
+                    self._set_my_raids_status(
+                        f"Waiting for /who: read {len(members)} of {expected} players",
+                        "warning", announce=True)
+                return None
+            if capture["lines"] >= 500:
+                self._who_captures.pop(key, None)
+
+        chat = self.RAID_CHAT.match(line)
+        tick_message = chat.group("message").strip() if chat else line
+        if any(phrase.casefold() in tick_message.casefold()
+               for phrase in _raid_tick_phrases()):
+            active = self.raid_ledger.active_session(character, server)
+            if active is None:
+                return None
+            speaker, message = "", line
+            if chat:
+                speaker = chat.group("speaker").strip()
+                if speaker.casefold() == "you":
+                    speaker = character
+                message = chat.group("message").strip()
+            if self.raid_ledger.add_tick(
+                    active["id"], timestamp, speaker, message, "log"):
+                who = f" from {speaker}" if speaker else ""
+                self._set_my_raids_status(
+                    f"Saved RAID TICK{who} for {character}", "ready", announce=True)
+                self._schedule_my_raids_refresh()
         return None
 
     def __init__(self):
@@ -230,6 +376,14 @@ class OpenDKP(ParserWindow):
         self._title.setToolTip(
             "OpenDKP plus independent public Google Sheets panels for any guild")
         self.client = OpenDkpClient(self)
+        self.raid_ledger = RaidLedger()
+        self._who_captures = {}
+        self._last_raid_identity = None
+        self._raid_check_sessions = {}
+        self._raid_check_details = {}
+        self._raid_check_slug = self.client.slug
+        self._raid_check_token = ""
+        self._raid_refresh_scheduled = False
         self.sheet_network = QNetworkAccessManager(self)
         self._sheet_views = {}
         self._sheet_replies = {}
@@ -259,6 +413,7 @@ class OpenDKP(ParserWindow):
         app = QApplication.instance()
         if app is not None:
             app.aboutToQuit.connect(self.client.close)
+            app.aboutToQuit.connect(self.raid_ledger.close)
         QTimer.singleShot(0, self._restore_active_guild)
 
     # ----- construction -------------------------------------------------
@@ -340,6 +495,7 @@ class OpenDKP(ParserWindow):
         self.tabs.addTab(self._build_auctions(), "Auctions")
         self.tabs.addTab(self._build_loot(), "Loot")
         self.tabs.addTab(self._build_raids(), "Raids")
+        self.tabs.addTab(self._build_my_raids(), "My raids")
         self.tabs.addTab(self._build_adjustments(), "Adjustments")
         self.tabs.addTab(self._build_sheets(), "Guild Sheets")
         ensure_tab_tooltips(self.tabs, {
@@ -348,6 +504,8 @@ class OpenDKP(ParserWindow):
             "Auctions": "Watch live auctions, bid manually, and review results",
             "Loot": "Search recorded loot and DKP prices",
             "Raids": "Browse recent guild raids and totals",
+            "My raids": (
+                "Record local raid evidence and verify your toon against OpenDKP"),
             "Adjustments": "Search DKP additions and deductions",
             "Guild Sheets": (
                 "Add public Google Sheets as separate searchable guild panels"),
@@ -605,6 +763,568 @@ class OpenDKP(ParserWindow):
             "OpenDKP raid history", (0, Qt.SortOrder.DescendingOrder))
         layout.addWidget(self.raids_table, 1)
         return page
+
+    def _build_my_raids(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(7, 6, 7, 6)
+        layout.setSpacing(5)
+
+        intro = QLabel(
+            "Your private local evidence is compared read-only with OpenDKP. "
+            "Missing means review needed; it does not imply misconduct.")
+        intro.setWordWrap(True)
+        intro.setObjectName("OpenDkpPanelHelp")
+        intro.setAccessibleName("How My raids verification works")
+        layout.addWidget(intro)
+
+        actions = QFrame()
+        actions.setObjectName("OpenDkpGuildBar")
+        action_layout = QHBoxLayout(actions)
+        action_layout.setContentsMargins(7, 5, 7, 5)
+        self.raid_start_button = self._make_button(
+            "Start raid", "add", self._start_raid,
+            "Start a local raid session for the active EverQuest character")
+        self.raid_start_button.setAccessibleDescription(
+            "Starts private evidence capture and waits for a complete slash-who result")
+        self.raid_end_button = self._make_button(
+            "End raid", "ph-mute", self._end_raid,
+            "End the active local raid session for this character")
+        self.raid_tick_button = self._make_button(
+            "Add tick", "ph-gavel", self._manual_raid_tick,
+            "Add manual RAID TICK evidence to the active local session")
+        self.raid_refresh_button = self._make_button(
+            "Check OpenDKP", "refresh", self._refresh_my_raids,
+            "Read public OpenDKP raids and check this toon's tick membership")
+        for button in (self.raid_start_button, self.raid_end_button,
+                       self.raid_tick_button, self.raid_refresh_button):
+            action_layout.addWidget(button)
+        action_layout.addStretch(1)
+        layout.addWidget(actions)
+
+        detection = QFrame()
+        detection.setObjectName("OpenDkpGuildBar")
+        detection_layout = QHBoxLayout(detection)
+        detection_layout.setContentsMargins(7, 5, 7, 5)
+        tick_phrases_label = QLabel("RAID TICK phrases")
+        self.raid_tick_phrases = QLineEdit()
+        self.raid_tick_phrases.setText("; ".join(_raid_tick_phrases()))
+        self.raid_tick_phrases.setPlaceholderText("RAID TICK; ATTENDANCE TICK")
+        self.raid_tick_phrases.setAccessibleName("RAID TICK detection phrases")
+        self.raid_tick_phrases.setAccessibleDescription(
+            "Semicolon-separated phrases that identify raid tick announcements")
+        tick_phrases_label.setBuddy(self.raid_tick_phrases)
+        self.raid_tick_save_button = self._make_button(
+            "Save phrases", "ph-download", self._save_raid_tick_phrases,
+            "Save the phrases used to detect RAID TICK announcements")
+        detection_layout.addWidget(tick_phrases_label)
+        detection_layout.addWidget(self.raid_tick_phrases, 1)
+        detection_layout.addWidget(self.raid_tick_save_button)
+        layout.addWidget(detection)
+
+        self.my_raids_status = QLabel("No local raid is active")
+        self.my_raids_status.setObjectName("OpenDkpInlineSummary")
+        self.my_raids_status.setAccessibleName("My raids status: No local raid is active")
+        self.my_raids_status.setAccessibleDescription(
+            "Text status for local evidence capture and OpenDKP verification")
+        layout.addWidget(self.my_raids_status)
+
+        sort_row = QHBoxLayout()
+        sort_label = QLabel("Sort raids")
+        self.raid_sort_column = QComboBox()
+        self.raid_sort_column.addItems((
+            "Started", "Ended", "Toon", "Server", "Zone", "Local evidence",
+            "OpenDKP status", "Ticks", "DKP", "Remote raid", "Last checked"))
+        self.raid_sort_column.setAccessibleName("My raids sort column")
+        sort_label.setBuddy(self.raid_sort_column)
+        self.raid_sort_button = self._make_button(
+            "Sort ascending", "refresh", self._sort_my_raids,
+            "Sort My raids by the selected column; activate again to reverse order")
+        sort_row.addWidget(sort_label)
+        sort_row.addWidget(self.raid_sort_column)
+        sort_row.addWidget(self.raid_sort_button)
+        sort_row.addStretch(1)
+        layout.addLayout(sort_row)
+
+        split = QSplitter(Qt.Orientation.Vertical)
+        self.my_raids_table = self._table(
+            ("Started", "Ended", "Toon", "Server", "Zone", "Local evidence",
+             "OpenDKP status", "Ticks", "DKP", "Remote raid", "Last checked"),
+            "My local raids and OpenDKP verification results",
+            (0, Qt.SortOrder.DescendingOrder))
+        self.my_raids_table.setAccessibleDescription(
+            "Sortable raid verification table. Status is always written as text. "
+            "Missing means review needed, not misconduct.")
+        self.my_raids_table.itemSelectionChanged.connect(
+            self._my_raid_selected)
+        split.addWidget(self.my_raids_table)
+
+        editor = QGroupBox("Selected raid details")
+        editor.setObjectName("OpenDkpGuildBar")
+        editor.setAccessibleName("Selected raid details")
+        editor.setAccessibleDescription(
+            "Edit private mobs, targets, notes, or the linked OpenDKP raid ID")
+        editor_layout = QGridLayout(editor)
+        editor_layout.setContentsMargins(7, 5, 7, 5)
+        mobs_label = QLabel("Mobs / targets")
+        self.raid_mobs = QLineEdit()
+        self.raid_mobs.setAccessibleName("Raid mobs or targets")
+        self.raid_mobs.setAccessibleDescription(
+            "Optional private text you can edit for the selected local raid")
+        self.raid_mobs.setPlaceholderText("Vulak, Statue, Ring War…")
+        mobs_label.setBuddy(self.raid_mobs)
+        editor_layout.addWidget(mobs_label, 0, 0)
+        editor_layout.addWidget(self.raid_mobs, 0, 1, 1, 3)
+        notes_label = QLabel("Notes")
+        self.raid_notes = QTextEdit()
+        self.raid_notes.setAcceptRichText(False)
+        self.raid_notes.setTabChangesFocus(True)
+        self.raid_notes.setMaximumHeight(72)
+        self.raid_notes.setAccessibleName("Raid notes")
+        self.raid_notes.setAccessibleDescription(
+            "Optional private notes for the selected local raid")
+        self.raid_notes.setPlaceholderText("Attendance details or follow-up notes…")
+        notes_label.setBuddy(self.raid_notes)
+        editor_layout.addWidget(notes_label, 1, 0)
+        editor_layout.addWidget(self.raid_notes, 1, 1, 1, 3)
+        remote_label = QLabel("Remote raid ID")
+        self.raid_remote_id = QLineEdit()
+        self.raid_remote_id.setAccessibleName("OpenDKP remote raid ID")
+        self.raid_remote_id.setAccessibleDescription(
+            "Optional manual link when automatic date matching needs help")
+        self.raid_remote_id.setPlaceholderText("Optional OpenDKP raid ID")
+        remote_label.setBuddy(self.raid_remote_id)
+        editor_layout.addWidget(remote_label, 2, 0)
+        editor_layout.addWidget(self.raid_remote_id, 2, 1)
+        self.raid_save_button = self._make_button(
+            "Save notes", "ph-download", self._save_raid_notes,
+            "Save mobs and notes for the selected local raid")
+        self.raid_link_button = self._make_button(
+            "Link and check", "refresh", self._link_remote_raid,
+            "Save this remote raid ID and refresh its OpenDKP verification")
+        editor_layout.addWidget(self.raid_save_button, 2, 2)
+        editor_layout.addWidget(self.raid_link_button, 2, 3)
+        editor_layout.setColumnStretch(1, 1)
+        for widget in (self.raid_mobs, self.raid_notes, self.raid_remote_id):
+            widget.setEnabled(False)
+        split.addWidget(editor)
+        split.setSizes([330, 150])
+        layout.addWidget(split, 1)
+        self._populate_my_raids()
+        return page
+
+    # ----- private local raid ledger ----------------------------------
+    def _raid_identity(self):
+        context = getattr(self, "_character_context", None)
+        character = str(
+            getattr(self, "_active_character", "") or
+            getattr(context, "character", "") or "").strip()
+        server = str(
+            getattr(self, "_active_server", "") or
+            getattr(context, "server", "") or "").strip()
+        zone = str(getattr(context, "zone", "") or "").strip()
+        return character, server, zone
+
+    def _schedule_my_raids_refresh(self):
+        if self._raid_refresh_scheduled:
+            return
+        self._raid_refresh_scheduled = True
+
+        def refresh():
+            self._raid_refresh_scheduled = False
+            if hasattr(self, "my_raids_table"):
+                self._populate_my_raids()
+
+        QTimer.singleShot(0, refresh)
+
+    def _set_my_raids_status(self, text, state="idle", announce=False):
+        if not hasattr(self, "my_raids_status"):
+            return
+        message = str(text)
+        self.my_raids_status.setText(message)
+        self.my_raids_status.setProperty("state", state)
+        self.my_raids_status.style().unpolish(self.my_raids_status)
+        self.my_raids_status.style().polish(self.my_raids_status)
+        self.my_raids_status.setAccessibleName(f"My raids status: {message}")
+        if (announce and message != getattr(
+                self, "_last_my_raids_announcement", "")):
+            self._last_my_raids_announcement = message
+            # Raid progress is informative and should not interrupt another
+            # screen-reader announcement, including warnings and failures.
+            self._announce(message, False)
+
+    def _save_raid_tick_phrases(self):
+        phrases = []
+        for raw in re.split(r"[;\n]+", self.raid_tick_phrases.text()):
+            phrase = " ".join(raw.split())[:96]
+            if phrase and phrase.casefold() not in {
+                    item.casefold() for item in phrases}:
+                phrases.append(phrase)
+        if not phrases:
+            self._set_my_raids_status(
+                "Enter at least one RAID TICK phrase", "warning", announce=True)
+            self.raid_tick_phrases.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        config.data.setdefault("opendkp", {})["raid_tick_phrases"] = phrases[:16]
+        config.save()
+        self.raid_tick_phrases.setText("; ".join(phrases[:16]))
+        self._set_my_raids_status(
+            f"Saved {len(phrases[:16])} RAID TICK detection phrase"
+            f"{'s' if len(phrases[:16]) != 1 else ''}",
+            "ready", announce=True)
+        return True
+
+    def _sort_my_raids(self):
+        column = self.raid_sort_column.currentIndex()
+        header = self.my_raids_table.horizontalHeader()
+        current_column = header.sortIndicatorSection()
+        current_order = header.sortIndicatorOrder()
+        order = (Qt.SortOrder.AscendingOrder
+                 if current_column == column and
+                 current_order == Qt.SortOrder.DescendingOrder
+                 else Qt.SortOrder.DescendingOrder)
+        self.my_raids_table.sortItems(column, order)
+        direction = "ascending" if order == Qt.SortOrder.AscendingOrder else "descending"
+        self.raid_sort_button.setText(
+            "Sort descending" if order == Qt.SortOrder.AscendingOrder else
+            "Sort ascending")
+        self.raid_sort_button.setAccessibleName(self.raid_sort_button.text())
+        self._set_my_raids_status(
+            f"My raids sorted by {self.raid_sort_column.currentText()}, {direction}",
+            "ready", announce=True)
+        self.my_raids_table.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
+
+    def _start_raid(self):
+        character, server, zone = self._raid_identity()
+        if not character:
+            self._set_my_raids_status(
+                "Open an EverQuest character log before starting a raid",
+                "error", announce=True)
+            return False
+        existed = self.raid_ledger.active_session(character, server)
+        session = self.raid_ledger.start_session(
+            datetime.now().astimezone(), character, server, zone)
+        if session is None:
+            self._set_my_raids_status(
+                f"Could not start the local raid ledger: {self.raid_ledger.error}",
+                "error", announce=True)
+            return False
+        if existed is not None:
+            message = f"{character}'s raid is already active; waiting for /who"
+        else:
+            message = (
+                f"Raid started for {character}. Waiting for /who; "
+                "run /who in EverQuest when ready")
+        self._set_my_raids_status(message, "waiting", announce=True)
+        self._populate_my_raids(select_id=session["id"])
+        return True
+
+    def _end_raid(self):
+        character, server, _zone = self._raid_identity()
+        active = self.raid_ledger.active_session(character, server)
+        if active is None:
+            self._set_my_raids_status(
+                "No active raid for the current EverQuest character",
+                "warning", announce=True)
+            return False
+        self.raid_ledger.end_session(
+            active["id"], datetime.now().astimezone())
+        self._set_my_raids_status(
+            f"Raid ended for {character}; local evidence is saved privately",
+            "ready", announce=True)
+        self._populate_my_raids(select_id=active["id"])
+        self.raid_start_button.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
+
+    def _manual_raid_tick(self):
+        character, server, _zone = self._raid_identity()
+        active = self.raid_ledger.active_session(character, server)
+        if active is None:
+            self._set_my_raids_status(
+                "Start a raid before adding manual tick evidence",
+                "warning", announce=True)
+            return False
+        added = self.raid_ledger.add_tick(
+            active["id"], datetime.now().astimezone(), character,
+            "Manual RAID TICK", "manual")
+        if added:
+            self._set_my_raids_status(
+                f"Manual RAID TICK saved for {character}",
+                "ready", announce=True)
+            self._populate_my_raids(select_id=active["id"])
+        return added
+
+    def _selected_my_raid(self):
+        if not hasattr(self, "my_raids_table"):
+            return None
+        row = self.my_raids_table.currentRow()
+        item = self.my_raids_table.item(row, 0) if row >= 0 else None
+        source = item.data(Qt.ItemDataRole.UserRole) if item is not None else None
+        return source if isinstance(source, dict) else None
+
+    def _populate_my_raids(self, select_id=None):
+        if not hasattr(self, "my_raids_table"):
+            return
+        if select_id is None:
+            selected = self._selected_my_raid()
+            select_id = selected.get("id") if selected else None
+        sessions = self.raid_ledger.sessions(limit=500)
+        rows = []
+        for session in sessions:
+            evidence = self.raid_ledger.evidence(session["id"])
+            local_ticks = len(evidence["ticks"])
+            roster_counts = [item["member_count"] for item in evidence["rosters"]]
+            local_parts = []
+            if not session.get("ended_at"):
+                local_parts.append("Active")
+            local_parts.append(
+                f"{local_ticks} local tick{'s' if local_ticks != 1 else ''}")
+            if roster_counts:
+                local_parts.append(f"/who {roster_counts[-1]} players")
+            elif session.get("waiting_for_who"):
+                local_parts.append("Waiting for /who")
+            status = str(session.get("verification_status") or NOT_CHECKED)
+            status_text = {
+                MISSING: "Missing — review needed",
+                PENDING: "Pending — needs review",
+            }.get(status, status)
+            remote_label = " · ".join(part for part in (
+                str(session.get("remote_raid_id") or ""),
+                str(session.get("remote_name") or "")) if part) or "—"
+            dkp = session.get("dkp_total")
+            rows.append((
+                _date_cell(session.get("started_at"), session, with_time=True),
+                (_date_cell(session.get("ended_at"), with_time=True)
+                 if session.get("ended_at") else "Active"),
+                _clean(session.get("character")),
+                _clean(session.get("server")),
+                _clean(session.get("zone")),
+                " · ".join(local_parts), status_text,
+                (_number(session.get("tick_count")), None,
+                 float(session.get("tick_count") or 0)),
+                ((_number(dkp, 1), None, float(dkp))
+                 if dkp is not None else "—"),
+                remote_label,
+                _date_text(session.get("last_checked"), with_time=True)
+                if session.get("last_checked") else "—",
+            ))
+        self._set_rows(self.my_raids_table, rows)
+        if select_id is not None:
+            for row in range(self.my_raids_table.rowCount()):
+                item = self.my_raids_table.item(row, 0)
+                source = item.data(Qt.ItemDataRole.UserRole) if item else None
+                if isinstance(source, dict) and source.get("id") == select_id:
+                    self.my_raids_table.selectRow(row)
+                    break
+        self._update_raid_action_state()
+
+    def _update_raid_action_state(self):
+        character, server, _zone = self._raid_identity()
+        active = self.raid_ledger.active_session(character, server)
+        if hasattr(self, "raid_start_button"):
+            self.raid_start_button.setEnabled(bool(character) and active is None)
+            self.raid_end_button.setEnabled(active is not None)
+            self.raid_tick_button.setEnabled(active is not None)
+            self.raid_refresh_button.setEnabled(
+                bool(self.client.slug) and not self._busy)
+        selected = self._selected_my_raid()
+        if hasattr(self, "raid_save_button"):
+            self.raid_save_button.setEnabled(selected is not None)
+            self.raid_link_button.setEnabled(
+                selected is not None and bool(self.client.slug))
+
+    def _my_raid_selected(self):
+        session = self._selected_my_raid()
+        enabled = session is not None
+        for widget in (self.raid_mobs, self.raid_notes, self.raid_remote_id):
+            widget.setEnabled(enabled)
+        if session is None:
+            self.raid_mobs.clear()
+            self.raid_notes.clear()
+            self.raid_remote_id.clear()
+        else:
+            self.raid_mobs.setText(str(session.get("mobs") or ""))
+            self.raid_notes.setPlainText(str(session.get("notes") or ""))
+            self.raid_remote_id.setText(str(session.get("remote_raid_id") or ""))
+            evidence = self.raid_ledger.evidence(session["id"])
+            roster_text = (
+                f"{evidence['rosters'][-1]['member_count']} players in latest /who"
+                if evidence["rosters"] else "waiting for /who")
+            self._set_my_raids_status(
+                f"Selected {session['character']} · {len(evidence['ticks'])} "
+                f"local ticks · {roster_text}", "ready", announce=True)
+        self._update_raid_action_state()
+
+    def _save_raid_notes(self):
+        session = self._selected_my_raid()
+        if session is None:
+            self._set_my_raids_status(
+                "Select a local raid before saving notes", "warning", announce=True)
+            return False
+        saved = self.raid_ledger.update_session(
+            session["id"], mobs=self.raid_mobs.text(),
+            notes=self.raid_notes.toPlainText())
+        if saved:
+            self._set_my_raids_status(
+                "Raid mobs and notes saved privately", "ready", announce=True)
+            self._populate_my_raids(select_id=session["id"])
+        return saved
+
+    def _link_remote_raid(self):
+        session = self._selected_my_raid()
+        if session is None:
+            self._set_my_raids_status(
+                "Select a local raid before linking OpenDKP",
+                "warning", announce=True)
+            return False
+        remote_id = " ".join(self.raid_remote_id.text().split())
+        if not remote_id:
+            self._set_my_raids_status(
+                "Enter an OpenDKP remote raid ID", "warning", announce=True)
+            self.raid_remote_id.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        self.raid_ledger.link_remote(session["id"], remote_id)
+        self._populate_my_raids(select_id=session["id"])
+        return self._refresh_my_raids()
+
+    def _refresh_my_raids(self):
+        sessions = self.raid_ledger.sessions(limit=500)
+        if not sessions:
+            self._set_my_raids_status(
+                "Start a local raid before checking OpenDKP", "warning", announce=True)
+            return False
+        if not self.client.slug:
+            for session in sessions:
+                self.raid_ledger.set_check(session["id"], NOT_CHECKED)
+            self._set_my_raids_status(
+                "Load an OpenDKP guild before checking My raids",
+                "warning", announce=True)
+            self._populate_my_raids()
+            return False
+        self._raid_check_sessions = {}
+        self._raid_check_details = {}
+        self._raid_check_slug = self.client.slug
+        self._raid_check_token = uuid.uuid4().hex
+        for session in sessions:
+            self.raid_ledger.set_check(
+                session["id"], PENDING,
+                remote_id=str(session.get("remote_raid_id") or ""))
+        self._set_my_raids_status(
+            f"Checking {len(sessions)} local raids against public OpenDKP data…",
+            "loading", announce=True)
+        self._populate_my_raids()
+        return self.client.fetch_raid_ledger(self._raid_check_token)
+
+    def _receive_raid_list(self, payload):
+        raids = rows_from_payload(payload, "Raids", "Models", "Items")
+        sessions = self.raid_ledger.sessions(limit=500)
+        summary_by_id = {
+            remote_raid_id(raid): raid for raid in raids
+            if remote_raid_id(raid)}
+        self._raid_check_summaries = summary_by_id
+        wanted_ids = set()
+        for session in sessions:
+            linked = str(session.get("remote_raid_id") or "").strip()
+            if linked and session.get("manual_remote"):
+                candidates = [linked]
+            else:
+                started = parse_timestamp(session.get("started_at"))
+                ranked = []
+                for raid in raids:
+                    raid_id = remote_raid_id(raid)
+                    remote_time = remote_raid_timestamp(raid)
+                    if not raid_id or not raid_time_matches(session, raid):
+                        continue
+                    distance = (abs((remote_time - started).total_seconds())
+                                if started is not None and
+                                remote_time is not None else float("inf"))
+                    ranked.append((distance, raid_id))
+                candidates = [raid_id for _distance, raid_id in sorted(ranked)]
+            candidates = list(dict.fromkeys(candidates))[:12]
+            self._raid_check_sessions[session["id"]] = candidates
+            if not candidates:
+                self.raid_ledger.set_check(session["id"], MISSING)
+            wanted_ids.update(candidates)
+        if not wanted_ids:
+            self._finish_raid_checks()
+            return
+        for raid_id in sorted(wanted_ids):
+            if not self.client.fetch_raid_details(
+                    raid_id, self._raid_check_token):
+                self._raid_check_details[raid_id] = None
+        self._finalize_ready_raid_checks()
+
+    def _receive_raid_detail(self, raid_id, payload):
+        rows = rows_from_payload(payload, "Raids", "Models")
+        detail = rows[0] if rows else (
+            payload.get("Raid") if isinstance(payload, dict) and
+            isinstance(payload.get("Raid"), dict) else
+            (payload if isinstance(payload, dict) else {}))
+        summary = getattr(self, "_raid_check_summaries", {}).get(raid_id, {})
+        merged = dict(summary) if isinstance(summary, dict) else {}
+        if isinstance(detail, dict):
+            merged.update(detail)
+        self._raid_check_details[str(raid_id)] = merged
+        self._finalize_ready_raid_checks()
+
+    def _finalize_ready_raid_checks(self):
+        for session_id, candidate_ids in tuple(self._raid_check_sessions.items()):
+            if not all(candidate in self._raid_check_details
+                       for candidate in candidate_ids):
+                continue
+            session = self.raid_ledger.session(session_id)
+            if session is None:
+                self._raid_check_sessions.pop(session_id, None)
+                continue
+            details = [self._raid_check_details[candidate]
+                       for candidate in candidate_ids
+                       if isinstance(self._raid_check_details[candidate], dict)]
+            verified = None
+            verified_matches = []
+            verified_dkp = None
+            for detail in details:
+                matches, dkp = remote_tick_evidence(
+                    detail, session.get("character"))
+                if matches:
+                    verified, verified_matches, verified_dkp = detail, matches, dkp
+                    break
+            if verified is not None:
+                self.raid_ledger.set_check(
+                    session_id, VERIFIED,
+                    remote_id=remote_raid_id(verified),
+                    remote_name=remote_raid_name(verified),
+                    tick_count=len(verified_matches), dkp_total=verified_dkp)
+            elif len(details) != len(candidate_ids):
+                self.raid_ledger.set_check(session_id, NOT_CHECKED)
+            else:
+                closest = details[0] if details else {}
+                self.raid_ledger.set_check(
+                    session_id, MISSING,
+                    remote_id=remote_raid_id(closest),
+                    remote_name=remote_raid_name(closest) if closest else "",
+                    tick_count=0)
+            self._raid_check_sessions.pop(session_id, None)
+        if not self._raid_check_sessions:
+            self._finish_raid_checks()
+
+    def _finish_raid_checks(self):
+        sessions = self.raid_ledger.sessions(limit=500)
+        verified = sum(
+            session.get("verification_status") == VERIFIED
+            for session in sessions)
+        missing = sum(
+            session.get("verification_status") == MISSING
+            for session in sessions)
+        unchecked = sum(
+            session.get("verification_status") == NOT_CHECKED
+            for session in sessions)
+        message = (
+            f"OpenDKP check complete: {verified} verified, {missing} review needed")
+        if unchecked:
+            message += f", {unchecked} not checked"
+        self._set_my_raids_status(message, "ready", announce=True)
+        self._populate_my_raids()
 
     def _build_adjustments(self):
         page, layout, self.adjustments_search = self._search_page(
@@ -878,7 +1598,7 @@ class OpenDKP(ParserWindow):
             return False
         request = QNetworkRequest(QUrl(csv_url))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.108")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.109")
         request.setAttribute(
             QNetworkRequest.Attribute.RedirectPolicyAttribute,
             QNetworkRequest.RedirectPolicy.NoLessSafeRedirectPolicy)
@@ -1106,6 +1826,9 @@ class OpenDKP(ParserWindow):
                 "Enter a valid guild subdomain or guild.opendkp.com address", "error", announce=True)
             return False
         self._session_restore_slug = ""
+        self._raid_check_slug = ""
+        self._raid_check_sessions.clear()
+        self._raid_check_details.clear()
         self._adjustments_loaded = False
         self._notified_auctions.clear()
         self._clear_views()
@@ -1171,6 +1894,18 @@ class OpenDKP(ParserWindow):
 
     # ----- responses ----------------------------------------------------
     def _response(self, operation, payload):
+        raid_kind, raid_token, raid_id = _raid_request_context(operation)
+        if raid_kind:
+            current_token = getattr(self, "_raid_check_token", "")
+            current_slug = getattr(self, "_raid_check_slug", "")
+            if (current_slug != self.client.slug or
+                    raid_token != current_token):
+                return
+            if raid_kind == "list":
+                self._receive_raid_list(payload)
+            else:
+                self._receive_raid_detail(raid_id, payload)
+            return
         if operation == "client":
             self._guild_details = payload if isinstance(payload, dict) else {}
             name = _clean(self._guild_details.get("Name"), self.client.slug)
@@ -1235,6 +1970,23 @@ class OpenDKP(ParserWindow):
             self._set_status(f"{self._guild_name()} · public data ready", "ready")
 
     def _failed(self, operation, message, status):
+        raid_kind, raid_token, raid_id = _raid_request_context(operation)
+        if raid_kind:
+            if (getattr(self, "_raid_check_slug", "") != self.client.slug or
+                    raid_token != getattr(self, "_raid_check_token", "")):
+                return
+            if raid_kind == "list":
+                for session_id in tuple(self._raid_check_sessions):
+                    self.raid_ledger.set_check(session_id, NOT_CHECKED)
+                self._raid_check_sessions.clear()
+                self._set_my_raids_status(
+                    f"OpenDKP check unavailable: {_clean(message, f'HTTP {status}')}",
+                    "error", announce=True)
+                self._populate_my_raids()
+            else:
+                self._raid_check_details[raid_id] = None
+                self._finalize_ready_raid_checks()
+            return
         prefix = {
             "auth": "Sign-in required", "login": "Sign-in failed",
             "session": "Saved sign-in temporarily unavailable",
@@ -1248,6 +2000,7 @@ class OpenDKP(ParserWindow):
         self._busy = bool(busy)
         self.progress.setVisible(self._busy)
         self.refresh_button.setEnabled(bool(self.client.slug) and not self._busy)
+        self._update_raid_action_state()
         self.progress.setAccessibleName(
             f"OpenDKP loading {operation}" if busy else "OpenDKP loading complete")
 
@@ -1817,7 +2570,10 @@ class OpenDKP(ParserWindow):
         self._filter_table(self.adjustments_table, self.adjustments_search.text())
 
     def _tab_changed(self, index):
-        if self.tabs.tabText(index) == "Adjustments" and self.client.slug \
+        tab = self.tabs.tabText(index)
+        if tab == "My raids":
+            self._populate_my_raids()
+        if tab == "Adjustments" and self.client.slug \
                 and not self._adjustments_loaded:
             self._adjustments_loaded = True
             self.client.fetch_adjustments()

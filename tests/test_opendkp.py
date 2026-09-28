@@ -1,16 +1,321 @@
 import base64
 import copy
+import datetime
 import json
 from types import SimpleNamespace
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QGroupBox, QLabel, QWidget
 
 from vantage.helpers import config
 from vantage.helpers.opendkp import (
     OpenDkpClient, auction_bids, auction_id, auction_item_name, decode_token_username,
     normalize_guild_slug, rows_from_payload, watch_matches)
+from vantage.helpers.raid_ledger import (
+    MISSING, PENDING, VERIFIED, RaidLedger, raid_time_matches,
+    remote_tick_evidence)
 from vantage.parsers.opendkp import OpenDKP, SortItem, _date_cell
+from vantage.parsers.opendkp import _raid_request_context, _raid_tick_phrases
+
+
+def test_raid_ledger_persists_bounded_private_sessions_and_evidence(tmp_path):
+    ledger = RaidLedger(tmp_path / "raid-ledger.sqlite", max_sessions=25)
+    started = datetime.datetime(2026, 9, 26, 19, 30)
+    session = ledger.start_session(
+        started, "Mindflux", "Green", "Kael Drakkel")
+    assert session["waiting_for_who"] == 1
+    assert ledger.add_tick(
+        session["id"], started, "Raidlead", "RAID TICK", "log") is True
+    assert ledger.add_roster(
+        session["id"], started, "Kael Drakkel",
+        ["Mindflux", "Raidlead"]) is True
+    assert ledger.update_session(
+        session["id"], mobs="Statue", notes="Present from start") is True
+    assert ledger.link_remote(session["id"], "raid-42") is True
+    ledger.set_check(
+        session["id"], VERIFIED, remote_id="raid-42",
+        remote_name="Statue", tick_count=1, dkp_total=10)
+    assert ledger.end_session(session["id"], started + datetime.timedelta(hours=2))
+
+    saved = ledger.session(session["id"])
+    evidence = ledger.evidence(session["id"])
+    assert saved["character"] == "Mindflux"
+    assert saved["server"] == "Green"
+    assert saved["waiting_for_who"] == 0
+    assert saved["mobs"] == "Statue"
+    assert saved["notes"] == "Present from start"
+    assert saved["verification_status"] == VERIFIED
+    assert evidence["ticks"][0]["speaker"] == "Raidlead"
+    assert evidence["rosters"][0]["members"] == ["Mindflux", "Raidlead"]
+    ledger.close()
+
+
+def test_raid_log_capture_requires_complete_who_and_records_chat_speaker(tmp_path):
+    ledger = RaidLedger(tmp_path / "raid-ledger.sqlite")
+    stamp = datetime.datetime(2026, 9, 26, 19, 30)
+    session = ledger.start_session(stamp, "Mindflux", "Green", "Kael Drakkel")
+    statuses = []
+    harness = SimpleNamespace(
+        raid_ledger=ledger, _who_captures={},
+        ZONE_LINE=OpenDKP.ZONE_LINE, WHO_HEADER=OpenDKP.WHO_HEADER,
+        WHO_ROW=OpenDKP.WHO_ROW, WHO_END=OpenDKP.WHO_END,
+        RAID_CHAT=OpenDKP.RAID_CHAT,
+        _raid_identity=lambda: ("Mindflux", "Green", "Kael Drakkel"),
+        _set_my_raids_status=lambda *args, **kwargs: statuses.append(args),
+        _schedule_my_raids_refresh=lambda: None)
+    for line in (
+            "Players in EverQuest:",
+            "[60 Cleric] Mindflux (Human) <Castle>",
+            "[60 Warrior] Raidlead (Ogre) <Castle>",
+            "There are 2 players in Kael Drakkel.",
+            "Raidlead tells the raid, 'RAID TICK'",
+            "You say to your guild, 'RAID TICK'"):
+        OpenDKP.parse(harness, stamp, line)
+
+    saved = ledger.session(session["id"])
+    evidence = ledger.evidence(session["id"])
+    assert saved["waiting_for_who"] == 0
+    assert saved["zone"] == "Kael Drakkel"
+    assert evidence["rosters"][0]["members"] == ["Mindflux", "Raidlead"]
+    assert [tick["speaker"] for tick in evidence["ticks"]] == [
+        "Raidlead", "Mindflux"]
+    assert any("Saved complete /who" in status[0] for status in statuses)
+    ledger.close()
+
+
+def test_incomplete_who_remains_waiting_and_is_not_persisted(tmp_path):
+    ledger = RaidLedger(tmp_path / "raid-ledger.sqlite")
+    stamp = datetime.datetime(2026, 9, 26, 19, 30)
+    session = ledger.start_session(stamp, "Mindflux", "Green", "Kael Drakkel")
+    harness = SimpleNamespace(
+        raid_ledger=ledger, _who_captures={},
+        ZONE_LINE=OpenDKP.ZONE_LINE, WHO_HEADER=OpenDKP.WHO_HEADER,
+        WHO_ROW=OpenDKP.WHO_ROW, WHO_END=OpenDKP.WHO_END,
+        RAID_CHAT=OpenDKP.RAID_CHAT,
+        _raid_identity=lambda: ("Mindflux", "Green", "Kael Drakkel"),
+        _set_my_raids_status=lambda *_args, **_kwargs: None,
+        _schedule_my_raids_refresh=lambda: None)
+    OpenDKP.parse(harness, stamp, "Players in Kael Drakkel:")
+    OpenDKP.parse(harness, stamp, "[60 Cleric] Mindflux (Human) <Castle>")
+    OpenDKP.parse(harness, stamp, "There are 2 players in Kael Drakkel.")
+    assert ledger.session(session["id"])["waiting_for_who"] == 1
+    assert ledger.evidence(session["id"])["rosters"] == []
+    ledger.close()
+
+
+def test_who_capture_is_discarded_when_log_identity_changes(tmp_path):
+    ledger = RaidLedger(tmp_path / "raid-ledger.sqlite")
+    stamp = datetime.datetime(2026, 9, 26, 19, 30)
+    session = ledger.start_session(stamp, "Mindflux", "Green", "Kael Drakkel")
+    identity = ["Mindflux", "Green", "Kael Drakkel"]
+    harness = SimpleNamespace(
+        raid_ledger=ledger, _who_captures={}, _last_raid_identity=None,
+        ZONE_LINE=OpenDKP.ZONE_LINE, WHO_HEADER=OpenDKP.WHO_HEADER,
+        WHO_ROW=OpenDKP.WHO_ROW, WHO_END=OpenDKP.WHO_END,
+        RAID_CHAT=OpenDKP.RAID_CHAT,
+        _raid_identity=lambda: tuple(identity),
+        _set_my_raids_status=lambda *_args, **_kwargs: None,
+        _schedule_my_raids_refresh=lambda: None)
+    OpenDKP.parse(harness, stamp, "Players in EverQuest:")
+    OpenDKP.parse(harness, stamp, "[60 Cleric] Mindflux (Human) <Castle>")
+    identity[:] = ["Other", "Green", "Kael Drakkel"]
+    OpenDKP.parse(harness, stamp, "[60 Warrior] Other (Ogre) <Castle>")
+    identity[:] = ["Mindflux", "Green", "Kael Drakkel"]
+    OpenDKP.parse(harness, stamp, "There is 1 player in Kael Drakkel.")
+    assert ledger.session(session["id"])["waiting_for_who"] == 1
+    assert ledger.evidence(session["id"])["rosters"] == []
+    ledger.close()
+
+
+def test_complete_who_uses_footer_zone_not_header_or_context(tmp_path):
+    ledger = RaidLedger(tmp_path / "raid-ledger.sqlite")
+    stamp = datetime.datetime(2026, 9, 26, 19, 30)
+    session = ledger.start_session(stamp, "Mindflux", "Green", "Kael Drakkel")
+    harness = SimpleNamespace(
+        raid_ledger=ledger, _who_captures={}, _last_raid_identity=None,
+        ZONE_LINE=OpenDKP.ZONE_LINE, WHO_HEADER=OpenDKP.WHO_HEADER,
+        WHO_ROW=OpenDKP.WHO_ROW, WHO_END=OpenDKP.WHO_END,
+        RAID_CHAT=OpenDKP.RAID_CHAT,
+        _raid_identity=lambda: ("Mindflux", "Green", "Kael Drakkel"),
+        _set_my_raids_status=lambda *_args, **_kwargs: None,
+        _schedule_my_raids_refresh=lambda: None)
+    OpenDKP.parse(harness, stamp, "Players in EverQuest:")
+    OpenDKP.parse(harness, stamp, "[60 Cleric] Mindflux (Human) <Castle>")
+    OpenDKP.parse(harness, stamp, "There is 1 player in Plane of Sky.")
+    saved = ledger.session(session["id"])
+    evidence = ledger.evidence(session["id"])
+    assert saved["zone"] == "Plane of Sky"
+    assert evidence["rosters"][0]["zone"] == "Plane of Sky"
+    ledger.close()
+
+
+def test_raid_tick_phrases_are_configurable_and_bounded():
+    original = copy.deepcopy(config.data)
+    try:
+        config.data = {"opendkp": {
+            "raid_tick_phrases": [" RAID   TICK ", "raid tick", "Attendance"]}}
+        assert _raid_tick_phrases() == ["RAID TICK", "Attendance"]
+    finally:
+        config.data = original
+
+
+def test_correlated_raid_operations_reject_stale_generation_and_slug():
+    calls = []
+    harness = SimpleNamespace(
+        client=SimpleNamespace(slug="castle"),
+        _raid_check_slug="castle", _raid_check_token="new-generation",
+        _receive_raid_list=lambda payload: calls.append(("list", payload)),
+        _receive_raid_detail=lambda raid_id, payload:
+            calls.append((raid_id, payload)))
+    OpenDKP._response(
+        harness, "raid_ledger|old-generation", {"Models": [{"Id": 1}]})
+    OpenDKP._response(
+        harness, "raid_ledger_detail|old-generation|1", {"Id": 1})
+    OpenDKP._response(
+        harness, "raid_ledger", {"Models": [{"Id": "legacy-stale"}]})
+    assert calls == []
+    OpenDKP._response(
+        harness, "raid_ledger|new-generation", {"Models": [{"Id": 2}]})
+    OpenDKP._response(
+        harness, "raid_ledger_detail|new-generation|2", {"Id": 2})
+    assert calls == [
+        ("list", {"Models": [{"Id": 2}]}), ("2", {"Id": 2})]
+    harness.client.slug = "another-guild"
+    OpenDKP._response(
+        harness, "raid_ledger|new-generation", {"Models": [{"Id": 3}]})
+    assert len(calls) == 2
+
+
+def test_raid_request_context_keeps_legacy_compatibility():
+    assert _raid_request_context("raid_ledger") == ("list", "", "")
+    assert _raid_request_context("raid_ledger|abc") == ("list", "abc", "")
+    assert _raid_request_context("raid_ledger_detail:42") == (
+        "detail", "", "42")
+    assert _raid_request_context("raid_ledger_detail|abc|42") == (
+        "detail", "abc", "42")
+
+
+def test_client_raid_requests_include_generation_without_changing_routes():
+    requests = []
+    harness = SimpleNamespace(
+        slug="castle",
+        _request=lambda operation, method, path:
+            requests.append((operation, method, path)))
+    assert OpenDkpClient.fetch_raid_ledger(harness, "generation-2") is True
+    assert OpenDkpClient.fetch_raid_details(
+        harness, "raid/42", "generation-2") is True
+    assert requests == [
+        ("raid_ledger|generation-2", "GET",
+         "/clients/castle/raids?count=100"),
+        ("raid_ledger_detail|generation-2|raid/42", "GET",
+         "/clients/castle/raids/raid%2F42"),
+    ]
+
+
+def test_my_raids_editor_and_sort_controls_are_keyboard_accessible(tmp_path):
+    app = QApplication.instance() or QApplication([])
+
+    class Harness(OpenDKP):
+        def __init__(self):
+            QWidget.__init__(self)
+            self.raid_ledger = RaidLedger(tmp_path / "ui-ledger.sqlite")
+            self.client = SimpleNamespace(slug="")
+            self._busy = False
+            self._raid_refresh_scheduled = False
+            self._active_character = "Mindflux"
+            self._active_server = "Green"
+            self._announce = lambda *_args, **_kwargs: None
+            self.raid_ledger.start_session(
+                datetime.datetime(2026, 9, 26, 19, 30),
+                "Mindflux", "Green", "Kael Drakkel")
+
+    widget = Harness()
+    page = widget._build_my_raids()
+    try:
+        editor = widget.raid_mobs.parentWidget()
+        assert isinstance(editor, QGroupBox)
+        assert editor.accessibleName() == "Selected raid details"
+        assert editor.accessibleDescription()
+        assert widget.raid_notes.tabChangesFocus() is True
+        assert widget.raid_mobs.isEnabled() is False
+        assert widget.raid_notes.isEnabled() is False
+        assert widget.raid_remote_id.isEnabled() is False
+        assert widget.raid_sort_column.focusPolicy() & Qt.FocusPolicy.TabFocus
+        assert widget.raid_sort_button.focusPolicy() & Qt.FocusPolicy.TabFocus
+        assert widget.raid_sort_column.accessibleName() == "My raids sort column"
+        assert widget.raid_sort_button.text() == "Sort ascending"
+        assert widget.raid_sort_button.accessibleName() == "Sort ascending"
+        assert widget.raid_mobs.accessibleName() == "Raid mobs or targets"
+        assert widget.raid_notes.accessibleName() == "Raid notes"
+        assert widget.raid_remote_id.accessibleName() == "OpenDKP remote raid ID"
+        widget.raid_ledger.set_check(1, PENDING)
+        widget._populate_my_raids()
+        assert widget.my_raids_table.horizontalHeaderItem(0).text() == "Started"
+        assert widget.my_raids_table.horizontalHeaderItem(1).text() == "Ended"
+        assert widget.my_raids_table.item(0, 3).text() == "Green"
+        assert widget.my_raids_table.item(0, 6).text() == (
+            "Pending — needs review")
+        widget.raid_ledger.set_check(1, MISSING)
+        widget._populate_my_raids()
+        assert widget.my_raids_table.item(0, 6).text() == (
+            "Missing — review needed")
+        assert widget._sort_my_raids() is True
+        assert (widget.my_raids_table.horizontalHeader().sortIndicatorOrder() ==
+                Qt.SortOrder.AscendingOrder)
+        assert widget.raid_sort_button.text() == "Sort descending"
+        assert widget.raid_sort_button.accessibleName() == "Sort descending"
+        page.show()
+        app.processEvents()
+        assert widget._end_raid() is True
+        app.processEvents()
+        assert app.focusWidget() is widget.raid_start_button
+    finally:
+        widget.raid_ledger.close()
+        page.deleteLater()
+        widget.deleteLater()
+        app.processEvents()
+
+
+def test_my_raids_status_announcements_are_polite_and_deduplicated():
+    app = QApplication.instance() or QApplication([])
+    announcements = []
+    harness = SimpleNamespace(
+        my_raids_status=QLabel(), _last_my_raids_announcement="",
+        _announce=lambda text, assertive=False:
+            announcements.append((text, assertive)))
+    OpenDKP._set_my_raids_status(
+        harness, "Waiting for /who", "warning", announce=True)
+    OpenDKP._set_my_raids_status(
+        harness, "Waiting for /who", "warning", announce=True)
+    assert announcements == [("Waiting for /who", False)]
+    harness.my_raids_status.deleteLater()
+    app.processEvents()
+
+
+def test_official_opendkp_tick_shape_attributes_parent_value_to_toon():
+    payload = {
+        "Id": 42, "Name": "Statue",
+        "Ticks": [
+            {"TickId": 1, "Value": 5, "Description": "On time",
+             "Characters": [{"Name": "Mindflux"}, {"Name": "Other"}]},
+            {"TickId": 2, "Value": 7.5, "Description": "Hourly",
+             "Characters": [{"Name": "Mindflux"}]},
+            {"TickId": 3, "Value": 20, "Description": "Late",
+             "Characters": [{"Name": "SomeoneElse"}]},
+        ]}
+    ticks, dkp = remote_tick_evidence(payload, "mindflux")
+    assert [tick["TickId"] for tick in ticks] == [1, 2]
+    assert dkp == 12.5
+
+
+def test_raid_time_matching_rejects_unrelated_dates():
+    session = {
+        "started_at": "2026-09-26T19:00:00-04:00",
+        "ended_at": "2026-09-26T23:00:00-04:00"}
+    assert raid_time_matches(
+        session, {"Timestamp": "2026-09-27T00:30:00Z"}) is True
+    assert raid_time_matches(
+        session, {"Timestamp": "2026-09-30T00:30:00Z"}) is False
 
 
 def test_generic_guild_normalization_accepts_slug_or_opendkp_address_only():
@@ -49,7 +354,9 @@ def test_opendkp_profiles_and_sheets_are_bounded_and_never_store_passwords():
             "character_id": "25", "character_name": " A Character ",
             "username": " Account ", "password": "must-not-survive",
             "watch_items": [" Cloak  of Flames ", "cloak of flames", "Manastone"],
-        }, {"slug": "bad guild"}], "active_sheet": sheet_id, "sheets": [{
+        }, {"slug": "bad guild"}],
+        "raid_tick_phrases": [" raid   tick ", "RAID TICK", "Attendance"],
+        "active_sheet": sheet_id, "sheets": [{
             "id": sheet_id, "name": " Guild Loot ",
             "url": "https://docs.google.com/spreadsheets/d/" + "x" * 32 +
                    "/edit?gid=0",
@@ -64,6 +371,8 @@ def test_opendkp_profiles_and_sheets_are_bounded_and_never_store_passwords():
             "watch_items": ["Cloak of Flames", "Manastone"],
         }]
         assert "password" not in json.dumps(config.data["opendkp"]).casefold()
+        assert config.data["opendkp"]["raid_tick_phrases"] == [
+            "raid tick", "Attendance"]
         assert config.data["opendkp"]["sheets"] == [{
             "id": sheet_id, "name": "Guild Loot",
             "url": "https://docs.google.com/spreadsheets/d/" + "x" * 32 +

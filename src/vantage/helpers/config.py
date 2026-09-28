@@ -1541,6 +1541,18 @@ def verify_settings():
     data['opendkp']['opacity'] = get_setting(
         data['opendkp'].get('opacity', 100), 100,
         lambda value: 40 <= value <= 100)
+    raw_tick_phrases = data['opendkp'].get(
+        'raid_tick_phrases', ['RAID TICK'])
+    if not isinstance(raw_tick_phrases, list):
+        raw_tick_phrases = []
+    tick_phrases = []
+    for raw_phrase in raw_tick_phrases:
+        phrase = ' '.join(str(raw_phrase or '').split())[:96]
+        if (phrase and phrase.casefold() not in {
+                value.casefold() for value in tick_phrases}):
+            tick_phrases.append(phrase)
+    data['opendkp']['raid_tick_phrases'] = (
+        tick_phrases[:16] or ['RAID TICK'])
     raw_profiles = data['opendkp'].get('guilds', [])
     raw_profiles = raw_profiles if isinstance(raw_profiles, list) else []
     guilds = []

@@ -27,7 +27,7 @@ API_ROOT = "https://api.opendkp.com"
 COGNITO_ROOT = "https://cognito-idp.us-east-2.amazonaws.com/"
 COGNITO_TARGET = "AWSCognitoIdentityProviderService.InitiateAuth"
 LIVE_ROOT = "wss://a2d3ggob45.execute-api.us-east-2.amazonaws.com/production"
-USER_AGENT = "Vantage/1.44.108 (vantagecompanion@gmail.com)"
+USER_AGENT = "Vantage/1.44.109 (vantagecompanion@gmail.com)"
 
 _GUILD_SLUG = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
@@ -299,6 +299,31 @@ class OpenDkpClient(QObject):
             f"character_adjustments:{suffix}", "GET", root + "/adjustments")
         self._request(
             f"character_raids:{suffix}", "GET", root + "/raids?lookback=90")
+
+    def fetch_raid_ledger(self, request_token=""):
+        """Load a bounded public raid list for local evidence cross-checking."""
+        if not self.slug:
+            return False
+        token = str(request_token or "").strip()[:64]
+        operation = f"raid_ledger|{token}" if token else "raid_ledger"
+        self._request(
+            operation, "GET",
+            f"/clients/{quote(self.slug)}/raids?count=100")
+        return True
+
+    def fetch_raid_details(self, raid_id, request_token=""):
+        """Load one public raid without requiring or mutating guild data."""
+        raid_id = str(raid_id or "").strip()
+        if not self.slug or not raid_id or len(raid_id) > 128:
+            return False
+        token = str(request_token or "").strip()[:64]
+        operation = (
+            f"raid_ledger_detail|{token}|{raid_id}" if token else
+            f"raid_ledger_detail:{raid_id}")
+        self._request(
+            operation, "GET",
+            f"/clients/{quote(self.slug)}/raids/{quote(raid_id, safe='')}")
+        return True
 
     def login(self, username, password):
         username = str(username or "").strip()
