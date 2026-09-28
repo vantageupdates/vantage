@@ -1071,3 +1071,16 @@ independent accessibility review: PASS
   no standalone updater or `ui/**` source was changed. Full-suite and final
   accessibility/UI review remain pending; no build, tag, push, or release has
   been performed.
+- Final accessibility/UI review at commit
+  `00dd64bc2de15532f0be4d9161cb09d6015b376c`: **PASS**. The review remediation
+  keeps selection and focus stable across refresh/sort, exposes exact checkbox
+  row names/descriptions, uses truthful dynamic action state, and preserves the
+  existing compact layout.
+- The first complete-suite run reached **1,626 passed, 2 skipped** with one
+  test-harness timeout: a full offscreen VantageApp startup took just over the
+  test's fixed 30-second limit. No product assertion failed. The harness now
+  allows 60 seconds; the exact test passed in **30.11 seconds**. No product or
+  accessibility code changed for that stabilization.
+- Final clean complete suite on the exact release candidate:
+  **1,627 passed, 2 skipped** in **931.13 seconds**. This is the final pre-build
+  result for Companion **1.44.113**.
