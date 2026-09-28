@@ -823,3 +823,50 @@ independent accessibility review: PASS
   and matches the tested candidate size and SHA-256 byte-for-byte.
 - Annotated tag `v1.44.110` dereferences to release commit
   `a30a7f7e135ca2360170d59b09786f8e2fbe6926`.
+
+## 1.44.111 pre-release UI and test evidence
+
+- My raids now presents one compact **Current raid** status/action group, then
+  uses native progressive-disclosure tabs for **History & evidence**, **Find
+  raid ticks**, and **Tick phrases**. Start, End, Add tick, and Check OpenDKP
+  remain visible as the primary workflow; detailed editing and phrase setup no
+  longer compete with those actions.
+- Find raid ticks reuses the same canonical per-log-root `LogSearchCache`
+  database as Log Searcher. It recursively indexes every linked `eqlog*.txt`
+  file without changing the originals, supports configured suggestions or
+  free text, character/server and All filters, and All/24-hour/7/30/90-day
+  ranges. Source folder, determinate indexing progress, empty/error/truncated
+  results, and completion states are explicit text.
+- Indexing and search run outside the GUI thread. Per-operation UUID generation
+  guards reject superseded callbacks; linked-root validation also rejects a
+  callback when the configured Logs folder changed during the operation.
+- Results retain exact timestamp, log owner toon/server, speaker/message, and
+  relative source log. Attach requires both a selected local raid and selected
+  result, never creates or changes a session implicitly, is duplicate-safe
+  across live-listener and log-search sources, refreshes the selected raid's
+  evidence count, and persists metadata through close/reopen. Existing ledgers
+  add the new toon/server metadata columns automatically.
+- Accessibility and keyboard implementation is ready for independent review:
+  native labels/buddies, explicit accessible names/descriptions and tooltips,
+  logical tab order, native adjustable table columns, keyboard sort controls
+  whose action label follows the next direction, visible textual state,
+  deduplicated polite announcements, and stable focus after search/attach.
+  The feature does not rely on color, hover, animation, or icon-only actions.
+- Offscreen visual evidence at **1280 × 820** was captured for both History &
+  evidence and Find raid ticks under `work/qa/`. The captures confirm the
+  compact action hierarchy, native nested tabs, non-overlapping controls,
+  full-width results table, and selected-evidence editor geometry. Final
+  UI/accessibility approval remains intentionally pending the independent gate.
+- Focused cache, raid-ledger, OpenDKP, update-heartbeat, scaled-panel and
+  tooltip-closure verification: **45 passed** in **28.69 seconds**. A broader
+  reproduction including the one unrelated initial Vitals timeout completed
+  with **45 passed** in **34.29 seconds**.
+- Final complete-suite verification after all implementation changes:
+  **1,570 passed, 2 skipped** in **743.21 seconds**. An earlier complete run
+  found the two new editable phrase controls missing tooltips and one unrelated
+  Vitals subprocess timeout; both tooltips were added, the isolated Vitals
+  case passed, and two subsequent complete runs finished cleanly.
+- Python compilation, `git diff --check`, English-only source audit, and
+  `ui/**` isolation: **PASS**. Companion version is **1.44.111**. Per the
+  requested review gate, no portable build, self-test, tag, or release has
+  been created yet.

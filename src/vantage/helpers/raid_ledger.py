@@ -210,6 +210,8 @@ class RaidLedger:
                     speaker TEXT NOT NULL DEFAULT '',
                     message TEXT NOT NULL DEFAULT '',
                     source TEXT NOT NULL DEFAULT 'log',
+                    character TEXT NOT NULL DEFAULT '',
+                    server TEXT NOT NULL DEFAULT '',
                     UNIQUE(session_id, timestamp, speaker, message, source)
                 );
                 CREATE TABLE IF NOT EXISTS raid_rosters (
@@ -236,6 +238,14 @@ class RaidLedger:
                 self._database.execute(
                     "ALTER TABLE raid_sessions ADD COLUMN "
                     "manual_remote INTEGER NOT NULL DEFAULT 0")
+            tick_columns = {
+                row[1] for row in self._database.execute(
+                    "PRAGMA table_info(raid_ticks)").fetchall()}
+            for column in ("character", "server"):
+                if column not in tick_columns:
+                    self._database.execute(
+                        f"ALTER TABLE raid_ticks ADD COLUMN {column} "
+                        "TEXT NOT NULL DEFAULT ''")
             self._prune()
             self._database.commit()
         except (OSError, sqlite3.Error) as error:
@@ -394,15 +404,26 @@ class RaidLedger:
         return bool(cursor and cursor.rowcount)
 
     def add_tick(self, session_id, timestamp, speaker="", message="RAID TICK",
-                 source="log"):
+                 source="log", character="", server=""):
+        session_id = int(session_id)
+        timestamp = normalized_timestamp(timestamp)
+        speaker = " ".join(str(speaker or "").split())[:64]
+        message = " ".join(str(message or "").split())[:512]
         cursor = self._execute("""
-            INSERT OR IGNORE INTO raid_ticks (
-                session_id, timestamp, speaker, message, source)
-            VALUES (?, ?, ?, ?, ?)
-        """, (int(session_id), normalized_timestamp(timestamp),
-              " ".join(str(speaker or "").split())[:64],
-              " ".join(str(message or "").split())[:512],
-              str(source or "log")[:16]))
+            INSERT INTO raid_ticks (
+                session_id, timestamp, speaker, message, source,
+                character, server)
+            SELECT ?, ?, ?, ?, ?, ?, ?
+            WHERE NOT EXISTS (
+                SELECT 1 FROM raid_ticks
+                WHERE session_id = ? AND timestamp = ?
+                  AND speaker = ? COLLATE NOCASE
+                  AND message = ? COLLATE NOCASE)
+        """, (session_id, timestamp, speaker, message,
+              str(source or "log")[:256],
+              " ".join(str(character or "").split())[:64],
+              " ".join(str(server or "").split())[:64],
+              session_id, timestamp, speaker, message))
         if cursor is not None and cursor.rowcount:
             self._prune()
             self._database.commit()
@@ -436,7 +457,8 @@ class RaidLedger:
             return {"ticks": [], "rosters": []}
         try:
             ticks = [dict(row) for row in self._database.execute("""
-                SELECT timestamp, speaker, message, source FROM raid_ticks
+                SELECT timestamp, speaker, message, source, character, server
+                FROM raid_ticks
                 WHERE session_id = ? ORDER BY timestamp, id
             """, (int(session_id),)).fetchall()]
             rosters = []

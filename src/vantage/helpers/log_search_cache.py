@@ -5,9 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+import hashlib
 import os
 import re
 import sqlite3
+
+from vantage.helpers.portable import data_dir
 
 
 SCHEMA_VERSION = 1
@@ -35,6 +38,23 @@ class SearchResult:
     category: str
     message: str
     source: str
+
+
+def linked_logs_directory(selected="", everquest_root=""):
+    """Return the configured readable Logs folder without modifying it."""
+    direct = str(selected or "").strip()
+    if direct and Path(direct).is_dir():
+        return str(Path(direct).resolve())
+    root = str(everquest_root or "").strip()
+    candidate = Path(root) / "Logs" if root else None
+    return str(candidate.resolve()) if candidate and candidate.is_dir() else ""
+
+
+def cache_path_for_log_root(directory):
+    """Return the one canonical cache path shared by every log-search view."""
+    normalized = str(Path(directory).resolve()).casefold()
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:20]
+    return data_dir("log-search", f"logs-{digest}.sqlite3")
 
 
 def log_identity(filename):

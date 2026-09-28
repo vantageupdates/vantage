@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-import hashlib
 from pathlib import Path
 import threading
 
@@ -16,9 +15,9 @@ from PySide6.QtWidgets import (
 
 from vantage.helpers import config
 from vantage.helpers.icons import game_icon
-from vantage.helpers.log_search_cache import LogSearchCache
+from vantage.helpers.log_search_cache import (
+    LogSearchCache, cache_path_for_log_root, linked_logs_directory)
 from vantage.helpers.parser import ParserWindow
-from vantage.helpers.portable import data_dir
 
 
 class _LogSearchSignals(QObject):
@@ -205,19 +204,14 @@ class LogSearcher(ParserWindow):
         self.content.addWidget(body, 1)
 
     def _logs_directory(self):
-        selected = str(config.data.get("general", {}).get("eq_log_dir") or "")
-        if selected and Path(selected).is_dir():
-            return str(Path(selected).resolve())
-        eq_root = str(config.data.get("vantage_ui", {}).get("eq_dir") or "")
-        candidate = Path(eq_root) / "Logs"
-        return str(candidate.resolve()) if candidate.is_dir() else ""
+        return linked_logs_directory(
+            config.data.get("general", {}).get("eq_log_dir"),
+            config.data.get("vantage_ui", {}).get("eq_dir"))
 
     def _cache_for(self, directory):
         normalized = str(Path(directory).resolve()).casefold()
         if self._cache is None or normalized != self._cache_directory.casefold():
-            digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:20]
-            self._cache = LogSearchCache(
-                data_dir("log-search", f"logs-{digest}.sqlite3"))
+            self._cache = LogSearchCache(cache_path_for_log_root(directory))
             self._cache_directory = str(Path(directory).resolve())
         return self._cache
 

@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta
 
 from vantage.helpers.log_search_cache import (
-    LogSearchCache, classify_log_message, log_identity)
+    LogSearchCache, cache_path_for_log_root, classify_log_message,
+    linked_logs_directory, log_identity)
 
 
 def _line(stamp, message):
@@ -70,4 +71,38 @@ def test_log_categories_and_identity_are_stable():
     assert classify_log_message("You have entered West Commonlands.") == "zone"
     assert classify_log_message("You have looted a Fine Steel Sword.") == "loot"
     assert classify_log_message("You have been slain by a griffin!") == "death"
+
+
+def test_shared_cache_path_and_raid_tick_filters_cover_every_linked_log(
+        tmp_path, monkeypatch):
+    logs = tmp_path / "EverQuest" / "Logs"
+    nested = logs / "archive" / "raids"
+    nested.mkdir(parents=True)
+    now = datetime.now().replace(microsecond=0)
+    (logs / "eqlog_Alpha_P1999Green.txt").write_text(
+        _line(now - timedelta(hours=2),
+              "Raidlead tells the raid, 'RAID TICK'"), encoding="utf-8")
+    (nested / "eqlog_Beta_P1999Blue.txt").write_text(
+        _line(now - timedelta(days=40),
+              "Officer tells the guild, 'Attendance tick'"), encoding="utf-8")
+    monkeypatch.setattr(
+        "vantage.helpers.log_search_cache.data_dir",
+        lambda *parts: tmp_path.joinpath("data", *parts))
+
+    assert linked_logs_directory("", logs.parent) == str(logs.resolve())
+    shared_path = cache_path_for_log_root(logs)
+    assert shared_path == cache_path_for_log_root(logs.resolve())
+    cache = LogSearchCache(shared_path)
+    summary = cache.index_directory(logs)
+    assert summary.files == 2
+
+    recent, truncated = cache.search(
+        "RAID TICK", character="Alpha", server="P1999Green",
+        since_epoch=(now - timedelta(days=7)).timestamp())
+    assert not truncated
+    assert [(row.character, row.server, row.source) for row in recent] == [
+        ("Alpha", "P1999Green", "eqlog_Alpha_P1999Green.txt")]
+    old, _ = cache.search(
+        "Attendance tick", since_epoch=(now - timedelta(days=30)).timestamp())
+    assert old == ()
 

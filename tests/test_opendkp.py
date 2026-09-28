@@ -5,7 +5,8 @@ import json
 from types import SimpleNamespace
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QGroupBox, QLabel, QWidget
+from PySide6.QtWidgets import (
+    QApplication, QGroupBox, QHeaderView, QLabel, QWidget)
 
 from vantage.helpers import config
 from vantage.helpers.opendkp import (
@@ -16,6 +17,7 @@ from vantage.helpers.raid_ledger import (
     remote_tick_evidence)
 from vantage.parsers.opendkp import OpenDKP, SortItem, _date_cell
 from vantage.parsers.opendkp import _raid_request_context, _raid_tick_phrases
+from vantage.helpers.log_search_cache import SearchResult
 
 
 def test_raid_ledger_persists_bounded_private_sessions_and_evidence(tmp_path):
@@ -289,6 +291,163 @@ def test_my_raids_status_announcements_are_polite_and_deduplicated():
         harness, "Waiting for /who", "warning", announce=True)
     assert announcements == [("Waiting for /who", False)]
     harness.my_raids_status.deleteLater()
+    app.processEvents()
+
+
+def test_my_raids_tick_finder_is_compact_keyboard_accessible_and_adjustable(
+        tmp_path):
+    app = QApplication.instance() or QApplication([])
+
+    class Harness(OpenDKP):
+        def __init__(self):
+            QWidget.__init__(self)
+            self.raid_ledger = RaidLedger(tmp_path / "finder-ui.sqlite")
+            self.client = SimpleNamespace(slug="")
+            self._busy = False
+            self._raid_refresh_scheduled = False
+            self._active_character = "Mindflux"
+            self._active_server = "Green"
+            self._announce = lambda *_args, **_kwargs: None
+
+    widget = Harness()
+    page = widget._build_my_raids()
+    try:
+        labels = [widget.raid_workspace_tabs.tabText(index)
+                  for index in range(widget.raid_workspace_tabs.count())]
+        assert labels == ["History & evidence", "Find raid ticks", "Tick phrases"]
+        assert widget.raid_workspace_tabs.accessibleName() == "My raids workspaces"
+        assert widget.raid_log_query.focusPolicy() & Qt.FocusPolicy.TabFocus
+        assert widget.raid_log_profile.focusPolicy() & Qt.FocusPolicy.TabFocus
+        assert widget.raid_log_range.focusPolicy() & Qt.FocusPolicy.TabFocus
+        assert widget.raid_log_sort_button.text() == "Sort ascending"
+        assert widget.raid_log_sort_button.accessibleName() == "Sort ascending"
+        assert widget.raid_log_table.columnCount() == 5
+        assert widget.raid_log_table.horizontalHeader().sectionResizeMode(0) == (
+            QHeaderView.ResizeMode.Interactive)
+        assert widget.raid_log_table.accessibleDescription()
+        assert widget.raid_log_attach_button.text() == "Attach to selected raid"
+        assert widget.raid_log_attach_button.isEnabled() is False
+        assert widget.raid_log_status.accessibleName() == "Raid tick finder status"
+    finally:
+        widget.raid_ledger.close()
+        page.deleteLater()
+        widget.deleteLater()
+        app.processEvents()
+
+
+def test_raid_tick_finder_attach_requires_raid_and_preserves_evidence(tmp_path):
+    app = QApplication.instance() or QApplication([])
+
+    class Harness(OpenDKP):
+        def __init__(self):
+            QWidget.__init__(self)
+            self.raid_ledger = RaidLedger(tmp_path / "attach.sqlite")
+            self.client = SimpleNamespace(slug="")
+            self._busy = False
+            self._raid_refresh_scheduled = False
+            self._active_character = "Mindflux"
+            self._active_server = "Green"
+            self._announce = lambda *_args, **_kwargs: None
+            self.raid_ledger.start_session(
+                datetime.datetime(2026, 9, 26, 19, 0),
+                "Mindflux", "Green", "Kael Drakkel")
+
+    widget = Harness()
+    page = widget._build_my_raids()
+    result = SearchResult(
+        "2026-09-26T19:30:00", "Mindflux", "Green", "conversation",
+        "Raidlead tells the raid, 'RAID TICK'",
+        "archive/eqlog_Mindflux_Green.txt")
+    try:
+        widget._raid_log_search_token = "current"
+        widget._raid_log_search_complete("current", (result,), False, "")
+        assert widget._attach_selected_raid_tick() is False
+        assert widget.raid_ledger.evidence(1)["ticks"] == []
+        assert "Select a local raid" in widget.raid_log_status.text()
+
+        widget.my_raids_table.selectRow(0)
+        widget._my_raid_selected()
+        assert widget._attach_selected_raid_tick() is True
+        tick = widget.raid_ledger.evidence(1)["ticks"][0]
+        assert tick["timestamp"] == "2026-09-26T19:30:00"
+        assert tick["speaker"] == "Raidlead"
+        assert tick["message"] == "RAID TICK"
+        assert tick["character"] == "Mindflux"
+        assert tick["server"] == "Green"
+        assert tick["source"] == (
+            "log-search:archive/eqlog_Mindflux_Green.txt")
+        assert widget._attach_selected_raid_tick() is False
+        assert len(widget.raid_ledger.evidence(1)["ticks"]) == 1
+        assert "already attached" in widget.raid_log_status.text()
+    finally:
+        widget.raid_ledger.close()
+        page.deleteLater()
+        widget.deleteLater()
+        app.processEvents()
+
+
+def test_raid_tick_search_ignores_stale_async_results(tmp_path):
+    app = QApplication.instance() or QApplication([])
+
+    class Harness(OpenDKP):
+        def __init__(self):
+            QWidget.__init__(self)
+            self.raid_ledger = RaidLedger(tmp_path / "stale.sqlite")
+            self.client = SimpleNamespace(slug="")
+            self._busy = False
+            self._raid_refresh_scheduled = False
+            self._active_character = "Mindflux"
+            self._active_server = "Green"
+            self._announce = lambda *_args, **_kwargs: None
+
+    widget = Harness()
+    page = widget._build_my_raids()
+    stale = SearchResult(
+        "2026-09-26T18:00:00", "Old", "Green", "conversation",
+        "Old tells the raid, 'RAID TICK'", "old.txt")
+    current = SearchResult(
+        "2026-09-26T19:00:00", "New", "Green", "conversation",
+        "New tells the raid, 'RAID TICK'", "new.txt")
+    try:
+        widget._raid_log_search_token = "new-token"
+        widget._raid_log_search_complete("old-token", (stale,), False, "")
+        assert widget.raid_log_table.rowCount() == 0
+        widget._raid_log_search_complete("new-token", (current,), False, "")
+        assert widget.raid_log_table.rowCount() == 1
+        assert widget.raid_log_table.item(0, 1).text() == "New"
+        status = widget.raid_log_status.text()
+        widget._raid_log_search_complete("old-token", (stale,), False, "")
+        assert widget.raid_log_table.item(0, 1).text() == "New"
+        assert widget.raid_log_status.text() == status
+        widget._raid_log_search_directory = "old-root"
+        widget._raid_logs_directory = lambda: "new-root"
+        widget._raid_log_search_complete("new-token", (stale,), False, "")
+        assert widget.raid_log_table.item(0, 1).text() == "New"
+        assert widget.raid_log_status.text() == status
+    finally:
+        widget.raid_ledger.close()
+        page.deleteLater()
+        widget.deleteLater()
+        app.processEvents()
+
+
+def test_raid_tick_finder_status_announcements_are_polite_and_deduplicated():
+    app = QApplication.instance() or QApplication([])
+    announcements = []
+    harness = SimpleNamespace(
+        raid_log_status=QLabel("Waiting"),
+        _last_raid_log_announcement="",
+        _announce=lambda text, assertive=False:
+            announcements.append((text, assertive)))
+    OpenDKP._set_raid_log_status(
+        harness, "Found 2 matching raid tick messages", "ready")
+    OpenDKP._set_raid_log_status(
+        harness, "Found 2 matching raid tick messages", "ready")
+    assert announcements == [
+        ("Found 2 matching raid tick messages", False)]
+    assert harness.raid_log_status.accessibleDescription() == (
+        "Found 2 matching raid tick messages")
+    harness.raid_log_status.deleteLater()
     app.processEvents()
 
 
