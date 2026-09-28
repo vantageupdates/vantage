@@ -1485,6 +1485,53 @@ def test_stop_editor_exposes_delivery_sound_tts_off_and_tokens(monkeypatch):
     dialog.close()
 
 
+@pytest.mark.parametrize('result,expected', (
+    (('off', 'off', False, 'Off'), 'Test status · Off'),
+    (('sound', 'blocked', False, 'Master Mute'),
+     'Test status · Master Mute'),
+    (('sound', 'blocked', False, 'Master Volume 0%'),
+     'Test status · Master Volume 0%'),
+    (('sound', 'unavailable', False, 'Sound file unavailable'),
+     'Test status · Sound file unavailable'),
+    (('sound', 'unavailable', False, 'Sound file is invalid'),
+     'Test status · Sound file is invalid'),
+    (('sound', 'unavailable', False, 'Windows audio backend unavailable'),
+     'Test status · Windows audio backend unavailable'),
+    (('voice', 'unavailable', False, 'Windows voice backend unavailable'),
+     'Test status · Windows voice backend unavailable'),
+    (('sound', 'queued', True, ''), 'Test status · sound queued'),
+    (('voice', 'queued', True, ''), 'Test status · voice queued'),
+))
+def test_vital_test_reports_exact_accessible_result_without_moving_focus(
+        monkeypatch, result, expected):
+    from PySide6.QtGui import QAccessible
+    from vantage.helpers.audio import AudioPreflightResult
+
+    app = _app()
+    outcome = AudioPreflightResult(*result)
+    announcements = []
+    monkeypatch.setattr(
+        vitals_module.QAccessible, 'updateAccessibility',
+        lambda event: announcements.append(event))
+    dialog = VitalStopDialog(
+        {'delivery': 'sound', 'sound': 'builtin:soft-tick'},
+        test_callback=lambda *_args: outcome)
+    dialog.show()
+    dialog.percent.setFocus()
+    app.processEvents()
+    focused = app.focusWidget()
+
+    assert dialog._test() == outcome
+    assert app.focusWidget() is focused
+    assert dialog.test_status.text() == expected
+    assert dialog.test_status.accessibleName() == expected
+    assert dialog.test_status.accessibleDescription() == expected
+    interface = QAccessible.queryAccessibleInterface(dialog.test_status)
+    assert interface.text(QAccessible.Text.Name) == expected
+    assert announcements
+    dialog.close()
+
+
 def test_vital_bar_has_one_numeric_reading_flow_and_no_obsolete_controls():
     _app()
     dialog = VitalBarDialog(default_vital_bars()[0])

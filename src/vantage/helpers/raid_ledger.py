@@ -328,6 +328,20 @@ class RaidLedger:
         """, (normalized_timestamp(timestamp), int(session_id)))
         return bool(cursor and cursor.rowcount)
 
+    def delete_session(self, session_id):
+        """Delete exactly one private local session and its local evidence."""
+        if self._database is None:
+            return False
+        try:
+            with self._database:
+                cursor = self._database.execute(
+                    "DELETE FROM raid_sessions WHERE id = ?",
+                    (int(session_id),))
+            return bool(cursor.rowcount)
+        except (sqlite3.Error, TypeError, ValueError) as error:
+            self.error = str(error)
+            return False
+
     def session(self, session_id):
         if self._database is None:
             return None

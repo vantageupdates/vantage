@@ -1,7 +1,9 @@
 import time
 from types import SimpleNamespace
 
+import pytest
 from PySide6.QtCore import QPoint, QRect
+from PySide6.QtGui import QAccessible
 from PySide6.QtWidgets import QApplication
 
 from vantage.helpers import config
@@ -87,6 +89,68 @@ def test_timer_editor_tests_inherited_off_and_override_truthfully(monkeypatch):
     assert dialog.sound_test_status.accessibleName()
     assert dialog.sound_test_status.toolTip()
     assert len(announcements) == 3
+    dialog.close()
+
+
+@pytest.mark.parametrize('state,reason,expected', (
+    ('blocked', 'muted', 'Test status · Master Mute'),
+    ('blocked', 'master volume 0%', 'Test status · Master Volume 0%'),
+    ('unavailable', 'Sound file unavailable',
+     'Test status · Sound file unavailable'),
+    ('unavailable', 'Sound file is invalid',
+     'Test status · Sound file is invalid'),
+    ('unavailable', '', 'Test status · Windows audio backend unavailable'),
+))
+def test_timer_sound_test_reports_exact_accessible_reason_without_focus_loss(
+        monkeypatch, state, reason, expected):
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr(
+        app, 'notify_event',
+        lambda route, message, **kwargs: NotificationDeliveryResult(
+            route, 'sound', state, False, reason), raising=False)
+    dialog = TimerEditDialog()
+    dialog.sound.setCurrentIndex(
+        dialog.sound.findData('builtin:portal-ping'))
+    dialog.name.setFocus()
+    app.processEvents()
+    focused = app.focusWidget()
+
+    dialog._test_notification()
+
+    assert app.focusWidget() is focused
+    assert dialog.sound_test_status.text() == expected
+    assert dialog.sound_test_status.accessibleName() == expected
+    assert dialog.sound_test_status.accessibleDescription() == (
+        f'Latest timer notification test result: {expected}')
+    interface = QAccessible.queryAccessibleInterface(
+        dialog.sound_test_status)
+    assert interface.text(QAccessible.Text.Name) == expected
+    dialog.close()
+
+
+@pytest.mark.parametrize('check_reason,spoken,expected', (
+    ('Master Mute', False, 'Test status · Master Mute'),
+    ('Master Volume 0%', False, 'Test status · Master Volume 0%'),
+    ('', False, 'Test status · Windows voice backend unavailable'),
+    ('', True, 'Test status · tts queued'),
+))
+def test_timer_tts_test_distinguishes_preflight_and_backend(
+        monkeypatch, check_reason, spoken, expected):
+    from vantage.helpers.audio import AudioPreflightResult
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr(
+        timers_module, 'audio_preflight',
+        lambda *_a, **_k: AudioPreflightResult(
+            'voice', 'blocked' if check_reason else 'ready',
+            not check_reason, check_reason))
+    monkeypatch.setattr(
+        timers_module, 'speak_text', lambda *_a, **_k: spoken)
+    dialog = TimerEditDialog()
+    dialog.delivery.setCurrentIndex(dialog.delivery.findData('tts'))
+
+    dialog._test_notification()
+
+    assert dialog.sound_test_status.text() == expected
     dialog.close()
 
 

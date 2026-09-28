@@ -457,7 +457,9 @@ def test_config_removes_afk_route_and_repairs_malformed_routes():
 
 
 def test_sounds_route_test_status_is_truthful_and_accessible(monkeypatch):
+    from PySide6.QtGui import QAccessible
     from PySide6.QtWidgets import QApplication, QComboBox, QLabel
+    from vantage.helpers.audio import AudioPreflightResult
     from vantage.helpers import settings as settings_module
     from vantage.helpers.settings import SettingsWindow
 
@@ -470,54 +472,100 @@ def test_sounds_route_test_status_is_truthful_and_accessible(monkeypatch):
     picker.addItem('Soft Notify', 'builtin:crystal-ping')
     status = QLabel()
     status.setAccessibleName('Notification test result')
-    monkeypatch.setattr(settings_module, 'audio_muted', lambda: False)
-    monkeypatch.setattr(settings_module, 'master_volume', lambda: 100)
     monkeypatch.setattr(settings_module, 'play_alert', lambda *a, **k: True)
     monkeypatch.setattr(settings_module, 'speak_text', lambda *a, **k: True)
+    check = {'value': AudioPreflightResult('sound', 'ready', True)}
     monkeypatch.setattr(
-        settings_module, 'sound_unavailable_reason',
-        lambda value: ('sound file unavailable'
-                       if str(value).startswith('portable:') else ''))
+        settings_module, 'audio_preflight',
+        lambda *_a, **_k: check['value'])
 
     delivery.setCurrentIndex(delivery.findData('sound'))
     sound = SettingsWindow._test_notification_route(
         None, 'market_sale', delivery, picker, status)
     picker.addItem('Missing WAV', 'portable:sounds/missing.wav')
     picker.setCurrentIndex(picker.count() - 1)
+    check['value'] = AudioPreflightResult(
+        'sound', 'unavailable', False, 'Sound file unavailable')
     missing = SettingsWindow._test_notification_route(
         None, 'market_sale', delivery, picker, status)
     picker.setCurrentIndex(0)
+    check['value'] = AudioPreflightResult('sound', 'ready', True)
     monkeypatch.setattr(settings_module, 'play_alert', lambda *a, **k: False)
     audio_unavailable = SettingsWindow._test_notification_route(
         None, 'market_sale', delivery, picker, status)
     delivery.setCurrentIndex(delivery.findData('voice'))
+    check['value'] = AudioPreflightResult('voice', 'ready', True)
     voice = SettingsWindow._test_notification_route(
         None, 'market_sale', delivery, picker, status)
     monkeypatch.setattr(settings_module, 'speak_text', lambda *a, **k: False)
     unavailable = SettingsWindow._test_notification_route(
         None, 'market_sale', delivery, picker, status)
     delivery.setCurrentIndex(delivery.findData('off'))
+    check['value'] = AudioPreflightResult('off', 'off', False, 'Off')
     off = SettingsWindow._test_notification_route(
         None, 'market_sale', delivery, picker, status)
     delivery.setCurrentIndex(delivery.findData('sound'))
-    monkeypatch.setattr(settings_module, 'audio_muted', lambda: True)
+    check['value'] = AudioPreflightResult(
+        'sound', 'blocked', False, 'Master Mute')
     muted = SettingsWindow._test_notification_route(
         None, 'market_sale', delivery, picker, status)
-    monkeypatch.setattr(settings_module, 'audio_muted', lambda: False)
-    monkeypatch.setattr(settings_module, 'master_volume', lambda: 0)
+    check['value'] = AudioPreflightResult(
+        'sound', 'blocked', False, 'Master Volume 0%')
     zero = SettingsWindow._test_notification_route(
         None, 'market_sale', delivery, picker, status)
 
     assert sound == 'Market sale test: sound queued'
-    assert missing == 'Market sale test: sound file unavailable'
+    assert missing == 'Market sale test: Sound file unavailable'
     assert audio_unavailable == (
         'Market sale test: Windows audio backend unavailable')
     assert voice == 'Market sale test: voice queued'
     assert unavailable == 'Market sale test: Windows voice unavailable'
-    assert off == 'Market sale test: delivery is Off'
-    assert muted == 'Market sale test: blocked by Master Mute'
-    assert zero == 'Market sale test: silent at 0% Master Volume'
+    assert off == 'Market sale test: Off'
+    assert muted == 'Market sale test: Master Mute'
+    assert zero == 'Market sale test: Master Volume 0%'
     assert status.text() == zero
     assert status.isHidden() is False
-    assert status.accessibleName() == 'Notification test result'
+    assert status.accessibleName() == zero
+    assert status.accessibleDescription() == (
+        f'Latest notification test result: {zero}')
+    interface = QAccessible.queryAccessibleInterface(status)
+    assert interface is not None
+    assert interface.text(QAccessible.Text.Name) == zero
+    assert interface.text(QAccessible.Text.Description) == (
+        f'Latest notification test result: {zero}')
     assert app is not None
+
+
+def test_background_audio_checkbox_accessible_names_match_visible_labels():
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QAccessible
+    from PySide6.QtWidgets import QApplication
+    from vantage.helpers.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    original = copy.deepcopy(config.data)
+    config.data.clear()
+    config.verify_settings()
+    app.show_device_sync = lambda: None
+    app.arrange_notification_overlays = lambda: None
+    app.show_overlay_notification = lambda *_a, **_k: None
+    app.manage_notification_overlays = lambda *_a, **_k: None
+    try:
+        window = SettingsWindow()
+        expectations = (
+            (window.spell_background_audio, 'Sound while window hidden'),
+            (window.timer_background_audio, 'Timer sounds while hidden'),
+        )
+        for checkbox, label in expectations:
+            assert checkbox.accessibleName() == label
+            assert checkbox.accessibleDescription() == checkbox.toolTip()
+            assert checkbox.focusPolicy() != Qt.FocusPolicy.NoFocus
+            interface = QAccessible.queryAccessibleInterface(checkbox)
+            assert interface.text(QAccessible.Text.Name) == label
+            assert interface.text(
+                QAccessible.Text.Description) == checkbox.toolTip()
+        window.close()
+        assert app is not None
+    finally:
+        config.data.clear()
+        config.data.update(original)

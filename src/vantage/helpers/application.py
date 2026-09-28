@@ -14,7 +14,8 @@ import semver
 
 from vantage.helpers import config, logreader, resource_path
 from vantage.helpers.audio import (
-    audio_muted, master_volume, playback_block_reason, play_alert,
+    audio_muted, audio_preflight, master_volume, playback_block_reason,
+    play_alert,
     prewarm_speech_engine, set_audio_muted, set_master_volume,
     sound_display_name, speak_text)
 from vantage.helpers.camp_session import CampSessionController
@@ -659,6 +660,21 @@ class VantageApp(QApplication):
         source = f"{route.label} · {semantic_text}"
         owner = str(channel or route.channel)
         if delivery == "sound":
+            check = audio_preflight(
+                "sound", sound=sound, volume=volume, character=character,
+                server=server, channel=owner, allow_hidden=allow_hidden)
+            if not check.ready:
+                reason = {
+                    "Master Mute": "muted",
+                    "Master Volume 0%": "master volume 0%",
+                    "Sound while window hidden is Off":
+                        "background audio off",
+                }.get(check.reason, check.reason)
+                blocker = getattr(self, "audio_blocked", None)
+                if callable(blocker):
+                    blocker(source, reason, owner)
+                return NotificationDeliveryResult(
+                    route.key, "sound", check.state, False, reason)
             played = play_alert(
                 sound, volume, repeat, source=source, character=character,
                 server=server, channel=owner, allow_hidden=allow_hidden)
@@ -669,8 +685,24 @@ class VantageApp(QApplication):
             return NotificationDeliveryResult(
                 route.key, "sound", state, bool(played), reason)
         if delivery == "voice":
+            speech = str(voice_text or route.default_voice)
+            check = audio_preflight(
+                "voice", text=speech, volume=volume, character=character,
+                server=server, channel=owner, allow_hidden=allow_hidden)
+            if not check.ready:
+                reason = {
+                    "Master Mute": "muted",
+                    "Master Volume 0%": "master volume 0%",
+                    "Sound while window hidden is Off":
+                        "background audio off",
+                }.get(check.reason, check.reason)
+                blocker = getattr(self, "audio_blocked", None)
+                if callable(blocker):
+                    blocker(source, reason, owner)
+                return NotificationDeliveryResult(
+                    route.key, "voice", check.state, False, reason)
             played = speak_text(
-                str(voice_text or route.default_voice), volume,
+                speech, volume,
                 source=source, character=character, server=server,
                 channel=owner, voice_name=saved["voice"],
                 allow_hidden=allow_hidden, replace_pending=True)
@@ -1111,23 +1143,29 @@ class VantageApp(QApplication):
 
     def show_last_sound(self):
         """Replay the last attributable sound instead of only naming it."""
+        def show_feedback(message):
+            notifier = getattr(self, "show_overlay_notification", None)
+            if callable(notifier):
+                notifier(
+                    "Vantage · last sound", message, msecs=5000)
+
         event = self._last_audio_event
         if event is None:
-            self.show_overlay_notification(
-                "Vantage · last sound", "No Vantage sound has played yet.",
-                msecs=5000)
-            return False
-        if audio_muted():
-            self.show_overlay_notification(
-                "Vantage · last sound",
-                "Sounds are muted. Unmute Vantage to replay the last sound.",
-                msecs=5000)
+            show_feedback("No Vantage sound has played yet.")
             return False
         source, sound_path, volume, _channel = event
+        delivery = "voice" if sound_path.startswith("tts:") else "sound"
+        content = sound_path[4:] if delivery == "voice" else ""
+        check = audio_preflight(
+            delivery, sound=sound_path, text=content, volume=volume,
+            channel=_channel, allow_hidden=True)
+        if not check.ready:
+            show_feedback(f"Replay unavailable · {check.reason}.")
+            return False
         previous_label = self._last_audio
-        if sound_path.startswith("tts:"):
+        if delivery == "voice":
             played = speak_text(
-                sound_path[4:], volume, source=f"Replay · {source}",
+                content, volume, source=f"Replay · {source}",
                 allow_hidden=True)
         else:
             played = play_alert(
@@ -1138,10 +1176,10 @@ class VantageApp(QApplication):
         self._last_audio_event = event
         self._last_audio = previous_label
         self._refresh_quickbar()
-        if not played:
-            self.show_overlay_notification(
-                "Vantage · last sound",
-                "The last sound could not be replayed.", msecs=5000)
+        message = (f"Replay queued · {source}." if played else
+                   f"Replay unavailable · Windows {'voice' if delivery == 'voice' else 'audio'} "
+                   "backend unavailable.")
+        show_feedback(message)
         return played
 
     def show_settings(self, section=None):
@@ -1364,8 +1402,10 @@ class VantageApp(QApplication):
             f"BLOCKED AUDIO · {self._last_audio_blocked}")
         blocked_audio_action.setEnabled(False)
         blocked_audio_action.setToolTip(
-            "Shows the most recent sound Vantage prevented because mute was "
-            "active or its owning window was hidden")
+            "Audio can be blocked by Master Mute, Master Volume 0%, route "
+            "Off, missing audio, or an unavailable Windows backend. A hidden "
+            "window blocks audio only when that feature's explicit Sound "
+            "while window hidden setting is Off")
         mute_audio_action = menu.addAction('Mute All Sounds')
         mute_audio_action.setIcon(game_icon('ph-mute'))
         mute_audio_action.setCheckable(True)

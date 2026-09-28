@@ -1,6 +1,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from vantage.helpers import audio, config
 from vantage.helpers.application import VantageApp
 
@@ -411,13 +413,19 @@ def test_started_audio_is_recorded_without_spawning_a_second_notification():
 def test_direct_replay_is_serialized_without_automatic_duplicate_coalescing(
         monkeypatch):
     import vantage.helpers.application as application
+    from vantage.helpers.audio import AudioPreflightResult
     calls = []
+    feedback = []
     host = SimpleNamespace(
         _last_audio_event=(
             'Spell fading · Clarity', 'tts:Clarity fading', 73, 'spells'),
         _last_audio='Spell fading',
+        show_overlay_notification=lambda title, message, **kwargs:
+            feedback.append((title, message, kwargs)),
         _refresh_quickbar=lambda: None)
-    monkeypatch.setattr(application, 'audio_muted', lambda: False)
+    monkeypatch.setattr(
+        application, 'audio_preflight',
+        lambda *_a, **_k: AudioPreflightResult('voice', 'ready', True))
     monkeypatch.setattr(
         application, 'speak_text',
         lambda *args, **kwargs: calls.append((args, kwargs)) or True)
@@ -426,6 +434,90 @@ def test_direct_replay_is_serialized_without_automatic_duplicate_coalescing(
     assert calls[0][0][:2] == ('Clarity fading', 73)
     assert calls[0][1]['allow_hidden'] is True
     assert 'replace_pending' not in calls[0][1]
+    assert feedback[-1][1] == (
+        'Replay queued · Spell fading · Clarity.')
+
+
+@pytest.mark.parametrize('reason', (
+    'Master Mute', 'Master Volume 0%', 'Sound file unavailable',
+    'Sound file is invalid'))
+def test_replay_reports_each_preflight_failure_without_moving_focus(
+        monkeypatch, reason):
+    import vantage.helpers.application as application
+    from vantage.helpers.audio import AudioPreflightResult
+    feedback = []
+    host = SimpleNamespace(
+        _last_audio_event=('Market sale', 'portable:sounds/alert.wav', 80,
+                           'market'),
+        _last_audio='Market sale',
+        show_overlay_notification=lambda title, message, **kwargs:
+            feedback.append((title, message, kwargs)),
+        _refresh_quickbar=lambda: None)
+    monkeypatch.setattr(
+        application, 'audio_preflight',
+        lambda *_a, **_k: AudioPreflightResult(
+            'sound', 'blocked' if 'Master' in reason else 'unavailable',
+            False, reason))
+    monkeypatch.setattr(
+        application, 'play_alert',
+        lambda *_a, **_k: pytest.fail('blocked replay reached backend'))
+
+    assert VantageApp.show_last_sound(host) is False
+    assert feedback[-1][1] == f'Replay unavailable · {reason}.'
+
+
+@pytest.mark.parametrize('delivery,backend', (
+    ('sound', 'audio'), ('voice', 'voice')))
+def test_replay_reports_backend_failure(monkeypatch, delivery, backend):
+    import vantage.helpers.application as application
+    from vantage.helpers.audio import AudioPreflightResult
+    path = 'tts:Spawn soon' if delivery == 'voice' else 'builtin:spawn-horn'
+    feedback = []
+    host = SimpleNamespace(
+        _last_audio_event=('Timer', path, 80, 'timers'),
+        _last_audio='Timer',
+        show_overlay_notification=lambda title, message, **kwargs:
+            feedback.append(message),
+        _refresh_quickbar=lambda: None)
+    monkeypatch.setattr(
+        application, 'audio_preflight',
+        lambda *_a, **_k: AudioPreflightResult(delivery, 'ready', True))
+    monkeypatch.setattr(application, 'play_alert', lambda *_a, **_k: False)
+    monkeypatch.setattr(application, 'speak_text', lambda *_a, **_k: False)
+
+    assert VantageApp.show_last_sound(host) is False
+    assert feedback[-1] == (
+        f'Replay unavailable · Windows {backend} backend unavailable.')
+
+
+@pytest.mark.parametrize('blocked,master,resource,expected_state,expected', (
+    ('muted', 100, '', 'blocked', 'Master Mute'),
+    ('', 0, '', 'blocked', 'Master Volume 0%'),
+    ('background audio off', 100, '', 'blocked',
+     'Sound while window hidden is Off'),
+    ('', 100, 'sound file unavailable', 'unavailable',
+     'Sound file unavailable'),
+    ('', 100, 'sound file is invalid', 'unavailable',
+     'Sound file is invalid'),
+))
+def test_audio_preflight_returns_structured_exact_reason(
+        monkeypatch, blocked, master, resource, expected_state, expected):
+    monkeypatch.setattr(
+        audio, '_playback_block_reason', lambda *_a, **_k: blocked)
+    monkeypatch.setattr(audio, 'master_volume', lambda: master)
+    monkeypatch.setattr(
+        audio, 'profile_audio_settings', lambda *_a, **_k: {'volume': 100})
+    monkeypatch.setattr(
+        audio, 'sound_unavailable_reason', lambda _sound: resource)
+
+    result = audio.audio_preflight(
+        'sound', sound='portable:sounds/test.wav', volume=80,
+        channel='vitals', allow_hidden=True)
+
+    assert result.state == expected_state
+    assert result.ready is False
+    assert result.reason == expected
+    assert bool(result) is False
 
 
 def test_character_audio_profile_is_server_specific_and_persists(monkeypatch):

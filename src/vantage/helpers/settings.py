@@ -20,9 +20,9 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QFormLayou
 
 from vantage.helpers import config, text_time_to_seconds
 from vantage.helpers.audio import (
-    DEFAULT_SOUND, add_custom_sound_to_combo, play_alert,
+    DEFAULT_SOUND, add_custom_sound_to_combo, audio_preflight, play_alert,
     audio_muted, master_volume, set_audio_muted, set_master_volume,
-    set_sound_combo_value, sound_unavailable_reason, speak_text,
+    set_sound_combo_value, speak_text,
     speech_voice_names,
     unavailable_voice_label, vantage_command_voice_description,
     vantage_command_voice_label)
@@ -698,12 +698,12 @@ class SettingsWindow(UniformScaleDialog):
     def _test_notification_route(self, route_key, delivery, picker, status):
         route = NOTIFICATION_ROUTES[route_key]
         mode = str(delivery.currentData() or 'off')
-        if mode == 'off':
-            message = f'{route.label} test: delivery is Off'
-        elif audio_muted():
-            message = f'{route.label} test: blocked by Master Mute'
-        elif master_volume() == 0:
-            message = f'{route.label} test: silent at 0% Master Volume'
+        check = audio_preflight(
+            mode, sound=str(picker.currentData() or ''),
+            text=route.default_voice, volume=80, channel=route.channel,
+            allow_hidden=True)
+        if not check.ready:
+            message = f'{route.label} test: {check.reason}'
         elif mode == 'voice':
             played = speak_text(
                 route.default_voice, 80, source=f'Test · {route.label}',
@@ -711,17 +711,16 @@ class SettingsWindow(UniformScaleDialog):
             message = (f'{route.label} test: voice queued' if played else
                        f'{route.label} test: Windows voice unavailable')
         else:
-            unavailable = sound_unavailable_reason(picker.currentData())
-            if unavailable:
-                message = f'{route.label} test: {unavailable}'
-            else:
-                played = play_alert(
-                    picker.currentData(), 80, 1,
-                    source=f'Test · {route.label}', allow_hidden=True)
-                message = (f'{route.label} test: sound queued' if played else
-                           f'{route.label} test: Windows audio backend unavailable')
+            played = play_alert(
+                picker.currentData(), 80, 1,
+                source=f'Test · {route.label}', allow_hidden=True)
+            message = (f'{route.label} test: sound queued' if played else
+                       f'{route.label} test: Windows audio backend unavailable')
         status.setText(message)
         status.setVisible(True)
+        status.setAccessibleName(message)
+        status.setAccessibleDescription(
+            f'Latest notification test result: {message}')
         try:
             QAccessible.updateAccessibility(
                 QAccessibleAnnouncementEvent(status, message))
@@ -932,6 +931,11 @@ class SettingsWindow(UniformScaleDialog):
             'Allow buff, resist, and trigger sounds while the Buffs & Triggers '
             'window is hidden. On by default for alerts during gameplay; '
             'Master Mute and route Off still take priority.')
+        spell_background_audio.setAccessibleName(
+            'Sound while window hidden')
+        spell_background_audio.setAccessibleDescription(
+            spell_background_audio.toolTip())
+        self.spell_background_audio = spell_background_audio
         ssl.addRow('Sound while window hidden', spell_background_audio)
         fade_warning = QSpinBox()
         fade_warning.setRange(0, 600)
@@ -1307,6 +1311,11 @@ class SettingsWindow(UniformScaleDialog):
         timer_background_audio.setToolTip(
             'Keep critical timer alarms audible while Smart Timers is hidden; '
             'turn this off for strict visible-window-only audio')
+        timer_background_audio.setAccessibleName(
+            'Timer sounds while hidden')
+        timer_background_audio.setAccessibleDescription(
+            timer_background_audio.toolTip())
+        self.timer_background_audio = timer_background_audio
         tsl.addRow('Timer sounds while hidden', timer_background_audio)
         timer_compact = QCheckBox()
         timer_compact.setObjectName('timers:compact')

@@ -960,3 +960,47 @@ independent accessibility review: PASS
   version audit, and `ui/**` isolation: **PASS**. Companion version is
   **1.44.112**. Final independent accessibility review remains pending; no
   portable build, self-test, tag, or release has been created.
+- The first independent accessibility gate blocked release on six ambiguous
+  audio-status/name findings. A shared structured preflight now distinguishes
+  Off, Master Mute, Master Volume 0%, an explicit hidden-audio opt-out,
+  missing/invalid WAV, empty voice text, and backend failure before Vitals,
+  Smart Timers, Sounds route tests, notification dispatch, or Last Sound replay
+  report an outcome. Successful asynchronous requests say **queued**, never
+  completed. Each result remains visible and re-readable through its current
+  accessible name/description before a polite announcement, and tests confirm
+  focus is preserved.
+- The visible checkbox labels **Sound while window hidden** and **Timer sounds
+  while hidden** are now their exact accessible names; their explanatory
+  tooltips are exposed as accessible descriptions. BLOCKED AUDIO help now
+  describes Master Mute, Master Volume, route Off, resource/backend failure,
+  and correctly limits hidden-window blocking to a feature whose explicit
+  hidden-audio setting is Off.
+- The same patch adds safe deletion to **Guild DKP & More > My raids**.
+  `RaidLedger.delete_session` uses one SQLite transaction and existing foreign-
+  key cascades for only that private local session's ticks and `/who` snapshots.
+  It never writes OpenDKP or original EQ logs. The compact selected-raid editor
+  now shows toon/date/state/evidence counts and one context-sensitive,
+  keyboard-accessible **Discard empty raid** or **Delete local raid…** action.
+  Confirmation defaults to Cancel, names the toon/date/counts, and explicitly
+  states the remote service and logs are unchanged. Cancel/error keep the row;
+  success selects the nearest row or moves focus to Start raid. An existing
+  active session changes Start to **View active raid**, selects the old session,
+  shows its date, and never auto-ends or deletes it.
+- Combined audio/accessibility and raid-ledger focused verification:
+  **243 passed** in **75.29 seconds**. Additional exact UI/accessibility/data
+  coverage completed with **117 passed** in **1.64 seconds**. This includes
+  runtime QAccessible name/description checks, focus preservation, every audio
+  reason, database cascade/reopen/rollback, no-selection/cancel/error paths,
+  active empty discard, evidence-bearing confirmation copy, nearest-row focus,
+  and an unchanged source-log sentinel.
+- Offscreen UI evidence at **1100 × 760** was captured under `work/qa/` and
+  confirms the existing compact table/editor hierarchy remains intact with the
+  summary and destructive action on one final editor row.
+- Final exact combined-candidate complete suite: **1,620 passed, 2 skipped** in
+  **767.15 seconds**. An earlier complete run had **1,619 passed, 2 skipped**
+  and one test-only failure caused by a new Settings accessibility test
+  inheriting deliberately malformed configuration from an earlier case; the
+  test now creates/restores its own normalized config and the clean rerun above
+  is the release-candidate result.
+- Final accessibility/UI re-review remains pending. No build, self-test, push,
+  tag, or release has been performed.

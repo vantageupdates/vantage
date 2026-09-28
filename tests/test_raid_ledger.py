@@ -34,6 +34,53 @@ def test_local_raid_evidence_round_trip(tmp_path):
     ledger.close()
 
 
+def test_delete_session_cascades_only_private_local_evidence(tmp_path):
+    path = tmp_path / "delete.sqlite"
+    ledger = RaidLedger(path)
+    started = datetime.datetime(2026, 9, 26, 19, 30)
+    first = ledger.start_session(started, "Mindflux", "Green", "Kael")
+    assert ledger.add_tick(first["id"], started, "Lead", "RAID TICK")
+    assert ledger.add_roster(
+        first["id"], started, "Kael", ["Mindflux", "Lead"])
+    assert ledger.end_session(first["id"], started + datetime.timedelta(hours=1))
+    second = ledger.start_session(
+        started + datetime.timedelta(hours=2), "Mindflux", "Green", "Kael")
+
+    assert ledger.delete_session(first["id"]) is True
+    assert ledger.session(first["id"]) is None
+    assert ledger.evidence(first["id"]) == {"ticks": [], "rosters": []}
+    assert ledger.session(second["id"]) is not None
+    assert ledger._database.execute(
+        "SELECT COUNT(*) FROM raid_ticks WHERE session_id = ?",
+        (first["id"],)).fetchone()[0] == 0
+    assert ledger._database.execute(
+        "SELECT COUNT(*) FROM raid_rosters WHERE session_id = ?",
+        (first["id"],)).fetchone()[0] == 0
+    ledger.close()
+    reopened = RaidLedger(path)
+    assert reopened.session(first["id"]) is None
+    assert reopened.session(second["id"]) is not None
+    reopened.close()
+
+
+def test_delete_session_rolls_back_and_preserves_record_on_sqlite_failure(
+        tmp_path):
+    ledger = RaidLedger(tmp_path / "delete-failure.sqlite")
+    session = ledger.start_session(
+        datetime.datetime(2026, 9, 26, 19, 30),
+        "Mindflux", "Green", "Kael")
+    ledger._database.execute("""
+        CREATE TRIGGER reject_session_delete BEFORE DELETE ON raid_sessions
+        BEGIN SELECT RAISE(ABORT, 'simulated delete failure'); END
+    """)
+    ledger._database.commit()
+
+    assert ledger.delete_session(session["id"]) is False
+    assert "simulated delete failure" in ledger.error
+    assert ledger.session(session["id"]) is not None
+    ledger.close()
+
+
 def test_log_search_tick_metadata_is_duplicate_safe_and_persists(tmp_path):
     path = tmp_path / "ledger.sqlite"
     ledger = RaidLedger(path)

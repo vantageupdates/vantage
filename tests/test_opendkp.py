@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QApplication, QGroupBox, QHeaderView, QLabel, QWidget)
+    QApplication, QGroupBox, QHeaderView, QLabel, QMessageBox, QWidget)
 
 from vantage.helpers import config
 from vantage.helpers.opendkp import (
@@ -242,6 +242,13 @@ def test_my_raids_editor_and_sort_controls_are_keyboard_accessible(tmp_path):
         assert widget.raid_mobs.isEnabled() is False
         assert widget.raid_notes.isEnabled() is False
         assert widget.raid_remote_id.isEnabled() is False
+        assert widget.raid_delete_button.isEnabled() is False
+        assert widget.raid_delete_button.text() == "Discard empty raid"
+        assert widget.raid_delete_button.accessibleName() == (
+            "Discard empty raid")
+        assert widget.raid_delete_button.toolTip()
+        assert widget.raid_selected_summary.text() == "No local raid selected"
+        assert widget.raid_selected_summary.accessibleDescription()
         assert widget.raid_sort_column.focusPolicy() & Qt.FocusPolicy.TabFocus
         assert widget.raid_sort_button.focusPolicy() & Qt.FocusPolicy.TabFocus
         assert widget.raid_sort_column.accessibleName() == "My raids sort column"
@@ -288,6 +295,193 @@ def test_my_raids_editor_and_sort_controls_are_keyboard_accessible(tmp_path):
         assert widget._end_raid() is True
         app.processEvents()
         assert app.focusWidget() is widget.raid_start_button
+    finally:
+        widget.raid_ledger.close()
+        page.deleteLater()
+        widget.deleteLater()
+        app.processEvents()
+
+
+def _delete_raid_harness(tmp_path):
+    class Harness(OpenDKP):
+        def __init__(self):
+            QWidget.__init__(self)
+            self.raid_ledger = RaidLedger(tmp_path / "delete-ui-ledger.sqlite")
+            self.client = SimpleNamespace(slug="")
+            self._busy = False
+            self._raid_refresh_scheduled = False
+            self._active_character = "Mindflux"
+            self._active_server = "Green"
+            self._announce = lambda *_args, **_kwargs: None
+
+    widget = Harness()
+    return widget, widget._build_my_raids()
+
+
+def test_delete_raid_requires_selection_and_keeps_table_focus(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    widget, page = _delete_raid_harness(tmp_path)
+    try:
+        page.show()
+        app.processEvents()
+        assert widget._delete_selected_raid() is False
+        app.processEvents()
+        assert widget.raid_ledger.sessions() == []
+        assert "Select a local raid" in widget.my_raids_status.text()
+        assert app.focusWidget() is widget.my_raids_table
+    finally:
+        widget.raid_ledger.close()
+        page.deleteLater()
+        widget.deleteLater()
+        app.processEvents()
+
+
+def test_empty_active_raid_can_be_discarded_and_returns_focus_to_start(
+        tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    widget, page = _delete_raid_harness(tmp_path)
+    session = widget.raid_ledger.start_session(
+        datetime.datetime(2026, 9, 27, 20, 0),
+        "Mindflux", "Green", "Temple of Veeshan")
+    prompts = []
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        lambda *args: prompts.append(args) or QMessageBox.StandardButton.Yes)
+    try:
+        widget._populate_my_raids(select_id=session["id"])
+        page.show()
+        app.processEvents()
+        assert widget.raid_delete_button.text() == "Discard empty raid"
+        assert widget.raid_delete_button.accessibleName() == "Discard empty raid"
+
+        assert widget._delete_selected_raid() is True
+        app.processEvents()
+
+        assert widget.raid_ledger.session(session["id"]) is None
+        assert widget.raid_ledger.active_session("Mindflux", "Green") is None
+        assert widget.raid_start_button.text() == "Start raid"
+        assert app.focusWidget() is widget.raid_start_button
+        assert "only Vantage's private local record" in prompts[0][2]
+        assert "does not change OpenDKP or EverQuest logs" in prompts[0][2]
+        assert "Discarded empty local raid" in widget.my_raids_status.text()
+    finally:
+        widget.raid_ledger.close()
+        page.deleteLater()
+        widget.deleteLater()
+        app.processEvents()
+
+
+def test_evidence_raid_delete_confirmation_cancel_and_failure_preserve_record(
+        tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    widget, page = _delete_raid_harness(tmp_path)
+    started = datetime.datetime(2026, 9, 27, 20, 0)
+    session = widget.raid_ledger.start_session(
+        started, "Mindflux", "Green", "Kael Drakkel")
+    widget.raid_ledger.add_tick(
+        session["id"], started, "Raidlead", "RAID TICK")
+    widget.raid_ledger.add_roster(
+        session["id"], started, "Kael Drakkel", ["Mindflux", "Raidlead"])
+    widget.raid_ledger.update_session(
+        session["id"], mobs="Statue", notes="Main raid")
+    widget.raid_ledger.link_remote(session["id"], "raid-42")
+    prompts = []
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        lambda *args: prompts.append(args) or QMessageBox.StandardButton.Cancel)
+    try:
+        widget._populate_my_raids(select_id=session["id"])
+        selected_before = widget._selected_my_raid()["id"]
+        assert widget.raid_delete_button.text() == "Delete local raid…"
+        assert "1 tick" in widget.raid_selected_summary.text()
+
+        assert widget._delete_selected_raid() is False
+        assert widget.raid_ledger.session(session["id"]) is not None
+        assert widget._selected_my_raid()["id"] == selected_before
+        prompt = prompts[-1][2]
+        assert "Mindflux · Green" in prompt
+        assert "1 tick · 1 /who snapshot" in prompt
+        assert "mobs yes · notes yes · OpenDKP link yes" in prompt
+        assert "Deletion canceled" in widget.my_raids_status.text()
+
+        monkeypatch.setattr(
+            QMessageBox, "question",
+            lambda *_args: QMessageBox.StandardButton.Yes)
+        monkeypatch.setattr(
+            widget.raid_ledger, "delete_session", lambda _session_id: False)
+        widget.raid_ledger.error = "simulated database failure"
+        assert widget._delete_selected_raid() is False
+        assert widget.raid_ledger.session(session["id"]) is not None
+        assert widget.my_raids_table.rowCount() == 1
+        assert "simulated database failure" in widget.my_raids_status.text()
+    finally:
+        widget.raid_ledger.close()
+        page.deleteLater()
+        widget.deleteLater()
+        app.processEvents()
+
+
+def test_evidence_raid_delete_selects_nearest_remaining_and_never_touches_log(
+        tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    log = tmp_path / "eqlog_Mindflux_Green.txt"
+    log.write_text("immutable original log", encoding="utf-8")
+    widget, page = _delete_raid_harness(tmp_path)
+    first = widget.raid_ledger.start_session(
+        datetime.datetime(2026, 9, 26, 20, 0), "Mindflux", "Green", "Kael")
+    widget.raid_ledger.add_tick(
+        first["id"], datetime.datetime(2026, 9, 26, 20, 1),
+        "Lead", "RAID TICK")
+    widget.raid_ledger.end_session(
+        first["id"], datetime.datetime(2026, 9, 26, 22, 0))
+    second = widget.raid_ledger.start_session(
+        datetime.datetime(2026, 9, 27, 20, 0), "Mindflux", "Green", "Sky")
+    widget.raid_ledger.end_session(
+        second["id"], datetime.datetime(2026, 9, 27, 22, 0))
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        lambda *_args: QMessageBox.StandardButton.Yes)
+    try:
+        widget._populate_my_raids(select_id=first["id"])
+        page.show()
+        app.processEvents()
+        assert widget._delete_selected_raid() is True
+        app.processEvents()
+
+        assert widget.raid_ledger.session(first["id"]) is None
+        assert widget._selected_my_raid()["id"] == second["id"]
+        assert app.focusWidget() is widget.my_raids_table
+        assert log.read_text(encoding="utf-8") == "immutable original log"
+        assert "OpenDKP and EverQuest logs were not changed" in (
+            widget.my_raids_status.text())
+    finally:
+        widget.raid_ledger.close()
+        page.deleteLater()
+        widget.deleteLater()
+        app.processEvents()
+
+
+def test_start_raid_selects_and_focuses_existing_active_session(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    widget, page = _delete_raid_harness(tmp_path)
+    session = widget.raid_ledger.start_session(
+        datetime.datetime(2026, 9, 20, 20, 0),
+        "Mindflux", "Green", "Old Sebilis")
+    try:
+        widget._populate_my_raids()
+        page.show()
+        app.processEvents()
+        assert widget.raid_start_button.text() == "View active raid"
+        assert widget.raid_start_button.isEnabled()
+
+        assert widget._start_raid() is True
+        app.processEvents()
+
+        assert widget._selected_my_raid()["id"] == session["id"]
+        assert widget.raid_workspace_tabs.currentIndex() == 0
+        assert app.focusWidget() is widget.my_raids_table
+        assert "already active; selected it below" in (
+            widget.my_raids_status.text())
     finally:
         widget.raid_ledger.close()
         page.deleteLater()

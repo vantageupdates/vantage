@@ -41,8 +41,9 @@ from PySide6.QtWidgets import (
 
 from vantage.helpers import config
 from vantage.helpers.audio import (
-    add_custom_sound_to_combo, play_alert, set_sound_combo_value, speak_text,
-    speech_voice_names, unavailable_voice_label,
+    audio_preflight, audio_reason_label, add_custom_sound_to_combo, play_alert,
+    set_sound_combo_value, speak_text, speech_voice_names,
+    unavailable_voice_label,
     vantage_command_voice_description,
     vantage_command_voice_label)
 from vantage.helpers.icons import game_icon
@@ -787,17 +788,25 @@ class TimerEditDialog(UniformScaleDialog):
             speech = render_timer_notification_text(
                 self.tts_text.text(), sample, "ready", 0)
             owner = self.parent()
-            played = speak_text(
+            character = getattr(owner, "_active_character", "")
+            server = getattr(owner, "_active_server", "")
+            check = audio_preflight(
+                "voice", text=speech, volume=self.volume.value(),
+                character=character, server=server, channel="timers",
+                allow_hidden=True)
+            played = bool(check.ready and speak_text(
                 speech, self.volume.value(),
                 source=f"Test · timer {sample.name}",
-                character=getattr(owner, "_active_character", ""),
-                server=getattr(owner, "_active_server", ""),
-                channel="timers", allow_hidden=True,
+                character=character, server=server, channel="timers",
+                allow_hidden=True,
                 voice_name=str(self.tts_voice.currentData() or ""),
-                pitch=self.tts_pitch.value())
+                pitch=self.tts_pitch.value()))
             result = type("Result", (), {
                 "delivery": "tts", "state": (
-                    "played" if played else "unavailable"), "reason": ""})()
+                    "played" if played else
+                    check.state if not check.ready else "unavailable"),
+                "reason": (check.reason if not check.ready else
+                           "Windows voice backend unavailable")})()
         elif app is not None and hasattr(app, "notify_event"):
             result = app.notify_event(
                 "smart_timer", "Smart Timer test",
@@ -809,13 +818,19 @@ class TimerEditDialog(UniformScaleDialog):
                 delivery_override=(
                     None if delivery == "legacy" else delivery))
         elif delivery in ("legacy", "sound") and selected:
-            played = play_alert(
+            check = audio_preflight(
+                "sound", sound=selected, volume=self.volume.value(),
+                channel="timers", allow_hidden=True)
+            played = bool(check.ready and play_alert(
                 selected, self.volume.value(), 2,
                 source=f"Test · timer {self.name.text().strip() or 'new'}",
-                allow_hidden=True)
+                channel="timers", allow_hidden=True))
             result = type("Result", (), {
                 "delivery": "sound", "state": (
-                    "played" if played else "unavailable"), "reason": ""})()
+                    "played" if played else
+                    check.state if not check.ready else "unavailable"),
+                "reason": (check.reason if not check.ready else
+                           "Windows audio backend unavailable")})()
 
         delivery = getattr(result, "delivery", "off")
         state = getattr(result, "state", "off")
@@ -824,10 +839,8 @@ class TimerEditDialog(UniformScaleDialog):
             message = "Test status · Off — this timer will not play audio"
         elif state == "played":
             message = f"Test status · {delivery} queued"
-        elif state == "blocked":
-            message = f"Test status · blocked" + (f" · {reason}" if reason else "")
         else:
-            message = f"Test status · {delivery} unavailable"
+            message = f"Test status · {audio_reason_label(reason, delivery)}"
         self.sound_test_status.setText(message)
         self.sound_test_status.setAccessibleName(message)
         self.sound_test_status.setAccessibleDescription(

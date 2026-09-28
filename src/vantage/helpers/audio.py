@@ -2,6 +2,7 @@
 
 import sys
 import wave
+from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QTimer, QUrl
@@ -182,6 +183,82 @@ def sound_unavailable_reason(value=""):
     except (EOFError, OSError, wave.Error):
         return "sound file is invalid"
     return ""
+
+
+@dataclass(frozen=True)
+class AudioPreflightResult:
+    """Structured, user-readable readiness for one explicit audio action."""
+
+    delivery: str
+    state: str
+    ready: bool
+    reason: str = ""
+
+    def __bool__(self):
+        return self.ready
+
+
+def audio_preflight(
+        delivery, *, sound="", text="", volume=80, character="", server="",
+        channel="", allow_hidden=False):
+    """Explain whether an audio action may be queued before touching Qt.
+
+    Test, preview, and replay surfaces use this shared result so mute, volume,
+    resource, and explicit background-audio states cannot collapse into an
+    ambiguous "unavailable" message.
+    """
+    delivery = str(delivery or "off").strip().casefold()
+    if delivery == "tts":
+        delivery = "voice"
+    if delivery not in ("sound", "voice"):
+        return AudioPreflightResult("off", "off", False, "Off")
+    blocked = _playback_block_reason(
+        QApplication.instance(), channel, allow_hidden)
+    if blocked == "muted":
+        return AudioPreflightResult(
+            delivery, "blocked", False, "Master Mute")
+    if blocked == "background audio off":
+        return AudioPreflightResult(
+            delivery, "blocked", False,
+            "Sound while window hidden is Off")
+    if master_volume() <= 0:
+        return AudioPreflightResult(
+            delivery, "blocked", False, "Master Volume 0%")
+    try:
+        requested_volume = max(0, min(100, int(volume)))
+    except (TypeError, ValueError):
+        requested_volume = 0
+    if requested_volume <= 0:
+        return AudioPreflightResult(
+            delivery, "blocked", False, "Alert volume 0%")
+    profile = profile_audio_settings(character, server)
+    if int(profile.get("volume", 100)) <= 0:
+        return AudioPreflightResult(
+            delivery, "blocked", False,
+            "Character audio profile volume 0%")
+    if delivery == "sound":
+        unavailable = sound_unavailable_reason(sound)
+        if unavailable:
+            return AudioPreflightResult(
+                delivery, "unavailable", False,
+                unavailable[:1].upper() + unavailable[1:])
+    elif not str(text or "").strip():
+        return AudioPreflightResult(
+            delivery, "unavailable", False, "Voice text is empty")
+    return AudioPreflightResult(delivery, "ready", True)
+
+
+def audio_reason_label(reason, delivery="sound"):
+    """Convert internal delivery reasons into consistent English UI text."""
+    reason = str(reason or "").strip()
+    return {
+        "muted": "Master Mute",
+        "master volume 0%": "Master Volume 0%",
+        "background audio off": "Sound while window hidden is Off",
+    }.get(reason, reason or (
+        "Windows voice backend unavailable" if
+        str(delivery).casefold() in ("voice", "tts") else
+        "Windows audio backend unavailable"))
 
 
 def set_sound_combo_value(combo, value=""):

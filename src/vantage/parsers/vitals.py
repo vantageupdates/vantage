@@ -17,7 +17,8 @@ from PySide6.QtWidgets import (
 
 from vantage.helpers import config
 from vantage.helpers.audio import (
-    add_custom_sound_to_combo, play_alert, set_sound_combo_value,
+    AudioPreflightResult, add_custom_sound_to_combo, audio_preflight,
+    play_alert, set_sound_combo_value,
     speak_text, speech_voice_names, unavailable_voice_label,
     vantage_command_voice_description,
     vantage_command_voice_label)
@@ -596,13 +597,23 @@ class VitalStopDialog(QDialog):
         return sanitize_vital_stop(stop, 0)
 
     def _test(self):
-        played = bool(self._test_callback and self._test_callback(
+        result = (self._test_callback and self._test_callback(
             self.value(), "Vital bar", 50, "below"))
-        message = "Test status · queued" if played else (
-            "Test status · Off" if self.delivery.currentData() == "off" else
-            "Test status · blocked or unavailable")
+        if isinstance(result, AudioPreflightResult):
+            if result.ready:
+                message = f"Test status · {result.delivery} queued"
+            else:
+                message = f"Test status · {result.reason}"
+        else:  # Backward-compatible host/test callback.
+            message = "Test status · queued" if result else (
+                "Test status · Off" if self.delivery.currentData() == "off" else
+                "Test status · Windows audio backend unavailable")
         self.test_status.setText(message)
+        self.test_status.setAccessibleName(message)
+        self.test_status.setAccessibleDescription(
+            f"Latest vital alert test result: {message}")
         _announce(self.test_status, message)
+        return result
 
 
 class VitalBarDialog(QDialog):
@@ -1440,8 +1451,29 @@ class Vitals(ParserWindow):
         return False
 
     def _test_delivery(self, stop, name, percent, crossed):
-        return self._play_delivery(
+        delivery = str(stop.get("delivery", "off") or "off").casefold()
+        speech = str(stop.get("tts_text", "") or "").replace(
+            "{name}", str(name)).replace(
+            "{percent}", str(round(float(percent)))).replace(
+            "{direction}", str(crossed))
+        check = audio_preflight(
+            delivery, sound=stop.get("sound", ""), text=speech,
+            volume=stop.get("volume", 80),
+            character=getattr(self, "_active_character", ""),
+            server=getattr(self, "_active_server", ""), channel="vitals",
+            allow_hidden=True)
+        if not check.ready:
+            return check
+        queued = self._play_delivery(
             stop, name, percent, crossed, allow_hidden=True)
+        if queued:
+            return AudioPreflightResult(
+                check.delivery, "queued", True)
+        backend = ("Windows voice backend unavailable" if
+                   check.delivery == "voice" else
+                   "Windows audio backend unavailable")
+        return AudioPreflightResult(
+            check.delivery, "unavailable", False, backend)
 
     def _start_calibration(self, bar_id):
         index = self._bar_index(bar_id)

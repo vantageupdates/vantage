@@ -931,6 +931,21 @@ class OpenDKP(ParserWindow):
             "Save this remote raid ID and refresh its OpenDKP verification")
         editor_layout.addWidget(self.raid_save_button, 2, 2)
         editor_layout.addWidget(self.raid_link_button, 2, 3)
+        self.raid_selected_summary = QLabel("No local raid selected")
+        self.raid_selected_summary.setObjectName("CombatDataNotice")
+        self.raid_selected_summary.setWordWrap(True)
+        self.raid_selected_summary.setAccessibleName(
+            "Selected raid summary: No local raid selected")
+        self.raid_selected_summary.setAccessibleDescription(
+            "Identifies the private local raid affected by the adjacent action")
+        editor_layout.addWidget(self.raid_selected_summary, 3, 0, 1, 3)
+        self.raid_delete_button = self._make_button(
+            "Discard empty raid", "trash", self._delete_selected_raid,
+            "Discard the selected empty private local raid after confirmation")
+        self.raid_delete_button.setObjectName("DangerAction")
+        self.raid_delete_button.setAccessibleName("Discard empty raid")
+        self.raid_delete_button.setEnabled(False)
+        editor_layout.addWidget(self.raid_delete_button, 3, 3)
         editor_layout.setColumnStretch(1, 1)
         for widget in (self.raid_mobs, self.raid_notes, self.raid_remote_id):
             widget.setEnabled(False)
@@ -1621,13 +1636,19 @@ class OpenDKP(ParserWindow):
                 "error", announce=True)
             return False
         if existed is not None:
-            message = f"{character}'s raid is already active; waiting for /who"
+            started = _date_text(existed.get("started_at"), with_time=True)
+            message = (
+                f"{character}'s raid from {started} is already active; "
+                "selected it below")
         else:
             message = (
                 f"Raid started for {character}. Waiting for /who; "
                 "run /who in EverQuest when ready")
-        self._set_my_raids_status(message, "waiting", announce=True)
         self._populate_my_raids(select_id=session["id"])
+        self._set_my_raids_status(message, "waiting", announce=True)
+        if existed is not None:
+            self.raid_workspace_tabs.setCurrentIndex(0)
+            self.my_raids_table.setFocus(Qt.FocusReason.OtherFocusReason)
         return True
 
     def _end_raid(self):
@@ -1733,7 +1754,13 @@ class OpenDKP(ParserWindow):
         character, server, _zone = self._raid_identity()
         active = self.raid_ledger.active_session(character, server)
         if hasattr(self, "raid_start_button"):
-            self.raid_start_button.setEnabled(bool(character) and active is None)
+            self.raid_start_button.setEnabled(bool(character))
+            start_label = "View active raid" if active is not None else "Start raid"
+            self.raid_start_button.setText(start_label)
+            self.raid_start_button.setAccessibleName(start_label)
+            self.raid_start_button.setToolTip(
+                "Select the active private raid session" if active is not None else
+                "Start a local raid session for the active EverQuest character")
             self.raid_end_button.setEnabled(active is not None)
             self.raid_tick_button.setEnabled(active is not None)
             self.raid_refresh_button.setEnabled(
@@ -1743,6 +1770,7 @@ class OpenDKP(ParserWindow):
             self.raid_save_button.setEnabled(selected is not None)
             self.raid_link_button.setEnabled(
                 selected is not None and bool(self.client.slug))
+            self._update_raid_delete_action(selected)
         if hasattr(self, "raid_log_attach_button"):
             self._raid_log_selection_changed()
 
@@ -1755,18 +1783,151 @@ class OpenDKP(ParserWindow):
             self.raid_mobs.clear()
             self.raid_notes.clear()
             self.raid_remote_id.clear()
+            self.raid_selected_summary.setText("No local raid selected")
+            self.raid_selected_summary.setAccessibleName(
+                "Selected raid summary: No local raid selected")
         else:
             self.raid_mobs.setText(str(session.get("mobs") or ""))
             self.raid_notes.setPlainText(str(session.get("notes") or ""))
             self.raid_remote_id.setText(str(session.get("remote_raid_id") or ""))
             evidence = self.raid_ledger.evidence(session["id"])
+            summary = self._raid_selection_summary(session, evidence)
+            self.raid_selected_summary.setText(summary)
+            self.raid_selected_summary.setAccessibleName(
+                f"Selected raid summary: {summary}")
             roster_text = (
                 f"{evidence['rosters'][-1]['member_count']} players in latest /who"
                 if evidence["rosters"] else "waiting for /who")
             self._set_my_raids_status(
                 f"Selected {session['character']} · {len(evidence['ticks'])} "
-                f"local ticks · {roster_text}", "ready", announce=True)
+                f"local ticks · {roster_text}", "ready", announce=not bool(
+                    getattr(self, "_suppress_raid_selection_announcement", False)))
         self._update_raid_action_state()
+
+    def _raid_delete_details(self, session):
+        evidence = self.raid_ledger.evidence(session["id"])
+        ticks = len(evidence["ticks"])
+        rosters = len(evidence["rosters"])
+        mobs = bool(str(session.get("mobs") or "").strip())
+        notes = bool(str(session.get("notes") or "").strip())
+        remote = bool(str(session.get("remote_raid_id") or "").strip())
+        return {
+            "evidence": evidence, "ticks": ticks, "rosters": rosters,
+            "mobs": mobs, "notes": notes, "remote": remote,
+            "empty": not any((ticks, rosters, mobs, notes, remote)),
+        }
+
+    def _raid_selection_summary(self, session, evidence=None):
+        details = self._raid_delete_details(session) if evidence is None else {
+            "ticks": len(evidence["ticks"]),
+            "rosters": len(evidence["rosters"]),
+            "mobs": bool(str(session.get("mobs") or "").strip()),
+            "notes": bool(str(session.get("notes") or "").strip()),
+            "remote": bool(str(session.get("remote_raid_id") or "").strip()),
+        }
+        state = "Active" if not session.get("ended_at") else "Ended"
+        parts = [
+            str(session.get("character") or "Unknown toon"),
+            _date_text(session.get("started_at"), with_time=True), state,
+            f"{details['ticks']} tick{'s' if details['ticks'] != 1 else ''}",
+            f"{details['rosters']} /who snapshot"
+            f"{'s' if details['rosters'] != 1 else ''}",
+        ]
+        if details["mobs"]:
+            parts.append("mobs saved")
+        if details["notes"]:
+            parts.append("notes saved")
+        if details["remote"]:
+            parts.append("OpenDKP linked")
+        return " · ".join(parts)
+
+    def _update_raid_delete_action(self, session):
+        if not hasattr(self, "raid_delete_button"):
+            return
+        enabled = session is not None
+        label = "Discard empty raid"
+        tooltip = "Discard the selected empty private local raid after confirmation"
+        if enabled and not self._raid_delete_details(session)["empty"]:
+            label = "Delete local raid…"
+            tooltip = (
+                "Delete only the selected private Vantage raid record after "
+                "reviewing its evidence counts")
+        self.raid_delete_button.setEnabled(enabled)
+        self.raid_delete_button.setText(label)
+        self.raid_delete_button.setAccessibleName(label)
+        self.raid_delete_button.setToolTip(tooltip)
+
+    def _delete_selected_raid(self):
+        session = self._selected_my_raid()
+        if session is None:
+            self._set_my_raids_status(
+                "Select a local raid before deleting it", "warning", announce=True)
+            self.my_raids_table.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        details = self._raid_delete_details(session)
+        empty = details["empty"]
+        title = "Discard empty raid" if empty else "Delete local raid"
+        identity = " · ".join(part for part in (
+            str(session.get("character") or "Unknown toon"),
+            str(session.get("server") or "Unknown server"),
+            _date_text(session.get("started_at"), with_time=True)) if part)
+        if empty:
+            prompt = (
+                f"Discard this empty local raid?\n\n{identity}\n\n"
+                "This removes only Vantage's private local record. It does not "
+                "change OpenDKP or EverQuest logs.")
+        else:
+            prompt = (
+                f"Delete this local raid and its saved evidence?\n\n{identity}\n"
+                f"{details['ticks']} tick{'s' if details['ticks'] != 1 else ''} · "
+                f"{details['rosters']} /who snapshot"
+                f"{'s' if details['rosters'] != 1 else ''} · "
+                f"mobs {'yes' if details['mobs'] else 'no'} · "
+                f"notes {'yes' if details['notes'] else 'no'} · "
+                f"OpenDKP link {'yes' if details['remote'] else 'no'}\n\n"
+                "This removes only Vantage's private local record. It does not "
+                "change OpenDKP or EverQuest logs.")
+        answer = QMessageBox.question(
+            self, title, prompt,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel)
+        if answer != QMessageBox.StandardButton.Yes:
+            self._set_my_raids_status(
+                f"Deletion canceled; {session['character']}'s local raid is unchanged",
+                "ready", announce=True)
+            self.raid_delete_button.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        old_row = self.my_raids_table.currentRow()
+        was_active = not bool(session.get("ended_at"))
+        if not self.raid_ledger.delete_session(session["id"]):
+            detail = self.raid_ledger.error or "database write failed"
+            self._set_my_raids_status(
+                f"Could not delete the local raid: {detail}",
+                "error", announce=True)
+            self.raid_delete_button.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        remaining = self.raid_ledger.sessions(limit=500)
+        next_session = (
+            remaining[min(max(0, old_row), len(remaining) - 1)]
+            if remaining else None)
+        self._suppress_raid_selection_announcement = True
+        try:
+            self._populate_my_raids(
+                select_id=next_session["id"] if next_session else None)
+            if next_session is None:
+                self.my_raids_table.clearSelection()
+                self._my_raid_selected()
+        finally:
+            self._suppress_raid_selection_announcement = False
+        verb = "Discarded empty" if empty else "Deleted"
+        self._set_my_raids_status(
+            f"{verb} local raid for {session['character']}; OpenDKP and "
+            "EverQuest logs were not changed", "ready", announce=True)
+        if was_active or next_session is None:
+            self.raid_start_button.setFocus(Qt.FocusReason.OtherFocusReason)
+        else:
+            self.my_raids_table.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
 
     def _save_raid_notes(self):
         session = self._selected_my_raid()
