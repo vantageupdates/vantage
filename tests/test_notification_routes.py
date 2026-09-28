@@ -325,9 +325,67 @@ def test_dispatch_exposes_hidden_window_as_the_true_block_reason(monkeypatch):
         result = VantageApp.notify_event(
             host, 'market_sale', 'Manastone for sale', channel='market')
         assert result == NotificationDeliveryResult(
-            'market_sale', 'sound', 'blocked', False, 'window hidden')
+            'market_sale', 'sound', 'blocked', False,
+            'background audio off')
     finally:
         config.data['sounds'] = original
+
+
+@pytest.mark.parametrize(
+    'channel', ('quickbar', 'market', 'opendkp', 'combat', 'heals'))
+def test_hidden_feature_without_background_audio_control_stays_audible(channel):
+    """A closed panel cannot silently override the central Sounds route."""
+    panel = type('Panel', (), {
+        'isVisible': lambda self: False,
+        'isMinimized': lambda self: False,
+    })()
+    host = type('Host', (), {'_parsers_dict': {channel: panel}})()
+
+    assert VantageApp.audio_playback_allowed(host, channel) is True
+
+
+@pytest.mark.parametrize('channel', ('spells', 'timers', 'vitals'))
+def test_hidden_feature_honors_only_its_explicit_background_audio_opt_out(
+        channel):
+    panel = type('Panel', (), {
+        'isVisible': lambda self: False,
+        'isMinimized': lambda self: False,
+    })()
+    host = type('Host', (), {'_parsers_dict': {channel: panel}})()
+    original = copy.deepcopy(config.data)
+    try:
+        config.data.setdefault(channel, {}).pop('sounds_when_hidden', None)
+        assert VantageApp.audio_playback_allowed(host, channel) is True
+        config.data[channel]['sounds_when_hidden'] = False
+        assert VantageApp.audio_playback_allowed(host, channel) is False
+        config.data[channel]['sounds_when_hidden'] = True
+        assert VantageApp.audio_playback_allowed(host, channel) is True
+    finally:
+        config.data.clear()
+        config.data.update(original)
+
+
+def test_spell_background_audio_defaults_on_but_explicit_off_survives_reload(
+        tmp_path):
+    original = copy.deepcopy(config.data)
+    original_filename = config._filename
+    destination = tmp_path / 'audio-config.json'
+    try:
+        config.data.clear()
+        config.verify_settings()
+        assert config.data['spells']['sounds_when_hidden'] is True
+
+        config.data['spells']['sounds_when_hidden'] = False
+        config._filename = str(destination)
+        config.save()
+        config.data.clear()
+        config.load(str(destination))
+        config.verify_settings()
+        assert config.data['spells']['sounds_when_hidden'] is False
+    finally:
+        config._filename = original_filename
+        config.data.clear()
+        config.data.update(original)
 
 
 def test_explicit_sound_override_wins_but_empty_override_is_silent(monkeypatch):
@@ -396,3 +454,70 @@ def test_config_removes_afk_route_and_repairs_malformed_routes():
     finally:
         config.data.clear()
         config.data.update(original)
+
+
+def test_sounds_route_test_status_is_truthful_and_accessible(monkeypatch):
+    from PySide6.QtWidgets import QApplication, QComboBox, QLabel
+    from vantage.helpers import settings as settings_module
+    from vantage.helpers.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    delivery = QComboBox()
+    delivery.addItem('Off', 'off')
+    delivery.addItem('Sound', 'sound')
+    delivery.addItem('Voice', 'voice')
+    picker = QComboBox()
+    picker.addItem('Soft Notify', 'builtin:crystal-ping')
+    status = QLabel()
+    status.setAccessibleName('Notification test result')
+    monkeypatch.setattr(settings_module, 'audio_muted', lambda: False)
+    monkeypatch.setattr(settings_module, 'master_volume', lambda: 100)
+    monkeypatch.setattr(settings_module, 'play_alert', lambda *a, **k: True)
+    monkeypatch.setattr(settings_module, 'speak_text', lambda *a, **k: True)
+    monkeypatch.setattr(
+        settings_module, 'sound_unavailable_reason',
+        lambda value: ('sound file unavailable'
+                       if str(value).startswith('portable:') else ''))
+
+    delivery.setCurrentIndex(delivery.findData('sound'))
+    sound = SettingsWindow._test_notification_route(
+        None, 'market_sale', delivery, picker, status)
+    picker.addItem('Missing WAV', 'portable:sounds/missing.wav')
+    picker.setCurrentIndex(picker.count() - 1)
+    missing = SettingsWindow._test_notification_route(
+        None, 'market_sale', delivery, picker, status)
+    picker.setCurrentIndex(0)
+    monkeypatch.setattr(settings_module, 'play_alert', lambda *a, **k: False)
+    audio_unavailable = SettingsWindow._test_notification_route(
+        None, 'market_sale', delivery, picker, status)
+    delivery.setCurrentIndex(delivery.findData('voice'))
+    voice = SettingsWindow._test_notification_route(
+        None, 'market_sale', delivery, picker, status)
+    monkeypatch.setattr(settings_module, 'speak_text', lambda *a, **k: False)
+    unavailable = SettingsWindow._test_notification_route(
+        None, 'market_sale', delivery, picker, status)
+    delivery.setCurrentIndex(delivery.findData('off'))
+    off = SettingsWindow._test_notification_route(
+        None, 'market_sale', delivery, picker, status)
+    delivery.setCurrentIndex(delivery.findData('sound'))
+    monkeypatch.setattr(settings_module, 'audio_muted', lambda: True)
+    muted = SettingsWindow._test_notification_route(
+        None, 'market_sale', delivery, picker, status)
+    monkeypatch.setattr(settings_module, 'audio_muted', lambda: False)
+    monkeypatch.setattr(settings_module, 'master_volume', lambda: 0)
+    zero = SettingsWindow._test_notification_route(
+        None, 'market_sale', delivery, picker, status)
+
+    assert sound == 'Market sale test: sound queued'
+    assert missing == 'Market sale test: sound file unavailable'
+    assert audio_unavailable == (
+        'Market sale test: Windows audio backend unavailable')
+    assert voice == 'Market sale test: voice queued'
+    assert unavailable == 'Market sale test: Windows voice unavailable'
+    assert off == 'Market sale test: delivery is Off'
+    assert muted == 'Market sale test: blocked by Master Mute'
+    assert zero == 'Market sale test: silent at 0% Master Volume'
+    assert status.text() == zero
+    assert status.isHidden() is False
+    assert status.accessibleName() == 'Notification test result'
+    assert app is not None

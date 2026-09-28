@@ -180,7 +180,7 @@ def test_trigger_test_routes_and_visible_toggle_state(tmp_path):
     assert 'Quick Bar' in result['test_button_description']
     assert result['test_button_keyboard_focusable'] is True
     assert result['statuses'] == [
-        'Test status · Sound played',
+        'Test status · Sound queued',
         'Test status · Text to speech queued',
         'Test status · audio Off; visual notification sent',
     ]

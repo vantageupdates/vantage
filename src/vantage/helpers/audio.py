@@ -1,6 +1,7 @@
 """Volume-aware alert audio and the built-in Vantage sound gallery."""
 
 import sys
+import wave
 from pathlib import Path
 
 from PySide6.QtCore import QTimer, QUrl
@@ -151,16 +152,36 @@ def sound_display_name(value):
 
 
 def resolve_sound(value=""):
-    """Resolve a gallery URI, copied WAV, or legacy file path."""
+    """Resolve a gallery URI, copied WAV, or legacy file path.
+
+    An unavailable custom path stays unavailable. Falling back to a different
+    built-in sound would hide a broken portable profile copy.
+    """
     value = str(value or DEFAULT_SOUND).strip()
     builtin = _BUILTIN_FILES.get(value)
     if builtin:
         return Path(resource_path(f"data/sounds/{builtin}"))
-    candidate = resolve_portable_path(value)
-    if candidate.is_file() and candidate.suffix.casefold() == ".wav":
-        return candidate
-    return Path(resource_path(
-        f"data/sounds/{_BUILTIN_FILES[DEFAULT_SOUND]}"))
+    return resolve_portable_path(value)
+
+
+def sound_unavailable_reason(value=""):
+    """Return a concise reason a selected WAV cannot be submitted safely."""
+    value = str(value or "").strip()
+    if not value:
+        return "no sound selected"
+    sound = resolve_sound(value)
+    if not sound.is_file():
+        return "sound file unavailable"
+    if sound.suffix.casefold() != ".wav":
+        return "selected file is not a WAV"
+    try:
+        with wave.open(str(sound), "rb") as stream:
+            if (stream.getnchannels() <= 0 or stream.getsampwidth() <= 0 or
+                    stream.getframerate() <= 0 or stream.getnframes() <= 0):
+                return "sound file is invalid"
+    except (EOFError, OSError, wave.Error):
+        return "sound file is invalid"
+    return ""
 
 
 def set_sound_combo_value(combo, value=""):
@@ -237,7 +258,7 @@ def _playback_block_reason(app, channel="", allow_hidden=False):
     if channel and not allow_hidden:
         checker = getattr(app, "audio_playback_allowed", None)
         if callable(checker) and not checker(channel):
-            return "window hidden"
+            return "background audio off"
     return ""
 
 

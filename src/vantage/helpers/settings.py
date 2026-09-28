@@ -22,7 +22,8 @@ from vantage.helpers import config, text_time_to_seconds
 from vantage.helpers.audio import (
     DEFAULT_SOUND, add_custom_sound_to_combo, play_alert,
     audio_muted, master_volume, set_audio_muted, set_master_volume,
-    set_sound_combo_value, speak_text, speech_voice_names,
+    set_sound_combo_value, sound_unavailable_reason, speak_text,
+    speech_voice_names,
     unavailable_voice_label, vantage_command_voice_description,
     vantage_command_voice_label)
 from vantage.helpers.notification_routes import (
@@ -707,14 +708,18 @@ class SettingsWindow(UniformScaleDialog):
             played = speak_text(
                 route.default_voice, 80, source=f'Test · {route.label}',
                 allow_hidden=True, voice_name=str(picker.currentData() or ''))
-            message = (f'{route.label} test: voice played' if played else
+            message = (f'{route.label} test: voice queued' if played else
                        f'{route.label} test: Windows voice unavailable')
         else:
-            played = play_alert(
-                picker.currentData(), 80, 1, source=f'Test · {route.label}',
-                allow_hidden=True)
-            message = (f'{route.label} test: sound played' if played else
-                       f'{route.label} test: sound unavailable')
+            unavailable = sound_unavailable_reason(picker.currentData())
+            if unavailable:
+                message = f'{route.label} test: {unavailable}'
+            else:
+                played = play_alert(
+                    picker.currentData(), 80, 1,
+                    source=f'Test · {route.label}', allow_hidden=True)
+                message = (f'{route.label} test: sound queued' if played else
+                           f'{route.label} test: Windows audio backend unavailable')
         status.setText(message)
         status.setVisible(True)
         try:
@@ -925,7 +930,8 @@ class SettingsWindow(UniformScaleDialog):
         spell_background_audio.setObjectName('spells:sounds_when_hidden')
         spell_background_audio.setToolTip(
             'Allow buff, resist, and trigger sounds while the Buffs & Triggers '
-            'window is hidden; off by default so every sound has a visible source')
+            'window is hidden. On by default for alerts during gameplay; '
+            'Master Mute and route Off still take priority.')
         ssl.addRow('Sound while window hidden', spell_background_audio)
         fade_warning = QSpinBox()
         fade_warning.setRange(0, 600)
@@ -1085,7 +1091,7 @@ class SettingsWindow(UniformScaleDialog):
         route_test_status.setObjectName('NotificationRouteTestStatus')
         route_test_status.setAccessibleName('Notification test result')
         route_test_status.setAccessibleDescription(
-            'Reports played, muted, zero volume, off, or unavailable without '
+            'Reports queued, muted, zero volume, off, or unavailable without '
             'moving keyboard focus')
         route_test_status.setWordWrap(True)
         route_test_status.setVisible(False)
@@ -2818,7 +2824,7 @@ class CustomTriggerSettings(UniformScaleDialog):
             elif not sound:
                 outcome = 'no Sound or WAV selected'
             else:
-                outcome = 'Sound played' if played else 'Sound unavailable'
+                outcome = 'Sound queued' if played else 'Sound unavailable'
         elif mode == 'tts':
             speech = self._trigger_tts.text().strip() or semantic
             speech = re.sub(r'\{[^{}]+\}', 'sample', speech)
@@ -2870,7 +2876,7 @@ class CustomTriggerSettings(UniformScaleDialog):
                 voice_name=str(voice.currentData() or ''),
                 pitch=pitch.value())
             result = (
-                f'{label} speech test: voice played' if played else
+                f'{label} speech test: voice queued' if played else
                 f'{label} speech test: Windows voice unavailable')
         status.setText(result)
         status.setAccessibleName(result)

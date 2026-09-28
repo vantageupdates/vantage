@@ -598,7 +598,7 @@ class VitalStopDialog(QDialog):
     def _test(self):
         played = bool(self._test_callback and self._test_callback(
             self.value(), "Vital bar", 50, "below"))
-        message = "Test status · played" if played else (
+        message = "Test status · queued" if played else (
             "Test status · Off" if self.delivery.currentData() == "off" else
             "Test status · blocked or unavailable")
         self.test_status.setText(message)
@@ -1416,7 +1416,8 @@ class Vitals(ParserWindow):
             return False
         return self._play_delivery(stop, bar["name"], percent, crossed)
 
-    def _play_delivery(self, stop, name, percent, crossed):
+    def _play_delivery(
+            self, stop, name, percent, crossed, *, allow_hidden=False):
         delivery = stop.get("delivery", "off")
         source = f"Vitals · {name} {crossed} {stop.get('percent', percent)}%"
         if delivery == "sound":
@@ -1424,7 +1425,7 @@ class Vitals(ParserWindow):
                 stop.get("sound", ""), stop.get("volume", 80),
                 source=source, character=getattr(self, "_active_character", ""),
                 server=getattr(self, "_active_server", ""), channel="vitals",
-                allow_hidden=False)
+                allow_hidden=allow_hidden)
         if delivery == "tts":
             text = str(stop.get("tts_text", "") or "").replace(
                 "{name}", str(name)).replace(
@@ -1434,12 +1435,13 @@ class Vitals(ParserWindow):
                 text, stop.get("volume", 80), source=source,
                 character=getattr(self, "_active_character", ""),
                 server=getattr(self, "_active_server", ""), channel="vitals",
-                allow_hidden=False, voice_name=stop.get("voice", ""),
+                allow_hidden=allow_hidden, voice_name=stop.get("voice", ""),
                 pitch=stop.get("pitch", 0), replace_pending=True)
         return False
 
     def _test_delivery(self, stop, name, percent, crossed):
-        return self._play_delivery(stop, name, percent, crossed)
+        return self._play_delivery(
+            stop, name, percent, crossed, allow_hidden=True)
 
     def _start_calibration(self, bar_id):
         index = self._bar_index(bar_id)

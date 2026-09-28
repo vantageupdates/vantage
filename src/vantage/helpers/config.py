@@ -1037,7 +1037,7 @@ def verify_settings():
     data['spells']['fade_sound_enabled'] = get_setting(
         data['spells'].get('fade_sound_enabled', True), True)
     data['spells']['sounds_when_hidden'] = get_setting(
-        data['spells'].get('sounds_when_hidden', False), False)
+        data['spells'].get('sounds_when_hidden', True), True)
     warning_seconds = data['spells'].get('fade_warning_seconds', 40)
     if warning_seconds == 30:
         warning_seconds = 40  # migrate the former default

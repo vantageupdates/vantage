@@ -73,7 +73,7 @@ def test_timer_editor_tests_inherited_off_and_override_truthfully(monkeypatch):
     assert calls[-1][0] == 'smart_timer'
     assert calls[-1][1]['sound_override'] is None
     assert calls[-1][1]['allow_hidden'] is True
-    assert dialog.sound_test_status.text() == 'Test status · voice played'
+    assert dialog.sound_test_status.text() == 'Test status · voice queued'
 
     dialog.sound.setCurrentIndex(dialog.sound.findData(''))
     dialog._test_notification()
@@ -83,7 +83,7 @@ def test_timer_editor_tests_inherited_off_and_override_truthfully(monkeypatch):
     dialog.sound.setCurrentIndex(dialog.sound.findData('builtin:portal-ping'))
     dialog._test_notification()
     assert calls[-1][1]['sound_override'] == 'builtin:portal-ping'
-    assert dialog.sound_test_status.text() == 'Test status · sound played'
+    assert dialog.sound_test_status.text() == 'Test status · sound queued'
     assert dialog.sound_test_status.accessibleName()
     assert dialog.sound_test_status.toolTip()
     assert len(announcements) == 3
@@ -179,9 +179,9 @@ def test_timer_editor_exposes_compact_accessible_tts_controls(monkeypatch):
     assert spoken[-1][0][:2] == (
         "Port cycle: ready · North Karana", 47)
     assert "replace_pending" not in spoken[-1][1]
-    assert dialog.sound_test_status.text() == "Test status · tts played"
+    assert dialog.sound_test_status.text() == "Test status · tts queued"
     assert dialog.sound_test_status.accessibleName() == \
-        "Test status · tts played"
+        "Test status · tts queued"
     assert "Latest timer notification test result" in \
         dialog.sound_test_status.accessibleDescription()
 

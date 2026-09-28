@@ -1736,6 +1736,15 @@ def test_runtime_delivery_passes_sound_and_tts_profile_controls(monkeypatch):
     assert spoken[0][1]["voice_name"] == "Narrator"
     assert spoken[0][1]["pitch"] == 6
     assert spoken[0][1]["channel"] == "vitals"
+    assert spoken[0][1]["allow_hidden"] is False
+
+    owner._play_delivery = lambda stop, name, percent, crossed, **kwargs: (
+        Vitals._play_delivery(
+            owner, stop, name, percent, crossed, **kwargs))
+    assert Vitals._test_delivery(owner, sound, "My HP", 24, "below")
+    assert played[-1][1]["allow_hidden"] is True
+    assert Vitals._test_delivery(owner, voice, "My Mana", 50, "above")
+    assert spoken[-1][1]["allow_hidden"] is True
 
 
 def test_monitor_state_transitions_are_announced_once(monkeypatch):

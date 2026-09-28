@@ -1344,7 +1344,7 @@ class ParserWindow(QWidget):
             background_audio = menu.addAction("Sound while Window Is Hidden")
             background_audio.setCheckable(True)
             background_audio.setChecked(bool(
-                config.data[self.name].get("sounds_when_hidden", False)))
+                config.data[self.name].get("sounds_when_hidden", True)))
             background_audio.setToolTip(
                 "Allow this tool's attributed alerts when its panel is hidden; "
                 "master mute still blocks every sound")

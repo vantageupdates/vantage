@@ -922,3 +922,41 @@ independent accessibility review: PASS
   **1.44.111** and matches the tested candidate size and SHA-256 byte-for-byte.
   Annotated tag `v1.44.111` dereferences to release commit
   `e48114aa6ab3d3a18ba9742e13284b94e75e2199`.
+
+## 1.44.112 pre-release audio recovery evidence
+
+- Reproduction tests confirmed two independent regressions. First, the shared
+  playback gate treated every hidden feature window as an implicit background-
+  audio opt-out, including Market, Guild DKP, Quick Bar, combat, and heal-chain
+  routes that have no such setting. Second, a missing selected WAV silently
+  resolved to an unrelated built-in bell, hiding the broken selection.
+- Background notification audio is now on by default during gameplay. Master
+  Mute, Master Volume 0, a route set to Off, and an explicit feature-level
+  **Sound while Window Is Hidden** opt-out still win. Only Spells, Timers, and
+  Vitals apply that hidden-window preference because those are the features
+  that expose it. Missing legacy values normalize to on, while a stored false
+  remains false across save/reload and continues to block hidden runtime audio.
+- Route tests/previews bypass window visibility only; they still respect Master
+  Mute and Master Volume. Their dynamic status now truthfully distinguishes
+  queued playback, route Off, Master Mute, Master Volume 0, background audio
+  off, missing/invalid WAV selection, and an unavailable Windows audio/voice
+  backend. Status remains visible text with an accessible name/description and
+  the existing polite announcement path; no focus is moved.
+- Missing custom/portable WAV selections no longer substitute another sound.
+  The Sounds self-check validates file presence, WAV type, and readable WAV
+  structure before reporting a queued test. Unmuting recreates discarded TTS
+  and WAV backends on the next request; visual notifications remain independent
+  from all audio gates.
+- Backend audit found no direct playback bypasses: `QSoundEffect` and
+  `QTextToSpeech` construction remains centralized in
+  `vantage.helpers.audio`. Trigger, timer, market, spell, Vitals, preview, and
+  speech paths continue through the shared policy.
+- Focused audio/profile, notification-route, Sounds UI, trigger, timer, Vitals,
+  Market, spell, Quick Bar, and update-heartbeat verification: **194 passed**
+  in **130.38 seconds**.
+- Exact pre-release complete-suite verification: **1,583 passed, 2 skipped**
+  in **731.42 seconds**.
+- Python compilation, `git diff --check`, English-only current UI audit,
+  version audit, and `ui/**` isolation: **PASS**. Companion version is
+  **1.44.112**. Final independent accessibility review remains pending; no
+  portable build, self-test, tag, or release has been created.

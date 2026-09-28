@@ -709,12 +709,41 @@ def test_hidden_owner_blocks_runtime_audio_but_direct_test_can_play(
     assert not audio.play_alert(
         'builtin:test', 80, source='Buff fading', channel='spells')
     assert app.blocked[-1] == (
-        'Buff fading', 'window hidden', 'spells')
+        'Buff fading', 'background audio off', 'spells')
     assert audio.play_alert(
         'builtin:test', 80, source='Test · buff sound',
         channel='spells', allow_hidden=True)
     assert app.events[-1] == ('Test · buff sound', 'builtin:test', 80)
     audio._ACTIVE_EFFECTS.clear()
+
+
+def test_wav_effect_stays_alive_until_async_playback_finishes(
+        monkeypatch, tmp_path):
+    app = _App()
+    wav = tmp_path / 'test.wav'
+    wav.write_bytes(b'RIFF')
+    config.data = {
+        'general': {'audio_muted': False, 'master_volume': 100},
+        'spells': {'audio_profiles': {}}}
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, '_ACTIVE_EFFECTS', set())
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, 'resolve_sound', lambda _path: Path(wav))
+    monkeypatch.setattr(audio, 'QSoundEffect', _Effect)
+    monkeypatch.setattr(audio, 'QTimer', type(
+        'Timer', (), {'singleShot': staticmethod(lambda *_args: None)}))
+
+    assert audio.play_alert('builtin:test', source='Async sound') is True
+    effect = _Effect.instances[-1]
+    assert effect in audio._ACTIVE_EFFECTS
+    assert effect.deleted is False
+
+    effect.isPlaying = lambda: False
+    effect.playingChanged.callbacks[0]()
+
+    assert effect not in audio._ACTIVE_EFFECTS
+    assert effect.deleted is True
 
 
 def test_speech_prewarm_is_silent_async_and_scheduled_only_once(monkeypatch):
@@ -1332,7 +1361,7 @@ def test_replacement_speech_still_honors_hidden_and_mute_gates(monkeypatch):
     assert speech.events == []
     assert audio._SPEECH_PENDING == []
     assert app.blocked[-1] == (
-        'Vantage speech', 'window hidden', 'vitals')
+        'Vantage speech', 'background audio off', 'vitals')
 
     app.channel_visible = True
     config.data['general']['audio_muted'] = True

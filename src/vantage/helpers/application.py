@@ -61,7 +61,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=111,
+    patch=112,
     build=""
 )
 
@@ -702,13 +702,22 @@ class VantageApp(QApplication):
         return dialog.exec()
 
     def audio_playback_allowed(self, channel):
-        """Apply the owning panel's background-audio preference."""
+        """Apply only an explicit, user-visible background-audio opt-out.
+
+        Central Sounds routes are intended to alert while the user is playing
+        EverQuest, so hiding an unrelated owner window must not silence them.
+        Only tools that expose ``Sound while Window Is Hidden`` may gate their
+        own attributed runtime audio.
+        """
         channel = str(channel or "").strip().casefold()
+        background_audio_controls = {"spells", "timers", "vitals"}
+        if channel not in background_audio_controls:
+            return True
         parser = getattr(self, "_parsers_dict", {}).get(channel)
         if parser is None or (parser.isVisible() and not parser.isMinimized()):
             return True
         return bool(config.data.get(channel, {}).get(
-            "sounds_when_hidden", False))
+            "sounds_when_hidden", True))
 
     def audio_blocked(self, source, reason, channel=""):
         """Remember suppressed audio without creating another notification."""

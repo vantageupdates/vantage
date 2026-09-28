@@ -649,7 +649,7 @@ class TimerEditDialog(UniformScaleDialog):
         self.sound_test_status = QLabel("Test status · ready")
         self.sound_test_status.setAccessibleName("Timer notification test status")
         self.sound_test_status.setToolTip(
-            "Reports whether the test played sound or voice, is Off, was "
+            "Reports whether sound or voice was queued, is Off, was "
             "blocked, or is unavailable")
         self.sound_test_status.setWordWrap(True)
         sound_row.addWidget(self.sound_test_status)
@@ -823,7 +823,7 @@ class TimerEditDialog(UniformScaleDialog):
         if delivery == "off":
             message = "Test status · Off — this timer will not play audio"
         elif state == "played":
-            message = f"Test status · {delivery} played"
+            message = f"Test status · {delivery} queued"
         elif state == "blocked":
             message = f"Test status · blocked" + (f" · {reason}" if reason else "")
         else:
