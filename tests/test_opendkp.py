@@ -266,6 +266,14 @@ def test_my_raids_editor_and_sort_controls_are_keyboard_accessible(tmp_path):
                 Qt.SortOrder.AscendingOrder)
         assert widget.raid_sort_button.text() == "Sort descending"
         assert widget.raid_sort_button.accessibleName() == "Sort descending"
+        widget.raid_sort_column.setCurrentIndex(1)
+        assert widget.raid_sort_button.text() == "Sort ascending"
+        assert widget.raid_sort_button.accessibleName() == "Sort ascending"
+        assert widget._sort_my_raids() is True
+        assert widget.my_raids_table.horizontalHeader().sortIndicatorSection() == 1
+        assert (widget.my_raids_table.horizontalHeader().sortIndicatorOrder() ==
+                Qt.SortOrder.AscendingOrder)
+        assert widget.raid_sort_button.text() == "Sort descending"
         page.show()
         app.processEvents()
         assert widget._end_raid() is True
@@ -328,6 +336,14 @@ def test_my_raids_tick_finder_is_compact_keyboard_accessible_and_adjustable(
         assert widget.raid_log_attach_button.text() == "Attach to selected raid"
         assert widget.raid_log_attach_button.isEnabled() is False
         assert widget.raid_log_status.accessibleName() == "Raid tick finder status"
+        widget.raid_log_sort_column.setCurrentIndex(1)
+        assert widget.raid_log_sort_button.text() == "Sort ascending"
+        assert widget.raid_log_sort_button.accessibleName() == "Sort ascending"
+        assert widget._sort_raid_log_results() is True
+        assert widget.raid_log_table.horizontalHeader().sortIndicatorSection() == 1
+        assert (widget.raid_log_table.horizontalHeader().sortIndicatorOrder() ==
+                Qt.SortOrder.AscendingOrder)
+        assert widget.raid_log_sort_button.text() == "Sort descending"
     finally:
         widget.raid_ledger.close()
         page.deleteLater()
@@ -360,6 +376,8 @@ def test_raid_tick_finder_attach_requires_raid_and_preserves_evidence(tmp_path):
         "archive/eqlog_Mindflux_Green.txt")
     try:
         widget._raid_log_search_token = "current"
+        widget._raid_logs_directory = lambda: "C:/EverQuest/Logs"
+        widget._raid_log_search_directory = "C:/EverQuest/Logs"
         widget._raid_log_search_complete("current", (result,), False, "")
         assert widget._attach_selected_raid_tick() is False
         assert widget.raid_ledger.evidence(1)["ticks"] == []
@@ -410,6 +428,8 @@ def test_raid_tick_search_ignores_stale_async_results(tmp_path):
         "New tells the raid, 'RAID TICK'", "new.txt")
     try:
         widget._raid_log_search_token = "new-token"
+        widget._raid_logs_directory = lambda: "C:/EverQuest/Logs"
+        widget._raid_log_search_directory = "C:/EverQuest/Logs"
         widget._raid_log_search_complete("old-token", (stale,), False, "")
         assert widget.raid_log_table.rowCount() == 0
         widget._raid_log_search_complete("new-token", (current,), False, "")
@@ -419,11 +439,17 @@ def test_raid_tick_search_ignores_stale_async_results(tmp_path):
         widget._raid_log_search_complete("old-token", (stale,), False, "")
         assert widget.raid_log_table.item(0, 1).text() == "New"
         assert widget.raid_log_status.text() == status
+        widget._raid_log_search_token = "root-change"
         widget._raid_log_search_directory = "old-root"
         widget._raid_logs_directory = lambda: "new-root"
-        widget._raid_log_search_complete("new-token", (stale,), False, "")
+        widget._update_raid_log_source = lambda: "new-root"
+        widget.raid_log_search_button.setEnabled(False)
+        widget._set_raid_log_status("Searching every linked log…", "loading")
+        widget._raid_log_search_complete("root-change", (stale,), False, "")
         assert widget.raid_log_table.item(0, 1).text() == "New"
-        assert widget.raid_log_status.text() == status
+        assert "Logs folder changed" in widget.raid_log_status.text()
+        assert widget.raid_log_search_button.isEnabled() is True
+        assert widget._raid_log_search_token == ""
     finally:
         widget.raid_ledger.close()
         page.deleteLater()
@@ -449,6 +475,64 @@ def test_raid_tick_finder_status_announcements_are_polite_and_deduplicated():
         "Found 2 matching raid tick messages")
     harness.raid_log_status.deleteLater()
     app.processEvents()
+
+
+def test_raid_log_index_preserves_moved_focus_and_settles_root_changes(tmp_path):
+    app = QApplication.instance() or QApplication([])
+
+    class Harness(OpenDKP):
+        def __init__(self):
+            QWidget.__init__(self)
+            self.raid_ledger = RaidLedger(tmp_path / "focus.sqlite")
+            self.client = SimpleNamespace(slug="")
+            self._busy = False
+            self._raid_refresh_scheduled = False
+            self._active_character = "Mindflux"
+            self._active_server = "Green"
+            self._announce = lambda *_args, **_kwargs: None
+
+    widget = Harness()
+    page = widget._build_my_raids()
+    summary = SimpleNamespace(
+        characters=(("Mindflux", "Green"),), indexed_lines=20,
+        files=2, added_lines=3)
+    try:
+        page.show()
+        widget.raid_workspace_tabs.setCurrentIndex(1)
+        app.processEvents()
+        widget._raid_logs_directory = lambda: "C:/EverQuest/Logs"
+        widget._raid_log_index_token = "complete"
+        widget._raid_log_index_focus = widget.raid_log_refresh_button
+        widget._raid_log_index_fallback_focus = widget.raid_log_search_button
+        widget.raid_log_refresh_button.setEnabled(False)
+        widget.raid_log_query.setFocus(Qt.FocusReason.OtherFocusReason)
+        app.processEvents()
+        assert app.focusWidget() is widget.raid_log_query
+        widget._raid_log_index_complete(
+            "complete", summary, "", "C:/EverQuest/Logs")
+        assert app.focusWidget() is widget.raid_log_query
+        assert widget.raid_log_refresh_button.isEnabled() is True
+        assert widget.raid_log_status.text().startswith("Cached 20 lines")
+
+        widget._raid_log_index_token = "root-change"
+        widget._raid_log_index_focus = widget.raid_log_refresh_button
+        widget._raid_log_index_fallback_focus = widget.raid_log_search_button
+        widget.raid_log_refresh_button.setEnabled(False)
+        widget._raid_logs_directory = lambda: "D:/Other/Logs"
+        widget._update_raid_log_source = lambda: "D:/Other/Logs"
+        widget.raid_log_query.setFocus(Qt.FocusReason.OtherFocusReason)
+        widget._raid_log_index_complete(
+            "root-change", summary, "", "C:/EverQuest/Logs")
+        assert widget.raid_log_refresh_button.isEnabled() is True
+        assert widget._raid_log_index_token == ""
+        assert "Logs folder changed" in widget.raid_log_status.text()
+        assert widget.raid_log_progress.format() == "Logs folder changed"
+        assert app.focusWidget() is widget.raid_log_query
+    finally:
+        widget.raid_ledger.close()
+        page.deleteLater()
+        widget.deleteLater()
+        app.processEvents()
 
 
 def test_official_opendkp_tick_shape_attributes_parent_value_to_toon():

@@ -870,3 +870,17 @@ independent accessibility review: PASS
   `ui/**` isolation: **PASS**. Companion version is **1.44.111**. Per the
   requested review gate, no portable build, self-test, tag, or release has
   been created yet.
+- Initial independent accessibility/UI review: **BLOCKED** on three major
+  interaction findings, all remediated for re-review. Background index
+  completion now restores its origin only when focus did not move elsewhere;
+  a visible enabled control chosen during indexing keeps focus. A current
+  operation whose linked Logs root changed now settles with an English status,
+  resets progress/active generation, and re-enables actions without rendering
+  stale results; superseded generations still remain silent. Both history and
+  finder sort selectors now derive their visible/accessibility action label
+  from the selected column and current header state, so a newly selected
+  column says and performs **Sort ascending** first.
+- Post-remediation focused feature, focus, dynamic-state, sort-semantics,
+  scaled-panel, and tooltip-closure verification: **46 passed** in **26.68
+  seconds**. Python compilation and `git diff --check` remain **PASS**. Final
+  independent re-review is pending; build and publication remain stopped.

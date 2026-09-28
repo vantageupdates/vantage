@@ -410,6 +410,8 @@ class OpenDKP(ParserWindow):
         self._raid_log_index_token = ""
         self._raid_log_search_token = ""
         self._raid_log_search_directory = ""
+        self._raid_log_index_focus = None
+        self._raid_log_index_fallback_focus = None
         self._raid_log_results = ()
         self.sheet_network = QNetworkAccessManager(self)
         self._sheet_views = {}
@@ -857,6 +859,10 @@ class OpenDKP(ParserWindow):
         self.raid_sort_button = self._make_button(
             "Sort ascending", "refresh", self._sort_my_raids,
             "Sort My raids by the selected column; activate again to reverse order")
+        self.raid_sort_column.currentIndexChanged.connect(
+            lambda _index: self._update_sort_action_label(
+                self.my_raids_table, self.raid_sort_column,
+                self.raid_sort_button))
         sort_row.addWidget(sort_label)
         sort_row.addWidget(self.raid_sort_column)
         sort_row.addWidget(self.raid_sort_button)
@@ -1028,6 +1034,10 @@ class OpenDKP(ParserWindow):
         self.raid_log_sort_button = self._make_button(
             "Sort ascending", "refresh", self._sort_raid_log_results,
             "Sort raid tick results by the selected column; activate again to reverse")
+        self.raid_log_sort_column.currentIndexChanged.connect(
+            lambda _index: self._update_sort_action_label(
+                self.raid_log_table, self.raid_log_sort_column,
+                self.raid_log_sort_button))
         result_tools.addWidget(result_sort_label)
         result_tools.addWidget(self.raid_log_sort_column)
         result_tools.addWidget(self.raid_log_sort_button)
@@ -1173,6 +1183,8 @@ class OpenDKP(ParserWindow):
         self._raid_log_index_token = ""
         self._raid_log_search_token = ""
         self._raid_log_search_directory = ""
+        self._raid_log_index_focus = None
+        self._raid_log_index_fallback_focus = None
         self._raid_log_results = ()
 
     def _raid_logs_directory(self):
@@ -1248,7 +1260,9 @@ class OpenDKP(ParserWindow):
         token = uuid.uuid4().hex
         self._raid_log_index_token = token
         cache = self._raid_log_cache_for(directory)
+        self._raid_log_index_focus = self._raid_current_focus_widget()
         self.raid_log_refresh_button.setEnabled(False)
+        self._raid_log_index_fallback_focus = self._raid_current_focus_widget()
         self.raid_log_progress.setRange(0, 0)
         self.raid_log_progress.setFormat("Discovering linked logs…")
         self._set_raid_log_status(
@@ -1285,31 +1299,58 @@ class OpenDKP(ParserWindow):
     def _raid_log_index_complete(self, token, summary, error, directory):
         if token != getattr(self, "_raid_log_index_token", ""):
             return
+        self._raid_log_index_token = ""
         current_directory = self._raid_logs_directory()
-        if current_directory and directory.casefold() != current_directory.casefold():
-            return
         self.raid_log_refresh_button.setEnabled(True)
         self.raid_log_progress.setRange(0, 1)
         self.raid_log_progress.setValue(1 if summary is not None else 0)
-        if not current_directory:
+        if (not current_directory or
+                directory.casefold() != current_directory.casefold()):
             self._update_raid_log_source()
             self.raid_log_progress.setValue(0)
-            self.raid_log_progress.setFormat("Logs folder unavailable")
-            self._set_raid_log_status(
-                "The linked EverQuest Logs folder is no longer available.",
-                "error")
+            if current_directory:
+                self.raid_log_progress.setFormat("Logs folder changed")
+                self._set_raid_log_status(
+                    "The linked EverQuest Logs folder changed. Refresh logs "
+                    "before searching.", "warning")
+            else:
+                self.raid_log_progress.setFormat("Logs folder unavailable")
+                self._set_raid_log_status(
+                    "The linked EverQuest Logs folder is no longer available.",
+                    "error")
+            self._restore_raid_operation_focus()
             return
         if error:
             self.raid_log_progress.setFormat("Cache update failed")
             self._set_raid_log_status(
                 f"Log cache could not update · {error}", "error")
+            self._restore_raid_operation_focus()
             return
         self.raid_log_progress.setFormat("Log cache ready")
         self._populate_raid_log_profiles(summary.characters)
         self._set_raid_log_status(
             f"Cached {summary.indexed_lines:,} lines from {summary.files:,} logs "
             f"· {summary.added_lines:,} new", "ready")
-        self.raid_log_refresh_button.setFocus(Qt.FocusReason.OtherFocusReason)
+        self._restore_raid_operation_focus()
+
+    def _raid_current_focus_widget(self):
+        surface = getattr(self, "_surface", None)
+        return surface.focusWidget() if surface is not None else QApplication.focusWidget()
+
+    def _restore_raid_operation_focus(self):
+        target = getattr(self, "_raid_log_index_focus", None)
+        fallback = getattr(self, "_raid_log_index_fallback_focus", None)
+        self._raid_log_index_focus = None
+        self._raid_log_index_fallback_focus = None
+        if target is None:
+            return False
+        current = self._raid_current_focus_widget()
+        if current not in (None, target, fallback):
+            return False
+        if not target.isEnabled() or not target.isVisible():
+            return False
+        target.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
 
     def _search_raid_logs(self, _checked=False):
         directory = self._update_raid_log_source()
@@ -1373,9 +1414,24 @@ class OpenDKP(ParserWindow):
         return speaker, match.group("message").strip()
 
     def _raid_log_search_complete(self, token, results, truncated, error):
-        if (token != getattr(self, "_raid_log_search_token", "") or
-                getattr(self, "_raid_log_search_directory", "").casefold() !=
-                self._raid_logs_directory().casefold()):
+        if token != getattr(self, "_raid_log_search_token", ""):
+            return
+        self._raid_log_search_token = ""
+        current_directory = self._raid_logs_directory()
+        searched_directory = getattr(self, "_raid_log_search_directory", "")
+        self.raid_log_search_button.setEnabled(True)
+        if (not current_directory or
+                searched_directory.casefold() != current_directory.casefold()):
+            self._raid_log_search_directory = current_directory
+            self._update_raid_log_source()
+            if current_directory:
+                self._set_raid_log_status(
+                    "The linked EverQuest Logs folder changed. Search again "
+                    "to use the new folder.", "warning")
+            else:
+                self._set_raid_log_status(
+                    "The linked EverQuest Logs folder is no longer available.",
+                    "error")
             return
         self._raid_log_results = tuple(results)
         rows = []
@@ -1472,20 +1528,12 @@ class OpenDKP(ParserWindow):
 
     def _sort_raid_log_results(self):
         column = self.raid_log_sort_column.currentIndex()
-        header = self.raid_log_table.horizontalHeader()
-        current_column = header.sortIndicatorSection()
-        current_order = header.sortIndicatorOrder()
-        order = (Qt.SortOrder.AscendingOrder
-                 if current_column == column and
-                 current_order == Qt.SortOrder.DescendingOrder
-                 else Qt.SortOrder.DescendingOrder)
+        order = self._next_sort_order(self.raid_log_table, column)
         self.raid_log_table.sortItems(column, order)
         direction = "ascending" if order == Qt.SortOrder.AscendingOrder else "descending"
-        self.raid_log_sort_button.setText(
-            "Sort descending" if order == Qt.SortOrder.AscendingOrder else
-            "Sort ascending")
-        self.raid_log_sort_button.setAccessibleName(
-            self.raid_log_sort_button.text())
+        self._update_sort_action_label(
+            self.raid_log_table, self.raid_log_sort_column,
+            self.raid_log_sort_button)
         self._set_raid_log_status(
             f"Raid tick results sorted by "
             f"{self.raid_log_sort_column.currentText()}, {direction}", "ready")
@@ -1518,21 +1566,31 @@ class OpenDKP(ParserWindow):
             "ready", announce=True)
         return True
 
+    @staticmethod
+    def _next_sort_order(table, column):
+        header = table.horizontalHeader()
+        if header.sortIndicatorSection() != column:
+            return Qt.SortOrder.AscendingOrder
+        return (Qt.SortOrder.AscendingOrder
+                if header.sortIndicatorOrder() == Qt.SortOrder.DescendingOrder
+                else Qt.SortOrder.DescendingOrder)
+
+    def _update_sort_action_label(self, table, combo, button):
+        order = self._next_sort_order(table, combo.currentIndex())
+        text = ("Sort ascending" if order == Qt.SortOrder.AscendingOrder
+                else "Sort descending")
+        button.setText(text)
+        button.setAccessibleName(text)
+        return order
+
     def _sort_my_raids(self):
         column = self.raid_sort_column.currentIndex()
-        header = self.my_raids_table.horizontalHeader()
-        current_column = header.sortIndicatorSection()
-        current_order = header.sortIndicatorOrder()
-        order = (Qt.SortOrder.AscendingOrder
-                 if current_column == column and
-                 current_order == Qt.SortOrder.DescendingOrder
-                 else Qt.SortOrder.DescendingOrder)
+        order = self._next_sort_order(self.my_raids_table, column)
         self.my_raids_table.sortItems(column, order)
         direction = "ascending" if order == Qt.SortOrder.AscendingOrder else "descending"
-        self.raid_sort_button.setText(
-            "Sort descending" if order == Qt.SortOrder.AscendingOrder else
-            "Sort ascending")
-        self.raid_sort_button.setAccessibleName(self.raid_sort_button.text())
+        self._update_sort_action_label(
+            self.my_raids_table, self.raid_sort_column,
+            self.raid_sort_button)
         self._set_my_raids_status(
             f"My raids sorted by {self.raid_sort_column.currentText()}, {direction}",
             "ready", announce=True)
