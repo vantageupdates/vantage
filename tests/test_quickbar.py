@@ -4,6 +4,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+from PySide6.QtGui import QAccessible
+
 from vantage.helpers import config
 from vantage.helpers.quickbar_items import QUICKBAR_ITEM_KEYS, QUICKBAR_ITEMS
 
@@ -94,6 +96,17 @@ initial = {
                  bar.master_mute_button.height()],
         'dot_state': bar._master_mute_dot.property('State'),
         'dot_visible': bar._master_mute_dot.isVisible(),
+        'dot_name': bar._master_mute_dot.accessibleName(),
+        'dot_description': bar._master_mute_dot.accessibleDescription(),
+        'dot_focusable': (
+            bar._master_mute_dot.focusPolicy() != Qt.FocusPolicy.NoFocus),
+        'dot_accessibility_valid': QAccessible.queryAccessibleInterface(
+            bar._master_mute_dot).isValid(),
+        'dot_accessibility_role': int(QAccessible.queryAccessibleInterface(
+            bar._master_mute_dot).role().value),
+        'dot_no_role': int(QAccessible.Role.NoRole.value),
+        'button_accessible_children': QAccessible.queryAccessibleInterface(
+            bar.master_mute_button).childCount(),
         'icon_visible': not bar.master_mute_button.icon().isNull(),
         'focus_style': ':focus' in bar.master_mute_button.styleSheet(),
     },
@@ -661,6 +674,7 @@ position_before = [bar.x(), bar.y()]
 config.data['quickbar']['orientation'] = 'vertical'
 config.data['quickbar']['show_header'] = True
 config.data['quickbar']['show_server_tick'] = True
+config.data['quickbar']['show_notification_ticker'] = False
 config.data['quickbar']['show_support'] = True
 config.data['general']['reduce_motion'] = False
 app._signals['settings'].config_updated.emit()
@@ -1036,6 +1050,13 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
         'size': [24, 24],
         'dot_state': 'off',
         'dot_visible': True,
+        'dot_name': '',
+        'dot_description': '',
+        'dot_focusable': False,
+        'dot_accessibility_valid': False,
+        'dot_accessibility_role': int(QAccessible.Role.NoRole.value),
+        'dot_no_role': int(QAccessible.Role.NoRole.value),
+        'button_accessible_children': 0,
         'icon_visible': True,
         'focus_style': True,
     }

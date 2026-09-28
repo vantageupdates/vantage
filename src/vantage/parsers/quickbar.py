@@ -10,7 +10,8 @@ from PySide6.QtCore import (
 from PySide6.QtGui import (
     QAccessible, QAccessibleAnnouncementEvent, QColor, QPainter, QPen)
 from PySide6.QtWidgets import (
-    QApplication, QBoxLayout, QFrame, QGraphicsOpacityEffect, QLabel,
+    QAccessibleWidget, QApplication, QBoxLayout, QFrame,
+    QGraphicsOpacityEffect, QLabel,
     QProgressBar, QSizePolicy, QSlider, QToolButton, QVBoxLayout, QWidget,
     QWidgetAction)
 
@@ -20,6 +21,32 @@ from vantage.helpers.audio import (
 from vantage.helpers.icons import game_icon
 from vantage.helpers.parser import ParserWindow
 from vantage.helpers.quickbar_items import QUICKBAR_ITEMS
+
+
+class _DecorativeMuteDot(QFrame):
+    """Purely visual Master Mute state reinforcement."""
+
+
+class _IgnoredDecorativeAccessible(QAccessibleWidget):
+    """Invalid accessibility interface used to omit decorative widgets."""
+
+    def __init__(self, widget):
+        super().__init__(widget, QAccessible.Role.NoRole)
+
+    def isValid(self):
+        return False
+
+
+def _quickbar_accessibility_factory(_class_name, obj):
+    if isinstance(obj, _DecorativeMuteDot):
+        return _IgnoredDecorativeAccessible(obj)
+    return None
+
+
+# Qt does not expose a QWidget "accessibility hidden" attribute. Its public
+# factory API is the supported way to give a decorative child an invalid,
+# role-free interface so assistive technology sees only the checkable button.
+QAccessible.installFactory(_quickbar_accessibility_factory)
 
 
 class QuickBarNotificationRail(QFrame):
@@ -102,9 +129,9 @@ class QuickBarNotificationRail(QFrame):
         clean = " ".join(str(text).split())
         self._notice_id = notice_id
         self._reduce_motion = bool(reduce_motion)
-        # ``available=False`` is reserved for an intentional user choice such
-        # as vertical mode or a disabled rail. Ordinary temporary widget
-        # hiding must not consume the notice before it can render.
+        # ``available=False`` is reserved for an intentionally disabled rail.
+        # Orientation and ordinary temporary widget hiding must not consume a
+        # notice before it can render.
         if not available:
             return
         try:
@@ -680,11 +707,14 @@ class QuickBar(ParserWindow):
                 border: 2px solid #F0C778;
             }
         """)
-        dot = QFrame(button)
+        dot = _DecorativeMuteDot(button)
         dot.setObjectName("QuickBarMuteStateDot")
         dot.setFixedSize(6, 6)
         dot.move(16, 2)
         dot.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        dot.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        dot.setAccessibleName("")
+        dot.setAccessibleDescription("")
         dot.setStyleSheet("""
             QFrame#QuickBarMuteStateDot[State="off"] {
                 background: transparent;
@@ -877,7 +907,6 @@ class QuickBar(ParserWindow):
                      "click to silence all Vantage audio"))
                 if dot is not None:
                     dot.setProperty("State", state.casefold())
-                    dot.setAccessibleName(f"Master Mute {state} indicator")
                     style = dot.style()
                     style.unpolish(dot)
                     style.polish(dot)
@@ -1274,12 +1303,11 @@ class QuickBar(ParserWindow):
 
         tick_visible = bool(settings.get("show_server_tick", True))
         self.tick_readout.setVisible(tick_visible)
-        rail_visible = bool(
-            settings.get("show_notification_ticker", True) and not vertical)
+        rail_visible = bool(settings.get("show_notification_ticker", True))
         self.notification_rail.setVisible(rail_visible)
         if not rail_visible:
-            # Orientation and the ticker preference are explicit user choices,
-            # unlike a momentary hide caused by a layout pass.
+            # The ticker preference is the only choice that discards its
+            # visual queue. Orientation changes keep every live notice.
             self.notification_rail.discard_all()
             discard = getattr(
                 self._application, "_take_quickbar_notices", None)
@@ -1318,9 +1346,17 @@ class QuickBar(ParserWindow):
                 margins.top() + margins.bottom() +
                 sum(widget.height() for widget in visible_widgets) +
                 max(0, item_count - 1) * spacing)
+            # A 30 px tool column cannot communicate notification text. Give
+            # the enabled ticker a compact readable rail below the centered
+            # actions; disabling the ticker restores the original shrink-wrap.
+            authored_width = max(
+                action_width, header_width, 240 if rail_visible else 0)
+            if rail_visible:
+                self.notification_rail.setFixedWidth(authored_width)
             design_size = QSize(
-                max(action_width, header_width),
-                header_height + action_height)
+                authored_width,
+                header_height + action_height +
+                (self.notification_rail.height() if rail_visible else 0))
         else:
             self.content.setAlignment(
                 self.action_frame,
@@ -1720,14 +1756,17 @@ class QuickBar(ParserWindow):
         if self._tick_snapshot is not None:
             self._server_tick_update(self._tick_snapshot)
         rail_configured = bool(
-            getattr(self, "_toggled", True) and
-            config.data["quickbar"].get("show_notification_ticker", True) and
-            config.data["quickbar"].get("orientation", "horizontal") ==
-            "horizontal")
+            config.data["quickbar"].get("show_notification_ticker", True))
+        rail_available = bool(
+            rail_configured and getattr(self, "_toggled", True))
         take_notices = getattr(
             self._application, "_take_quickbar_notices", None)
         if callable(take_notices):
-            notices = take_notices(discard=not rail_configured)
+            # A closed Quick Bar is temporary: retain its bounded application
+            # queue. Only the rail's own Off setting intentionally discards.
+            notices = (
+                take_notices(discard=True) if not rail_configured else
+                take_notices() if rail_available else [])
         else:
             notices = [(
                 getattr(self._application, "_quickbar_notice_id", 0),
@@ -1737,7 +1776,7 @@ class QuickBar(ParserWindow):
                 getattr(self._application, "_quickbar_notice_at", time.monotonic()))]
         if not rail_configured:
             self.notification_rail.discard_all()
-        else:
+        elif rail_available:
             for notice_id, notice, channel, created_at in notices:
                 self.notification_rail.present(
                     notice_id, notice,

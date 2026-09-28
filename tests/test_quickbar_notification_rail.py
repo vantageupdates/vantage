@@ -170,8 +170,8 @@ temporary_visible = {
 }
 rail._clear()
 
-# Removing the Quick Bar through its actual toggle intent must consume new
-# live events instead of replaying them when it is opened later.
+# Hiding the Quick Bar does not disable its independently enabled ticker.
+# Hold live events and present them when the bar becomes visible again.
 bar._toggled = False
 config.data['quickbar']['toggled'] = False
 bar.hide()
@@ -184,18 +184,31 @@ hidden_consumed = {
     'clear_pending': rail._clear_timer.isActive(),
     'announcement_delta': len(announcements) - before_hidden,
 }
-bar.show()
-app.processEvents()
-hidden_replayed = rail._label.isVisible()
 bar._toggled = True
 config.data['quickbar']['toggled'] = True
+bar.show()
+bar.refresh_state()
+app.processEvents()
+hidden_replayed = rail._label.isVisible()
 
 config.data['quickbar']['orientation'] = 'vertical'
 app._signals['settings'].config_updated.emit()
 app.processEvents()
+rail.discard_all()
+config.data['general']['audio_muted'] = True
+app._queue_quickbar_notice('Muted but visible', channel='timers')
+app.processEvents()
 vertical = {
     'rail_visible': rail.isVisible(),
     'design_width': bar._design_size.width(),
+    'text': rail._label.text(),
+}
+config.data['quickbar']['show_notification_ticker'] = False
+app._signals['settings'].config_updated.emit()
+app.processEvents()
+ticker_off = {
+    'rail_visible': rail.isVisible(),
+    'text_visible': rail._label.isVisible(),
 }
 
 print(json.dumps({
@@ -215,6 +228,7 @@ print(json.dumps({
     'hidden_consumed': hidden_consumed,
     'hidden_replayed': hidden_replayed,
     'vertical': vertical,
+    'ticker_off': ticker_off,
     'duplicate_announcement_count': duplicate_announcement_count,
 }))
 app.quit()
@@ -290,13 +304,20 @@ def test_quickbar_notification_rail_shows_one_event_then_clears(tmp_path):
             'BUFFS / SPELLS: Layout-hidden first'],
     }
     assert result['hidden_consumed'] == {
-        'text_visible': False,
-        'scrolling': False,
+        # Internal child state remains paused while the top-level Quick Bar
+        # is hidden; no duplicate accessibility announcement is emitted.
+        'text_visible': True,
+        'scrolling': True,
         'clear_pending': False,
         'announcement_delta': 0,
     }
-    assert result['hidden_replayed'] is False
+    assert result['hidden_replayed'] is True
     assert result['vertical'] == {
+        'rail_visible': True,
+        'design_width': 240,
+        'text': 'Muted but visible',
+    }
+    assert result['ticker_off'] == {
         'rail_visible': False,
-        'design_width': 30,
+        'text_visible': False,
     }

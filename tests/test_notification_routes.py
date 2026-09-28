@@ -249,6 +249,49 @@ def test_visual_notification_survives_speech_queue_backpressure(monkeypatch):
         config.data['sounds'] = original
 
 
+def test_master_mute_keeps_visual_notice_and_blocks_route_audio():
+    import vantage.helpers.audio as audio
+    host = _DispatchHost()
+    original = copy.deepcopy(config.data)
+    previous_muted = audio._MUTED
+    try:
+        config.data.setdefault('general', {})['audio_muted'] = True
+        config.data['general']['master_volume'] = 100
+        config.data.setdefault('spells', {})['audio_profiles'] = {}
+        config.data['sounds'] = {'routes': {'smart_timer': {
+            'delivery': 'sound', 'sound': 'builtin:soft-tick', 'voice': ''}}}
+        audio._MUTED = True
+        result = VantageApp.notify_event(
+            host, 'smart_timer', 'Frenzy due', channel='timers')
+        assert result == NotificationDeliveryResult(
+            'smart_timer', 'sound', 'blocked', False, 'muted')
+        assert host.events == [('text', 'Frenzy due')]
+    finally:
+        audio._MUTED = previous_muted
+        config.data.clear()
+        config.data.update(original)
+
+
+def test_config_audio_sync_applies_mute_before_any_later_playback(monkeypatch):
+    import vantage.helpers.application as application
+    applied = []
+    original = copy.deepcopy(config.data)
+    try:
+        config.data.setdefault('general', {}).update({
+            'audio_muted': True, 'master_volume': 37})
+        monkeypatch.setattr(
+            application, 'set_audio_muted',
+            lambda value: applied.append(('mute', value)))
+        monkeypatch.setattr(
+            application, 'set_master_volume',
+            lambda value: applied.append(('volume', value)) or value)
+        assert VantageApp._sync_audio_settings(object()) == 37
+        assert applied == [('mute', True), ('volume', 37)]
+    finally:
+        config.data.clear()
+        config.data.update(original)
+
+
 def test_dispatch_off_is_visual_only(monkeypatch):
     import vantage.helpers.application as application
     host = _DispatchHost()

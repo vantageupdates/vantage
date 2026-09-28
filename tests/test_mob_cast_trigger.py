@@ -87,6 +87,46 @@ def test_mob_cast_basic_seed_and_round_trip_are_backward_compatible(
         config.data = previous
 
 
+def test_mob_cast_off_survives_durable_reload_and_textual_legacy_false(
+        tmp_path, monkeypatch):
+    previous = config.data
+    path = tmp_path / "config.json"
+    monkeypatch.setattr(config, "_filename", str(path))
+    try:
+        config.data = {
+            "spells": {
+                "custom_timers": [
+                    list(row) for row in config.BASIC_ALERTS],
+                "basic_alerts_version": config.BASIC_ALERTS_VERSION,
+            }
+        }
+        row = next(
+            row for row in config.data["spells"]["custom_timers"]
+            if row[0] == "Mob is casting")
+        row[6] = False
+        config.verify_settings()
+        config.save()
+
+        config.load(str(path))
+        config.verify_settings()
+        restored = next(
+            CustomTrigger(*row)
+            for row in config.data["spells"]["custom_timers"]
+            if row[0] == "Mob is casting")
+        assert restored.enabled is False
+
+        # Older/imported rows occasionally serialized the checkbox as text.
+        legacy_row = next(
+            row for row in config.data["spells"]["custom_timers"]
+            if row[0] == "Mob is casting")
+        legacy_row[6] = "false"
+        config.verify_settings()
+        assert legacy_row[6] is False
+        assert CustomTrigger(*legacy_row).enabled is False
+    finally:
+        config.data = previous
+
+
 def test_mob_cast_sound_tts_off_routes_and_resolves_actor_token(monkeypatch):
     previous = config.data
     config.data = {

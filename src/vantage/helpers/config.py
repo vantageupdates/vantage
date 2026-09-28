@@ -919,6 +919,22 @@ def verify_settings():
             for item in custom_timers):
         custom_timers = []
     for item in custom_timers:
+        # Trigger rows predate the structured editor and may have travelled
+        # through JSON/import tools that stored checkbox values as text.  A
+        # plain ``bool("false")`` turns that explicit Off choice back on.
+        # Normalize the positional enabled field before any catalog merge so
+        # false remains false through save, reload, and UI reconstruction.
+        if len(item) > 6:
+            enabled = item[6]
+            if type(enabled) is not bool:
+                folded = str(enabled or '').strip().casefold()
+                if folded in {'false', '0', 'off', 'no'}:
+                    enabled = False
+                elif folded in {'true', '1', 'on', 'yes'}:
+                    enabled = True
+                else:
+                    enabled = True
+            item[6] = enabled
         if len(item) > 8 and item[8] in (
                 "Vantage · Básicos", "Vantage · Basics"):
             translated = next(

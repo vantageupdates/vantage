@@ -2448,7 +2448,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.109')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.110')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -4680,7 +4680,14 @@ class CustomTrigger:
         self.zone = zone
         self.sound_path = sound_path
         self.alert_text = alert_text
-        self.enabled = bool(enabled)
+        # Imported/legacy rows can contain textual checkbox values. Preserve
+        # an explicit false value instead of treating every non-empty string
+        # as truthy and silently re-enabling a built-in trigger.
+        enabled_text = str(enabled or '').strip().casefold()
+        self.enabled = (
+            enabled if type(enabled) is bool else
+            False if enabled_text in {'false', '0', 'off', 'no'} else
+            True)
         self.regex = bool(regex)
         self.source = str(source or 'Vantage')
         self.category = str(category or 'Default').strip() or 'Default'

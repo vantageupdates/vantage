@@ -15,7 +15,8 @@ import semver
 from vantage.helpers import config, logreader, resource_path
 from vantage.helpers.audio import (
     audio_muted, master_volume, playback_block_reason, play_alert,
-    prewarm_speech_engine, set_audio_muted, sound_display_name, speak_text)
+    prewarm_speech_engine, set_audio_muted, set_master_volume,
+    sound_display_name, speak_text)
 from vantage.helpers.camp_session import CampSessionController
 from vantage.helpers.character_context import CharacterContextTracker
 from vantage.helpers.icons import WINDOW_ICONS, game_icon
@@ -60,7 +61,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=109,
+    patch=110,
     build=""
 )
 
@@ -144,6 +145,11 @@ class VantageApp(QApplication):
         self._signals["settings"] = SettingsSignals()
         self._signals["maps"] = MapsSignals()
         self._signals["locationsharing"] = LocationSharingSignals()
+        # Config can also be replaced by Device Sync or another feature-owned
+        # settings surface. Keep Master Mute authoritative for those paths as
+        # well, including audio that is already queued or playing.
+        self._signals["settings"].config_updated.connect(
+            self._sync_audio_settings)
 
         # Exact local-log character, group and pet context.  The bounded
         # profiles persist only compact derived state, never duplicate logs.
@@ -1087,6 +1093,12 @@ class VantageApp(QApplication):
             msecs=3500)
         self._refresh_quickbar()
         return muted
+
+    def _sync_audio_settings(self):
+        """Apply persisted audio controls to every live playback backend."""
+        set_audio_muted(config.data['general'].get('audio_muted', False))
+        return set_master_volume(
+            config.data['general'].get('master_volume', 100))
 
     def show_last_sound(self):
         """Replay the last attributable sound instead of only naming it."""

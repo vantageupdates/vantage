@@ -765,3 +765,53 @@ independent accessibility review: PASS
   **1.44.109** and matched the tested candidate size and SHA-256 byte-for-byte.
   Annotated tag `v1.44.109` dereferences to release commit
   `d1a2afa53b1be3c81b25b55fbdc2c148771630d1`.
+
+## 1.44.110 pre-release evidence
+
+- Master Mute is applied from every settings/config update, including synced
+  configuration changes. The centralized playback gate still covers the only
+  `QSoundEffect` and `QTextToSpeech` backend start calls, while muting stops
+  active WAV playback, disposes the speech engine, and clears queued speech.
+  Visual overlays and Quick Bar notices continue to dispatch while muted.
+- Built-in trigger enabled state is normalized before catalog migration.
+  Explicit boolean false and legacy textual `false` now remain Off through an
+  atomic save, real config reload, trigger reconstruction, and UI reopening.
+- The Quick Bar ticker is available in both orientations. Vertical mode gives
+  the enabled rail a compact readable width; temporarily closing the Quick Bar
+  retains its bounded notice queue, and only the ticker's own Off setting
+  discards and hides notifications. Muting has no effect on ticker delivery.
+- Focused sound, notification-route, trigger, timer, Spells, Quick Bar, and
+  update-heartbeat verification: **131 passed** in **53.40 seconds**. The
+  narrower new-regression set completed with **34 passed** in **13.75 seconds**.
+- Complete-suite verification: **1,563 passed, 2 skipped** in **624.10
+  seconds**. An earlier run completed **1,562 passed, 2 skipped** before one
+  unrelated offscreen Qt process exited natively during timer resize teardown;
+  that isolated test immediately passed, and the clean full rerun above is the
+  release gate.
+- `git diff --check`: **PASS**. English UI audit: **PASS**; the only accented
+  Spanish source match in the reviewed scope is the pre-existing legacy
+  migration token `Vantage · Básicos`, which is accepted only to translate old
+  saved data and is not displayed by the current UI.
+- Initial accessibility review found one minor duplicate announcement source:
+  the visual Master Mute state dot exposed a separate Border interface beside
+  the authoritative checkable button. The dot now has empty accessible text,
+  no focus, and a public Qt accessibility-factory interface that is invalid
+  and role-free; the button remains named, described, checkable, and keyboard
+  operable. Its accessible interface reports zero children. Focused Quick Bar
+  and notification-rail verification completed with **8 passed** in **25.38
+  seconds**; the direct semantics regression also passed independently.
+- Accessibility re-review: **PASS**, with no remaining findings. The reviewer
+  independently verified **35 focused tests** and confirmed that both header
+  and overflow dots are invalid, `NoRole`, unnamed, and non-focusable while
+  the authoritative Master Mute button retains its checked state, accessible
+  name/description, and keyboard behavior.
+- PyInstaller **6.22.2** one-file build: **PASS**. Portable self-test exited
+  `0` from an isolated temporary profile and reported version **1.44.110**.
+- Recursive archive inspection: **PASS**. The candidate contains the audio,
+  application, config, Quick Bar, Spells, Timers, Market, and embedded
+  VantageUI modules, both `qtexttospeech_sapi.dll` and
+  `qtexttospeech_winrt.dll`, and `TERMS-AND-PRIVACY.md`.
+- Candidate `dist/Vantage.exe` Windows file/product version: **1.44.110**.
+  Size: **75,741,322 bytes**. SHA-256:
+  `EABEAC655A11CC1348B9D7380ED28D781A6A7BF0377A07E92B8784B915C50614`.
+- Public release verification is pending publication below.
