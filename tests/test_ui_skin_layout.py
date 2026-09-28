@@ -193,11 +193,15 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
     # Inventory sizing is independent: never enlarge Actions to match it.
     assert window.findtext("Style_VScroll") == "false"
     assert window.findtext("Style_HScroll") == "false"
+    assert window.findtext("DrawTemplate") == "WDT_Rounded"
+    assert window.findtext("Style_Titlebar") == "true"
     assert window.findtext("Style_Sizable") == "true"
     # Native resizing clips the fixed inventory panel without moving the
     # two-column hotbar. Secondary hotbars intentionally keep fixed geometry.
     for suffix in ("2", "3", "4"):
         secondary = _item(root, "Screen", f"HotButtonWnd{suffix}")
+        assert secondary.findtext("DrawTemplate") == "WDT_RoundedNoTitle"
+        assert secondary.findtext("Style_Titlebar") == "false"
         assert secondary.findtext("Style_Sizable") == "false"
         assert secondary.findtext("Style_VScroll") == "false"
         assert secondary.findtext("Style_HScroll") == "false"
@@ -322,10 +326,32 @@ def test_hotbar_inventory_has_a_visible_native_resize_grip_without_a_fake_button
     window = _item(root, "Screen", "HotButtonWnd")
     pieces = [p.text.strip() for p in window.findall("Pieces")]
     assert pieces[0] == "HB_InventoryResizeGrip"
+    assert window.find("Style_ClientMovable") is None
+    assert window.findtext("DrawTemplate") == "WDT_Rounded"
+    assert window.findtext("Style_Titlebar") == "true"
     assert window.findtext("Style_Sizable") == "true"
     assert window.findtext("TooltipReference") == (
-        "Drag the right edge left to hide inventory; drag it right to restore."
+        "Drag the top strip to move; drag the right edge left to hide "
+        "inventory or right to restore."
     )
+
+    templates = _root("EQUI_Templates.xml")
+    rounded = _item(templates, "WindowDrawTemplate", "WDT_Rounded")
+    title_animations = {
+        side: rounded.findtext(f"Titlebar/{side}")
+        for side in ("Left", "Middle", "Right")
+    }
+    assert title_animations == {
+        "Left": "A_RoundedFrameTitleLeft",
+        "Middle": "A_RoundedFrameTitleMiddle",
+        "Right": "A_RoundedFrameTitleRight",
+    }
+    shared = _root("EQUI_Animations.xml")
+    title_heights = {
+        name: _rect(_only_frame(_item(shared, "Ui2DAnimation", name)))[3]
+        for name in title_animations.values()
+    }
+    assert title_heights == {name: 16 for name in title_animations.values()}
 
     grip = _item(root, "StaticAnimation", "HB_InventoryResizeGrip")
     assert grip.findtext("AutoStretch") == "true"
@@ -340,21 +366,42 @@ def test_hotbar_inventory_has_a_visible_native_resize_grip_without_a_fake_button
     assert not any(node.attrib.get("item") == "HB_InventoryResizeGrip"
                    for node in root.findall("Button"))
 
-    shared = _root("EQUI_Animations.xml")
     animation = _item(shared, "Ui2DAnimation", "A_CursorResizeEW")
     frame = _only_frame(animation)
     assert _rect(frame) == (40, 220, 22, 22)
     assert frame.findtext("Texture") == "window_pieces01.tga"
     # The right-anchored grip remains visible both fully open and at the
     # 84px hotbar-only width. Keep it clear of the native 12px closebox;
-    # the 4px gap prevents the drag affordance from competing with Close.
+    # the 4px gap prevents the resize affordance from competing with Close.
+    # The remaining reserved top rail exposes the native titlebar move target.
     native_closebox_width = 12
+    native_titlebar_height = 16
     margin = 4
+    rail_height = 22
+    assert native_titlebar_height < rail_height
+    assert min(_rect(_item(root, "Button", f"HB_Button{index}"))[1]
+               for index in range(1, 11)) == rail_height + 1
+    assert min(_rect(_item(root, "InvSlot", name))[1]
+               for name in ("Prim", "Sec", "Ammo")) == rail_height + 1
     for width in (84, 215):
         grip_bounds = (width - 38, width - 16)
         closebox_bounds = (width - native_closebox_width, width)
+        move_bounds = (0, width - 38)
         assert 0 <= grip_bounds[0] < grip_bounds[1] <= width
         assert grip_bounds[1] + margin <= closebox_bounds[0]
+        assert move_bounds[1] - move_bounds[0] >= 40
+        assert move_bounds[1] <= grip_bounds[0]
+        assert rail_height == int(grip.findtext("BottomAnchorOffset"))
+
+    # The native titlebar uses the real reserved rail. Never mask it with a
+    # synthetic move/drag button that would steal clicks or shift content.
+    fake_move_names = set()
+    for tag in ("Button", "Label", "StaticAnimation"):
+        fake_move_names.update(
+            name for node in root.findall(tag)
+            if ((name := (node.attrib.get("item") or "").casefold()) and
+                ("move" in name or "drag" in name)))
+    assert fake_move_names == set()
 
     assert not any((node.attrib.get("item") or "").startswith("HB_Vantage") for node in root)
 

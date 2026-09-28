@@ -14,6 +14,7 @@ from PySide6.QtTest import QTest
 from vantage.helpers import config
 from vantage.helpers.application import VantageApp
 
+config.data['general']['update_check'] = False
 app = VantageApp([])
 sizes = {
     'maps': (333, 287),
@@ -45,8 +46,10 @@ app.quit()
 RESTORE_SCRIPT = r"""
 import json
 from PySide6.QtTest import QTest
+from vantage.helpers import config
 from vantage.helpers.application import VantageApp
 
+config.data['general']['update_check'] = False
 app = VantageApp([])
 QTest.qWait(600)
 names = [
