@@ -1034,3 +1034,10 @@ independent accessibility review: PASS
   documents. Windows file and product versions both report **1.44.112**.
   Candidate `Vantage.exe`: **75,776,656 bytes**, SHA-256
   `26ED478046CB077D60B1408F4074444219209DE440C74BB16F1E7E6D991BE389`.
+- Public release verification: stable, non-draft, non-prerelease
+  [v1.44.112](https://github.com/vantageupdates/vantage/releases/tag/v1.44.112)
+  contains exactly one asset named `Vantage.exe`. GitHub reports **75,776,656
+  bytes** and digest
+  `sha256:26ed478046cb077d60b1408f4074444219209de440c74bb16f1e7e6d991be389`.
+  A fresh unauthenticated download matched the tested candidate byte-for-byte
+  and independently reported FileVersion/ProductVersion **1.44.112**.
