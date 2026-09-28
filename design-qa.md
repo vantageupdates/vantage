@@ -1041,3 +1041,33 @@ independent accessibility review: PASS
   `sha256:26ed478046cb077d60b1408f4074444219209de440c74bb16f1e7e6d991be389`.
   A fresh unauthenticated download matched the tested candidate byte-for-byte
   and independently reported FileVersion/ProductVersion **1.44.112**.
+
+## 1.44.113 pre-release character UI and layout evidence
+
+- **Character UI & layouts** now audits every supported
+  `UI_<character>_<server>.ini` against the updater-verified installed
+  VantageUI folder. Each textual row distinguishes **Current installed**,
+  **Different installed skin**, **Referenced folder missing**, and **No UISkin
+  setting**. A newer available release is identified separately as not yet
+  installed, so it cannot make a correctly configured installed folder appear
+  broken.
+- The native table is sortable, has adjustable/movable columns, exposes a
+  labeled accessible table and per-row descriptions, and includes explicit
+  keyboard sort controls. Refresh/verify, Select outdated, Clear selection,
+  Apply to selected, and Apply to all preserve the compact existing workflow.
+  Every successful apply/copy/restore refreshes the audit and reports the exact
+  current/total count.
+- Selected-only application changes only `UISkin` in explicitly selected UI
+  files. Layout copy preserves target filenames/character identity, backs up
+  every target first, and never reads or writes character hotkey, macro,
+  social, friend, or inventory files. Existing transaction rollback, restore,
+  EverQuest-running deferral, and normal Windows UAC behavior remain intact.
+- Focused helper/UI/update verification: **58 passed** in **22.36 seconds**.
+  Python compilation, `git diff --check`, English-only changed-copy audit,
+  Companion **1.44.113** version audit, and `ui/**` isolation: **PASS**.
+- A broader 393-test updater sweep completed with **390 passed, 2 skipped** and
+  one unrelated Tk minimum-window geometry failure (Windows returned 712×625
+  instead of 720×650). The exact failing test passed immediately in isolation;
+  no standalone updater or `ui/**` source was changed. Full-suite and final
+  accessibility/UI review remain pending; no build, tag, push, or release has
+  been performed.

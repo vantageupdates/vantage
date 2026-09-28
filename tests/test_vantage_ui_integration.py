@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 from PySide6.QtCore import QByteArray, QObject, Qt, Signal
+from PySide6.QtGui import QAccessible
 from PySide6.QtNetwork import QNetworkReply, QNetworkRequest
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit
@@ -385,6 +386,106 @@ def test_character_ui_manager_button_reuses_one_reversible_dialog(
     assert panel.character_ui_button.accessibleName() == (
         "Manage character VantageUI settings and layouts")
     assert "restore" in panel.character_ui_button.toolTip().casefold()
+
+
+def test_character_ui_manager_audit_is_accessible_sortable_and_actionable(
+        panel, tmp_path, monkeypatch):
+    root = tmp_path / "EverQuest"
+    skin = "VantageUI-v1.44.112"
+    (root / "uifiles" / skin).mkdir(parents=True)
+    (root / "uifiles" / "velious").mkdir()
+    (root / "eqgame.exe").write_bytes(b"game")
+    (root / "UI_Alpha_P1999Green.ini").write_text(
+        f"[Main]\nUISkin={skin}\n[ChatWindow]\nXPos=1\n", encoding="cp1252")
+    (root / "UI_Beta_P1999Blue.ini").write_text(
+        "[Main]\nUISkin=missing-skin\n[ChatWindow]\nXPos=2\n", encoding="cp1252")
+    (root / "UI_Gamma_P1999Green.ini").write_text(
+        "[Main]\nUISkin=velious\n[ChatWindow]\nXPos=3\n", encoding="cp1252")
+    panel.path_edit.setText(str(root))
+    panel._release = SimpleNamespace(version="1.44.113")
+    monkeypatch.setattr(ui_skin_updater, "installed_folder", lambda _root: skin)
+    monkeypatch.setattr(
+        vantage_ui_module, "data_dir",
+        lambda *parts: tmp_path.joinpath("state", *parts))
+
+    dialog = vantage_ui_module.CharacterUIManagerDialog(panel)
+    try:
+        assert dialog.audit_table.rowCount() == 3
+        assert dialog.audit_table.isSortingEnabled()
+        assert dialog.audit_table.horizontalHeader().sectionsMovable()
+        assert dialog.audit_table.accessibleName() == "Character VantageUI audit"
+        interface = QAccessible.queryAccessibleInterface(dialog.audit_table)
+        assert interface.text(QAccessible.Text.Name) == "Character VantageUI audit"
+        statuses = {
+            dialog.audit_table.item(row, 1).text():
+                dialog.audit_table.item(row, 4).text()
+            for row in range(dialog.audit_table.rowCount())}
+        assert statuses == {
+            "Alpha": "Current installed",
+            "Beta": "Referenced folder missing",
+            "Gamma": "Different installed skin",
+        }
+        assert "1/3 characters" in dialog.status.text()
+        assert "newer release 1.44.113 available but not installed" in (
+            dialog.status.text())
+        assert dialog.audit_sort_button.text() == "Sort descending"
+        dialog.audit_sort_button.click()
+        assert (dialog.audit_table.horizontalHeader().sortIndicatorOrder() ==
+                Qt.SortOrder.DescendingOrder)
+        assert dialog.audit_sort_button.text() == "Sort ascending"
+        dialog.audit_sort_combo.setCurrentIndex(3)
+        assert (dialog.audit_table.horizontalHeader().sortIndicatorSection() == 4)
+        assert (dialog.audit_table.horizontalHeader().sortIndicatorOrder() ==
+                Qt.SortOrder.AscendingOrder)
+        assert dialog.audit_sort_button.text() == "Sort descending"
+        dialog.audit_table.horizontalHeader().setSortIndicator(
+            2, Qt.SortOrder.DescendingOrder)
+        QApplication.processEvents()
+        assert dialog.audit_sort_combo.currentData() == 2
+        assert dialog.audit_sort_button.text() == "Sort ascending"
+        assert dialog.audit_sort_button.accessibleName() == "Sort ascending"
+        dialog.audit_sort_combo.setCurrentIndex(0)
+
+        dialog._select_outdated_profiles()
+        assert set(dialog._checked_audit_targets()) == {
+            "UI_Beta_P1999Blue.ini", "UI_Gamma_P1999Green.ini"}
+        calls = []
+        confirmations = []
+        monkeypatch.setattr(
+            dialog, "_confirm",
+            lambda title, text: confirmations.append((title, text)) or True)
+        monkeypatch.setattr(
+            dialog, "_run_or_queue",
+            lambda action, options: calls.append((action, options)) or True)
+        assert dialog.apply_selected_skin() is True
+        assert calls == [("skin", {
+            "skin_folder": skin,
+            "targets": [
+                "UI_Beta_P1999Blue.ini", "UI_Gamma_P1999Green.ini"],
+            "include_eqclient": False,
+        })]
+        assert "change only uiskin" in confirmations[0][1].casefold()
+        assert "inventory settings stay unchanged" in confirmations[0][1]
+        next_control = dialog.audit_refresh_button.nextInFocusChain()
+        while next_control.focusPolicy() == Qt.FocusPolicy.NoFocus:
+            next_control = next_control.nextInFocusChain()
+        assert next_control is dialog.audit_table
+
+        for filename in (
+                "UI_Beta_P1999Blue.ini", "UI_Gamma_P1999Green.ini"):
+            path = root / filename
+            path.write_text(
+                path.read_text(encoding="cp1252").replace(
+                    "UISkin=missing-skin", f"UISkin={skin}").replace(
+                    "UISkin=velious", f"UISkin={skin}"),
+                encoding="cp1252")
+        dialog._finish("skin", 2, "a" * 32)
+        assert "3/3 characters use" in dialog.status.text()
+        assert dialog.audit_table.rowCount() == 3
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+        QApplication.processEvents()
 
 
 def test_selected_and_available_folders_and_copy_command_are_exact(

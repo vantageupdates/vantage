@@ -16,10 +16,12 @@ import time
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog,
+    QDialogButtonBox,
     QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QProgressBar,
-    QPushButton, QVBoxLayout, QWidget)
+    QHeaderView, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit,
+    QProgressBar, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QWidget)
 
 from vantage.helpers import config
 from vantage.helpers.icons import game_icon
@@ -28,7 +30,8 @@ from vantage.helpers.portable import data_dir
 from vantage.helpers.responsive import ResponsiveActionBar
 from vantage.helpers import ui_skin_updater
 from vantage.helpers.ui_profile_manager import (
-    UIProfileError, apply_skin_to_all, copy_layout,
+    UIProfileError, apply_skin_to_all, apply_skin_to_profiles,
+    audit_character_profiles, copy_layout,
     discover_character_profiles, list_backups, read_elevated_profile_result,
     request_elevated_profile_action, restore_backup)
 
@@ -156,6 +159,7 @@ class CharacterUIManagerDialog(QDialog):
         super().__init__(panel)
         self.panel = panel
         self._profiles = ()
+        self._audits = ()
         self._skin = ""
         self._queued_action = None
         self._pending_elevation = None
@@ -180,18 +184,86 @@ class CharacterUIManagerDialog(QDialog):
         skin_card.setObjectName("VantageUICard")
         skin_layout = QGridLayout(skin_card)
         skin_layout.setContentsMargins(8, 7, 8, 7)
-        skin_title = QLabel("1 · Update every character")
+        skin_layout.setHorizontalSpacing(6)
+        skin_layout.setVerticalSpacing(5)
+        skin_title = QLabel("1 · Verify character VantageUI")
         skin_title.setObjectName("OpenDkpPanelTitle")
-        skin_layout.addWidget(skin_title, 0, 0, 1, 2)
+        skin_layout.addWidget(skin_title, 0, 0, 1, 5)
         self.skin_value = QLabel("No verified VantageUI selected")
         self.skin_value.setAccessibleName("VantageUI version for all characters")
-        skin_layout.addWidget(self.skin_value, 1, 0, 1, 2)
+        self.skin_value.setWordWrap(True)
+        skin_layout.addWidget(self.skin_value, 1, 0, 1, 4)
+        self.audit_refresh_button = QPushButton("Refresh / verify")
+        self.audit_refresh_button.setAccessibleName(
+            "Refresh and verify character VantageUI audit")
+        self.audit_refresh_button.setToolTip(
+            "Re-read every supported character UI INI and installed VantageUI folder")
+        self.audit_refresh_button.clicked.connect(self.refresh)
+        skin_layout.addWidget(self.audit_refresh_button, 1, 4)
+        audit_label = QLabel("Character audit")
+        self.audit_table = QTableWidget(0, 5)
+        self.audit_table.setHorizontalHeaderLabels((
+            "Use", "Character", "Server", "Configured skin", "Status"))
+        self.audit_table.setAccessibleName("Character VantageUI audit")
+        self.audit_table.setAccessibleDescription(
+            "Each row shows the character, configured skin, and whether it uses "
+            "the newest verified installed VantageUI folder")
+        self.audit_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows)
+        self.audit_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection)
+        self.audit_table.setSortingEnabled(True)
+        self.audit_table.setMinimumHeight(150)
+        self.audit_table.verticalHeader().setVisible(False)
+        header = self.audit_table.horizontalHeader()
+        header.setSectionsClickable(True)
+        header.setSectionsMovable(True)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setStretchLastSection(True)
+        audit_label.setBuddy(self.audit_table)
+        skin_layout.addWidget(audit_label, 2, 0, Qt.AlignmentFlag.AlignTop)
+        skin_layout.addWidget(self.audit_table, 2, 1, 1, 4)
         self.include_default = QCheckBox(
             "Also use this skin for new characters (eqclient.ini)")
         self.include_default.setChecked(True)
         self.include_default.setToolTip(
             "Updates only UISkin in eqclient.ini; all other game settings stay unchanged")
-        skin_layout.addWidget(self.include_default, 2, 0)
+        skin_layout.addWidget(self.include_default, 3, 0, 1, 3)
+        audit_actions = QHBoxLayout()
+        self.select_outdated_button = QPushButton("Select outdated")
+        self.select_outdated_button.setToolTip(
+            "Select characters that do not use the newest verified installed folder")
+        self.select_outdated_button.clicked.connect(self._select_outdated_profiles)
+        audit_actions.addWidget(self.select_outdated_button)
+        self.clear_audit_button = QPushButton("Clear selection")
+        self.clear_audit_button.setToolTip("Clear selected character audit rows")
+        self.clear_audit_button.clicked.connect(self._clear_audit_targets)
+        audit_actions.addWidget(self.clear_audit_button)
+        self.audit_sort_combo = QComboBox()
+        self.audit_sort_combo.setAccessibleName("Character audit sort column")
+        self.audit_sort_combo.setToolTip("Choose the character audit column to sort")
+        for label, column in (
+                ("Character", 1), ("Server", 2),
+                ("Configured skin", 3), ("Status", 4)):
+            self.audit_sort_combo.addItem(label, column)
+        self.audit_sort_combo.currentIndexChanged.connect(
+            self._audit_sort_column_changed)
+        audit_actions.addWidget(self.audit_sort_combo)
+        self.audit_sort_button = QPushButton("Sort descending")
+        self.audit_sort_button.setAccessibleName("Sort descending")
+        self.audit_sort_button.setToolTip(
+            "Sort the selected character audit column descending")
+        self.audit_sort_button.clicked.connect(self._sort_audit)
+        audit_actions.addWidget(self.audit_sort_button)
+        audit_actions.addStretch(1)
+        self.apply_selected_button = QPushButton("Apply to selected…")
+        self.apply_selected_button.setIcon(game_icon("ph-wand"))
+        self.apply_selected_button.setAccessibleName(
+            "Apply installed VantageUI to selected characters")
+        self.apply_selected_button.setToolTip(
+            "Back up selected INIs, then change only their UISkin value")
+        self.apply_selected_button.clicked.connect(self.apply_selected_skin)
+        audit_actions.addWidget(self.apply_selected_button)
         self.apply_all_button = QPushButton("Apply to all characters…")
         self.apply_all_button.setIcon(game_icon("ph-wand"))
         self.apply_all_button.setAccessibleName(
@@ -199,8 +271,9 @@ class CharacterUIManagerDialog(QDialog):
         self.apply_all_button.setToolTip(
             "Back up every affected INI, then change only its UISkin value")
         self.apply_all_button.clicked.connect(self.apply_skin)
-        skin_layout.addWidget(self.apply_all_button, 2, 1)
-        skin_layout.setColumnStretch(0, 1)
+        audit_actions.addWidget(self.apply_all_button)
+        skin_layout.addLayout(audit_actions, 4, 1, 1, 4)
+        skin_layout.setColumnStretch(1, 1)
         root.addWidget(skin_card)
 
         layout_card = QFrame()
@@ -245,7 +318,8 @@ class CharacterUIManagerDialog(QDialog):
         self.copy_layout_button.setAccessibleName(
             "Copy source UI layout to selected characters")
         self.copy_layout_button.setToolTip(
-            "Back up each target, then copy window and chat layout only")
+            "Back up each target, then copy window and chat layout while keeping "
+            "target filenames and identities")
         self.copy_layout_button.clicked.connect(self.apply_layout)
         target_actions.addWidget(self.copy_layout_button)
         layout_grid.addLayout(target_actions, 3, 1, 1, 2)
@@ -289,12 +363,33 @@ class CharacterUIManagerDialog(QDialog):
         buttons.rejected.connect(self.close)
         root.addWidget(buttons)
 
+        QWidget.setTabOrder(self.audit_refresh_button, self.audit_table)
+        QWidget.setTabOrder(self.audit_table, self.include_default)
+        QWidget.setTabOrder(self.include_default, self.select_outdated_button)
+        QWidget.setTabOrder(self.select_outdated_button, self.clear_audit_button)
+        QWidget.setTabOrder(self.clear_audit_button, self.audit_sort_combo)
+        QWidget.setTabOrder(self.audit_sort_combo, self.audit_sort_button)
+        QWidget.setTabOrder(self.audit_sort_button, self.apply_selected_button)
+        QWidget.setTabOrder(self.apply_selected_button, self.apply_all_button)
+        QWidget.setTabOrder(self.apply_all_button, self.source_combo)
+        QWidget.setTabOrder(self.source_combo, self.target_list)
+        QWidget.setTabOrder(self.target_list, self.select_all_button)
+        QWidget.setTabOrder(self.select_all_button, self.clear_targets_button)
+        QWidget.setTabOrder(self.clear_targets_button, self.copy_layout_button)
+        QWidget.setTabOrder(self.copy_layout_button, self.backup_combo)
+        QWidget.setTabOrder(self.backup_combo, self.restore_button)
+        QWidget.setTabOrder(
+            self.restore_button,
+            buttons.button(QDialogButtonBox.StandardButton.Close))
+
         self._game_timer = QTimer(self)
         self._game_timer.setInterval(1000)
         self._game_timer.timeout.connect(self._run_queued_when_game_closes)
         self._poll_timer = QTimer(self)
         self._poll_timer.setInterval(250)
         self._poll_timer.timeout.connect(self._poll_elevation)
+        self.audit_table.horizontalHeader().sortIndicatorChanged.connect(
+            self._audit_header_sort_changed)
         self.refresh()
 
     @property
@@ -308,14 +403,19 @@ class CharacterUIManagerDialog(QDialog):
             self._profiles = discover_character_profiles(root)
             skin = ui_skin_updater.installed_folder(root)
             self._skin = skin
+            available = str(getattr(self.panel._release, "version", "") or "")
+            self._audits = audit_character_profiles(
+                root, installed_folder=skin, available_version=available)
             backups = list_backups(self.state_directory, root)
         except (OSError, UIProfileError, ui_skin_updater.SkinUpdateError) as error:
-            self._profiles, self._skin, skin, backups = (), "", "", ()
+            self._profiles, self._audits = (), ()
+            self._skin, skin, backups = "", "", ()
             self._set_status(f"Cannot load character UI profiles · {error}", error=True)
         self.skin_value.setText(
             f"Selected: {skin} · {len(self._profiles)} characters detected"
             if skin else
             f"No verified VantageUI selected · {len(self._profiles)} characters detected")
+        self._populate_audit_table()
         self.source_combo.blockSignals(True)
         self.source_combo.clear()
         for profile in self._profiles:
@@ -338,12 +438,121 @@ class CharacterUIManagerDialog(QDialog):
                 backup.backup_id)
         ready = bool(skin and self._profiles)
         self.apply_all_button.setEnabled(ready)
+        self.apply_selected_button.setEnabled(ready)
+        self.select_outdated_button.setEnabled(bool(self._profiles))
+        self.clear_audit_button.setEnabled(bool(self._profiles))
         self.copy_layout_button.setEnabled(ready and len(self._profiles) > 1)
         self.restore_button.setEnabled(self.backup_combo.count() > 0)
         if ready and not self._queued_action and not self._pending_elevation:
             self._set_status(
-                f"Ready · {len(self._profiles)} character UI profiles · backups enabled",
+                self._audit_summary(),
                 announce=False)
+
+    def _populate_audit_table(self):
+        checked = set(self._checked_audit_targets())
+        self.audit_table.setSortingEnabled(False)
+        self.audit_table.setRowCount(0)
+        for audit in self._audits:
+            row = self.audit_table.rowCount()
+            self.audit_table.insertRow(row)
+            choose = QTableWidgetItem("")
+            choose.setData(Qt.ItemDataRole.UserRole, audit.profile.filename)
+            choose.setData(
+                Qt.ItemDataRole.AccessibleTextRole,
+                f"Select {audit.profile.label}")
+            choose.setData(Qt.ItemDataRole.AccessibleDescriptionRole, audit.detail)
+            choose.setFlags(choose.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            choose.setCheckState(
+                Qt.CheckState.Checked if audit.profile.filename in checked else
+                Qt.CheckState.Unchecked)
+            choose.setToolTip(audit.detail)
+            values = (
+                audit.profile.character, audit.profile.label.split(" · ")[-1],
+                audit.profile.skin or "Not set", audit.status)
+            self.audit_table.setItem(row, 0, choose)
+            for column, value in enumerate(values, start=1):
+                item = QTableWidgetItem(value)
+                item.setData(Qt.ItemDataRole.UserRole, audit.profile.filename)
+                item.setData(
+                    Qt.ItemDataRole.AccessibleDescriptionRole, audit.detail)
+                item.setToolTip(audit.detail)
+                self.audit_table.setItem(row, column, item)
+        self.audit_table.setSortingEnabled(True)
+        self.audit_table.sortItems(1, Qt.SortOrder.AscendingOrder)
+        self._update_audit_sort_button()
+
+    def _audit_sort_column_changed(self, _index):
+        column = int(self.audit_sort_combo.currentData() or 1)
+        self.audit_table.sortItems(column, Qt.SortOrder.AscendingOrder)
+        self._update_audit_sort_button()
+
+    def _audit_header_sort_changed(self, column, _order):
+        index = self.audit_sort_combo.findData(column)
+        if index >= 0 and self.audit_sort_combo.currentIndex() != index:
+            self.audit_sort_combo.blockSignals(True)
+            self.audit_sort_combo.setCurrentIndex(index)
+            self.audit_sort_combo.blockSignals(False)
+        self._update_audit_sort_button()
+
+    def _update_audit_sort_button(self):
+        order = self.audit_table.horizontalHeader().sortIndicatorOrder()
+        next_order = (
+            Qt.SortOrder.DescendingOrder
+            if order == Qt.SortOrder.AscendingOrder else
+            Qt.SortOrder.AscendingOrder)
+        label = (
+            "Sort descending" if next_order == Qt.SortOrder.DescendingOrder
+            else "Sort ascending")
+        self.audit_sort_button.setText(label)
+        self.audit_sort_button.setAccessibleName(label)
+        self.audit_sort_button.setToolTip(
+            f"{label} by {self.audit_sort_combo.currentText()}")
+
+    def _sort_audit(self):
+        column = int(self.audit_sort_combo.currentData() or 1)
+        current = self.audit_table.horizontalHeader().sortIndicatorOrder()
+        order = (
+            Qt.SortOrder.DescendingOrder
+            if current == Qt.SortOrder.AscendingOrder else
+            Qt.SortOrder.AscendingOrder)
+        self.audit_table.sortItems(column, order)
+        self.audit_table.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _checked_audit_targets(self):
+        targets = []
+        for row in range(self.audit_table.rowCount()):
+            item = self.audit_table.item(row, 0)
+            if item is not None and item.checkState() == Qt.CheckState.Checked:
+                targets.append(str(item.data(Qt.ItemDataRole.UserRole) or ""))
+        return [target for target in targets if target]
+
+    def _select_outdated_profiles(self):
+        outdated = {
+            audit.profile.filename for audit in self._audits if not audit.current}
+        for row in range(self.audit_table.rowCount()):
+            item = self.audit_table.item(row, 0)
+            item.setCheckState(
+                Qt.CheckState.Checked
+                if item.data(Qt.ItemDataRole.UserRole) in outdated else
+                Qt.CheckState.Unchecked)
+        self._set_status(f"Selected {len(outdated)} outdated character profiles")
+
+    def _clear_audit_targets(self):
+        for row in range(self.audit_table.rowCount()):
+            self.audit_table.item(row, 0).setCheckState(Qt.CheckState.Unchecked)
+        self._set_status("Character selection cleared")
+
+    def _audit_summary(self):
+        current = sum(1 for audit in self._audits if audit.current)
+        total = len(self._audits)
+        available = str(getattr(self.panel._release, "version", "") or "")
+        installed = self._skin[len("VantageUI-v"):] if self._skin else ""
+        release_note = (
+            f" · newer release {available} available but not installed"
+            if version_is_newer(installed, available) else "")
+        return (
+            f"Audit complete · {current}/{total} characters use "
+            f"{self._skin or 'no verified installed VantageUI'}{release_note}")
 
     def _rebuild_targets(self):
         source = str(self.source_combo.currentData() or "")
@@ -420,6 +629,30 @@ class CharacterUIManagerDialog(QDialog):
             "skin_folder": skin,
             "include_eqclient": self.include_default.isChecked()})
 
+    def apply_selected_skin(self):
+        root = normalize_eq_root(self.panel.path_edit.text())
+        try:
+            skin = ui_skin_updater.installed_folder(root)
+        except (OSError, ui_skin_updater.SkinUpdateError) as error:
+            self._set_status(f"Cannot verify VantageUI · {error}", error=True)
+            return False
+        targets = self._checked_audit_targets()
+        if not skin or not targets:
+            self._set_status(
+                "Select at least one character with an installed VantageUI",
+                error=True)
+            return False
+        if not self._confirm(
+                "Apply installed VantageUI to selected characters",
+                f"Change only UISkin to {skin} in {len(targets)} selected "
+                "character INI files?\n\nEvery affected file is backed up first. "
+                "Window positions, macros, socials, friends, hotkeys, and "
+                "inventory settings stay unchanged."):
+            return False
+        return self._run_or_queue("skin", {
+            "skin_folder": skin, "targets": targets,
+            "include_eqclient": False})
+
     def apply_layout(self):
         root = normalize_eq_root(self.panel.path_edit.text())
         try:
@@ -437,8 +670,9 @@ class CharacterUIManagerDialog(QDialog):
                 "Copy character UI layout",
                 f"Copy {source_label}'s complete window and chat layout to "
                 f"{len(targets)} selected characters?\n\nEach target is backed up "
-                "first. Character macros, socials, friends, and hotkeys are in "
-                "separate files and are never copied."):
+                "first. Target filenames and character identities are preserved. "
+                "Macros, socials, friends, hotkeys, and inventory settings are "
+                "never copied."):
             return False
         return self._run_or_queue("layout", {
             "skin_folder": skin, "source": source, "targets": targets})
@@ -496,9 +730,16 @@ class CharacterUIManagerDialog(QDialog):
         self.progress.setFormat("Working…")
         try:
             if action == "skin":
-                result = apply_skin_to_all(
-                    root, options["skin_folder"], self.state_directory,
-                    include_eqclient=bool(options.get("include_eqclient", True)))
+                targets = options.get("targets")
+                if targets is None:
+                    result = apply_skin_to_all(
+                        root, options["skin_folder"], self.state_directory,
+                        include_eqclient=bool(
+                            options.get("include_eqclient", True)))
+                else:
+                    result = apply_skin_to_profiles(
+                        root, options["skin_folder"], targets,
+                        self.state_directory, include_eqclient=False)
             elif action == "layout":
                 result = copy_layout(
                     root, options["skin_folder"], options["source"],
@@ -591,16 +832,20 @@ class CharacterUIManagerDialog(QDialog):
         self.refresh()
         self._set_status(
             f"{labels.get(action, 'Operation complete')} · {changed} files · "
-            f"restore point {backup_id[:8]}")
+            f"restore point {backup_id[:8]} · {self._audit_summary()}")
 
     def _set_busy(self, busy):
         for control in (
                 self.include_default, self.backup_combo, self.source_combo,
                 self.target_list, self.select_all_button,
-                self.clear_targets_button):
+                self.clear_targets_button, self.audit_refresh_button,
+                self.audit_table, self.select_outdated_button,
+                self.clear_audit_button, self.audit_sort_combo,
+                self.audit_sort_button):
             control.setEnabled(not busy)
         ready = bool(self._skin and self._profiles)
         self.apply_all_button.setEnabled(not busy and ready)
+        self.apply_selected_button.setEnabled(not busy and ready)
         self.copy_layout_button.setEnabled(
             not busy and ready and len(self._profiles) > 1)
         self.restore_button.setEnabled(

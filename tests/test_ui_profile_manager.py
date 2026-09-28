@@ -46,6 +46,43 @@ def test_discovery_only_returns_character_ui_profiles(eq_install):
     ]
 
 
+def test_audit_distinguishes_current_different_missing_and_available(eq_install):
+    root, skin, _state = eq_install
+    (root / "uifiles" / "velious").mkdir()
+    (root / "UI_Current_P1999Green.ini").write_bytes(
+        _profile("Current", "P1999Green", skin, 42))
+
+    audited = profiles.audit_character_profiles(
+        root, installed_folder=skin, available_version="1.44.71")
+    by_name = {item.profile.character: item for item in audited}
+
+    assert by_name["Current"].status == "Current installed"
+    assert by_name["Current"].current is True
+    assert "newer release 1.44.71 available, not installed" in (
+        by_name["Current"].detail)
+    assert by_name["Alpha"].status == "Different installed skin"
+    assert by_name["Alpha"].referenced_folder_exists is True
+    assert by_name["Beta"].status == "Referenced folder missing"
+    assert by_name["Beta"].referenced_folder_exists is False
+
+
+def test_apply_skin_to_selected_profiles_preserves_unselected_and_defaults(
+        eq_install):
+    root, skin, state = eq_install
+    alpha = root / "UI_Alpha_P1999Green.ini"
+    beta = root / "UI_Beta_P1999Blue.ini"
+    eqclient = root / "eqclient.ini"
+    before = {path: path.read_bytes() for path in (alpha, beta, eqclient)}
+
+    result = profiles.apply_skin_to_profiles(
+        root, skin, [beta.name], state, include_eqclient=False)
+
+    assert result.filenames == (beta.name,)
+    assert alpha.read_bytes() == before[alpha]
+    assert eqclient.read_bytes() == before[eqclient]
+    assert f"UISkin={skin}" in beta.read_text(encoding="cp1252")
+
+
 def test_apply_skin_changes_only_uiskin_and_creates_restore_point(eq_install):
     root, skin, state = eq_install
     alpha_path = root / "UI_Alpha_P1999Green.ini"
@@ -83,7 +120,11 @@ def test_copy_layout_copies_only_ui_file_and_restore_is_reversible(eq_install):
     beta = root / "UI_Beta_P1999Blue.ini"
     beta_before = beta.read_bytes()
     character_settings = root / "Alpha_P1999Green.ini"
+    target_settings = root / "Beta_P1999Blue.ini"
+    target_settings.write_bytes(
+        b"[Inventory]\r\nSlot1=Fine Steel Sword\r\n[Socials]\r\nPage1=WTB\r\n")
     settings_before = character_settings.read_bytes()
+    target_settings_before = target_settings.read_bytes()
 
     copied = profiles.copy_layout(
         root, skin, "UI_Alpha_P1999Green.ini",
@@ -94,6 +135,9 @@ def test_copy_layout_copies_only_ui_file_and_restore_is_reversible(eq_install):
     assert "XPos=11" in copied_text
     assert f"UISkin={skin}" in copied_text
     assert character_settings.read_bytes() == settings_before
+    assert target_settings.read_bytes() == target_settings_before
+    assert beta.name == "UI_Beta_P1999Blue.ini"
+    assert (root / "UI_Alpha_P1999Green.ini").is_file()
 
     restored = profiles.restore_backup(root, state, copied.backup_id)
     assert restored.action == "restore"

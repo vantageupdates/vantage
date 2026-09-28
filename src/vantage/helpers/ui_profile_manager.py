@@ -51,6 +51,15 @@ class CharacterUIProfile:
 
 
 @dataclass(frozen=True)
+class CharacterUIAudit:
+    profile: CharacterUIProfile
+    status: str
+    detail: str
+    current: bool
+    referenced_folder_exists: bool
+
+
+@dataclass(frozen=True)
 class ProfileOperationResult:
     action: str
     changed: int
@@ -168,6 +177,63 @@ def _profile_paths(root):
         for profile in discover_character_profiles(root)}
 
 
+def _version_key(value):
+    try:
+        parts = tuple(int(part) for part in str(value or "").split("."))
+    except (TypeError, ValueError):
+        return (0, 0, 0)
+    return parts if len(parts) == 3 else (0, 0, 0)
+
+
+def audit_character_profiles(eq_root, installed_folder=None,
+                             available_version=""):
+    """Audit every supported character INI against the verified installation."""
+    root = _validated_eq_root(eq_root)
+    selected = (ui_skin_updater.installed_folder(root)
+                if installed_folder is None else str(installed_folder or ""))
+    if selected:
+        _selected_skin(root, selected)
+    installed_version = (
+        selected[len("VantageUI-v"):] if _SKIN_RX.fullmatch(selected) else "")
+    newer_available = (
+        bool(available_version) and
+        _version_key(available_version) > _version_key(installed_version))
+    available_note = (
+        f" · newer release {available_version} available, not installed"
+        if newer_available else "")
+    audits = []
+    for profile in discover_character_profiles(root):
+        configured = str(profile.skin or "").strip()
+        referenced = root / "uifiles" / configured if configured else None
+        exists = bool(
+            referenced and referenced.is_dir() and not referenced.is_symlink())
+        if selected and configured.casefold() == selected.casefold():
+            status = "Current installed"
+            detail = f"Uses newest verified installed folder {selected}{available_note}"
+            current = True
+        elif not configured:
+            status = "No UISkin setting"
+            detail = (
+                f"No UISkin is configured; newest verified installed folder is "
+                f"{selected or 'not installed'}{available_note}")
+            current = False
+        elif not exists:
+            status = "Referenced folder missing"
+            detail = (
+                f"Configured folder {configured} is missing; newest verified "
+                f"installed folder is {selected or 'not installed'}{available_note}")
+            current = False
+        else:
+            status = "Different installed skin"
+            detail = (
+                f"Uses {configured}; newest verified installed folder is "
+                f"{selected or 'not installed'}{available_note}")
+            current = False
+        audits.append(CharacterUIAudit(
+            profile, status, detail, current, exists))
+    return tuple(audits)
+
+
 def _selected_skin(root, requested):
     requested = str(requested or "")
     if not _SKIN_RX.fullmatch(requested):
@@ -261,17 +327,27 @@ def _backup_and_apply(root, state_dir, action, label, updates):
         tuple(path.name for path in changed))
 
 
-def apply_skin_to_all(
-        eq_root, skin_folder, state_dir, *, include_eqclient=True,
-        allow_no_changes=False):
-    """Set only UISkin for every P99 character UI profile, with one backup."""
+def apply_skin_to_profiles(
+        eq_root, skin_folder, target_filenames, state_dir, *,
+        include_eqclient=False, allow_no_changes=False):
+    """Set only UISkin for selected P99 character profiles, with one backup."""
     if ui_skin_updater.game_running():
         raise UIProfileError("Close EverQuest before changing character UI files")
     root = _validated_eq_root(eq_root)
     skin_folder = _selected_skin(root, skin_folder)
+    paths = _profile_paths(root)
+    selected = []
+    seen = set()
+    for filename in target_filenames or ():
+        folded = str(filename).casefold()
+        path = paths.get(folded)
+        if path is None:
+            raise UIProfileError("A selected character UI profile is invalid")
+        if folded not in seen:
+            selected.append(path)
+            seen.add(folded)
     updates = []
-    for profile in discover_character_profiles(root):
-        path = root / profile.filename
+    for path in selected:
         original = _read_bytes(path)
         updated = _set_skin(original, skin_folder)
         if updated != original:
@@ -286,10 +362,22 @@ def apply_skin_to_all(
     if not updates and allow_no_changes:
         return ProfileOperationResult("skin", 0, "", ())
     if not updates:
-        raise UIProfileError("Every detected character already uses this VantageUI")
+        raise UIProfileError("Every selected character already uses this VantageUI")
     return _backup_and_apply(
-        root, state_dir, "skin", f"Apply {skin_folder} to all characters",
+        root, state_dir, "skin", f"Apply {skin_folder} to selected characters",
         updates)
+
+
+def apply_skin_to_all(
+        eq_root, skin_folder, state_dir, *, include_eqclient=True,
+        allow_no_changes=False):
+    """Set only UISkin for every P99 character UI profile, with one backup."""
+    root = _validated_eq_root(eq_root)
+    targets = [profile.filename for profile in discover_character_profiles(root)]
+    return apply_skin_to_profiles(
+        root, skin_folder, targets, state_dir,
+        include_eqclient=include_eqclient,
+        allow_no_changes=allow_no_changes)
 
 
 def copy_layout(eq_root, skin_folder, source_filename, target_filenames,
@@ -458,9 +546,17 @@ def process_elevated_profile_request(request_path, nonce):
         root = payload.get("eq_root", "")
         state = data_dir("ui-profile-backups")
         if action == "skin":
-            operation = apply_skin_to_all(
-                root, options.get("skin_folder", ""), state,
-                include_eqclient=bool(options.get("include_eqclient", True)))
+            targets = options.get("targets")
+            if targets is None:
+                operation = apply_skin_to_all(
+                    root, options.get("skin_folder", ""), state,
+                    include_eqclient=bool(options.get("include_eqclient", True)))
+            else:
+                if not isinstance(targets, list) or len(targets) > MAX_PROFILES:
+                    raise UIProfileError("UI profile targets are invalid")
+                operation = apply_skin_to_profiles(
+                    root, options.get("skin_folder", ""), targets, state,
+                    include_eqclient=bool(options.get("include_eqclient", False)))
         elif action == "layout":
             targets = options.get("targets")
             if not isinstance(targets, list) or len(targets) > MAX_PROFILES:
