@@ -1021,3 +1021,8 @@ independent accessibility review: PASS
   compilation, whitespace/diff validation, English-copy audit, version audit,
   and `ui/**` isolation: **PASS**. Release remains
   stopped for the final independent accessibility/UI re-review.
+- Final independent review at commit `fa98d3445529e35f48e84fd3298e9762391590a2`:
+  **Genuine accessibility PASS** and **UI-polish APPROVE**, with an independent
+  **228 focused tests passed**. The exact post-review release candidate then
+  completed a clean full suite: **1,621 passed, 2 skipped** in **742.47 seconds**.
+  These are the final pre-build results for Companion **1.44.112**.
