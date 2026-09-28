@@ -766,7 +766,7 @@ independent accessibility review: PASS
   Annotated tag `v1.44.109` dereferences to release commit
   `d1a2afa53b1be3c81b25b55fbdc2c148771630d1`.
 
-## 1.44.110 pre-release evidence
+## 1.44.110 release evidence
 
 - Master Mute is applied from every settings/config update, including synced
   configuration changes. The centralized playback gate still covers the only
@@ -814,4 +814,12 @@ independent accessibility review: PASS
 - Candidate `dist/Vantage.exe` Windows file/product version: **1.44.110**.
   Size: **75,741,322 bytes**. SHA-256:
   `EABEAC655A11CC1348B9D7380ED28D781A6A7BF0377A07E92B8784B915C50614`.
-- Public release verification is pending publication below.
+- Public release verification: **PASS**. Stable/latest release URL:
+  <https://github.com/vantageupdates/vantage/releases/tag/v1.44.110>.
+  The release is neither draft nor prerelease and contains exactly one asset,
+  `Vantage.exe`. GitHub reports **75,741,322 bytes** and digest
+  `sha256:eabeac655a11cc1348b9d7380ed28d781a6a7bf0377a07e92b8784b915c50614`.
+- A fresh unauthenticated download reports file/product version **1.44.110**
+  and matches the tested candidate size and SHA-256 byte-for-byte.
+- Annotated tag `v1.44.110` dereferences to release commit
+  `a30a7f7e135ca2360170d59b09786f8e2fbe6926`.
