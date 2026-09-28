@@ -1026,3 +1026,11 @@ independent accessibility review: PASS
   **228 focused tests passed**. The exact post-review release candidate then
   completed a clean full suite: **1,621 passed, 2 skipped** in **742.47 seconds**.
   These are the final pre-build results for Companion **1.44.112**.
+- The one-file `vantage.spec` build completed with PyInstaller **6.22.2**.
+  The isolated portable self-test exited **0**, wrote its marker only inside a
+  fresh `VANTAGE_DATA_DIR`, and reported **1.44.112**. Recursive archive checks
+  confirmed the application/audio/raid/OpenDKP modules, Windows SAPI and WinRT
+  Text-to-Speech plugins, built-in WAV gallery, and all four required legal
+  documents. Windows file and product versions both report **1.44.112**.
+  Candidate `Vantage.exe`: **75,776,656 bytes**, SHA-256
+  `26ED478046CB077D60B1408F4074444219209DE440C74BB16F1E7E6D991BE389`.
