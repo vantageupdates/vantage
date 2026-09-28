@@ -5,6 +5,7 @@ import json
 from types import SimpleNamespace
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QAccessible
 from PySide6.QtWidgets import (
     QApplication, QGroupBox, QHeaderView, QLabel, QMessageBox, QWidget)
 
@@ -243,10 +244,23 @@ def test_my_raids_editor_and_sort_controls_are_keyboard_accessible(tmp_path):
         assert widget.raid_notes.isEnabled() is False
         assert widget.raid_remote_id.isEnabled() is False
         assert widget.raid_delete_button.isEnabled() is False
-        assert widget.raid_delete_button.text() == "Discard empty raid"
+        assert widget.raid_delete_button.text() == "Delete local raid…"
         assert widget.raid_delete_button.accessibleName() == (
-            "Discard empty raid")
-        assert widget.raid_delete_button.toolTip()
+            "Delete local raid…")
+        assert widget.raid_delete_button.toolTip() == (
+            "Select a private local raid to review before deletion")
+        delete_interface = QAccessible.queryAccessibleInterface(
+            widget.raid_delete_button)
+        assert delete_interface.text(QAccessible.Text.Name) == (
+            "Delete local raid…")
+        assert delete_interface.text(QAccessible.Text.Description) == (
+            widget.raid_delete_button.toolTip())
+        start_interface = QAccessible.queryAccessibleInterface(
+            widget.raid_start_button)
+        assert widget.raid_start_button.text() == "View active raid"
+        assert start_interface.text(QAccessible.Text.Name) == "View active raid"
+        assert start_interface.text(QAccessible.Text.Description) == (
+            "Select the active private raid session in raid history")
         assert widget.raid_selected_summary.text() == "No local raid selected"
         assert widget.raid_selected_summary.accessibleDescription()
         assert widget.raid_sort_column.focusPolicy() & Qt.FocusPolicy.TabFocus
@@ -353,6 +367,10 @@ def test_empty_active_raid_can_be_discarded_and_returns_focus_to_start(
         app.processEvents()
         assert widget.raid_delete_button.text() == "Discard empty raid"
         assert widget.raid_delete_button.accessibleName() == "Discard empty raid"
+        delete_interface = QAccessible.queryAccessibleInterface(
+            widget.raid_delete_button)
+        assert delete_interface.text(QAccessible.Text.Description) == (
+            "Discard the selected empty private local raid after confirmation")
 
         assert widget._delete_selected_raid() is True
         app.processEvents()
@@ -360,6 +378,11 @@ def test_empty_active_raid_can_be_discarded_and_returns_focus_to_start(
         assert widget.raid_ledger.session(session["id"]) is None
         assert widget.raid_ledger.active_session("Mindflux", "Green") is None
         assert widget.raid_start_button.text() == "Start raid"
+        start_interface = QAccessible.queryAccessibleInterface(
+            widget.raid_start_button)
+        assert start_interface.text(QAccessible.Text.Name) == "Start raid"
+        assert start_interface.text(QAccessible.Text.Description) == (
+            "Start a private local raid session for the active EverQuest character")
         assert app.focusWidget() is widget.raid_start_button
         assert "only Vantage's private local record" in prompts[0][2]
         assert "does not change OpenDKP or EverQuest logs" in prompts[0][2]
@@ -393,6 +416,13 @@ def test_evidence_raid_delete_confirmation_cancel_and_failure_preserve_record(
         widget._populate_my_raids(select_id=session["id"])
         selected_before = widget._selected_my_raid()["id"]
         assert widget.raid_delete_button.text() == "Delete local raid…"
+        delete_interface = QAccessible.queryAccessibleInterface(
+            widget.raid_delete_button)
+        assert delete_interface.text(QAccessible.Text.Name) == (
+            "Delete local raid…")
+        assert delete_interface.text(QAccessible.Text.Description) == (
+            "Delete only the selected private Vantage raid record after "
+            "reviewing its evidence counts")
         assert "1 tick" in widget.raid_selected_summary.text()
 
         assert widget._delete_selected_raid() is False
@@ -473,6 +503,11 @@ def test_start_raid_selects_and_focuses_existing_active_session(tmp_path):
         app.processEvents()
         assert widget.raid_start_button.text() == "View active raid"
         assert widget.raid_start_button.isEnabled()
+        start_interface = QAccessible.queryAccessibleInterface(
+            widget.raid_start_button)
+        assert start_interface.text(QAccessible.Text.Name) == "View active raid"
+        assert start_interface.text(QAccessible.Text.Description) == (
+            "Select the active private raid session in raid history")
 
         assert widget._start_raid() is True
         app.processEvents()
@@ -488,6 +523,69 @@ def test_start_raid_selects_and_focuses_existing_active_session(tmp_path):
         widget.deleteLater()
         app.processEvents()
 
+
+def test_delete_raid_preserves_visual_neighbor_across_custom_sorts(
+        tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    widget, page = _delete_raid_harness(tmp_path)
+    sessions = {}
+    for offset, character in enumerate(("Alpha", "Bravo", "Charlie", "Delta")):
+        session = widget.raid_ledger.start_session(
+            datetime.datetime(2026, 9, 20 + offset, 20, 0),
+            character, "Green", "Kael")
+        widget.raid_ledger.end_session(
+            session["id"], datetime.datetime(2026, 9, 20 + offset, 22, 0))
+        sessions[character] = session
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        lambda *_args: QMessageBox.StandardButton.Yes)
+
+    def select_character(name):
+        for row in range(widget.my_raids_table.rowCount()):
+            if widget.my_raids_table.item(row, 2).text() == name:
+                widget.my_raids_table.selectRow(row)
+                widget.my_raids_table.setCurrentCell(row, 0)
+                app.processEvents()
+                return row
+        raise AssertionError(f"Missing visual row for {name}")
+
+    try:
+        page.show()
+        widget._populate_my_raids()
+        widget.my_raids_table.sortItems(2, Qt.SortOrder.AscendingOrder)
+        app.processEvents()
+        assert select_character("Bravo") == 1
+        assert widget._delete_selected_raid() is True
+        app.processEvents()
+        assert widget._selected_my_raid()["id"] == sessions["Charlie"]["id"]
+        assert "Charlie" in widget.raid_selected_summary.text()
+        assert app.focusWidget() is widget.my_raids_table
+
+        widget.my_raids_table.sortItems(2, Qt.SortOrder.DescendingOrder)
+        app.processEvents()
+        assert select_character("Charlie") == 1
+        assert widget._delete_selected_raid() is True
+        app.processEvents()
+        assert widget._selected_my_raid()["id"] == sessions["Alpha"]["id"]
+        assert "Alpha" in widget.raid_selected_summary.text()
+
+        widget.my_raids_table.sortItems(2, Qt.SortOrder.AscendingOrder)
+        app.processEvents()
+        assert select_character("Delta") == 1
+        assert widget._delete_selected_raid() is True
+        app.processEvents()
+        assert widget._selected_my_raid()["id"] == sessions["Alpha"]["id"]
+
+        assert widget._delete_selected_raid() is True
+        app.processEvents()
+        assert widget.my_raids_table.rowCount() == 0
+        assert widget.raid_selected_summary.text() == "No local raid selected"
+        assert app.focusWidget() is widget.raid_start_button
+    finally:
+        widget.raid_ledger.close()
+        page.deleteLater()
+        widget.deleteLater()
+        app.processEvents()
 
 def test_my_raids_status_announcements_are_polite_and_deduplicated():
     app = QApplication.instance() or QApplication([])

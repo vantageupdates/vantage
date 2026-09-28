@@ -940,10 +940,12 @@ class OpenDKP(ParserWindow):
             "Identifies the private local raid affected by the adjacent action")
         editor_layout.addWidget(self.raid_selected_summary, 3, 0, 1, 3)
         self.raid_delete_button = self._make_button(
-            "Discard empty raid", "trash", self._delete_selected_raid,
-            "Discard the selected empty private local raid after confirmation")
+            "Delete local raid…", "trash", self._delete_selected_raid,
+            "Select a private local raid to review before deletion")
         self.raid_delete_button.setObjectName("DangerAction")
-        self.raid_delete_button.setAccessibleName("Discard empty raid")
+        self.raid_delete_button.setAccessibleName("Delete local raid…")
+        self.raid_delete_button.setAccessibleDescription(
+            "Select a private local raid to review before deletion")
         self.raid_delete_button.setEnabled(False)
         editor_layout.addWidget(self.raid_delete_button, 3, 3)
         editor_layout.setColumnStretch(1, 1)
@@ -1689,7 +1691,11 @@ class OpenDKP(ParserWindow):
     def _selected_my_raid(self):
         if not hasattr(self, "my_raids_table"):
             return None
-        row = self.my_raids_table.currentRow()
+        return self._my_raid_at_row(self.my_raids_table.currentRow())
+
+    def _my_raid_at_row(self, row):
+        if not hasattr(self, "my_raids_table"):
+            return None
         item = self.my_raids_table.item(row, 0) if row >= 0 else None
         source = item.data(Qt.ItemDataRole.UserRole) if item is not None else None
         return source if isinstance(source, dict) else None
@@ -1756,11 +1762,14 @@ class OpenDKP(ParserWindow):
         if hasattr(self, "raid_start_button"):
             self.raid_start_button.setEnabled(bool(character))
             start_label = "View active raid" if active is not None else "Start raid"
+            start_description = (
+                "Select the active private raid session in raid history" if
+                active is not None else
+                "Start a private local raid session for the active EverQuest character")
             self.raid_start_button.setText(start_label)
             self.raid_start_button.setAccessibleName(start_label)
-            self.raid_start_button.setToolTip(
-                "Select the active private raid session" if active is not None else
-                "Start a local raid session for the active EverQuest character")
+            self.raid_start_button.setToolTip(start_description)
+            self.raid_start_button.setAccessibleDescription(start_description)
             self.raid_end_button.setEnabled(active is not None)
             self.raid_tick_button.setEnabled(active is not None)
             self.raid_refresh_button.setEnabled(
@@ -1845,17 +1854,22 @@ class OpenDKP(ParserWindow):
         if not hasattr(self, "raid_delete_button"):
             return
         enabled = session is not None
-        label = "Discard empty raid"
-        tooltip = "Discard the selected empty private local raid after confirmation"
-        if enabled and not self._raid_delete_details(session)["empty"]:
+        label = "Delete local raid…"
+        description = "Select a private local raid to review before deletion"
+        if enabled and self._raid_delete_details(session)["empty"]:
+            label = "Discard empty raid"
+            description = (
+                "Discard the selected empty private local raid after confirmation")
+        elif enabled:
             label = "Delete local raid…"
-            tooltip = (
+            description = (
                 "Delete only the selected private Vantage raid record after "
                 "reviewing its evidence counts")
         self.raid_delete_button.setEnabled(enabled)
         self.raid_delete_button.setText(label)
         self.raid_delete_button.setAccessibleName(label)
-        self.raid_delete_button.setToolTip(tooltip)
+        self.raid_delete_button.setToolTip(description)
+        self.raid_delete_button.setAccessibleDescription(description)
 
     def _delete_selected_raid(self):
         session = self._selected_my_raid()
@@ -1898,6 +1912,10 @@ class OpenDKP(ParserWindow):
             self.raid_delete_button.setFocus(Qt.FocusReason.OtherFocusReason)
             return False
         old_row = self.my_raids_table.currentRow()
+        adjacent = self._my_raid_at_row(old_row + 1)
+        if adjacent is None:
+            adjacent = self._my_raid_at_row(old_row - 1)
+        adjacent_id = adjacent.get("id") if adjacent is not None else None
         was_active = not bool(session.get("ended_at"))
         if not self.raid_ledger.delete_session(session["id"]):
             detail = self.raid_ledger.error or "database write failed"
@@ -1906,17 +1924,16 @@ class OpenDKP(ParserWindow):
                 "error", announce=True)
             self.raid_delete_button.setFocus(Qt.FocusReason.OtherFocusReason)
             return False
-        remaining = self.raid_ledger.sessions(limit=500)
         next_session = (
-            remaining[min(max(0, old_row), len(remaining) - 1)]
-            if remaining else None)
+            self.raid_ledger.session(adjacent_id)
+            if adjacent_id is not None else None)
         self._suppress_raid_selection_announcement = True
         try:
             self._populate_my_raids(
                 select_id=next_session["id"] if next_session else None)
             if next_session is None:
                 self.my_raids_table.clearSelection()
-                self._my_raid_selected()
+            self._my_raid_selected()
         finally:
             self._suppress_raid_selection_announcement = False
         verb = "Discarded empty" if empty else "Deleted"

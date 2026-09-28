@@ -1004,3 +1004,20 @@ independent accessibility review: PASS
   is the release-candidate result.
 - Final accessibility/UI re-review remains pending. No build, self-test, push,
   tag, or release has been performed.
+- Raid deletion follow-up: every dynamic Start/View and Discard/Delete state now
+  derives its visible label, accessible name, tooltip, and accessible
+  description from the same state description. Runtime `QAccessible` checks
+  cover Start, View active raid, the disabled no-selection state, Discard empty
+  raid, and Delete local raid. The deletion workflow now captures the exact
+  next visible session (or previous visible session at the end) before the
+  database change, then reselects that ID after repopulation. This preserves the
+  user's visual context under custom ascending or descending table sorts and
+  refreshes the selected-raid summary without stale content.
+- Post-remediation combined raid/audio/accessibility verification:
+  **228 passed** in **59.65 seconds**. The focused visual-order and accessible
+  state subset passed **6 tests** in **7.52 seconds** before the final Start
+  state assertion was added; that exact subset was rerun afterward with
+  **6 passed** in **7.96 seconds**. Python
+  compilation, whitespace/diff validation, English-copy audit, version audit,
+  and `ui/**` isolation: **PASS**. Release remains
+  stopped for the final independent accessibility/UI re-review.
