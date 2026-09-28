@@ -13,7 +13,8 @@ from PySide6.QtCore import QByteArray, QObject, Qt, Signal
 from PySide6.QtGui import QAccessible
 from PySide6.QtNetwork import QNetworkReply, QNetworkRequest
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLineEdit
+from PySide6.QtWidgets import (
+    QAbstractItemView, QApplication, QLineEdit, QMessageBox)
 
 from vantage.helpers import config, ui_skin_updater
 from vantage.helpers.application import SettingsSignals
@@ -412,6 +413,8 @@ def test_character_ui_manager_audit_is_accessible_sortable_and_actionable(
     try:
         assert dialog.audit_table.rowCount() == 3
         assert dialog.audit_table.isSortingEnabled()
+        assert dialog.audit_table.editTriggers() == (
+            QAbstractItemView.EditTrigger.NoEditTriggers)
         assert dialog.audit_table.horizontalHeader().sectionsMovable()
         assert dialog.audit_table.accessibleName() == "Character VantageUI audit"
         interface = QAccessible.queryAccessibleInterface(dialog.audit_table)
@@ -425,7 +428,7 @@ def test_character_ui_manager_audit_is_accessible_sortable_and_actionable(
             "Beta": "Referenced folder missing",
             "Gamma": "Different installed skin",
         }
-        assert "1/3 characters" in dialog.status.text()
+        assert "1/3 current" in dialog.status.text()
         assert "newer release 1.44.113 available but not installed" in (
             dialog.status.text())
         assert dialog.audit_sort_button.text() == "Sort descending"
@@ -466,6 +469,8 @@ def test_character_ui_manager_audit_is_accessible_sortable_and_actionable(
         })]
         assert "change only uiskin" in confirmations[0][1].casefold()
         assert "inventory settings stay unchanged" in confirmations[0][1]
+        assert "Beta · Blue" in confirmations[0][1]
+        assert "Gamma · Green" in confirmations[0][1]
         next_control = dialog.audit_refresh_button.nextInFocusChain()
         while next_control.focusPolicy() == Qt.FocusPolicy.NoFocus:
             next_control = next_control.nextInFocusChain()
@@ -480,8 +485,206 @@ def test_character_ui_manager_audit_is_accessible_sortable_and_actionable(
                     "UISkin=velious", f"UISkin={skin}"),
                 encoding="cp1252")
         dialog._finish("skin", 2, "a" * 32)
-        assert "3/3 characters use" in dialog.status.text()
+        assert "3/3 current" in dialog.status.text()
         assert dialog.audit_table.rowCount() == 3
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+        QApplication.processEvents()
+
+
+def test_character_ui_manager_empty_states_refresh_and_status_are_accessible(
+        panel, tmp_path, monkeypatch):
+    root = tmp_path / "EverQuest"
+    (root / "uifiles").mkdir(parents=True)
+    (root / "eqgame.exe").write_bytes(b"game")
+    panel.path_edit.setText(str(root))
+    panel._release = SimpleNamespace(version="1.44.113")
+    monkeypatch.setattr(ui_skin_updater, "installed_folder", lambda _root: "")
+    monkeypatch.setattr(
+        vantage_ui_module, "data_dir",
+        lambda *parts: tmp_path.joinpath("state", *parts))
+
+    dialog = vantage_ui_module.CharacterUIManagerDialog(panel)
+    try:
+        assert "0/0 current" in dialog.status.text()
+        assert "no supported character UI profiles found" in dialog.status.text()
+        assert "no verified installed VantageUI" in dialog.status.text()
+        status_interface = QAccessible.queryAccessibleInterface(dialog.status)
+        assert dialog.status.text() in status_interface.text(
+            QAccessible.Text.Name)
+        assert status_interface.text(QAccessible.Text.Description) == (
+            dialog.status.text())
+        skin_interface = QAccessible.queryAccessibleInterface(dialog.skin_value)
+        assert skin_interface.text(QAccessible.Text.Name) == (
+            dialog.skin_value.text())
+
+        (root / "UI_Alpha_P1999Green.ini").write_text(
+            "[Main]\nUISkin=velious\n", encoding="cp1252")
+        announcements = []
+        monkeypatch.setattr(
+            vantage_ui_module.QAccessible, "updateAccessibility",
+            lambda event: announcements.append(event.message()))
+        dialog.show()
+        dialog.activateWindow()
+        dialog.audit_refresh_button.setFocus(Qt.FocusReason.OtherFocusReason)
+        QApplication.processEvents()
+        dialog.audit_refresh_button.click()
+        QApplication.processEvents()
+        assert QApplication.focusWidget() is dialog.audit_refresh_button
+        assert "0/1 current" in dialog.status.text()
+        assert "no verified installed VantageUI" in dialog.status.text()
+        assert announcements[-1] == dialog.status.text()
+
+        def fail_discovery(_root):
+            raise vantage_ui_module.UIProfileError("audit read failed")
+
+        monkeypatch.setattr(
+            vantage_ui_module, "discover_character_profiles", fail_discovery)
+        dialog.refresh(announce=True)
+        assert dialog.status.text() == (
+            "Cannot load character UI profiles · audit read failed")
+        assert dialog.status.accessibleDescription() == dialog.status.text()
+        assert announcements[-1] == dialog.status.text()
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+        QApplication.processEvents()
+
+
+def test_character_ui_manager_preserves_sort_selection_and_sort_focus(
+        panel, tmp_path, monkeypatch):
+    root = tmp_path / "EverQuest"
+    skin = "VantageUI-v1.44.112"
+    (root / "uifiles" / skin).mkdir(parents=True)
+    (root / "eqgame.exe").write_bytes(b"game")
+    for character, configured in (
+            ("Alpha", skin), ("Beta", "missing"), ("Gamma", "velious")):
+        (root / f"UI_{character}_P1999Green.ini").write_text(
+            f"[Main]\nUISkin={configured}\n", encoding="cp1252")
+    panel.path_edit.setText(str(root))
+    monkeypatch.setattr(ui_skin_updater, "installed_folder", lambda _root: skin)
+    monkeypatch.setattr(
+        vantage_ui_module, "data_dir",
+        lambda *parts: tmp_path.joinpath("state", *parts))
+    dialog = vantage_ui_module.CharacterUIManagerDialog(panel)
+    try:
+        dialog.show()
+        dialog.activateWindow()
+        dialog.audit_table.setCurrentCell(0, 0)
+        dialog.audit_table.setFocus(Qt.FocusReason.OtherFocusReason)
+        first_use = dialog.audit_table.item(0, 0)
+        before = first_use.checkState()
+        QTest.keyClick(dialog.audit_table, Qt.Key.Key_Space)
+        assert first_use.checkState() != before
+        dialog.audit_sort_combo.setCurrentIndex(3)
+        dialog.audit_sort_button.setFocus(Qt.FocusReason.OtherFocusReason)
+        QApplication.processEvents()
+        QTest.keyClick(dialog.audit_sort_button, Qt.Key.Key_Space)
+        QApplication.processEvents()
+        assert QApplication.focusWidget() is dialog.audit_sort_button
+        assert "Sorted by Status, descending" == dialog.status.text()
+
+        selected_filename = "UI_Beta_P1999Green.ini"
+        for row in range(dialog.audit_table.rowCount()):
+            item = dialog.audit_table.item(row, 0)
+            if item.data(Qt.ItemDataRole.UserRole) == selected_filename:
+                item.setCheckState(Qt.CheckState.Checked)
+                dialog.audit_table.selectRow(row)
+                dialog.audit_table.setCurrentCell(row, 4)
+                break
+        dialog.refresh()
+        header = dialog.audit_table.horizontalHeader()
+        assert header.sortIndicatorSection() == 4
+        assert header.sortIndicatorOrder() == Qt.SortOrder.DescendingOrder
+        current = dialog.audit_table.item(dialog.audit_table.currentRow(), 0)
+        assert current.data(Qt.ItemDataRole.UserRole) == selected_filename
+        assert current.checkState() == Qt.CheckState.Checked
+        assert "Currently sorted by Status, descending" in (
+            dialog.audit_table.accessibleDescription())
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+        QApplication.processEvents()
+
+
+def test_character_ui_manager_restores_action_focus_and_lists_copy_targets(
+        panel, tmp_path, monkeypatch):
+    root = tmp_path / "EverQuest"
+    skin = "VantageUI-v1.44.112"
+    (root / "uifiles" / skin).mkdir(parents=True)
+    (root / "eqgame.exe").write_bytes(b"game")
+    for character in ("Alpha", "Beta"):
+        (root / f"UI_{character}_P1999Green.ini").write_text(
+            "[Main]\nUISkin=velious\n", encoding="cp1252")
+    panel.path_edit.setText(str(root))
+    monkeypatch.setattr(ui_skin_updater, "installed_folder", lambda _root: skin)
+    monkeypatch.setattr(ui_skin_updater, "game_running", lambda: False)
+    monkeypatch.setattr(
+        vantage_ui_module, "data_dir",
+        lambda *parts: tmp_path.joinpath("state", *parts))
+    backup = SimpleNamespace(
+        backup_id="b" * 32, created_utc="2026-09-28T12:00:00+00:00",
+        label="Test backup", file_count=2)
+    monkeypatch.setattr(vantage_ui_module, "list_backups", lambda *_a: (backup,))
+    result = SimpleNamespace(changed=2, backup_id="a" * 32)
+    monkeypatch.setattr(
+        vantage_ui_module, "apply_skin_to_profiles", lambda *_a, **_k: result)
+    monkeypatch.setattr(vantage_ui_module, "copy_layout", lambda *_a, **_k: result)
+    monkeypatch.setattr(vantage_ui_module, "restore_backup", lambda *_a, **_k: result)
+
+    dialog = vantage_ui_module.CharacterUIManagerDialog(panel)
+    try:
+        dialog.show()
+        dialog.activateWindow()
+        dialog._select_outdated_profiles()
+        operations = (
+            (dialog.apply_selected_button, "skin", {
+                "skin_folder": skin,
+                "targets": dialog._checked_audit_targets(),
+                "include_eqclient": False}),
+            (dialog.copy_layout_button, "layout", {
+                "skin_folder": skin,
+                "source": str(dialog.source_combo.currentData()),
+                "targets": dialog._checked_targets()}),
+            (dialog.restore_button, "restore", {"backup_id": backup.backup_id}),
+        )
+        for control, action, options in operations:
+            control.setFocus(Qt.FocusReason.OtherFocusReason)
+            QApplication.processEvents()
+            assert dialog._execute(action, options)
+            QApplication.processEvents()
+            assert QApplication.focusWidget() is control
+
+        def fail_apply(*_args, **_kwargs):
+            raise vantage_ui_module.UIProfileError("simulated apply failure")
+
+        monkeypatch.setattr(
+            vantage_ui_module, "apply_skin_to_profiles", fail_apply)
+        dialog.apply_selected_button.setFocus(Qt.FocusReason.OtherFocusReason)
+        QApplication.processEvents()
+        assert dialog._execute("skin", operations[0][2]) is False
+        QApplication.processEvents()
+        assert QApplication.focusWidget() is dialog.apply_selected_button
+        assert dialog.status.text() == (
+            "Operation not applied · simulated apply failure")
+
+        confirmations = []
+        monkeypatch.setattr(
+            dialog, "_confirm",
+            lambda title, text: confirmations.append((title, text)) or False)
+        assert dialog.apply_layout() is False
+        assert "Beta · Green" in confirmations[-1][1]
+
+        def cancel_by_default(box):
+            assert box.defaultButton() is box.button(
+                QMessageBox.StandardButton.No)
+            assert box.escapeButton() is box.button(
+                QMessageBox.StandardButton.No)
+            return QMessageBox.StandardButton.No
+
+        monkeypatch.setattr(QMessageBox, "exec", cancel_by_default)
+        assert dialog._confirm("Confirm", "Do the thing?") is False
     finally:
         dialog.close()
         dialog.deleteLater()

@@ -122,7 +122,11 @@ def test_copy_layout_copies_only_ui_file_and_restore_is_reversible(eq_install):
     character_settings = root / "Alpha_P1999Green.ini"
     target_settings = root / "Beta_P1999Blue.ini"
     target_settings.write_bytes(
-        b"[Inventory]\r\nSlot1=Fine Steel Sword\r\n[Socials]\r\nPage1=WTB\r\n")
+        b"[Inventory]\r\nSlot1=Fine Steel Sword\r\n"
+        b"[Socials]\r\nPage1=WTB\r\n"
+        b"[Hotkeys]\r\nHot1=/assist\r\n"
+        b"[Macros]\r\nMacro1=camp\r\n"
+        b"[Friends]\r\nFriend1=Alpha\r\n")
     settings_before = character_settings.read_bytes()
     target_settings_before = target_settings.read_bytes()
 

@@ -164,6 +164,8 @@ class CharacterUIManagerDialog(QDialog):
         self._queued_action = None
         self._pending_elevation = None
         self._poll_attempts = 0
+        self._operation_focus_control = None
+        self._operation_fallback_control = None
         self.setWindowTitle("Character UI & layouts · VantageUI")
         self.setModal(False)
         self.resize(760, 590)
@@ -198,7 +200,8 @@ class CharacterUIManagerDialog(QDialog):
             "Refresh and verify character VantageUI audit")
         self.audit_refresh_button.setToolTip(
             "Re-read every supported character UI INI and installed VantageUI folder")
-        self.audit_refresh_button.clicked.connect(self.refresh)
+        self.audit_refresh_button.clicked.connect(
+            lambda _checked=False: self.refresh(announce=True))
         skin_layout.addWidget(self.audit_refresh_button, 1, 4)
         audit_label = QLabel("Character audit")
         self.audit_table = QTableWidget(0, 5)
@@ -212,6 +215,8 @@ class CharacterUIManagerDialog(QDialog):
             QAbstractItemView.SelectionBehavior.SelectRows)
         self.audit_table.setSelectionMode(
             QAbstractItemView.SelectionMode.SingleSelection)
+        self.audit_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers)
         self.audit_table.setSortingEnabled(True)
         self.audit_table.setMinimumHeight(150)
         self.audit_table.verticalHeader().setVisible(False)
@@ -220,6 +225,7 @@ class CharacterUIManagerDialog(QDialog):
         header.setSectionsMovable(True)
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         header.setStretchLastSection(True)
+        header.setSortIndicator(1, Qt.SortOrder.AscendingOrder)
         audit_label.setBuddy(self.audit_table)
         skin_layout.addWidget(audit_label, 2, 0, Qt.AlignmentFlag.AlignTop)
         skin_layout.addWidget(self.audit_table, 2, 1, 1, 4)
@@ -396,8 +402,9 @@ class CharacterUIManagerDialog(QDialog):
     def state_directory(self):
         return data_dir("ui-profile-backups")
 
-    def refresh(self):
+    def refresh(self, *, announce=False):
         previous_source = str(self.source_combo.currentData() or "")
+        load_error = False
         try:
             root = normalize_eq_root(self.panel.path_edit.text())
             self._profiles = discover_character_profiles(root)
@@ -408,13 +415,18 @@ class CharacterUIManagerDialog(QDialog):
                 root, installed_folder=skin, available_version=available)
             backups = list_backups(self.state_directory, root)
         except (OSError, UIProfileError, ui_skin_updater.SkinUpdateError) as error:
+            load_error = True
             self._profiles, self._audits = (), ()
             self._skin, skin, backups = "", "", ()
             self._set_status(f"Cannot load character UI profiles · {error}", error=True)
-        self.skin_value.setText(
+        skin_text = (
             f"Selected: {skin} · {len(self._profiles)} characters detected"
             if skin else
             f"No verified VantageUI selected · {len(self._profiles)} characters detected")
+        self.skin_value.setText(skin_text)
+        self.skin_value.setAccessibleName(skin_text)
+        self.skin_value.setAccessibleDescription(
+            "Verified installed VantageUI folder and detected character count")
         self._populate_audit_table()
         self.source_combo.blockSignals(True)
         self.source_combo.clear()
@@ -443,13 +455,23 @@ class CharacterUIManagerDialog(QDialog):
         self.clear_audit_button.setEnabled(bool(self._profiles))
         self.copy_layout_button.setEnabled(ready and len(self._profiles) > 1)
         self.restore_button.setEnabled(self.backup_combo.count() > 0)
-        if ready and not self._queued_action and not self._pending_elevation:
+        if (not load_error and not self._queued_action and
+                not self._pending_elevation):
             self._set_status(
                 self._audit_summary(),
-                announce=False)
+                announce=announce)
 
     def _populate_audit_table(self):
         checked = set(self._checked_audit_targets())
+        header = self.audit_table.horizontalHeader()
+        sort_column = header.sortIndicatorSection()
+        sort_order = header.sortIndicatorOrder()
+        current_row = self.audit_table.currentRow()
+        current_item = self.audit_table.item(current_row, 0)
+        current_filename = str(
+            current_item.data(Qt.ItemDataRole.UserRole) or ""
+            if current_item is not None else "")
+        current_column = max(0, self.audit_table.currentColumn())
         self.audit_table.setSortingEnabled(False)
         self.audit_table.setRowCount(0)
         for audit in self._audits:
@@ -478,13 +500,25 @@ class CharacterUIManagerDialog(QDialog):
                 item.setToolTip(audit.detail)
                 self.audit_table.setItem(row, column, item)
         self.audit_table.setSortingEnabled(True)
-        self.audit_table.sortItems(1, Qt.SortOrder.AscendingOrder)
+        self.audit_table.sortItems(sort_column, sort_order)
+        if current_filename:
+            for row in range(self.audit_table.rowCount()):
+                item = self.audit_table.item(row, 0)
+                if (item is not None and str(item.data(
+                        Qt.ItemDataRole.UserRole) or "") == current_filename):
+                    self.audit_table.selectRow(row)
+                    self.audit_table.setCurrentCell(
+                        row, min(current_column,
+                                 self.audit_table.columnCount() - 1))
+                    break
         self._update_audit_sort_button()
 
     def _audit_sort_column_changed(self, _index):
         column = int(self.audit_sort_combo.currentData() or 1)
         self.audit_table.sortItems(column, Qt.SortOrder.AscendingOrder)
         self._update_audit_sort_button()
+        self._set_status(
+            f"Sorted by {self.audit_sort_combo.currentText()}, ascending")
 
     def _audit_header_sort_changed(self, column, _order):
         index = self.audit_sort_combo.findData(column)
@@ -507,6 +541,13 @@ class CharacterUIManagerDialog(QDialog):
         self.audit_sort_button.setAccessibleName(label)
         self.audit_sort_button.setToolTip(
             f"{label} by {self.audit_sort_combo.currentText()}")
+        current_direction = (
+            "ascending" if order == Qt.SortOrder.AscendingOrder else
+            "descending")
+        self.audit_table.setAccessibleDescription(
+            "Read-only character VantageUI audit with checkboxes in the Use "
+            f"column. Currently sorted by {self.audit_sort_combo.currentText()}, "
+            f"{current_direction}. Every column can be resized or moved.")
 
     def _sort_audit(self):
         column = int(self.audit_sort_combo.currentData() or 1)
@@ -516,7 +557,11 @@ class CharacterUIManagerDialog(QDialog):
             if current == Qt.SortOrder.AscendingOrder else
             Qt.SortOrder.AscendingOrder)
         self.audit_table.sortItems(column, order)
-        self.audit_table.setFocus(Qt.FocusReason.OtherFocusReason)
+        direction = (
+            "ascending" if order == Qt.SortOrder.AscendingOrder else
+            "descending")
+        self._set_status(
+            f"Sorted by {self.audit_sort_combo.currentText()}, {direction}")
 
     def _checked_audit_targets(self):
         targets = []
@@ -550,9 +595,45 @@ class CharacterUIManagerDialog(QDialog):
         release_note = (
             f" · newer release {available} available but not installed"
             if version_is_newer(installed, available) else "")
+        installed = self._skin or "no verified installed VantageUI"
+        empty_note = " · no supported character UI profiles found" if not total else ""
         return (
-            f"Audit complete · {current}/{total} characters use "
-            f"{self._skin or 'no verified installed VantageUI'}{release_note}")
+            f"Audit complete · {current}/{total} current · "
+            f"{installed}{empty_note}{release_note}")
+
+    def _begin_operation_focus(self):
+        """Remember a user-invoked action before its control is disabled."""
+        focused = QApplication.focusWidget()
+        if (QApplication.activeWindow() is self and focused is not None and
+                (focused is self or self.isAncestorOf(focused))):
+            self._operation_focus_control = focused
+            self._operation_fallback_control = None
+
+    def _record_operation_fallback(self):
+        if self._operation_focus_control is not None:
+            self._operation_fallback_control = QApplication.focusWidget()
+
+    def _restore_operation_focus(self):
+        initiating = self._operation_focus_control
+        if initiating is None:
+            return
+
+        def restore():
+            fallback = self._operation_fallback_control
+            self._operation_focus_control = None
+            self._operation_fallback_control = None
+            if not self.isVisible() or QApplication.activeWindow() is not self:
+                return
+            focused = QApplication.focusWidget()
+            if (focused is not None and focused not in (initiating, fallback) and
+                    focused.isEnabled() and
+                    (focused is self or self.isAncestorOf(focused))):
+                return
+            if (initiating.isEnabled() and initiating.isVisibleTo(self) and
+                    initiating.focusPolicy() != Qt.FocusPolicy.NoFocus):
+                initiating.setFocus(Qt.FocusReason.OtherFocusReason)
+
+        QTimer.singleShot(0, restore)
 
     def _rebuild_targets(self):
         source = str(self.source_combo.currentData() or "")
@@ -597,6 +678,14 @@ class CharacterUIManagerDialog(QDialog):
             str(self.target_list.item(index).data(Qt.ItemDataRole.UserRole))
             for index in range(self.target_list.count())
             if self.target_list.item(index).checkState() == Qt.CheckState.Checked]
+
+    def _target_labels(self, filenames):
+        labels = {
+            profile.filename: profile.label for profile in self._profiles}
+        selected = [labels.get(filename, filename) for filename in filenames]
+        if len(selected) <= 5:
+            return ", ".join(selected)
+        return ", ".join(selected[:5]) + f", and {len(selected) - 5} more"
 
     def _confirm(self, title, text):
         dialog = QMessageBox(
@@ -645,7 +734,8 @@ class CharacterUIManagerDialog(QDialog):
         if not self._confirm(
                 "Apply installed VantageUI to selected characters",
                 f"Change only UISkin to {skin} in {len(targets)} selected "
-                "character INI files?\n\nEvery affected file is backed up first. "
+                f"character INI files?\n\nTargets: {self._target_labels(targets)}\n\n"
+                "Every affected file is backed up first. "
                 "Window positions, macros, socials, friends, hotkeys, and "
                 "inventory settings stay unchanged."):
             return False
@@ -669,7 +759,8 @@ class CharacterUIManagerDialog(QDialog):
         if not self._confirm(
                 "Copy character UI layout",
                 f"Copy {source_label}'s complete window and chat layout to "
-                f"{len(targets)} selected characters?\n\nEach target is backed up "
+                f"{len(targets)} selected characters?\n\n"
+                f"Targets: {self._target_labels(targets)}\n\nEach target is backed up "
                 "first. Target filenames and character identities are preserved. "
                 "Macros, socials, friends, hotkeys, and inventory settings are "
                 "never copied."):
@@ -690,14 +781,17 @@ class CharacterUIManagerDialog(QDialog):
         return self._run_or_queue("restore", {"backup_id": backup_id})
 
     def _run_or_queue(self, action, options):
+        self._begin_operation_focus()
         try:
             running = ui_skin_updater.game_running()
         except Exception as error:
             self._set_status(f"Cannot safely check EverQuest · {error}", error=True)
+            self._restore_operation_focus()
             return False
         if running:
             self._queued_action = (action, dict(options))
             self._set_busy(True)
+            QTimer.singleShot(0, self._record_operation_fallback)
             self._game_timer.start()
             self._set_status(
                 "Queued · close EverQuest once; Vantage will apply this operation "
@@ -717,6 +811,7 @@ class CharacterUIManagerDialog(QDialog):
             self._game_timer.stop()
             self._set_busy(False)
             self._set_status(f"Queued operation stopped · {error}", error=True)
+            self._restore_operation_focus()
             return
         action, options = self._queued_action
         self._queued_action = None
@@ -725,7 +820,10 @@ class CharacterUIManagerDialog(QDialog):
 
     def _execute(self, action, options):
         root = normalize_eq_root(self.panel.path_edit.text())
+        if self._operation_focus_control is None:
+            self._begin_operation_focus()
         self._set_busy(True)
+        QTimer.singleShot(0, self._record_operation_fallback)
         self.progress.setRange(0, 0)
         self.progress.setFormat("Working…")
         try:
@@ -758,11 +856,13 @@ class CharacterUIManagerDialog(QDialog):
             self._set_busy(False)
             self.progress.setRange(0, 100)
             self._set_status(f"Operation failed · {error}", error=True)
+            self._restore_operation_focus()
             return False
         except (UIProfileError, ui_skin_updater.SkinUpdateError) as error:
             self._set_busy(False)
             self.progress.setRange(0, 100)
             self._set_status(f"Operation not applied · {error}", error=True)
+            self._restore_operation_focus()
             return False
         self._finish(action, result.changed, result.backup_id)
         return True
@@ -774,6 +874,7 @@ class CharacterUIManagerDialog(QDialog):
             self.progress.setRange(0, 100)
             self._set_status(
                 "Windows permission was not granted; nothing was changed", error=True)
+            self._restore_operation_focus()
             return False
         self._pending_elevation = pending
         self._poll_attempts = 0
@@ -797,6 +898,7 @@ class CharacterUIManagerDialog(QDialog):
             self._set_busy(False)
             self.progress.setRange(0, 100)
             self._set_status(f"Invalid Windows response · {error}", error=True)
+            self._restore_operation_focus()
             return
         if result is None:
             if self._poll_attempts < 480:
@@ -807,6 +909,7 @@ class CharacterUIManagerDialog(QDialog):
             self._set_busy(False)
             self.progress.setRange(0, 100)
             self._set_status("Windows permission request timed out", error=True)
+            self._restore_operation_focus()
             return
         self._pending_elevation = None
         self._poll_timer.stop()
@@ -816,6 +919,7 @@ class CharacterUIManagerDialog(QDialog):
             self._set_status(
                 f"Operation not applied · {result.get('error', 'permission denied')}",
                 error=True)
+            self._restore_operation_focus()
             return
         self._finish(
             str(result.get("action") or "operation"),
@@ -833,6 +937,7 @@ class CharacterUIManagerDialog(QDialog):
         self._set_status(
             f"{labels.get(action, 'Operation complete')} · {changed} files · "
             f"restore point {backup_id[:8]} · {self._audit_summary()}")
+        self._restore_operation_focus()
 
     def _set_busy(self, busy):
         for control in (
@@ -852,14 +957,16 @@ class CharacterUIManagerDialog(QDialog):
             not busy and self.backup_combo.count() > 0)
 
     def _set_status(self, text, *, error=False, announce=True):
-        self.status.setText(str(text))
+        message = str(text)
+        self.status.setText(message)
         self.status.setProperty("state", "error" if error else "ready")
         self.status.style().unpolish(self.status)
         self.status.style().polish(self.status)
-        self.status.setAccessibleDescription(str(text))
+        self.status.setAccessibleName(f"Character UI manager status: {message}")
+        self.status.setAccessibleDescription(message)
         if announce:
             try:
-                event = QAccessibleAnnouncementEvent(self.status, str(text))
+                event = QAccessibleAnnouncementEvent(self.status, message)
                 QAccessible.updateAccessibility(event)
             except (AttributeError, RuntimeError):
                 pass
