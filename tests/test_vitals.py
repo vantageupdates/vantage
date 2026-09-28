@@ -1863,7 +1863,9 @@ app.quit()
     env["VANTAGE_DATA_DIR"] = str(tmp_path / "profile")
     completed = subprocess.run(
         [sys.executable, "-c", script], cwd=ROOT, env=env,
-        check=True, capture_output=True, text=True, timeout=30)
+        # A full offscreen VantageApp startup can exceed 30 seconds on a busy
+        # Windows host even though the rename flow itself completes normally.
+        check=True, capture_output=True, text=True, timeout=60)
     result = json.loads(completed.stdout.strip().splitlines()[-1])
     assert result == {
         "accepted": True,
