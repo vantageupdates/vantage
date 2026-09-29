@@ -1410,5 +1410,17 @@ independent accessibility review: PASS
   Character UI, updater, package, retention, Windows-permission, installer,
   and English UI verification: **372 passed, 2 skipped in 52.01 seconds**.
   Python compilation, English-copy scan, and `git diff --check` passed;
-  `ui/**` remains unchanged. Independent final review and a clean complete
-  suite remain required before build/publication.
+  `ui/**` remains unchanged.
+- Independent Character UI/helper/accessibility review of commit
+  `98fb9ab0a0dd61d1b2df38412ca2e1b711ba2d63`: **PASS**, with **372 passed,
+  2 skipped in 54.25 seconds**. The reviewer verified whitespace/duplicate
+  `UISkin` handling, selected-versus-available wording, source/target/no-op and
+  restore semantics, exact accessible copy, forward/reverse table focus,
+  narrow focus scrolling, and the fair painted baseline/candidate comparison.
+- Final clean complete suite on the combined frozen source:
+  **1,666 passed, 2 skipped in 943.13 seconds (15:43)**. The expected skips
+  are the POSIX-mode test on Windows and a Windows symlink-collision test when
+  developer symlink privilege is unavailable; an adjacent real-font OCR test
+  passed. The previously intermittent Combat subprocess case passed this run.
+  The protected live profile and installed `D:\Vantage.exe` retained their
+  exact pre-run size, nanosecond modification time, and SHA-256.
