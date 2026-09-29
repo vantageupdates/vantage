@@ -13,6 +13,7 @@ import json
 import time
 from types import SimpleNamespace
 from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication
 from vantage.helpers import config
 from vantage.helpers.application import VantageApp
 from vantage.parsers import spells as spells_module
@@ -27,8 +28,14 @@ bar.show()
 app.processEvents()
 rail = bar.notification_rail
 rail._clear()
+app._take_quickbar_notices(discard=True)
 announcements = []
 rail._announce_accessibly = announcements.append
+
+# Inspect the physical top-level pixels, not only QLabel metadata.  The rail
+# lives inside ParserWindow's QGraphicsProxyWidget, where a nested graphics
+# effect can leave visible Qt objects that paint no pixels on Windows.
+empty_image = bar.grab().toImage()
 
 empty = {
     'visible': rail.isVisible(),
@@ -43,12 +50,19 @@ app.audio_started(
     'Clarity faded', 'builtin:crystal-ping', 82, channel='spells',
     visual_registered=True)
 app.processEvents()
+sound_image = bar.grab().toImage()
+painted_pixel_count = sum(
+    empty_image.pixel(x, y) != sound_image.pixel(x, y)
+    for y in range(max(0, sound_image.height() - 18), sound_image.height())
+    for x in range(sound_image.width()))
 sound = {
     'text': rail._label.text(),
     'scrolling': rail._scroll_timer.isActive(),
     'notice_id': rail._notice_id,
     'accessible': rail.accessibleName(),
     'announcements': list(announcements),
+    'painted_pixel_count': painted_pixel_count,
+    'graphics_effect': rail.graphicsEffect() is not None,
 }
 
 # New events wait their turn instead of replacing the current marquee.
@@ -134,8 +148,9 @@ reduced = {
     'clear_pending': rail._clear_timer.isActive(),
 }
 
-# Long combat summaries get a bounded dwell and then fade instead of
-# occupying the Quick Bar for the duration of an entire marquee pass.
+# Long combat summaries get a bounded dwell and then clear instead of
+# occupying the Quick Bar for the duration of an entire marquee pass.  The
+# proxy-hosted rail intentionally uses no opacity effect.
 rail._clear()
 config.data['general']['reduce_motion'] = False
 app._queue_quickbar_notice(
@@ -146,16 +161,14 @@ combat_before_fade = {
     'channel': rail._channel.text(),
     'visible': rail._label.isVisible(),
     'expiry_pending': rail._clear_timer.isActive(),
-    'fade_enabled': rail._fade_on_expire,
+    'effect_present': rail.graphicsEffect() is not None,
 }
-rail._fade_animation.setDuration(1)
 rail._expire_current()
 QTest.qWait(80)
 app.processEvents()
-combat_after_fade = {
+combat_after_expiry = {
     'visible': rail._label.isVisible(),
     'scrolling': rail._scroll_timer.isActive(),
-    'opacity_reset': rail._opacity_effect.opacity() == 1.0,
 }
 
 rail._clear()
@@ -266,8 +279,100 @@ large_burst = {
     'held': burst_count_hidden,
     'current': rail._label.text(),
     'pending': len(rail._pending),
+    'history': len(app.quickbar_notice_history()),
 }
 rail.discard_all()
+
+# History is a separate, bounded session record. Opening it from the Quick Bar
+# never replays audio, and a live refresh preserves the user's selected row.
+app._quickbar_notice_history.clear()
+app._queue_quickbar_notice('Manastone for sale · Trader', channel='market')
+app._queue_quickbar_notice('Nagafen spawn soon', channel='timers')
+app.audio_started(
+    'Spawn warning · Nagafen', 'builtin:crystal-ping', 82,
+    channel='timers', visual_registered=True)
+audio_before_history = app._last_audio_event
+bar.notification_rail.history_button.click()
+app.processEvents()
+history_dialog = app._notification_history_dialog
+history_dialog.table.selectRow(1)
+selected_before = history_dialog.table.item(
+    history_dialog.table.currentRow(), 2).text()
+app._queue_quickbar_notice('Fetter faded', channel='spells')
+app.processEvents()
+selected_after = history_dialog.table.item(
+    history_dialog.table.currentRow(), 2).text()
+history_dialog.search.setText('manastone')
+app.processEvents()
+history_dialog.table.selectRow(0)
+history_status_before_copy = history_dialog.status.text()
+history_dialog.copy_button.click()
+history = {
+    'visible': history_dialog.isVisible(),
+    'accessible': history_dialog.accessibleName(),
+    'button_accessible': (
+        bar.notification_rail.history_button.accessibleName()),
+    'filtered_rows': history_dialog.table.rowCount(),
+    'message': history_dialog.table.item(0, 2).text(),
+    'latest_audio': history_dialog.latest_audio.text(),
+    'status': history_status_before_copy,
+    'copied': QApplication.clipboard().text(),
+    'selection_preserved': selected_before == selected_after,
+    'audio_unchanged': app._last_audio_event == audio_before_history,
+}
+
+# Equal-second bursts retain exact timestamp order, and filtering/eviction
+# cannot leave Copy selected pointing at a replacement row.
+history_dialog.close()
+app._quickbar_notice_history.clear()
+same_second = time.time()
+display_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(same_second))
+for index in range(251):
+    app._quickbar_notice_history.append({
+        'occurred_at': same_second + index / 1000,
+        'display_time': display_time,
+        'channel': 'spells',
+        'category': 'BUFFS / SPELLS',
+        'message': f'Burst history {index}',
+    })
+history_dialog.search.clear()
+history_dialog.show()
+history_dialog.refresh()
+newest_same_second = history_dialog.table.item(0, 2).text()
+
+def select_history_message(message):
+    for row in range(history_dialog.table.rowCount()):
+        if history_dialog.table.item(row, 2).text() == message:
+            history_dialog.table.selectRow(row)
+            return True
+    return False
+
+assert select_history_message('Burst history 100')
+history_dialog.search.setText('Burst history 250')
+app.processEvents()
+filter_cleared_selection = (
+    history_dialog.table.currentRow() == -1 and
+    not history_dialog.copy_button.isEnabled())
+history_dialog.search.clear()
+app.processEvents()
+assert select_history_message('Burst history 1')
+app._quickbar_notice_history.append({
+    'occurred_at': same_second + 1,
+    'display_time': display_time,
+    'channel': 'timers',
+    'category': 'COMBAT / TIMERS',
+    'message': 'Burst history 251',
+})
+history_dialog.refresh()
+eviction_cleared_selection = (
+    history_dialog.table.currentRow() == -1 and
+    not history_dialog.copy_button.isEnabled())
+history_safety = {
+    'rows': history_dialog.table.rowCount(),
+    'newest_same_second': newest_same_second,
+    'filter_cleared_selection': filter_cleared_selection,
+    'eviction_cleared_selection': eviction_cleared_selection,
+}
 
 config.data['quickbar']['orientation'] = 'vertical'
 app._signals['settings'].config_updated.emit()
@@ -300,7 +405,7 @@ print(json.dumps({
     'stale': stale,
     'reduced': reduced,
     'combat_before_fade': combat_before_fade,
-    'combat_after_fade': combat_after_fade,
+    'combat_after_expiry': combat_after_expiry,
     'direct_audio': direct_audio,
     'bard_overlay_off': bard_overlay_off,
     'bard_overlay_on': bard_overlay_on,
@@ -310,6 +415,8 @@ print(json.dumps({
     'hidden_replayed': hidden_replayed,
     'real_reopen': real_reopen,
     'large_burst': large_burst,
+    'history': history,
+    'history_safety': history_safety,
     'vertical': vertical,
     'ticker_off': ticker_off,
     'duplicate_announcement_count': duplicate_announcement_count,
@@ -341,6 +448,8 @@ def test_quickbar_notification_rail_shows_one_event_then_clears(tmp_path):
     assert result['sound']['text'] in result['sound']['accessible']
     assert result['sound']['announcements'] == [
         'BUFFS / SPELLS: Clarity faded']
+    assert result['sound']['painted_pixel_count'] > 100
+    assert result['sound']['graphics_effect'] is False
     assert result['duplicate_announcement_count'] == 1
     assert result['queued'] == {
         'current': 'Clarity faded',
@@ -371,12 +480,11 @@ def test_quickbar_notification_rail_shows_one_event_then_clears(tmp_path):
         'channel': 'COMBAT',
         'visible': True,
         'expiry_pending': True,
-        'fade_enabled': True,
+        'effect_present': False,
     }
-    assert result['combat_after_fade'] == {
+    assert result['combat_after_expiry'] == {
         'visible': False,
         'scrolling': False,
-        'opacity_reset': True,
     }
     assert result['temporary_pending'] == [
         'Layout-hidden first', 'Layout-hidden second']
@@ -418,8 +526,29 @@ def test_quickbar_notification_rail_shows_one_event_then_clears(tmp_path):
     }
     assert result['large_burst'] == {
         'held': 75,
-        'current': 'Burst event 1',
-        'pending': 74,
+        'current': 'Burst event 71',
+        'pending': 4,
+        # Every exact event remains available even though the transient rail
+        # prioritizes the latest part of a burst.
+        'history': 90,
+    }
+    assert result['history']['visible'] is True
+    assert result['history']['accessible'] == 'Notification History'
+    assert result['history']['button_accessible'] == \
+        'Open Notification History'
+    assert result['history']['filtered_rows'] == 1
+    assert result['history']['message'] == 'Manastone for sale · Trader'
+    assert result['history']['latest_audio'].startswith(
+        'Latest audio: Spawn warning · Nagafen')
+    assert 'last 250' in result['history']['status']
+    assert 'Manastone for sale · Trader' in result['history']['copied']
+    assert result['history']['selection_preserved'] is True
+    assert result['history']['audio_unchanged'] is True
+    assert result['history_safety'] == {
+        'rows': 250,
+        'newest_same_second': 'Burst history 250',
+        'filter_cleared_selection': True,
+        'eviction_cleared_selection': True,
     }
     assert result['vertical'] == {
         'rail_visible': True,

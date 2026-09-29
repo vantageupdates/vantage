@@ -707,13 +707,15 @@ class SettingsWindow(UniformScaleDialog):
         elif mode == 'voice':
             played = speak_text(
                 route.default_voice, 80, source=f'Test · {route.label}',
-                allow_hidden=True, voice_name=str(picker.currentData() or ''))
+                allow_hidden=True, voice_name=str(picker.currentData() or ''),
+                channel=route.channel)
             message = (f'{route.label} test: voice queued' if played else
                        f'{route.label} test: Windows voice unavailable')
         else:
             played = play_alert(
                 picker.currentData(), 80, 1,
-                source=f'Test · {route.label}', allow_hidden=True)
+                source=f'Test · {route.label}', allow_hidden=True,
+                channel=route.channel)
             message = (f'{route.label} test: sound queued' if played else
                        f'{route.label} test: Windows audio backend unavailable')
         status.setText(message)
@@ -1196,7 +1198,8 @@ class SettingsWindow(UniformScaleDialog):
                 lambda _checked=False, combo=combo, volume=volume,
                 source=source: play_alert(
                     combo.currentData(), volume(), 1, source=source,
-                    allow_hidden=True) if combo.currentData() else None)
+                    channel='spells', allow_hidden=True)
+                if combo.currentData() else None)
             row.addWidget(test)
             sound_sl.addRow(label, row)
             self._notification_sound_combos.append(combo)
@@ -2368,7 +2371,7 @@ class CustomTriggerSettings(UniformScaleDialog):
             lambda: play_alert(
                 self._trigger_sound.currentData(),
                 config.data['spells']['fade_sound_volume'], 1,
-                source="Test · trigger sound")
+                source="Test · trigger sound", channel='spells')
             if self._trigger_sound.currentData() else None)
         trigger_sound_actions.addWidget(trigger_sound_test)
         trigger_sound_row.addWidget(trigger_sound_actions)
@@ -2590,7 +2593,8 @@ class CustomTriggerSettings(UniformScaleDialog):
             test.clicked.connect(lambda: play_alert(
                 combo.currentData(),
                 config.data['spells']['fade_sound_volume'], 1,
-                source=source) if combo.currentData() else None)
+                source=source, channel='spells')
+                if combo.currentData() else None)
             actions.addWidget(test)
             panel_layout.addWidget(actions)
             return panel
@@ -2882,7 +2886,7 @@ class CustomTriggerSettings(UniformScaleDialog):
         else:
             played = speak_text(
                 message, volume.value(), interrupt.isChecked(),
-                source=source, allow_hidden=True,
+                source=source, channel='spells', allow_hidden=True,
                 voice_name=str(voice.currentData() or ''),
                 pitch=pitch.value())
             result = (

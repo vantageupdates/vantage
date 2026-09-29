@@ -180,4 +180,5 @@ class LogMonitorDialog(UniformScaleDialog):
                     f'Vantage voice test for {character}',
                     config.data['spells']['fade_sound_volume'], True,
                     source=f'Test · {character} · speech',
-                    character=character, server=server)))
+                    character=character, server=server,
+                    channel='spells')))

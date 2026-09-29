@@ -4166,7 +4166,8 @@ class SpellWidget(QFrame):
                 settings['fade_sound_volume'], 1,
                 source=f"Test · {self.spell.name}",
                 character=self.runtime_character,
-                server=self.runtime_server, allow_hidden=True)
+                server=self.runtime_server, channel='spells',
+                allow_hidden=True)
         return dispatch(sound_override=override)
 
     def _sound_menu(self, position):

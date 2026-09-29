@@ -48,7 +48,8 @@ from vantage.parsers.random_parser import RandomParser
 from vantage.parsers.items_notes import ItemsNotes
 from vantage.parsers.log_searcher import LogSearcher
 from vantage.parsers.vantage_ui import VantageUI, version_is_newer
-from vantage.parsers.quickbar import QuickBar
+from vantage.parsers.quickbar import (
+    QuickBar, QuickBarNotificationHistoryDialog, QuickBarNotificationRail)
 from vantage.parsers.spells import Spells
 from vantage.parsers.tick import ServerTick
 from vantage.parsers.timers import SpawnTimers
@@ -128,6 +129,10 @@ class VantageApp(QApplication):
         self._quickbar_notice = ""
         self._quickbar_notice_channel = "system"
         self._quickbar_notice_at = 0.0
+        # Exact, bounded session evidence is separate from the transient rail
+        # scheduler. A burst may be summarized visually without losing the
+        # time, category, or semantic message that explains an alert.
+        self._quickbar_notice_history = deque(maxlen=250)
         # Keep accepted notices until the Quick Bar has actually taken them.
         # A single "latest notice" slot lost bursts whenever several parser
         # events arrived before Qt completed one refresh/layout cycle.
@@ -198,6 +203,7 @@ class VantageApp(QApplication):
         self._finish_update_spell_handoff_restore()
         self._splash.step("Preparing lightweight on-demand tools…", 82)
         self._settings_instance = None
+        self._notification_history_dialog = None
         self._feature_settings_instances = {}
         self._update_dialog_instance = None
         self._log_monitor_dialog_instance = None
@@ -805,6 +811,9 @@ class VantageApp(QApplication):
             if callable(register_notice):
                 register_notice(
                     semantic_source, channel=str(channel or "system"))
+        dialog = getattr(self, "_notification_history_dialog", None)
+        if dialog is not None and dialog.isVisible():
+            dialog.refresh()
         self._refresh_quickbar()
 
     def _queue_quickbar_notice(self, *parts, channel="system"):
@@ -818,6 +827,16 @@ class VantageApp(QApplication):
         self._quickbar_notice = message
         self._quickbar_notice_channel = str(channel or "system")
         self._quickbar_notice_at = time.monotonic()
+        occurred_at = time.time()
+        self._quickbar_notice_history.append({
+            "occurred_at": occurred_at,
+            "display_time": time.strftime(
+                "%Y-%m-%d %H:%M:%S", time.localtime(occurred_at)),
+            "channel": self._quickbar_notice_channel,
+            "category": QuickBarNotificationRail._channel_label(
+                self._quickbar_notice_channel),
+            "message": message,
+        })
         queue = getattr(self, "_quickbar_notice_queue", None)
         if queue is None:
             queue = self._quickbar_notice_queue = deque()
@@ -825,6 +844,14 @@ class VantageApp(QApplication):
             self._quickbar_notice_id, message,
             self._quickbar_notice_channel, self._quickbar_notice_at))
         self._refresh_quickbar()
+        dialog = getattr(self, "_notification_history_dialog", None)
+        if dialog is not None and dialog.isVisible():
+            dialog.refresh()
+
+    def quickbar_notice_history(self):
+        """Return newest-first copies of bounded session notification data."""
+        return [dict(item) for item in reversed(
+            getattr(self, "_quickbar_notice_history", ()))]
 
     def _take_quickbar_notices(self, *, discard=False, max_age=None):
         """Drain Quick Bar notices in order, or intentionally discard.
@@ -932,7 +959,7 @@ class VantageApp(QApplication):
                 "_settings_instance", "_update_dialog_instance",
                 "_log_monitor_dialog_instance", "_mobile_dialog_instance",
                 "_spell_library_dialog", "_about_dialog_instance",
-                "_update_toast"):
+                "_notification_history_dialog", "_update_toast"):
             surface = getattr(self, attribute, None)
             if surface is not None and surface not in surfaces:
                 surfaces.append(surface)
@@ -1184,11 +1211,12 @@ class VantageApp(QApplication):
 
     def show_last_sound(self):
         """Replay the last attributable sound instead of only naming it."""
-        def show_feedback(message):
+        def show_feedback(message, channel="system"):
             notifier = getattr(self, "show_overlay_notification", None)
             if callable(notifier):
                 notifier(
-                    "Vantage · last sound", message, msecs=5000)
+                    "Vantage · last sound", message, msecs=5000,
+                    quickbar_channel=channel)
 
         event = self._last_audio_event
         if event is None:
@@ -1201,17 +1229,20 @@ class VantageApp(QApplication):
             delivery, sound=sound_path, text=content, volume=volume,
             channel=_channel, allow_hidden=True)
         if not check.ready:
-            show_feedback(f"Replay unavailable · {check.reason}.")
+            show_feedback(
+                f"Replay unavailable · {check.reason}.", _channel)
             return False
         previous_label = self._last_audio
         if delivery == "voice":
             played = speak_text(
                 content, volume, source=f"Replay · {source}",
-                allow_hidden=True)
+                channel=_channel, allow_hidden=True,
+                visual_registered=True)
         else:
             played = play_alert(
                 sound_path, volume, source=f"Replay · {source}",
-                allow_hidden=True)
+                channel=_channel, allow_hidden=True,
+                visual_registered=True)
         # Playback attribution is useful on screen, but the replay itself must
         # not replace the original event or accumulate "Replay · Replay".
         self._last_audio_event = event
@@ -1220,7 +1251,7 @@ class VantageApp(QApplication):
         message = (f"Replay queued · {source}." if played else
                    f"Replay unavailable · Windows {'voice' if delivery == 'voice' else 'audio'} "
                    "backend unavailable.")
-        show_feedback(message)
+        show_feedback(message, _channel)
         return played
 
     def show_settings(self, section=None):
@@ -1864,6 +1895,29 @@ class VantageApp(QApplication):
         dialog.show()
         dialog.raise_()
         dialog.activateWindow()
+
+    def show_notification_history(self):
+        """Open searchable session evidence without replaying any audio."""
+        if self._notification_history_dialog is None:
+            quickbar = self._parsers_dict.get("quickbar")
+            self._notification_history_dialog = \
+                QuickBarNotificationHistoryDialog(self, quickbar)
+            if quickbar is not None:
+                def restore_history_focus(_result):
+                    button = quickbar.notification_rail.history_button
+                    if quickbar.isVisible() and button.isEnabled():
+                        button.setFocus(Qt.FocusReason.OtherFocusReason)
+                self._notification_history_dialog.finished.connect(
+                    restore_history_focus)
+        dialog = self._notification_history_dialog
+        dialog.refresh()
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+        QTimer.singleShot(
+            0, lambda: dialog.search.setFocus(
+                Qt.FocusReason.OtherFocusReason))
+        return dialog
 
     def show_support(self):
         """Open voluntary support externally; Vantage never handles payment data."""

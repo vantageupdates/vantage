@@ -5,15 +5,14 @@ from __future__ import annotations
 from collections import deque
 import time
 
-from PySide6.QtCore import (
-    QEasingCurve, QEvent, QPointF, QPropertyAnimation, QSize, Qt, QTimer)
+from PySide6.QtCore import QEvent, QPointF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QAccessible, QAccessibleAnnouncementEvent, QColor, QPainter, QPen)
 from PySide6.QtWidgets import (
-    QAccessibleWidget, QApplication, QBoxLayout, QFrame,
-    QGraphicsOpacityEffect, QLabel,
-    QProgressBar, QSizePolicy, QSlider, QToolButton, QVBoxLayout, QWidget,
-    QWidgetAction)
+    QAbstractItemView, QAccessibleWidget, QApplication, QBoxLayout, QDialog,
+    QDialogButtonBox, QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+    QProgressBar, QPushButton, QSizePolicy, QSlider, QTableWidget,
+    QTableWidgetItem, QToolButton, QVBoxLayout, QWidget, QWidgetAction)
 
 from vantage.helpers import config
 from vantage.helpers.audio import (
@@ -52,6 +51,9 @@ QAccessible.installFactory(_quickbar_accessibility_factory)
 class QuickBarNotificationRail(QFrame):
     """Show one attributable event once, then clear it from the rail."""
 
+    history_requested = Signal()
+    _MAX_PENDING = 4
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("QuickBarNotificationRail")
@@ -65,6 +67,10 @@ class QuickBarNotificationRail(QFrame):
         self._channel.setObjectName("QuickBarNotificationChannel")
         self._channel.setFixedWidth(82)
         self._channel.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        channel_font = self._channel.font()
+        channel_font.setPixelSize(9)
+        channel_font.setBold(True)
+        self._channel.setFont(channel_font)
         self._channel.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._channel.hide()
@@ -72,28 +78,39 @@ class QuickBarNotificationRail(QFrame):
         self._label.setObjectName("QuickBarNotificationText")
         self._label.setAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        message_font = self._label.font()
+        message_font.setPixelSize(12)
+        self._label.setFont(message_font)
         self._label.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._label.hide()
+        self.history_button = QToolButton(self)
+        self.history_button.setObjectName("QuickBarNotificationHistoryButton")
+        self.history_button.setAutoRaise(True)
+        self.history_button.setFixedSize(20, 17)
+        self.history_button.setIcon(game_icon("compact"))
+        self.history_button.setIconSize(QSize(13, 13))
+        self.history_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.history_button.setToolTip("Open Notification History")
+        self.history_button.setAccessibleName("Open Notification History")
+        self.history_button.setAccessibleDescription(
+            "Opens the last 250 Vantage notifications from this session")
+        self.history_button.clicked.connect(self.history_requested)
+        self.history_button.raise_()
         self._notice_id = 0
         # Do not silently evict written counterparts while this child is
         # temporarily hidden by layout, roll-up, or top-level visibility.
         self._pending = deque()
+        self._overflow_count = 0
         self._moving = False
         self._reduce_motion = False
         self._fade_on_expire = False
 
-        self._opacity_effect = QGraphicsOpacityEffect(self)
-        self._opacity_effect.setOpacity(1.0)
-        self.setGraphicsEffect(self._opacity_effect)
-        self._fade_animation = QPropertyAnimation(
-            self._opacity_effect, b"opacity", self)
-        self._fade_animation.setDuration(550)
-        self._fade_animation.setStartValue(1.0)
-        self._fade_animation.setEndValue(0.0)
-        self._fade_animation.setEasingCurve(
-            QEasingCurve.Type.InOutQuad)
-        self._fade_animation.finished.connect(self._clear)
+        # This widget is rendered inside ParserWindow's QGraphicsProxyWidget.
+        # A nested QGraphicsOpacityEffect made the complete rail disappear in
+        # the real proxy-hosted render even though its labels remained visible
+        # in Qt's object state. Keep this surface effect-free so the written
+        # counterpart for every audible notification is paintable.
 
         self._scroll_timer = QTimer(self)
         self._scroll_timer.setInterval(24)
@@ -139,8 +156,20 @@ class QuickBarNotificationRail(QFrame):
             created_at = float(created_at)
         except (TypeError, ValueError):
             created_at = time.monotonic()
-        self._pending.append((
-            notice_id, clean, self._channel_label(channel), created_at))
+        notice = (notice_id, clean, self._channel_label(channel), created_at)
+        if (self._label.isVisible() and
+                len(self._pending) >= self._MAX_PENDING):
+            # A combat burst must not make a newly audible event wait behind a
+            # minutes-long marquee backlog. Every exact event is retained in
+            # Notification History; collapse only the transient scheduler and
+            # put the newest event on screen now.
+            self._overflow_count += len(self._pending)
+            self._pending.clear()
+            self._pending.append(notice)
+            self._clear_current()
+            self._show_next()
+            return
+        self._pending.append(notice)
         if self._label.isVisible():
             self.setAccessibleDescription(
                 f"{len(self._pending)} more notification" +
@@ -156,10 +185,10 @@ class QuickBarNotificationRail(QFrame):
             self._clear_current()
             return
         _notice_id, clean, channel, _created_at = self._pending.popleft()
+        overflow_count = self._overflow_count
+        self._overflow_count = 0
         self._scroll_timer.stop()
         self._clear_timer.stop()
-        self._fade_animation.stop()
-        self._opacity_effect.setOpacity(1.0)
         self._label.setText(clean)
         self._channel.setText(channel)
         self._channel.setGeometry(1, 1, 82, self.height() - 2)
@@ -169,18 +198,24 @@ class QuickBarNotificationRail(QFrame):
         self._label.setFixedHeight(self.height() - 2)
         self._label.show()
         self._channel.raise_()
-        self.setToolTip(clean)
+        self.history_button.raise_()
+        history_hint = (
+            f"\n{overflow_count} earlier notifications are in Notification "
+            "History" if overflow_count else "")
+        self.setToolTip(clean + history_hint)
         spoken = f"{channel}: {clean}"
         self.setAccessibleName(f"Latest Vantage notification: {spoken}")
         self.setAccessibleDescription(
-            f"Marquee notification; {len(self._pending)} more queued")
+            f"Marquee notification; {len(self._pending)} more queued" +
+            (f"; {overflow_count} earlier notifications are available in "
+             "Notification History" if overflow_count else ""))
         self._announce_accessibly(spoken)
         # Combat summaries can be much wider than the rail and previously
         # remained visible for a long marquee pass. Give them a bounded,
-        # readable dwell, then fade them out so the Quick Bar is available
-        # for the next event. Reduced-motion users get the same timeout with
-        # an immediate clear instead of an opacity animation.
-        self._fade_on_expire = channel == "COMBAT" and not self._reduce_motion
+        # readable dwell, then clear them so the Quick Bar is available for
+        # the next event. Opacity effects are deliberately not used here;
+        # they are unreliable in this proxy-hosted surface.
+        self._fade_on_expire = False
         if channel == "COMBAT":
             self._clear_timer.setInterval(4500)
             self._clear_timer.start()
@@ -191,7 +226,7 @@ class QuickBarNotificationRail(QFrame):
             # surface. The complete notice remains in the accessible name.
             summary = " · ".join(clean.split(" · ")[:2])
             self._label.setText(summary)
-            self._label.setFixedWidth(max(1, self.width() - 90))
+            self._label.setFixedWidth(max(1, self.width() - 112))
             self._label.setGeometry(87, 1, self._label.width(), self.height() - 2)
             self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             if channel != "COMBAT":
@@ -223,7 +258,7 @@ class QuickBarNotificationRail(QFrame):
             self._moving = False
             clean = self._label.text()
             self._label.setText(" · ".join(clean.split(" · ")[:2]))
-            self._label.setFixedWidth(max(1, self.width() - 90))
+            self._label.setFixedWidth(max(1, self.width() - 112))
             self._label.setGeometry(87, 1, self._label.width(), self.height() - 2)
             self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._fade_on_expire = False
@@ -231,12 +266,7 @@ class QuickBarNotificationRail(QFrame):
             self._clear_timer.start()
 
     def _expire_current(self):
-        """Fade bounded notices, or clear immediately when motion is reduced."""
-        if (self._fade_on_expire and self._label.isVisible() and
-                self.isVisible()):
-            self._scroll_timer.stop()
-            self._fade_animation.start()
-            return
+        """Clear a bounded notice and advance to the next queued event."""
         self._clear()
 
     def _advance(self):
@@ -255,8 +285,6 @@ class QuickBarNotificationRail(QFrame):
     def _clear_current(self):
         self._scroll_timer.stop()
         self._clear_timer.stop()
-        self._fade_animation.stop()
-        self._opacity_effect.setOpacity(1.0)
         self._fade_on_expire = False
         self._moving = False
         self._label.clear()
@@ -280,10 +308,218 @@ class QuickBarNotificationRail(QFrame):
         super().hideEvent(event)
         self._scroll_timer.stop()
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.history_button.move(
+            max(0, self.width() - self.history_button.width() - 1), 1)
+        self.history_button.raise_()
+
     def discard_all(self):
         """Forget active and queued notices when the rail is intentionally off."""
         self._pending.clear()
+        self._overflow_count = 0
         self._clear_current()
+
+
+class QuickBarNotificationHistoryDialog(QDialog):
+    """Searchable session evidence for Quick Bar notifications and audio."""
+
+    def __init__(self, application, parent=None):
+        super().__init__(parent)
+        self._application = application
+        self.setObjectName("QuickBarNotificationHistoryDialog")
+        self.setWindowTitle("Notification History")
+        self.setMinimumSize(680, 360)
+        self.resize(780, 440)
+        self.setAccessibleName("Notification History")
+        self.setAccessibleDescription(
+            "Search and copy recent Vantage notifications from this session")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+
+        heading = QLabel("Recent notifications · last 250 this session")
+        heading.setObjectName("SectionTitle")
+        layout.addWidget(heading)
+
+        self.latest_audio = QLabel()
+        self.latest_audio.setObjectName("NotificationHistoryLatestAudio")
+        self.latest_audio.setWordWrap(True)
+        self.latest_audio.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByKeyboard |
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.latest_audio.setAccessibleName("Latest Vantage audio")
+        layout.addWidget(self.latest_audio)
+
+        search_row = QHBoxLayout()
+        search_label = QLabel("Search:")
+        self.search = QLineEdit()
+        self.search.setClearButtonEnabled(True)
+        self.search.setPlaceholderText(
+            "Search time, category, or notification text")
+        self.search.setAccessibleName("Search notification history")
+        self.search.setAccessibleDescription(
+            "Filters the recent notification table as you type")
+        search_label.setBuddy(self.search)
+        search_row.addWidget(search_label)
+        search_row.addWidget(self.search, 1)
+        layout.addLayout(search_row)
+
+        self.table = QTableWidget(0, 3)
+        self.table.setObjectName("NotificationHistoryTable")
+        self.table.setHorizontalHeaderLabels(
+            ["Date / time", "Category", "Notification"])
+        self.table.setAccessibleName("Recent Vantage notifications")
+        self.table.setAccessibleDescription(
+            "Sortable session history with date, category, and full message")
+        self.table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setSortingEnabled(True)
+        self.table.sortItems(0, Qt.SortOrder.DescendingOrder)
+        header = self.table.horizontalHeader()
+        header.setSectionsClickable(True)
+        header.setSectionsMovable(True)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table.setColumnWidth(0, 155)
+        self.table.setColumnWidth(1, 130)
+        self.table.setColumnWidth(2, 430)
+        layout.addWidget(self.table, 1)
+
+        footer = QHBoxLayout()
+        self.status = QLabel("No notifications this session")
+        self.status.setObjectName("NotificationHistoryStatus")
+        self.status.setAccessibleName("Notification history status")
+        footer.addWidget(self.status, 1)
+        self.copy_button = QPushButton("Copy selected")
+        self.copy_button.setAccessibleName("Copy selected notification")
+        self.copy_button.setAccessibleDescription(
+            "Copies the selected date, category, and full notification text")
+        self.copy_button.setEnabled(False)
+        footer.addWidget(self.copy_button)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.close)
+        footer.addWidget(buttons)
+        layout.addLayout(footer)
+
+        self.search.textChanged.connect(self.refresh)
+        self.table.itemSelectionChanged.connect(self._selection_changed)
+        self.copy_button.clicked.connect(self._copy_selected)
+        self.search.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def refresh(self):
+        """Render a stable newest-first view without replaying any audio."""
+        selected_key = None
+        current = self.table.item(self.table.currentRow(), 0)
+        if current is not None:
+            selected_key = current.data(Qt.ItemDataRole.UserRole)
+        scroll_value = self.table.verticalScrollBar().value()
+        query = " ".join(self.search.text().split()).casefold()
+        rows = list(self._application.quickbar_notice_history())
+        if query:
+            rows = [row for row in rows if query in " ".join((
+                str(row.get("display_time", "")),
+                str(row.get("category", "")),
+                str(row.get("message", "")))).casefold()]
+        sorting = self.table.isSortingEnabled()
+        header = self.table.horizontalHeader()
+        sort_column = header.sortIndicatorSection()
+        sort_order = header.sortIndicatorOrder()
+        self.table.setSortingEnabled(False)
+        self.table.clearSelection()
+        self.table.setCurrentCell(-1, -1)
+        self.table.setRowCount(len(rows))
+        for row_index, row in enumerate(rows):
+            row_key = (
+                float(row.get("occurred_at", 0.0)),
+                str(row.get("channel", "")), str(row.get("message", "")))
+            values = (
+                row.get("display_time", ""), row.get("category", ""),
+                row.get("message", ""))
+            for column, value in enumerate(values):
+                item = (
+                    _NotificationHistoryTimeItem(
+                        str(value), float(row.get("occurred_at", 0.0)))
+                    if column == 0 else QTableWidgetItem(str(value)))
+                item.setToolTip(str(value))
+                item.setData(Qt.ItemDataRole.UserRole, row_key)
+                self.table.setItem(row_index, column, item)
+        self.table.setSortingEnabled(sorting)
+        if sorting and sort_column >= 0:
+            self.table.sortItems(sort_column, sort_order)
+        selection_restored = False
+        if selected_key is not None:
+            for row_index in range(self.table.rowCount()):
+                item = self.table.item(row_index, 0)
+                if (item is not None and
+                        item.data(Qt.ItemDataRole.UserRole) == selected_key):
+                    self.table.selectRow(row_index)
+                    selection_restored = True
+                    break
+        if not selection_restored:
+            self.table.clearSelection()
+            self.table.setCurrentCell(-1, -1)
+        self.table.verticalScrollBar().setValue(scroll_value)
+        latest = str(getattr(
+            self._application, "_last_audio", "None yet") or "None yet")
+        latest_audio_text = (
+            "Latest audio: " + latest if latest != "None yet" else
+            "Latest audio: No Vantage audio has played this session")
+        self.latest_audio.setText(latest_audio_text)
+        self.latest_audio.setAccessibleName(latest_audio_text)
+        self.latest_audio.setAccessibleDescription(
+            "Most recent audio started by Vantage in this session")
+        total = len(self._application.quickbar_notice_history())
+        shown = len(rows)
+        status = (
+            f"{shown} of {total} shown · last 250 · this session" if query
+            else f"{total} notification" + ("s" if total != 1 else "") +
+            " · last 250 maximum · this session")
+        self.status.setText(status)
+        self.status.setAccessibleName(status)
+        self._selection_changed()
+
+    def _selection_changed(self):
+        self.copy_button.setEnabled(self.table.currentRow() >= 0)
+
+    def _copy_selected(self):
+        row = self.table.currentRow()
+        if row < 0:
+            return
+        values = [
+            self.table.item(row, column).text()
+            for column in range(self.table.columnCount())
+            if self.table.item(row, column) is not None]
+        QApplication.clipboard().setText(" · ".join(values))
+        message = "Selected notification copied"
+        self.status.setText(message)
+        self.status.setAccessibleName(message)
+        try:
+            QAccessible.updateAccessibility(
+                QAccessibleAnnouncementEvent(self.status, message))
+        except (AttributeError, RuntimeError, TypeError):
+            pass
+
+    def showEvent(self, event):
+        self.refresh()
+        super().showEvent(event)
+
+
+class _NotificationHistoryTimeItem(QTableWidgetItem):
+    """Date cell that sorts equal-second events by their exact timestamp."""
+
+    def __init__(self, text, occurred_at):
+        super().__init__(text)
+        self._occurred_at = float(occurred_at)
+
+    def __lt__(self, other):
+        if isinstance(other, _NotificationHistoryTimeItem):
+            return self._occurred_at < other._occurred_at
+        return super().__lt__(other)
 
 
 class QuickBarVolumeSlider(QSlider):
@@ -589,6 +825,8 @@ class QuickBar(ParserWindow):
         self.notification_rail = QuickBarNotificationRail()
         self.notification_rail.setToolTip(
             "The next attributable Vantage event appears here")
+        self.notification_rail.history_requested.connect(
+            self._application.show_notification_history)
         self.content.addWidget(
             self.notification_rail, 0,
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)

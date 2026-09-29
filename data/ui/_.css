@@ -239,7 +239,7 @@ QToolButton#QuickBarTickCountdown {
     border: none;
     padding: 0;
     font-family: "Cascadia Mono", "Consolas";
-    font-size: 9px;
+    font-size: 12px;
     font-weight: bold;
 }
 QToolButton#QuickBarTickCountdown:hover {
@@ -1236,8 +1236,21 @@ QWidget[ResponsiveViewport="true"], QWidget[ResponsivePage="true"] {
     border-right: 1px solid #60727E;
     border-top-left-radius: 8px;
     border-bottom-left-radius: 8px;
-    font-size: 8px;
+    font-size: 9px;
     font-weight: 800;
+}
+#QuickBarNotificationHistoryButton {
+    background-color: #11181D;
+    border: none;
+    border-left: 1px solid #60727E;
+    border-top-right-radius: 8px;
+    border-bottom-right-radius: 8px;
+    padding: 2px;
+}
+#QuickBarNotificationHistoryButton:hover,
+#QuickBarNotificationHistoryButton:focus {
+    background-color: #293740;
+    border-left-color: #C7AE76;
 }
 #StickyNoteTitle {
     color: #FFF1B8;

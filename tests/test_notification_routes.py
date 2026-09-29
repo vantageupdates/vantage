@@ -538,8 +538,14 @@ def test_sounds_route_test_status_is_truthful_and_accessible(monkeypatch):
     picker.addItem('Soft Notify', 'builtin:crystal-ping')
     status = QLabel()
     status.setAccessibleName('Notification test result')
-    monkeypatch.setattr(settings_module, 'play_alert', lambda *a, **k: True)
-    monkeypatch.setattr(settings_module, 'speak_text', lambda *a, **k: True)
+    played_calls = []
+    spoken_calls = []
+    monkeypatch.setattr(
+        settings_module, 'play_alert',
+        lambda *a, **k: played_calls.append((a, k)) or True)
+    monkeypatch.setattr(
+        settings_module, 'speak_text',
+        lambda *a, **k: spoken_calls.append((a, k)) or True)
     check = {'value': AudioPreflightResult('sound', 'ready', True)}
     monkeypatch.setattr(
         settings_module, 'audio_preflight',
@@ -585,6 +591,8 @@ def test_sounds_route_test_status_is_truthful_and_accessible(monkeypatch):
     assert audio_unavailable == (
         'Market sale test: Windows audio backend unavailable')
     assert voice == 'Market sale test: voice queued'
+    assert played_calls[0][1]['channel'] == 'market'
+    assert spoken_calls[0][1]['channel'] == 'market'
     assert unavailable == 'Market sale test: Windows voice unavailable'
     assert off == 'Market sale test: Off'
     assert muted == 'Market sale test: Master Mute'
