@@ -1239,3 +1239,14 @@ independent accessibility review: PASS
   isolated source/profile boundary to subprocess tests, and the portable UI
   contract passes focused verification. A final clean complete suite remains
   required on the frozen reviewed candidate before build.
+- Independent release-hold review of commit `9151cfc`: **PASS**. The reviewer
+  independently exercised the eight focused fade-generation cases and 42
+  Quick Bar/live-region regressions, including exact spell/recipient speech,
+  same-generation sync and camp restoration, true-recast rearming, and
+  preservation of unrelated critical alert ordering. The exact live Windows
+  utterance was not captured; approval covers the reproduced repeat mechanism
+  and isolated Qt/audio scheduling behavior.
+- Final clean complete suite on the exact reviewed **1.44.116** candidate:
+  **1,642 passed, 2 skipped** in **782.99 seconds**. The protected live profile
+  retained its exact 364-byte size, SHA-256, and nanosecond modification time
+  across the run. This is the final pre-build result.

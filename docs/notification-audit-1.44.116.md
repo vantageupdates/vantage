@@ -78,5 +78,14 @@ deadline; a real recast still rearms. Text-to-Speech names the exact spell and
 recipient and uses an explicit per-generation coalescing key. This does not
 globally merge unrelated alerts that happen to speak the same words. The
 focused spell/audio/sync/camp/update/profile-isolation group passed **214
-tests** in **60.75 seconds**. Final full-suite and artifact results remain
-pending the independent review of this release-hold change.
+tests** in **60.75 seconds**. Artifact construction and public verification
+remain pending below.
+
+Independent review of frozen commit `9151cfc` passed the eight focused fade-
+generation cases and 42 Quick Bar/live-region regressions. It verified exact
+spell/recipient speech, no replay for a same-generation sync or camp rebuild,
+real-recast rearming, and unchanged ordering for unrelated critical alerts.
+The exact live Windows utterance was not captured; this is an isolated
+reproduction and regression proof. The final clean complete suite passed
+**1,642 tests** with **2 skipped** in **782.99 seconds**. The protected live
+profile retained identical size, SHA-256, and nanosecond modification time.
