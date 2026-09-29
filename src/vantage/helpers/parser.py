@@ -1844,11 +1844,14 @@ class ParserWindow(QWidget):
             config.data[self.name]['toggled'] = False
         else:
             self._fit_to_available_screen()
+            # ``show()`` synchronously delivers showEvent.  Publish the new
+            # state first so feature-owned show handlers can drain work that
+            # accumulated while the panel was hidden.
+            self._toggled = True
+            config.data[self.name]['toggled'] = True
             self.show()
             self.raise_()
             self.activateWindow()
-            self._toggled = True
-            config.data[self.name]['toggled'] = True
         config.save()
 
     # Overrides QWidget to handle this event

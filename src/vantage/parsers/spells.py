@@ -1452,7 +1452,8 @@ class Spells(ParserWindow):
                         ct, 'basic', ct.sound_path, rendered_speech,
                         ct.interrupt_speech, f"Trigger · {timer_name}",
                         active_character,
-                        getattr(self, '_active_server', ''))
+                        getattr(self, '_active_server', ''),
+                        visual_registered=has_audio)
                     if audio_output:
                         output.append(audio_output)
                     if ct.clipboard_text:
@@ -1785,7 +1786,7 @@ class Spells(ParserWindow):
                     source='Bard AE Count',
                     character=getattr(self, '_active_character', ''),
                     server=getattr(self, '_active_server', ''),
-                    channel='spells')
+                    channel='spells', visual_registered=True)
 
     def _trigger_run_keys(self, trigger):
         """Return every live internal run owned by one trigger definition."""
@@ -1887,14 +1888,14 @@ class Spells(ParserWindow):
 
     def _deliver_custom_trigger_audio(
             self, trigger, stage, sound, speech, interrupt, source,
-            character='', server=''):
+            character='', server='', visual_registered=False):
         """Deliver exactly one explicitly selected audio action."""
         mode = trigger.audio_delivery(stage)
         if mode == 'sound' and str(sound or '').strip():
             play_alert(
                 sound, config.data['spells']['fade_sound_volume'], 1,
                 source=source, character=character, server=server,
-                channel='spells')
+                channel='spells', visual_registered=visual_registered)
             return f"Sound · {sound_display_name(sound)}"
         if mode != 'tts' or not str(speech or '').strip():
             return ''
@@ -1911,7 +1912,8 @@ class Spells(ParserWindow):
             speech, volume, interrupt,
             source=f'{source} · speech', character=character,
             server=server, channel='spells',
-            voice_name=settings['voice_name'], pitch=settings['pitch'])
+            voice_name=settings['voice_name'], pitch=settings['pitch'],
+            visual_registered=visual_registered)
         return 'Text-to-speech'
 
     def _fire_trigger_stage(self, run, stage):
@@ -1938,7 +1940,8 @@ class Spells(ParserWindow):
         audio_output = self._deliver_custom_trigger_audio(
             trigger, stage, sound, speech, interrupt,
             f"Trigger · {run['name']} · {label}",
-            run.get('character', ''), run.get('server', ''))
+            run.get('character', ''), run.get('server', ''),
+            visual_registered=has_audio)
         if audio_output:
             outputs.append(audio_output)
         if text and trigger.overlay_id != 'none':

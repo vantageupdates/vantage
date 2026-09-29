@@ -1425,10 +1425,12 @@ class Vitals(ParserWindow):
             str(bar.get("type", "")).casefold() == "target_hp"))
         if crossed == "full" and silence_full:
             return False
-        return self._play_delivery(stop, bar["name"], percent, crossed)
+        return self._play_delivery(
+            stop, bar["name"], percent, crossed, visual_registered=True)
 
     def _play_delivery(
-            self, stop, name, percent, crossed, *, allow_hidden=False):
+            self, stop, name, percent, crossed, *, allow_hidden=False,
+            visual_registered=False):
         delivery = stop.get("delivery", "off")
         source = f"Vitals · {name} {crossed} {stop.get('percent', percent)}%"
         if delivery == "sound":
@@ -1436,7 +1438,8 @@ class Vitals(ParserWindow):
                 stop.get("sound", ""), stop.get("volume", 80),
                 source=source, character=getattr(self, "_active_character", ""),
                 server=getattr(self, "_active_server", ""), channel="vitals",
-                allow_hidden=allow_hidden)
+                allow_hidden=allow_hidden,
+                visual_registered=visual_registered)
         if delivery == "tts":
             text = str(stop.get("tts_text", "") or "").replace(
                 "{name}", str(name)).replace(
@@ -1447,7 +1450,8 @@ class Vitals(ParserWindow):
                 character=getattr(self, "_active_character", ""),
                 server=getattr(self, "_active_server", ""), channel="vitals",
                 allow_hidden=allow_hidden, voice_name=stop.get("voice", ""),
-                pitch=stop.get("pitch", 0), replace_pending=True)
+                pitch=stop.get("pitch", 0), replace_pending=True,
+                visual_registered=visual_registered)
         return False
 
     def _test_delivery(self, stop, name, percent, crossed):

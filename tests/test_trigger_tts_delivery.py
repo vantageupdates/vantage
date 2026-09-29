@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 
 from vantage.helpers import config
 from vantage.parsers import spells as spells_module
@@ -55,6 +56,40 @@ def test_runtime_dispatches_phase_specific_tts_and_explicit_off(monkeypatch):
         None, trigger, 'ended', 'builtin:danger-double', 'Do not speak',
         False, 'Test off') == ''
     assert len(spoken) == 3
+
+
+def test_runtime_timer_stage_registers_one_notice_and_marks_tts_owned(
+        monkeypatch):
+    config.data = {'spells': {'fade_sound_volume': 37}}
+    notices = []
+    spoken = []
+    app = SimpleNamespace(
+        _queue_quickbar_notice=lambda message: notices.append(message),
+        show_overlay_notification=lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(spells_module, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(
+        spells_module, 'speak_text',
+        lambda *args, **kwargs: spoken.append((args, kwargs)) or True)
+    trigger = CustomTrigger(
+        name='Enrage', timer_ending_delivery='tts',
+        timer_ending_tts='Enrage ending', overlay_id='none')
+    owner = SimpleNamespace(
+        _custom_trigger_has_audio=lambda *args: True,
+        _deliver_custom_trigger_audio=lambda *args, **kwargs:
+            Spells._deliver_custom_trigger_audio(owner, *args, **kwargs),
+        _record_trigger_match=lambda *args, **kwargs: None,
+        _trigger_text_color=lambda *_args: '')
+    run = {
+        'trigger': trigger, 'name': 'Enrage', 'ending_text': '',
+        'ended_text': '', 'ending_tts': 'Enrage ending', 'ended_tts': '',
+        'character': 'Mindflux', 'server': 'Green'}
+
+    Spells._fire_trigger_stage(owner, run, 'ending')
+
+    assert notices == ['Enrage · Timer ending']
+    assert len(spoken) == 1
+    assert spoken[0][1]['visual_registered'] is True
 
 
 def test_explicit_sound_does_not_fall_through_to_tts(monkeypatch):

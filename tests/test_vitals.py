@@ -1671,7 +1671,8 @@ def test_target_full_alert_silence_mutes_audio_but_preserves_visual_and_lower(
 
     monkeypatch.setattr(vitals_module, "QApplication", FakeApplication)
     owner = type("Owner", (), {})()
-    owner._play_delivery = lambda *args: deliveries.append(args) or True
+    owner._play_delivery = lambda *args, **kwargs: deliveries.append(
+        (args, kwargs)) or True
     bar = sanitize_vital_bar({
         "id": "target", "name": "Target HP", "type": "target_hp",
         "stops": [
@@ -1713,7 +1714,10 @@ def test_target_full_alert_silence_mutes_audio_but_preserves_visual_and_lower(
     assert update(96, 7) == []
     assert update(100, 8) == ["full"]
     assert len(notifications) == 5 and len(deliveries) == 3
-    assert deliveries[-1][0]["delivery"] == "tts"
+    assert deliveries[-1][0][0]["delivery"] == "tts"
+    assert all(
+        kwargs["visual_registered"] is True
+        for _args, kwargs in deliveries)
 
 
 def test_overlay_name_validation_is_visible_associated_and_keyboard_focused():

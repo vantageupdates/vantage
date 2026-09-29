@@ -76,8 +76,9 @@ class QuickBarNotificationRail(QFrame):
             Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._label.hide()
         self._notice_id = 0
-        self._pending = deque(maxlen=20)
-        self._notice_max_age = 30.0
+        # Do not silently evict written counterparts while this child is
+        # temporarily hidden by layout, roll-up, or top-level visibility.
+        self._pending = deque()
         self._moving = False
         self._reduce_motion = False
         self._fade_on_expire = False
@@ -151,9 +152,6 @@ class QuickBarNotificationRail(QFrame):
     def _show_next(self):
         if not self.isVisible():
             return
-        now = time.monotonic()
-        while self._pending and now - self._pending[0][3] > self._notice_max_age:
-            self._pending.popleft()
         if not self._pending:
             self._clear_current()
             return

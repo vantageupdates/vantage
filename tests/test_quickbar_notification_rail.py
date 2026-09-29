@@ -101,7 +101,7 @@ burst = {
 }
 rail.discard_all()
 
-# A notice held beyond the bounded live-event window expires silently.
+# A written audio counterpart remains available even after a long hide.
 before_stale = len(announcements)
 rail.hide()
 rail.present(
@@ -116,6 +116,7 @@ stale = {
     'visible': rail._label.isVisible(),
     'announcement_delta': len(announcements) - before_stale,
 }
+rail._clear()
 
 config.data['general']['reduce_motion'] = True
 app.show_overlay_notification(
@@ -205,6 +206,38 @@ bar.refresh_state()
 app.processEvents()
 hidden_replayed = rail._label.isVisible()
 
+# Exercise the real ParserWindow toggle ordering.  Reopening must drain the
+# application queue during showEvent without a later manual refresh call.
+rail.discard_all()
+app._take_quickbar_notices(discard=True)
+bar.toggle()
+app._queue_quickbar_notice('Held longer than thirty seconds', channel='spells')
+held = app._quickbar_notice_queue.pop()
+app._quickbar_notice_queue.append(
+    (held[0], held[1], held[2], time.monotonic() - 60))
+bar.toggle()
+app.processEvents()
+real_reopen = {
+    'visible': rail._label.isVisible(),
+    'text': rail._label.text(),
+    'queued_in_app': len(app._quickbar_notice_queue),
+}
+
+# A realistic burst must not disappear at the former 40/20 deque caps.
+rail.discard_all()
+bar.toggle()
+for index in range(75):
+    app._queue_quickbar_notice(f'Burst event {index + 1}', channel='timers')
+burst_count_hidden = len(app._quickbar_notice_queue)
+bar.toggle()
+app.processEvents()
+large_burst = {
+    'held': burst_count_hidden,
+    'current': rail._label.text(),
+    'pending': len(rail._pending),
+}
+rail.discard_all()
+
 config.data['quickbar']['orientation'] = 'vertical'
 app._signals['settings'].config_updated.emit()
 app.processEvents()
@@ -242,6 +275,8 @@ print(json.dumps({
     'temporary_visible': temporary_visible,
     'hidden_consumed': hidden_consumed,
     'hidden_replayed': hidden_replayed,
+    'real_reopen': real_reopen,
+    'large_burst': large_burst,
     'vertical': vertical,
     'ticker_off': ticker_off,
     'duplicate_announcement_count': duplicate_announcement_count,
@@ -291,8 +326,8 @@ def test_quickbar_notification_rail_shows_one_event_then_clears(tmp_path):
     }
     assert result['stale'] == {
         'pending_before_show': 1,
-        'visible': False,
-        'announcement_delta': 0,
+        'visible': True,
+        'announcement_delta': 1,
     }
     assert result['reduced'] == {
         'text': 'Manastone for sale · Trader',
@@ -334,6 +369,16 @@ def test_quickbar_notification_rail_shows_one_event_then_clears(tmp_path):
             'Custom trigger · Enraged'),
     }
     assert result['hidden_replayed'] is True
+    assert result['real_reopen'] == {
+        'visible': True,
+        'text': 'Held longer than thirty seconds',
+        'queued_in_app': 0,
+    }
+    assert result['large_burst'] == {
+        'held': 75,
+        'current': 'Burst event 1',
+        'pending': 74,
+    }
     assert result['vertical'] == {
         'rail_visible': True,
         'design_width': 240,

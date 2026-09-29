@@ -1219,6 +1219,7 @@ def test_bard_count_speech_queues_without_forced_interrupt(monkeypatch):
     assert notices == ['6 Total | 5 Hits | 1 Resist']
     assert calls[0][0] == ('6 Total | 5 Hits | 1 Resist', 75)
     assert 'interrupt' not in calls[0][1]
+    assert calls[0][1]['visual_registered'] is True
 
 
 def test_only_explicit_interrupt_requests_qt_immediate_boundary(monkeypatch):

@@ -2892,7 +2892,7 @@ class SpawnTimers(ParserWindow):
                 character=common["character"], server=common["server"],
                 channel="timers", allow_hidden=False,
                 voice_name=timer.tts_voice, pitch=timer.tts_pitch,
-                replace_pending=True)
+                replace_pending=True, visual_registered=True)
         if delivery == "off":
             return app.notify_event(
                 route, message, delivery_override="off", **common)

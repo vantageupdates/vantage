@@ -131,7 +131,11 @@ class VantageApp(QApplication):
         # Keep accepted notices until the Quick Bar has actually taken them.
         # A single "latest notice" slot lost bursts whenever several parser
         # events arrived before Qt completed one refresh/layout cycle.
-        self._quickbar_notice_queue = deque(maxlen=40)
+        # Keep written counterparts until the Quick Bar actually presents
+        # them.  This queue is session-only and intentionally has no silent
+        # maxlen eviction: a hidden/collapsed bar must not lose the event that
+        # explains an audible alert.
+        self._quickbar_notice_queue = deque()
         self._last_update_success = ""
         self._tell_audio_cooldown = TellAudioCooldown()
         set_audio_muted(config.data['general'].get('audio_muted', False))
@@ -813,18 +817,20 @@ class VantageApp(QApplication):
         self._quickbar_notice_at = time.monotonic()
         queue = getattr(self, "_quickbar_notice_queue", None)
         if queue is None:
-            queue = self._quickbar_notice_queue = deque(maxlen=40)
+            queue = self._quickbar_notice_queue = deque()
         queue.append((
             self._quickbar_notice_id, message,
             self._quickbar_notice_channel, self._quickbar_notice_at))
         self._refresh_quickbar()
 
-    def _take_quickbar_notices(self, *, discard=False, max_age=30.0):
-        """Drain fresh Quick Bar notices in order, or intentionally discard.
+    def _take_quickbar_notices(self, *, discard=False, max_age=None):
+        """Drain Quick Bar notices in order, or intentionally discard.
 
         A hidden widget during a Qt layout/reparent pass is not a user choice,
         so callers decide whether the configured surface is intentionally off.
-        The time bound prevents an old burst from replaying after a long stall.
+        Notices do not expire merely because the bar was hidden.  They are the
+        written counterpart of audio and remain available until presentation
+        or the user's explicit ticker-Off choice.
         """
         queue = getattr(self, "_quickbar_notice_queue", None)
         if not queue:
@@ -839,7 +845,7 @@ class VantageApp(QApplication):
                 created = float(notice[3])
             except (IndexError, TypeError, ValueError):
                 created = now
-            if now - created <= max(1.0, float(max_age)):
+            if max_age is None or now - created <= max(1.0, float(max_age)):
                 notices.append(notice)
         return notices
 
