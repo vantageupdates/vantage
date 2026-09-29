@@ -46,6 +46,35 @@ def test_discovery_only_returns_character_ui_profiles(eq_install):
     ]
 
 
+def test_uiskin_parser_accepts_spacing_case_and_update_removes_duplicates(
+        eq_install):
+    root, skin, state = eq_install
+    alpha = root / "UI_Alpha_P1999Green.ini"
+    alpha.write_bytes(
+        b"[Main]\r\n  uIsKiN = velious  \r\nUISkin=rustle2\r\n"
+        b"AtlasSkin=Default\r\n[ChatWindow]\r\nXPos=11\r\n")
+
+    discovered = profiles.discover_character_profiles(root)
+    found = next(item for item in discovered if item.character == "Alpha")
+    assert found.skin == "velious"
+    profiles.apply_skin_to_profiles(root, skin, [alpha.name], state)
+
+    payload = alpha.read_text(encoding="cp1252")
+    assert payload.casefold().count("uiskin") == 1
+    assert f"uIsKiN = {skin}" in payload
+    assert "AtlasSkin=Default" in payload
+    assert "XPos=11" in payload
+
+
+def test_set_skin_handles_missing_main_and_preserves_matching_payload(eq_install):
+    _root, skin, _state = eq_install
+    missing = b"[ChatWindow]\nXPos=42\n"
+    updated = profiles._set_skin(missing, skin)
+    assert updated.startswith(f"[Main]\nUISkin={skin}\n".encode("cp1252"))
+    matching = f"[Main]\r\nUISkin = {skin}\r\nSound=TRUE\r\n".encode("cp1252")
+    assert profiles._set_skin(matching, skin) == matching
+
+
 def test_audit_distinguishes_current_different_missing_and_available(eq_install):
     root, skin, _state = eq_install
     (root / "uifiles" / "velious").mkdir()
@@ -60,6 +89,8 @@ def test_audit_distinguishes_current_different_missing_and_available(eq_install)
     assert by_name["Current"].current is True
     assert "newer release 1.44.71 available, not installed" in (
         by_name["Current"].detail)
+    assert "verified installed selection" in by_name["Current"].detail
+    assert "newest" not in by_name["Current"].detail.casefold()
     assert by_name["Alpha"].status == "Different installed skin"
     assert by_name["Alpha"].referenced_folder_exists is True
     assert by_name["Beta"].status == "Referenced folder missing"
@@ -147,6 +178,23 @@ def test_copy_layout_copies_only_ui_file_and_restore_is_reversible(eq_install):
     assert restored.action == "restore"
     assert beta.read_bytes() == beta_before
     assert len(profiles.list_backups(state, root)) == 2
+
+
+def test_copy_layout_skips_identical_targets_and_creates_no_empty_backup(
+        eq_install):
+    root, skin, state = eq_install
+    first = profiles.copy_layout(
+        root, skin, "UI_Alpha_P1999Green.ini",
+        ["UI_Beta_P1999Blue.ini"], state)
+    backups_before = profiles.list_backups(state, root)
+
+    second = profiles.copy_layout(
+        root, skin, "UI_Alpha_P1999Green.ini",
+        ["UI_Beta_P1999Blue.ini"], state)
+
+    assert first.changed == 1
+    assert second == profiles.ProfileOperationResult("layout", 0, "", ())
+    assert profiles.list_backups(state, root) == backups_before
 
 
 def test_partial_write_failure_rolls_back_every_changed_file(

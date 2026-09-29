@@ -1368,5 +1368,47 @@ independent accessibility review: PASS
   deleted-Qt-owner lifetime errors, and re-raises unrelated runtime failures.
   Dedicated lifecycle regressions and a clean UI subprocess exit verify the
   bounded fix.
-- Independent final Timer keyword/UI/accessibility review and one clean complete
-  suite remain required on the frozen candidate before build or publication.
+- Independent Timer keyword/UI/accessibility review of commit `4f1fd1b`:
+  **PASS**, with **122 passed in 79.74 seconds** in the reviewer's exact
+  feature/lifecycle gate. One clean complete suite remains required on the
+  combined frozen candidate before build or publication.
+
+### 1.44.117 Character UI and layout verification
+
+- The Character UI manager now audits every supported P99 character INI
+  against the updater's verified installed selection. It visibly distinguishes
+  that installed selection from a newer available release that is explicitly
+  **not installed**, rather than calling a restored older selection “newest.”
+- `UISkin` parsing accepts harmless whitespace and casing variants. Applying a
+  skin updates the effective key in `[Main]`, removes duplicate `UISkin`
+  entries defensively, and preserves line endings and unrelated INI content.
+- Full layout copy remains intentionally limited to supported
+  `UI_<character>_<server>.ini` files. The source stays unchanged, target
+  filenames/identities remain intact, and separate macro/social/friend/hotkey/
+  inventory INIs are not touched. Byte-identical targets are skipped and only
+  changed targets receive verified restore points.
+- The copy preview and confirmation identify the exact source toon and server,
+  target count/list, verified installed skin, unchanged source, backup scope,
+  and full-copy behavior. Clear stays clear across source changes; targets are
+  never silently reselected. Apply/Copy actions enable only for a valid current
+  selection. Restore exposes its dated label/file count through its visible
+  buddy, accessible description, tooltip, and confirmation.
+- The existing card hierarchy now uses a vertical-only native scroll surface.
+  Audit selection, apply, and sort controls have separate rows; the table and
+  following controls no longer overlap at 760×590 or the supported 620×500
+  minimum. The footer progress/status remain readable. Table Tab/Backtab exits
+  preserve the current cell, arrows/Space remain available, and focus traversal
+  scrolls Copy/Restore actions into view.
+- Fair isolated baseline evidence from `4f1fd1b`:
+  `work/polish-audit-1.44.117/character-ui-manager--normal--before.png` and
+  `character-ui-manager--minimum--before.png`. Candidate evidence with the same
+  synthetic profiles and available/installed versions:
+  `character-ui-manager--normal--after.png`,
+  `character-ui-manager--minimum--after.png`, and
+  `character-ui-manager--minimum-copy-restore--after.png`.
+- Focused helper/dialog verification: **63 passed in 7.60 seconds**. Broader
+  Character UI, updater, package, retention, Windows-permission, installer,
+  and English UI verification: **372 passed, 2 skipped in 52.01 seconds**.
+  Python compilation, English-copy scan, and `git diff --check` passed;
+  `ui/**` remains unchanged. Independent final review and a clean complete
+  suite remain required before build/publication.

@@ -25,6 +25,9 @@ _PROFILE_RX = re.compile(
 _BACKUP_ID_RX = re.compile(r"^[0-9a-f]{32}$")
 _REQUEST_NAME_RX = re.compile(r"^ui-profile-[0-9a-f]{32}\.json$")
 _SKIN_RX = re.compile(r"^VantageUI-v\d+\.\d+\.\d+$")
+_UI_SKIN_LINE_RX = re.compile(
+    r"^(?P<prefix>\s*UISkin\s*=\s*)(?P<value>.*?)(?P<suffix>\s*)$",
+    re.IGNORECASE)
 MAX_PROFILE_BYTES = 4 * 1024 * 1024
 MAX_PROFILES = 128
 
@@ -119,8 +122,10 @@ def _skin_from_payload(payload):
         stripped = row.strip()
         if stripped.startswith("[") and stripped.endswith("]"):
             section = stripped[1:-1].strip().casefold()
-        elif section == "main" and stripped.casefold().startswith("uiskin="):
-            return stripped.split("=", 1)[1].strip()
+        elif section == "main":
+            match = _UI_SKIN_LINE_RX.fullmatch(row)
+            if match:
+                return match.group("value").strip()
     return ""
 
 
@@ -141,13 +146,18 @@ def _set_skin(payload, skin_folder):
             index for index in range(main_start + 1, len(rows))
             if rows[index].strip().startswith("[") and
             rows[index].strip().endswith("]")), len(rows))
-        skin_index = next((
+        skin_indexes = [
             index for index in range(main_start + 1, main_end)
-            if rows[index].strip().casefold().startswith("uiskin=")), None)
-        if skin_index is None:
+            if _UI_SKIN_LINE_RX.fullmatch(rows[index])]
+        if not skin_indexes:
             rows.insert(main_start + 1, f"UISkin={skin_folder}")
         else:
-            rows[skin_index] = f"UISkin={skin_folder}"
+            first = skin_indexes[0]
+            match = _UI_SKIN_LINE_RX.fullmatch(rows[first])
+            rows[first] = (
+                f"{match.group('prefix')}{skin_folder}{match.group('suffix')}")
+            for duplicate in reversed(skin_indexes[1:]):
+                del rows[duplicate]
     result = newline.join(rows)
     if final_newline:
         result += newline
@@ -209,24 +219,24 @@ def audit_character_profiles(eq_root, installed_folder=None,
             referenced and referenced.is_dir() and not referenced.is_symlink())
         if selected and configured.casefold() == selected.casefold():
             status = "Current installed"
-            detail = f"Uses newest verified installed folder {selected}{available_note}"
+            detail = f"Uses verified installed selection {selected}{available_note}"
             current = True
         elif not configured:
             status = "No UISkin setting"
             detail = (
-                f"No UISkin is configured; newest verified installed folder is "
+                f"No UISkin is configured; verified installed selection is "
                 f"{selected or 'not installed'}{available_note}")
             current = False
         elif not exists:
             status = "Referenced folder missing"
             detail = (
-                f"Configured folder {configured} is missing; newest verified "
-                f"installed folder is {selected or 'not installed'}{available_note}")
+                f"Configured folder {configured} is missing; verified installed "
+                f"selection is {selected or 'not installed'}{available_note}")
             current = False
         else:
             status = "Different installed skin"
             detail = (
-                f"Uses {configured}; newest verified installed folder is "
+                f"Uses {configured}; verified installed selection is "
                 f"{selected or 'not installed'}{available_note}")
             current = False
         audits.append(CharacterUIAudit(
@@ -403,7 +413,11 @@ def copy_layout(eq_root, skin_folder, source_filename, target_filenames,
         targets.append(target)
     if not targets:
         raise UIProfileError("Choose at least one other character")
-    updates = [(target, source_payload) for target in targets]
+    updates = [
+        (target, source_payload) for target in targets
+        if _read_bytes(target) != source_payload]
+    if not updates:
+        return ProfileOperationResult("layout", 0, "", ())
     return _backup_and_apply(
         root, state_dir, "layout", f"Copy layout from {source.name}", updates)
 

@@ -9,7 +9,7 @@ import sys
 from types import SimpleNamespace
 
 import pytest
-from PySide6.QtCore import QByteArray, QObject, Qt, Signal
+from PySide6.QtCore import QByteArray, QObject, QPoint, Qt, Signal
 from PySide6.QtGui import QAccessible
 from PySide6.QtNetwork import QNetworkReply, QNetworkRequest
 from PySide6.QtTest import QTest
@@ -552,6 +552,173 @@ def test_character_ui_manager_empty_states_refresh_and_status_are_accessible(
         QApplication.processEvents()
 
 
+def test_character_ui_manager_copy_selection_preview_and_restore_are_explicit(
+        panel, tmp_path, monkeypatch):
+    root = tmp_path / "EverQuest"
+    skin = "VantageUI-v1.44.112"
+    (root / "uifiles" / skin).mkdir(parents=True)
+    (root / "eqgame.exe").write_bytes(b"game")
+    for character, server in (("Alpha", "Green"), ("Beta", "Blue"),
+                              ("Gamma", "Green")):
+        (root / f"UI_{character}_P1999{server}.ini").write_text(
+            "[Main]\nUISkin=velious\n", encoding="cp1252")
+    panel.path_edit.setText(str(root))
+    panel._release = SimpleNamespace(version="1.44.117")
+    monkeypatch.setattr(ui_skin_updater, "installed_folder", lambda _root: skin)
+    monkeypatch.setattr(
+        vantage_ui_module, "data_dir",
+        lambda *parts: tmp_path.joinpath("state", *parts))
+    backup = SimpleNamespace(
+        backup_id="b" * 32, created_utc="2026-09-29T12:00:00+00:00",
+        label="Copy layout from UI_Alpha_P1999Green.ini", file_count=2)
+    monkeypatch.setattr(vantage_ui_module, "list_backups", lambda *_a: (backup,))
+
+    dialog = vantage_ui_module.CharacterUIManagerDialog(panel)
+    try:
+        dialog.show()
+        dialog.activateWindow()
+        QApplication.processEvents()
+        assert dialog.audit_table.tabKeyNavigation() is False
+        assert dialog._checked_targets() == []
+        assert not dialog.copy_layout_button.isEnabled()
+        assert "no targets selected" in dialog.layout_preview.text()
+        source_item = dialog.target_list.item(0)
+        assert source_item.text() == "Alpha · Green (source)"
+        assert "stays unchanged" in str(source_item.data(
+            Qt.ItemDataRole.AccessibleDescriptionRole))
+
+        dialog._select_all_targets()
+        assert dialog.copy_layout_button.isEnabled()
+        assert set(dialog._checked_targets()) == {
+            "UI_Beta_P1999Blue.ini", "UI_Gamma_P1999Green.ini"}
+        dialog._clear_targets()
+        dialog.source_combo.setCurrentIndex(1)
+        assert dialog._checked_targets() == []
+        assert not dialog.copy_layout_button.isEnabled()
+
+        beta_source = dialog.source_combo.currentData()
+        for index in range(dialog.target_list.count()):
+            item = dialog.target_list.item(index)
+            if item.data(Qt.ItemDataRole.UserRole) != beta_source and \
+                    item.flags() & Qt.ItemFlag.ItemIsEnabled:
+                item.setCheckState(Qt.CheckState.Checked)
+                break
+        confirmations = []
+        monkeypatch.setattr(
+            dialog, "_confirm",
+            lambda title, text: confirmations.append((title, text)) or False)
+        assert dialog.apply_layout() is False
+        copy_text = confirmations[-1][1]
+        assert "Beta · Blue's complete window and chat layout" in copy_text
+        assert "The source stays unchanged" in copy_text
+        assert skin in copy_text
+        assert "identical targets are skipped" in copy_text
+
+        assert dialog.restore_selected() is False
+        restore_text = confirmations[-1][1]
+        assert "Test backup" not in restore_text
+        assert "Copy layout from UI_Alpha_P1999Green.ini" in restore_text
+        assert "2 files" in restore_text
+        assert "Copy layout from UI_Alpha_P1999Green.ini" in (
+            dialog.backup_combo.toolTip())
+        assert dialog.backup_combo.accessibleDescription() == (
+            dialog.backup_combo.toolTip())
+        assert dialog.backup_combo.accessibleName() == "Restore point"
+        assert dialog.available_value.text() == (
+            "Available release: 1.44.117 · not installed")
+        assert dialog.available_value.accessibleDescription() == (
+            dialog.available_value.text())
+        panel._release = SimpleNamespace(version="1.44.112")
+        dialog.refresh()
+        assert dialog.available_value.text() == (
+            "Available release: 1.44.112 · selected version is current")
+        assert dialog.available_value.accessibleDescription() == (
+            dialog.available_value.text())
+        panel._release = None
+        dialog.refresh()
+        assert dialog.available_value.text() == "Available release: Not checked"
+        assert dialog.available_value.accessibleDescription() == (
+            dialog.available_value.text())
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+        QApplication.processEvents()
+
+
+def test_character_ui_manager_cards_do_not_overlap_at_supported_sizes(
+        panel, tmp_path, monkeypatch):
+    root = tmp_path / "EverQuest"
+    skin = "VantageUI-v1.44.117"
+    (root / "uifiles" / skin).mkdir(parents=True)
+    (root / "eqgame.exe").write_bytes(b"game")
+    for character in ("Alpha", "Beta", "Gamma", "Delta"):
+        (root / f"UI_{character}_P1999Green.ini").write_text(
+            f"[Main]\nUISkin={skin}\n", encoding="cp1252")
+    panel.path_edit.setText(str(root))
+    panel._release = SimpleNamespace(version="1.44.117")
+    monkeypatch.setattr(ui_skin_updater, "installed_folder", lambda _root: skin)
+    monkeypatch.setattr(
+        vantage_ui_module, "data_dir",
+        lambda *parts: tmp_path.joinpath("state", *parts))
+    monkeypatch.setattr(
+        vantage_ui_module, "list_backups", lambda *_args: (SimpleNamespace(
+            backup_id="c" * 32,
+            created_utc="2026-09-29T12:00:00+00:00",
+            label="Layout backup", file_count=2),))
+    dialog = vantage_ui_module.CharacterUIManagerDialog(panel)
+    try:
+        for size in ((760, 590), (620, 500)):
+            dialog.resize(*size)
+            dialog.show()
+            QApplication.processEvents()
+            table_bottom = dialog.audit_table.geometry().bottom()
+            assert dialog.include_default.geometry().top() > table_bottom
+            assert dialog.select_outdated_button.geometry().top() > table_bottom
+            assert dialog.audit_sort_button.geometry().top() > (
+                dialog.select_outdated_button.geometry().bottom())
+            assert dialog.progress.height() >= dialog.progress.minimumHeight()
+            assert dialog.status.height() >= dialog.status.minimumHeight()
+            assert dialog.options_scroll.verticalScrollBar().maximum() > 0
+
+        dialog.audit_table.setCurrentCell(1, 2)
+        original_cell = (
+            dialog.audit_table.currentRow(), dialog.audit_table.currentColumn())
+        dialog.audit_table.setFocus(Qt.FocusReason.TabFocusReason)
+        QTest.keyClick(dialog.audit_table, Qt.Key.Key_Tab)
+        QApplication.processEvents()
+        assert QApplication.focusWidget() is dialog.include_default
+        assert (dialog.audit_table.currentRow(),
+                dialog.audit_table.currentColumn()) == original_cell
+        dialog.audit_table.setFocus(Qt.FocusReason.BacktabFocusReason)
+        QTest.keyClick(
+            dialog.audit_table, Qt.Key.Key_Backtab,
+            Qt.KeyboardModifier.ShiftModifier)
+        QApplication.processEvents()
+        assert QApplication.focusWidget() is dialog.audit_refresh_button
+        assert (dialog.audit_table.currentRow(),
+                dialog.audit_table.currentColumn()) == original_cell
+
+        dialog._select_all_targets()
+        dialog.clear_targets_button.setFocus(Qt.FocusReason.TabFocusReason)
+        QTest.keyClick(dialog.clear_targets_button, Qt.Key.Key_Tab)
+        QApplication.processEvents()
+        assert QApplication.focusWidget() is dialog.copy_layout_button
+        copy_top = dialog.copy_layout_button.mapTo(
+            dialog.options_scroll.viewport(), QPoint(0, 0)).y()
+        assert 0 <= copy_top < dialog.options_scroll.viewport().height()
+        dialog.backup_combo.setFocus(Qt.FocusReason.TabFocusReason)
+        QTest.keyClick(dialog.backup_combo, Qt.Key.Key_Tab)
+        QApplication.processEvents()
+        assert QApplication.focusWidget() is dialog.restore_button
+        restore_top = dialog.restore_button.mapTo(
+            dialog.options_scroll.viewport(), QPoint(0, 0)).y()
+        assert 0 <= restore_top < dialog.options_scroll.viewport().height()
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+        QApplication.processEvents()
+
+
 def test_character_ui_manager_preserves_sort_selection_and_sort_focus(
         panel, tmp_path, monkeypatch):
     root = tmp_path / "EverQuest"
@@ -638,6 +805,7 @@ def test_character_ui_manager_restores_action_focus_and_lists_copy_targets(
         dialog.show()
         dialog.activateWindow()
         dialog._select_outdated_profiles()
+        dialog._select_all_targets()
         operations = (
             (dialog.apply_selected_button, "skin", {
                 "skin_folder": skin,
