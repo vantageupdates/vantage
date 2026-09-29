@@ -229,6 +229,72 @@ def test_dispatch_registers_semantics_before_exactly_one_audio(monkeypatch):
         config.data['sounds'] = original
 
 
+def test_dispatch_marks_backend_audio_as_already_written(monkeypatch):
+    import vantage.helpers.application as application
+    host = _DispatchHost()
+    captured = []
+    original = config.data.get('sounds')
+    config.data['sounds'] = {'routes': {'smart_timer': {
+        'delivery': 'sound', 'sound': 'builtin:soft-tick', 'voice': ''}}}
+    monkeypatch.setattr(
+        application, 'play_alert',
+        lambda *args, **kwargs: captured.append(kwargs) or True)
+    try:
+        result = VantageApp.notify_event(
+            host, 'smart_timer', 'Frenzy is due now')
+        assert result.played is True
+        assert host.events == [('text', 'Frenzy is due now')]
+        assert captured[0]['visual_registered'] is True
+    finally:
+        config.data['sounds'] = original
+
+
+def test_direct_audio_callback_creates_one_semantic_written_notice():
+    events = []
+    host = type('AudioHost', (), {
+        '_last_audio_event': None,
+        '_last_audio': '',
+        '_queue_quickbar_notice': lambda self, message, **kwargs: events.append(
+            (message, kwargs.get('channel'))),
+        '_refresh_quickbar': lambda self: None,
+    })()
+
+    VantageApp.audio_started(
+        host, 'Mob trigger · Lord Nagafen is casting',
+        'builtin:portal-ping', 80, 'spells')
+    assert events == [(
+        'Mob trigger · Lord Nagafen is casting', 'spells')]
+
+    events.clear()
+    VantageApp.audio_started(
+        host, 'Mob trigger · Lord Nagafen is casting',
+        'builtin:portal-ping', 80, 'spells', visual_registered=True)
+    assert events == []
+
+
+def test_generic_direct_tts_callback_uses_phrase_not_backend_name():
+    events = []
+    host = type('AudioHost', (), {
+        '_last_audio_event': None,
+        '_last_audio': '',
+        '_queue_quickbar_notice': lambda self, message, **kwargs: events.append(
+            (message, kwargs.get('channel'))),
+        '_refresh_quickbar': lambda self: None,
+    })()
+
+    VantageApp.audio_started(
+        host, 'Vantage speech', 'tts:Insufficient mana to cast spell',
+        70, 'spells')
+    assert events == [(
+        'Spoken alert · Insufficient mana to cast spell', 'spells')]
+
+    events.clear()
+    VantageApp.audio_started(
+        host, 'Bard AE Count', 'tts:Three targets affected', 70, 'spells')
+    assert events == [(
+        'Bard AE Count · Three targets affected', 'spells')]
+
+
 def test_visual_notification_survives_speech_queue_backpressure(monkeypatch):
     import vantage.helpers.application as application
     host = _DispatchHost()

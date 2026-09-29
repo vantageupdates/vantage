@@ -677,7 +677,8 @@ class VantageApp(QApplication):
                     route.key, "sound", check.state, False, reason)
             played = play_alert(
                 sound, volume, repeat, source=source, character=character,
-                server=server, channel=owner, allow_hidden=allow_hidden)
+                server=server, channel=owner, allow_hidden=allow_hidden,
+                visual_registered=register)
             reason = playback_block_reason(owner, allow_hidden)
             if not reason and master_volume() <= 0:
                 reason = "master volume 0%"
@@ -705,7 +706,8 @@ class VantageApp(QApplication):
                 speech, volume,
                 source=source, character=character, server=server,
                 channel=owner, voice_name=saved["voice"],
-                allow_hidden=allow_hidden, replace_pending=True)
+                allow_hidden=allow_hidden, replace_pending=True,
+                visual_registered=register)
             reason = playback_block_reason(owner, allow_hidden)
             if not reason and master_volume() <= 0:
                 reason = "master volume 0%"
@@ -759,13 +761,43 @@ class VantageApp(QApplication):
             f"{label} · {reason}" + (f" · {owner}" if owner else ""))
         self._refresh_quickbar()
 
-    def audio_started(self, source, sound_path, volume, channel=""):
-        """Remember the audible event for diagnostics without duplicating it."""
+    def audio_started(
+            self, source, sound_path, volume, channel="",
+            visual_registered=False):
+        """Remember audio and ensure it has one attributable written notice.
+
+        ``notify_event`` registers its visual notice before audio delivery and
+        marks that ownership explicitly.  Legacy/direct audio call sites have
+        no such guarantee, so their semantic source is mirrored to the Quick
+        Bar here.  The user sees the event that caused the sound, never an
+        opaque WAV filename or Python module name.
+        """
         self._last_audio_event = (
             str(source or "Vantage alert"), str(sound_path or ""),
             max(0, min(100, int(volume))), str(channel or ""))
         self._last_audio = (
             f"{source} · {sound_display_name(sound_path)} · {volume}%")
+        if not visual_registered:
+            semantic_source = " ".join(
+                str(source or "Vantage alert").split())
+            speech_phrase = (
+                " ".join(str(sound_path)[4:].split())
+                if str(sound_path or "").casefold().startswith("tts:") else
+                "")
+            if semantic_source.casefold() in {
+                    "vantage alert", "vantage speech"}:
+                if speech_phrase:
+                    semantic_source = (
+                        f"Spoken alert · {speech_phrase}")
+                else:
+                    semantic_source = "Vantage sound alert"
+            elif (speech_phrase and
+                  speech_phrase.casefold() not in semantic_source.casefold()):
+                semantic_source = f"{semantic_source} · {speech_phrase}"
+            register_notice = getattr(self, "_queue_quickbar_notice", None)
+            if callable(register_notice):
+                register_notice(
+                    semantic_source, channel=str(channel or "system"))
         self._refresh_quickbar()
 
     def _queue_quickbar_notice(self, *parts, channel="system"):

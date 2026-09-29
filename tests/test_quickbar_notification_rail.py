@@ -38,7 +38,8 @@ empty = {
 app.show_overlay_notification(
     'Vantage · Spells', 'Clarity faded', msecs=1000)
 app.audio_started(
-    'Clarity faded', 'builtin:crystal-ping', 82, channel='spells')
+    'Clarity faded', 'builtin:crystal-ping', 82, channel='spells',
+    visual_registered=True)
 app.processEvents()
 sound = {
     'text': rail._label.text(),
@@ -121,7 +122,8 @@ app.show_overlay_notification(
     'For sale · Manastone',
     'Manastone for sale · Trader · WTS Manastone 55k', msecs=1000)
 app.audio_started(
-    'For sale · Manastone', 'builtin:crystal-ping', 72, channel='market')
+    'For sale · Manastone', 'builtin:crystal-ping', 72, channel='market',
+    visual_registered=True)
 app.processEvents()
 reduced = {
     'text': rail._label.text(),
@@ -153,6 +155,18 @@ combat_after_fade = {
     'opacity_reset': rail._opacity_effect.opacity() == 1.0,
 }
 
+rail._clear()
+# A direct audio path which did not register a visual event is attributed in
+# writing by its semantic source, not by an opaque WAV filename.
+app.audio_started(
+    'Custom trigger · Enraged', 'builtin:crystal-ping', 82,
+    channel='spells')
+app.processEvents()
+direct_audio = {
+    'text': rail._label.text(),
+    'channel': rail._channel.text(),
+    'accessible': rail.accessibleName(),
+}
 rail._clear()
 # A temporary rail hide during layout keeps accepted notices in order and
 # announces each only when it is actually presented.
@@ -223,6 +237,7 @@ print(json.dumps({
     'reduced': reduced,
     'combat_before_fade': combat_before_fade,
     'combat_after_fade': combat_after_fade,
+    'direct_audio': direct_audio,
     'temporary_pending': temporary_pending,
     'temporary_visible': temporary_visible,
     'hidden_consumed': hidden_consumed,
@@ -310,6 +325,13 @@ def test_quickbar_notification_rail_shows_one_event_then_clears(tmp_path):
         'scrolling': True,
         'clear_pending': False,
         'announcement_delta': 0,
+    }
+    assert result['direct_audio'] == {
+        'text': 'Custom trigger · Enraged',
+        'channel': 'BUFFS / SPELLS',
+        'accessible': (
+            'Latest Vantage notification: BUFFS / SPELLS: '
+            'Custom trigger · Enraged'),
     }
     assert result['hidden_replayed'] is True
     assert result['vertical'] == {

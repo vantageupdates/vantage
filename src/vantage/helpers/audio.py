@@ -808,7 +808,9 @@ def _speech_notify_started(request):
     volume = int(request.get("volume", 0))
     channel = str(request.get("channel") or "")
     try:
-        notifier(source, f"tts:{message[:60]}", volume, channel)
+        notifier(
+            source, f"tts:{message[:60]}", volume, channel,
+            bool(request.get("visual_registered", False)))
     except TypeError:  # Backward-compatible host/test adapter.
         notifier(source, f"tts:{message[:60]}", volume)
 
@@ -1184,7 +1186,8 @@ def _silence_effect(effect):
 
 def play_alert(
         path="", volume=80, repeat=1, source="Vantage alert",
-        character="", server="", channel="", allow_hidden=False):
+        character="", server="", channel="", allow_hidden=False,
+        visual_registered=False):
     """Play an identified gallery/custom WAV with per-alert volume control."""
     app = QApplication.instance()
     if not str(path or "").strip():
@@ -1235,7 +1238,7 @@ def play_alert(
         try:
             notifier(
                 str(source or "Vantage alert"), path, volume,
-                str(channel or ""))
+                str(channel or ""), bool(visual_registered))
         except TypeError:  # Backward-compatible host/test adapter.
             notifier(str(source or "Vantage alert"), path, volume)
     # Also release failed/unsupported playback without keeping a dead object.
@@ -1246,7 +1249,8 @@ def play_alert(
 def speak_text(
         text, volume=80, interrupt=False, source="Vantage speech",
         character="", server="", channel="", allow_hidden=False,
-        voice_name="", pitch=0, replace_pending=False):
+        voice_name="", pitch=0, replace_pending=False,
+        visual_registered=False):
     """Submit speech to Vantage's persistent Windows voice scheduler.
 
     Automatic notifications use ``replace_pending=True`` to coalesce exact
@@ -1287,6 +1291,7 @@ def speak_text(
         "channel": str(channel or ""),
         "allow_hidden": bool(allow_hidden),
         "automatic": bool(replace_pending),
+        "visual_registered": bool(visual_registered),
     }
     return _queue_speech_request(
         speech, request, replace_pending=bool(replace_pending))

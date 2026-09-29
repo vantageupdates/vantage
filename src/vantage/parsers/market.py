@@ -144,7 +144,9 @@ def deliver_market_alert(app, title, message, sound_enabled=None):
     if sound_enabled:
         sounded = play_alert(
             notification_sound("market_sale"), MARKET_ALERT_VOLUME, 1,
-            source=title, allow_hidden=True)
+            source=title, channel="market", allow_hidden=True,
+            visual_registered=app is not None and hasattr(
+                app, "show_overlay_notification"))
         sound_state = (
             "sound played" if sounded else
             "sound muted" if audio_muted() else
