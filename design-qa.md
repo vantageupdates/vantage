@@ -1127,3 +1127,11 @@ independent accessibility review: PASS
   `git diff --check`, English-copy audit, Companion **1.44.114** version audit,
   and `ui/**` isolation: **PASS**. Build and publication remain stopped for
   independent accessibility review.
+- Final independent accessibility/UI review at commit
+  `5d8c0f92f5161dd50cb4a47fd3971ab4daf7f1d4`: **PASS**. The reviewed
+  follow-up preserves exact self-target semantics for landing text with a
+  suffix and keeps a worn-off event visible in the activity stream even when
+  its audio was already claimed by the same spell generation.
+- Final clean complete suite on the exact approved release candidate:
+  **1,632 passed, 2 skipped** in **941.98 seconds**. This is the final
+  pre-build result for Companion **1.44.114**.
