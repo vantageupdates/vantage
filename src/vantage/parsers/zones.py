@@ -374,6 +374,7 @@ class Zones(ParserWindow):
         self.zone_drop_selector.setMinimumContentsLength(14)
         self.zone_drop_selector.setAccessibleName("Drop from selected NPC")
         self.zone_drop_selector.setToolTip("Choose a known drop from the selected NPC")
+        self.zone_drop_selector.addItem("Select an NPC to see its drops")
         self.zone_drop_selector.setEnabled(False)
         action_layout.addWidget(self.zone_drop_selector)
 
@@ -1043,9 +1044,14 @@ class Zones(ParserWindow):
         self.zone_detail_button.setEnabled(bool(value))
         mob = value if isinstance(value, dict) else None
         self.zone_drop_selector.clear()
-        for drop in (mob or {}).get("drops", []):
+        drops = (mob or {}).get("drops", [])
+        for drop in drops:
             self.zone_drop_selector.addItem(str(drop))
         has_drops = self.zone_drop_selector.count() > 0
+        if not has_drops:
+            self.zone_drop_selector.addItem(
+                "No known drops" if mob else
+                "Select an NPC to see its drops")
         self.zone_drop_selector.setEnabled(has_drops)
         self.zone_drop_button.setEnabled(has_drops)
         self._render_all_mob_relations(

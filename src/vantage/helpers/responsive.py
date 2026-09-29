@@ -252,6 +252,11 @@ class TableColumnManager(QObject):
     def _configure(self, view):
         if isinstance(view.window(), QFileDialog):
             return
+        # Arrow keys remain available for cell navigation.  Tab and Backtab
+        # must leave the grid instead of wrapping forever through its cells;
+        # this is especially important when a table is hosted by the scaled
+        # QGraphicsProxyWidget used by ParserWindow.
+        view.setTabKeyNavigation(False)
         model = view.model()
         header = self._header(view)
         count = model.columnCount() if model is not None else 0

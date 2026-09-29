@@ -1949,6 +1949,33 @@ class SpawnTimers(ParserWindow):
         self._layout = QVBoxLayout(host)
         self._layout.setContentsMargins(3, 3, 3, 3)
         self._layout.setSpacing(3)
+        self.empty_state = QFrame()
+        self.empty_state.setObjectName("SpawnTimerEmptyState")
+        self.empty_state.setAccessibleName("No timers in this zone")
+        self.empty_state.setAccessibleDescription(
+            "Add a timer, choose All saved timers, or watch a timer from "
+            "another zone")
+        empty_layout = QVBoxLayout(self.empty_state)
+        empty_layout.setContentsMargins(12, 10, 12, 10)
+        empty_layout.setSpacing(7)
+        self.empty_message = QLabel()
+        self.empty_message.setObjectName("SpawnTimerEmptyMessage")
+        self.empty_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_message.setWordWrap(True)
+        empty_layout.addWidget(self.empty_message)
+        self.empty_add_button = QPushButton("Add timer…")
+        self.empty_add_button.setObjectName("PrimaryAction")
+        self.empty_add_button.setIcon(game_icon("add"))
+        self.empty_add_button.setAccessibleName("Add a Smart Timer")
+        self.empty_add_button.setAccessibleDescription(
+            "Opens the timer editor with the current zone already selected")
+        self.empty_add_button.setToolTip(
+            "Create a timer in the current zone view")
+        self.empty_add_button.clicked.connect(self.add_timer)
+        empty_layout.addWidget(
+            self.empty_add_button, 0, Qt.AlignmentFlag.AlignHCenter)
+        self._layout.addWidget(
+            self.empty_state, 0, Qt.AlignmentFlag.AlignCenter)
         self._layout.addStretch(1)
         # Keep one logical timer canvas. The surrounding graphics view only
         # scrolls when the complete zone list is physically taller than the
@@ -2394,6 +2421,20 @@ class SpawnTimers(ParserWindow):
                 row.refresh()
         self._schedule_timer_canvas()
 
+    def _sync_empty_state(self):
+        """Explain the current empty view without changing timer data."""
+        visible = sum(
+            self._row_matches_zone(timer)
+            for timer in self._states.values())
+        empty = visible == 0
+        scope = self._selected_zone.strip() or "All saved timers"
+        self.empty_message.setText(
+            f"No timers in {scope}.\n"
+            "Add one here, choose another zone, or watch an existing timer.")
+        self.empty_state.setAccessibleName(f"No timers in {scope}")
+        self.empty_state.setVisible(empty)
+        return empty
+
     def _row_matches_zone(self, timer):
         return bool(timer and (
             zone_timer_visible(timer.zone, self._selected_zone) or
@@ -2442,6 +2483,7 @@ class SpawnTimers(ParserWindow):
         rows = tuple(
             row for timer_id, row in self._rows.items()
             if self._row_matches_zone(self._states.get(timer_id)))
+        self._sync_empty_state()
         rows_height = sum(max(
             row.minimumHeight(), row.minimumSizeHint().height(),
             row.sizeHint().height()) for row in rows)
@@ -2673,6 +2715,7 @@ class SpawnTimers(ParserWindow):
         for timer_id, row in self._rows.items():
             matches = self._row_matches_zone(self._states.get(timer_id))
             row.setVisible(matches)
+        self._sync_empty_state()
 
     def add_timer(self):
         dialog = TimerEditDialog(parent=self)

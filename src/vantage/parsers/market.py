@@ -3939,8 +3939,11 @@ class GreenMarket(ParserWindow):
         self._refresh_button = QPushButton("Refresh")
         self._refresh_button.setIcon(game_icon("refresh"))
         self._refresh_button.setToolTip(
-            f"Refresh prices from PigParse {self._server}")
-        self._refresh_button.clicked.connect(self.refresh)
+            f"Refresh PigParse {self._server} prices and retry verified P99 "
+            "item stats")
+        self._refresh_button.setAccessibleName(
+            "Refresh market prices and verified item stats")
+        self._refresh_button.clicked.connect(self._refresh_all_sources)
         self._sources_button = QPushButton("Sources")
         self._sources_button.setIcon(game_icon("layers"))
         self._sources_button.setToolTip(
@@ -3986,6 +3989,9 @@ class GreenMarket(ParserWindow):
         self.gear_status = QLabel("Loading P99 metadata…")
         self.gear_status.setObjectName("MarketGearSource")
         self.gear_status.setWordWrap(True)
+        self.gear_status.setAccessibleName(self.gear_status.text())
+        self.gear_status.setAccessibleDescription(
+            "Current availability of the verified P99 item stats index")
         self.gear_status.setToolTip(
             "Class, race, slot, stats, and effect names come from the local "
             "P99 item index and are matched by item name; PigParse supplies prices.")
@@ -4334,6 +4340,19 @@ class GreenMarket(ParserWindow):
         self._refresh_gear_index()
         if self._toggled and not self._loaded_online:
             self.refresh()
+
+    def _refresh_all_sources(self):
+        """Retry independently verified item stats and market prices."""
+        self._refresh_gear_index()
+        self.refresh()
+
+    def _set_gear_status(self, text, description=""):
+        text = str(text)
+        self.gear_status.setText(text)
+        self.gear_status.setAccessibleName(text)
+        self.gear_status.setAccessibleDescription(
+            str(description).strip() or
+            "Current availability of the verified P99 item stats index")
 
     def _zone_explorer_page(self):
         """Build the compact P99 zone browser inside Market."""
@@ -5465,7 +5484,7 @@ class GreenMarket(ParserWindow):
                 [item.name for item in items])
             self._set_stat_sort(self.stat_sort.currentData())
             self._rebuild_mobile_items()
-            self.gear_status.setText(
+            self._set_gear_status(
                 f"P99 item index · {len(items):,} stats + effects")
             self._update_gear_summary()
             return True
@@ -5571,7 +5590,11 @@ class GreenMarket(ParserWindow):
         try:
             if reply.error() != QNetworkReply.NetworkError.NoError:
                 if not self._proxy.gear:
-                    self.gear_status.setText("P99 item stats unavailable")
+                    self._set_gear_status(
+                        "P99 item stats unavailable · source could not be "
+                        "checked · choose Refresh to try again",
+                        "The item-stat source could not be reached. Existing "
+                        "market prices remain available.")
                 return
             metadata = json.loads(bytes(reply.readAll()).decode("utf-8"))
             expected = str(metadata.get("sqlite", {}).get("sha256", ""))
@@ -5580,7 +5603,7 @@ class GreenMarket(ParserWindow):
             if cache.exists() and expected:
                 digest = hashlib.sha256(cache.read_bytes()).hexdigest()
                 if hmac.compare_digest(digest, expected):
-                    self.gear_status.setText(
+                    self._set_gear_status(
                         f"P99 item index · {len(self._gear_model.items):,} stats + effects · current")
                     return
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
@@ -5592,7 +5615,11 @@ class GreenMarket(ParserWindow):
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
         except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
             if not self._proxy.gear:
-                self.gear_status.setText("P99 item stats unavailable")
+                self._set_gear_status(
+                    "P99 item stats unavailable · source response was invalid "
+                    "· choose Refresh to try again",
+                    "The item-stat source returned invalid metadata. Existing "
+                    "market prices remain available.")
         finally:
             reply.deleteLater()
 
@@ -5613,15 +5640,30 @@ class GreenMarket(ParserWindow):
             pending.replace(target)
             if not self._load_gear_cache():
                 raise ValueError("the index could not be opened")
-            self.gear_status.setText(
+            self._set_gear_status(
                 f"P99 item index · {len(self._gear_model.items):,} stats + effects · updated")
         except (OSError, EOFError, ValueError, sqlite3.Error) as error:
             if self._gear_model.items:
-                self.gear_status.setText(
+                self._set_gear_status(
                     f"Cached P99 item index · {len(self._gear_model.items):,} "
                     "stats + effects · refresh deferred")
             else:
-                self.gear_status.setText(f"P99 item stats unavailable · {error}")
+                if str(error) == "data signature does not match":
+                    message = (
+                        "P99 item stats unavailable · verification failed · "
+                        "choose Refresh to try again")
+                    description = (
+                        "Vantage rejected item-stat data whose published "
+                        "signature did not match. PigParse prices remain "
+                        "available; Refresh safely retries both sources.")
+                else:
+                    message = (
+                        "P99 item stats unavailable · download failed · "
+                        "choose Refresh to try again")
+                    description = (
+                        f"Verified item stats could not be loaded: {error}. "
+                        "PigParse prices remain available.")
+                self._set_gear_status(message, description)
         finally:
             reply.deleteLater()
 
@@ -5888,7 +5930,8 @@ class GreenMarket(ParserWindow):
             f"Filters PigParse {server} prices and the shared P99 item metadata "
             "while you type")
         self._refresh_button.setToolTip(
-            f"Refresh prices from PigParse {server}")
+            f"Refresh PigParse {server} prices and retry verified P99 item "
+            "stats")
         self._detail_button.setToolTip(
             f"Open the selected item's full PigParse {server} history")
         self._wiki_button.setToolTip(

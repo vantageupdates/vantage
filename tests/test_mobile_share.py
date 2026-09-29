@@ -1140,7 +1140,9 @@ def test_mobile_item_detail_ui_uses_safe_links_live_status_and_offline_fallback(
         _MOBILE_PAGE)
     assert 'id="detailStatus" class="sr-only" role="status"' in _MOBILE_PAGE
     assert 'aria-live="polite" aria-atomic="true"' in _MOBILE_PAGE
-    assert "requestAnimationFrame(()=>announce(detailStatus" in _MOBILE_PAGE
+    assert (
+        "requestAnimationFrame(()=>{if(request===detailRequest&&"
+        "detailDialog.open)announce(detailStatus" in _MOBILE_PAGE)
     assert "dmg:'DMG',dly:'DLY'" in _MOBILE_PAGE
     assert "['dmg','dly'].includes(key)?String(value)" in _MOBILE_PAGE
     assert "label+'; opens in a new tab'" in _MOBILE_PAGE
