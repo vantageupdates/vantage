@@ -24,7 +24,7 @@ SPELL_HANDOFF_FILENAME = "update-spell-handoff.json"
 _ROW_FIELDS = {
     "deadline", "target", "target_created_order", "target_activity_order",
     "target_named", "target_marker", "target_alias", "character", "server",
-    "warning_played", "spell",
+    "warning_played", "final_warning_played", "spell",
 }
 _SPELL_FIELDS = {
     "id", "name", "runtime_key", "duration_seconds", "duration",

@@ -183,6 +183,8 @@ class CharacterContextTracker:
                     "deadline": deadline,
                     "warning_played": bool(
                         item.get("warning_played", False)),
+                    "final_warning_played": bool(
+                        item.get("final_warning_played", False)),
                 })
         return normalized
 

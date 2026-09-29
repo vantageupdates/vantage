@@ -220,6 +220,7 @@ def test_spell_state_restores_current_remaining_time_after_downtime():
     target.alias = "Ramp"
     target.set_instance_number(1)
     target.spell_widgets()[0]._warning_played = True
+    target.spell_widgets()[0]._final_warning_played = True
 
     saved = container.snapshot_runtime_state(
         now_epoch=1_000, now_datetime=started + datetime.timedelta(seconds=30))
@@ -239,6 +240,7 @@ def test_spell_state_restores_current_remaining_time_after_downtime():
     assert widget.runtime_character == "Mindflux"
     assert widget.runtime_server == "Green"
     assert widget._warning_played is True
+    assert widget._final_warning_played is True
 
 
 def test_fade_warning_claim_is_durable_and_survives_unrelated_sync_rebuild():
@@ -255,13 +257,17 @@ def test_fade_warning_claim_is_durable_and_survives_unrelated_sync_rebuild():
 
     assert widget.claim_fade_alert() is True
     assert widget.claim_fade_alert() is False
-    assert changes == [True]
+    assert widget.claim_final_fade_alert() is True
+    assert widget.claim_final_fade_alert() is False
+    assert changes == [True, True]
     current = container.snapshot_runtime_state(
         now_epoch=10_000, now_datetime=started)
     assert current[0]["warning_played"] is True
+    assert current[0]["final_warning_played"] is True
 
     incoming = copy.deepcopy(current)
     incoming[0]["warning_played"] = False
+    incoming[0]["final_warning_played"] = False
     incoming.append({
         "deadline": 20_000,
         "target": "__you__",
@@ -269,6 +275,7 @@ def test_fade_warning_claim_is_durable_and_survives_unrelated_sync_rebuild():
         "character": "Spiritflux",
         "server": "P1999Green",
         "warning_played": False,
+        "final_warning_played": False,
         "spell": {
             "name": "Focus of Spirit", "runtime_key": "focus of spirit",
             "duration_seconds": 4200, "type": 1,
@@ -276,15 +283,18 @@ def test_fade_warning_claim_is_durable_and_survives_unrelated_sync_rebuild():
     })
     merged = Spells._preserve_local_warning_claims(incoming, current)
     assert merged[0]["warning_played"] is True
+    assert merged[0]["final_warning_played"] is True
     assert merged[1]["warning_played"] is False
+    assert merged[1]["final_warning_played"] is False
     assert Spells._runtime_sync_signature(merged) != \
         Spells._runtime_sync_signature(incoming)
 
     # A genuinely later deadline is a new cast generation and must rearm.
     recast = copy.deepcopy(incoming[:1])
     recast[0]["deadline"] += 60
-    assert Spells._preserve_local_warning_claims(
-        recast, current)[0]["warning_played"] is False
+    recast_result = Spells._preserve_local_warning_claims(recast, current)[0]
+    assert recast_result["warning_played"] is False
+    assert recast_result["final_warning_played"] is False
 
 
 def test_camp_snapshot_preserves_fade_warning_claim_for_same_generation():
@@ -308,9 +318,11 @@ def test_camp_snapshot_preserves_fade_warning_claim_for_same_generation():
     original = source._spell_container.get_spell_target_by_name(
         "__you__").spell_widgets()[0]
     original._warning_played = True
+    original._final_warning_played = True
     saved = source.snapshot_you_spells(
         "Spiritflux", "P1999Green", now=started)
     assert saved[0]["warning_played"] is True
+    assert saved[0]["final_warning_played"] is True
 
     restored = _Host()
     restored._spell_container = SpellContainer()
@@ -320,6 +332,7 @@ def test_camp_snapshot_preserves_fade_warning_claim_for_same_generation():
     replacement = restored._spell_container.get_spell_target_by_name(
         "__you__").spell_widgets()[0]
     assert replacement._warning_played is True
+    assert replacement._final_warning_played is True
 
 
 def test_unrelated_sync_rebuild_does_not_replay_same_generation_but_recast_does(
@@ -357,11 +370,18 @@ def test_unrelated_sync_rebuild_does_not_replay_same_generation_but_recast_does(
     widget.end_time = datetime.datetime.now() + datetime.timedelta(seconds=10)
     widget._update()
     assert [name for name, _kwargs in alerts] == ["Spirit of Wolf"]
+    assert alerts[-1][1]['phase'] == 'early'
+    widget.end_time = datetime.datetime.now() + datetime.timedelta(seconds=5)
+    widget._update()
+    assert [name for name, _kwargs in alerts] == [
+        "Spirit of Wolf", "Spirit of Wolf"]
+    assert alerts[-1][1]['phase'] == 'final'
 
     # A peer snapshot has not recorded this PC's local warning claim and also
     # contains an unrelated new buff, forcing the whole profile to rebuild.
     stale = host._spell_container.snapshot_runtime_state()
     stale[0]["warning_played"] = False
+    stale[0]["final_warning_played"] = False
     other = SpellContainer()
     other.add_spell(
         focus, now, "__you__", "Spiritflux", "P1999Green")
@@ -378,8 +398,10 @@ def test_unrelated_sync_rebuild_does_not_replay_same_generation_but_recast_does(
                 "__you__").spell_widgets()
             if item.spell.name == "Spirit of Wolf")
         assert rebuilt._warning_played is True
+        assert rebuilt._final_warning_played is True
         rebuilt._update()
-        assert [name for name, _kwargs in alerts] == ["Spirit of Wolf"]
+        assert [name for name, _kwargs in alerts] == [
+            "Spirit of Wolf", "Spirit of Wolf"]
 
         # A confirmed recast is a new generation and must warn once again.
         host._spell_container.add_spell(
@@ -389,7 +411,8 @@ def test_unrelated_sync_rebuild_does_not_replay_same_generation_but_recast_does(
             seconds=10)
         rebuilt._update()
         assert [name for name, _kwargs in alerts] == [
-            "Spirit of Wolf", "Spirit of Wolf"]
+            "Spirit of Wolf", "Spirit of Wolf", "Spirit of Wolf"]
+        assert alerts[-1][1]['phase'] == 'early'
     finally:
         config.data['spells'] = original_spells
 

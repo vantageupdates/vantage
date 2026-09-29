@@ -925,8 +925,13 @@ class SettingsWindow(UniformScaleDialog):
         fade_enabled = QCheckBox()
         fade_enabled.setObjectName('spells:fade_sound_enabled')
         fade_enabled.setToolTip(
-            'Play one short alert when a tracked spell enters its fading window')
-        ssl.addRow('Enable fading click', fade_enabled)
+            'At the configured warning time, play one short sound cue and show '
+            'the spell and target. If the fading route uses Voice, speak once '
+            'when five seconds remain.')
+        fade_enabled.setAccessibleName('Enable fading alerts')
+        fade_enabled.setAccessibleDescription(fade_enabled.toolTip())
+        self.fade_alerts_enabled = fade_enabled
+        ssl.addRow('Enable fading alerts', fade_enabled)
         spell_background_audio = QCheckBox()
         spell_background_audio.setObjectName('spells:sounds_when_hidden')
         spell_background_audio.setToolTip(
@@ -944,8 +949,12 @@ class SettingsWindow(UniformScaleDialog):
         fade_warning.setSuffix(' s')
         fade_warning.setObjectName('spells:fade_warning_seconds')
         fade_warning.setToolTip(
-            'The bar turns yellow at this remaining time; the final 20 '
-            'seconds always use the faster red critical warning')
+            'Sets when the yellow warning and early sound cue begin. If the '
+            'fading route uses Voice, speech waits until five seconds remain; '
+            'the final 20 seconds use the faster red critical warning.')
+        fade_warning.setAccessibleName('Warn before fading')
+        fade_warning.setAccessibleDescription(fade_warning.toolTip())
+        self.fade_warning_seconds = fade_warning
         ssl.addRow('Warn before fading', fade_warning)
         fade_volume = QSpinBox()
         fade_volume.setRange(0, 100)

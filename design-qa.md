@@ -1304,3 +1304,21 @@ independent accessibility review: PASS
   focused results and is not expanded into this release.
 - Final complete suite, one-file build, portable self-test, and public artifact
   verification are required below on the exact release candidate.
+- Late release hold, spell-fading timing: the user-configured early warning
+  threshold remains intact, but it now delivers a short sound cue rather than
+  premature speech. A Voice-configured fading route speaks the exact spell and
+  recipient once at five seconds. Sound-only and per-spell custom WAV choices
+  stay single-shot at the early threshold; Off, Master Mute, Master Volume 0,
+  and the existing background-audio policy still win. A real worn-off event
+  retains its distinct route and wording without replaying a consumed final
+  claim.
+- Early and final claims are stored separately through live runtime snapshots,
+  device reconciliation, camp/relog character snapshots, and verified-update
+  handoff. Same-generation rebuilds preserve both claims, while a real recast
+  rearms them. Focused runtime coverage exercised the 40/30/29/6/5/1/0-second
+  boundaries; Voice, Sound, custom WAV, Off, mute and zero-volume modes; route
+  changes between phases; final-then-worn suppression; exact written rail and
+  spoken spell/recipient text; same-generation sync/camp rebuilds; and update
+  handoff persistence. Focused result: **167 passed** in **42.21 seconds**;
+  Python compilation and `git diff --check` passed. Independent final review
+  and one clean complete suite remain required on the frozen candidate.

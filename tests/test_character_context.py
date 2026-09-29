@@ -17,7 +17,11 @@ def test_legacy_unknown_regen_is_removed_without_touching_exact_regen():
             'character': 'Spiritflux', 'server': 'Green',
             'saved_you_spells': [
                 {'name': 'regeneration effect (rank unknown)', 'seconds': 99},
-                {'name': 'Regrowth', 'seconds': 100},
+                {
+                    'name': 'Regrowth', 'seconds': 100,
+                    'warning_played': True,
+                    'final_warning_played': True,
+                },
                 {'name': 'Chloroplast', 'seconds': 101},
                 {'name': 'Regrowth of the Grove', 'seconds': 102},
             ],
@@ -27,6 +31,8 @@ def test_legacy_unknown_regen_is_removed_without_touching_exact_regen():
     saved = tracker.context('Spiritflux', 'Green').saved_you_spells
     assert [row['name'] for row in saved] == [
         'Regrowth', 'Chloroplast', 'Regrowth of the Grove']
+    assert saved[0]['warning_played'] is True
+    assert saved[0]['final_warning_played'] is True
 
 
 def test_exact_eqtool_character_group_and_pet_messages_are_bounded():

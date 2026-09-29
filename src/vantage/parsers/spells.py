@@ -1301,13 +1301,14 @@ class Spells(ParserWindow):
             self._push_spell_event(
                 event_kind, getattr(faded.spell, 'name', 'Spell'),
                 target_name)
-            # A generation that already warned while fading must not emit a
-            # second sound or voice when its worn-off line arrives.
-            if not custom_worn_audio and faded.claim_fade_alert():
+            # A generation that already delivered its final fading alert must
+            # not emit another sound or voice when its worn-off line arrives.
+            if not custom_worn_audio and faded.claim_final_fade_alert():
                 faded._play_fade_alert(
                     notice=(f"{getattr(faded.spell, 'name', 'Spell')} worn off" +
                             (f" · {target_name}" if target_name else "")),
-                    route_key='spell_worn_off', register=False)
+                    route_key='spell_worn_off', register=False,
+                    phase='final')
             self.spell_faded.emit(
                 str(getattr(target, 'name', '')),
                 str(getattr(faded.spell, 'name', 'Spell')))
@@ -2057,6 +2058,8 @@ class Spells(ParserWindow):
                     'deadline': now_epoch + min(
                         seconds, 7 * 24 * 60 * 60),
                     'warning_played': bool(widget._warning_played),
+                    'final_warning_played': bool(
+                        widget._final_warning_played),
                 })
         return saved[:128]
 
@@ -2099,6 +2102,8 @@ class Spells(ParserWindow):
                 remaining, 7 * 24 * 60 * 60)
             spell.saved_warning_played = bool(
                 item.get('warning_played', False))
+            spell.saved_final_warning_played = bool(
+                item.get('final_warning_played', False))
             self._spell_container.add_spell(
                 spell, timestamp, '__you__', character, server)
             restored += 1
@@ -2122,7 +2127,8 @@ class Spells(ParserWindow):
                 str(item.get('server') or '').casefold(),
                 str(spell.get('runtime_key') or spell.get('name') or '').casefold(),
                 deadline,
-                bool(item.get('warning_played', False))))
+                bool(item.get('warning_played', False)),
+                bool(item.get('final_warning_played', False))))
         return tuple(sorted(signature))
 
     @staticmethod
@@ -2137,7 +2143,9 @@ class Spells(ParserWindow):
         """
         claimed = {}
         for row in current if isinstance(current, list) else ():
-            if not isinstance(row, dict) or not row.get('warning_played'):
+            if not isinstance(row, dict) or not (
+                    row.get('warning_played') or
+                    row.get('final_warning_played')):
                 continue
             key = timer_identity(row)
             try:
@@ -2145,7 +2153,10 @@ class Spells(ParserWindow):
             except (TypeError, ValueError, OverflowError):
                 continue
             if key and deadline > 0:
-                claimed[key] = deadline
+                claimed[key] = (
+                    deadline,
+                    bool(row.get('warning_played', False)),
+                    bool(row.get('final_warning_played', False)))
         merged = copy.deepcopy(incoming) if isinstance(incoming, list) else []
         for row in merged:
             if not isinstance(row, dict):
@@ -2157,8 +2168,11 @@ class Spells(ParserWindow):
                 continue
             # Restore/serialization can round the same absolute deadline by
             # one second.  A genuine recast shifts it by far more than this.
-            if key in claimed and abs(deadline - claimed[key]) <= 1.1:
-                row['warning_played'] = True
+            if key in claimed and abs(deadline - claimed[key][0]) <= 1.1:
+                if claimed[key][1]:
+                    row['warning_played'] = True
+                if claimed[key][2]:
+                    row['final_warning_played'] = True
         return merged
 
     def _synced_focus_candidates(self):
@@ -3060,6 +3074,7 @@ class SpellContainer(QFrame):
             'character': widget.runtime_character,
             'server': widget.runtime_server,
             'warning_played': widget._warning_played,
+            'final_warning_played': widget._final_warning_played,
             'spell': self._spell_runtime_payload(widget.spell),
         }
 
@@ -3137,6 +3152,8 @@ class SpellContainer(QFrame):
             spell.saved_remaining_seconds = min(
                 remaining, 365 * 24 * 60 * 60)
             spell.saved_warning_played = bool(item.get('warning_played', False))
+            spell.saved_final_warning_played = bool(
+                item.get('final_warning_played', False))
             target_name = str(item.get('target') or '__you__')[:128]
             try:
                 created_order = max(1, int(
@@ -3822,6 +3839,8 @@ class SpellWidget(QFrame):
         self._ignore_worn_off_until = None
         self._warning_played = bool(getattr(
             self.spell, 'saved_warning_played', False))
+        self._final_warning_played = bool(getattr(
+            self.spell, 'saved_final_warning_played', False))
 
         self._fade_remove_timer = QTimer(self)
         self._fade_remove_timer.setSingleShot(True)
@@ -3959,6 +3978,7 @@ class SpellWidget(QFrame):
         except TypeError:
             self._ignore_worn_off_until = None
         self._warning_played = False
+        self._final_warning_played = False
         self.setProperty('Warning', False)
         self.setProperty('Critical', False)
         self.setProperty('Pulse', False)
@@ -4039,10 +4059,16 @@ class SpellWidget(QFrame):
             # row to its SpellTarget.  Defer delivery until the next owned
             # refresh so the target is attributable and the warning claim can
             # be persisted through the container's state_changed signal.
-            if warning and isinstance(self.parentWidget(), SpellTarget):
-                if remaining_seconds > 0 and self.claim_fade_alert():
+            phase = spell_fade_alert_phase(
+                remaining_seconds,
+                config.data['spells']['fade_warning_seconds'])
+            if phase and isinstance(self.parentWidget(), SpellTarget):
+                claimed = (
+                    self.claim_final_fade_alert()
+                    if phase == 'final' else self.claim_fade_alert())
+                if claimed:
                     notice = self._fading_notice(remaining_seconds)
-                    self._play_fade_alert(notice=notice)
+                    self._play_fade_alert(notice=notice, phase=phase)
             if remaining_seconds <= 0:
                 self._remove()
                 return
@@ -4084,19 +4110,27 @@ class SpellWidget(QFrame):
             'the row remains for 6 seconds')
         self.progress.setToolTip(tooltip)
         self.setToolTip(tooltip)
-        if play_sound and self.claim_fade_alert():
-            self._play_fade_alert()
+        if play_sound and self.claim_final_fade_alert():
+            self._play_fade_alert(route_key='spell_worn_off', phase='final')
         self._request_resort()
         self._notify_state_changed()
         self._update()
 
     def claim_fade_alert(self):
-        """Atomically claim the one fading/worn alert for this generation."""
+        """Atomically claim this generation's early audible warning."""
         if self._warning_played:
             return False
         self._warning_played = True
         # The claim is durable state, not merely paint state.  Persist it
         # before an unrelated sync refresh can rebuild this same generation.
+        self._notify_state_changed()
+        return True
+
+    def claim_final_fade_alert(self):
+        """Atomically claim the <=5-second or worn-off alert generation."""
+        if self._final_warning_played:
+            return False
+        self._final_warning_played = True
         self._notify_state_changed()
         return True
 
@@ -4186,7 +4220,7 @@ class SpellWidget(QFrame):
         spell_name = string.capwords(str(self.spell.name or 'Spell'))
         return f'{spell_name} {action} on {target_name}'
 
-    def _fade_voice_dedupe_key(self, route_key):
+    def _fade_voice_dedupe_key(self, route_key, phase='final'):
         """Identify one spoken warning generation while preserving recasts."""
         target = self.parentWidget()
         target_name = str(getattr(target, 'name', '') or '')
@@ -4198,7 +4232,7 @@ class SpellWidget(QFrame):
         return '|'.join((
             str(route_key or ''), self.runtime_server, self.runtime_character,
             target_name, target_marker, _spell_runtime_key(self.spell),
-            str(generation)))
+            str(generation), str(phase or 'final')))
 
     @staticmethod
     def _queue_fading_notice(notice):
@@ -4209,10 +4243,20 @@ class SpellWidget(QFrame):
 
     def _play_fade_alert(
             self, force=False, notice='', route_key='spell_fading',
-            register=True):
+            register=True, phase='final'):
         settings = config.data['spells']
         key = self.spell.name
-        semantic_notice = notice or f"{self.spell.name} fading soon"
+        semantic_notice = str(notice or '').strip()
+        if not semantic_notice:
+            if route_key == 'spell_worn_off':
+                target = self.parentWidget()
+                target_name = (
+                    target.target_label.text()
+                    if target and hasattr(target, 'target_label') else '')
+                semantic_notice = f"{self.spell.name} worn off" + (
+                    f" · {target_name}" if target_name else '')
+            else:
+                semantic_notice = f"{self.spell.name} fading soon"
         app = QApplication.instance()
         notify = getattr(app, 'notify_event', None)
 
@@ -4221,7 +4265,8 @@ class SpellWidget(QFrame):
                 return notify(
                     route_key, semantic_notice, overlay=False,
                     voice_text=self._fade_voice_text(route_key),
-                    voice_dedupe_key=self._fade_voice_dedupe_key(route_key),
+                    voice_dedupe_key=self._fade_voice_dedupe_key(
+                        route_key, phase),
                     volume=settings['fade_sound_volume'],
                     character=self.runtime_character,
                     server=self.runtime_server, channel='spells',
@@ -4248,7 +4293,30 @@ class SpellWidget(QFrame):
                 character=self.runtime_character,
                 server=self.runtime_server, channel='spells',
                 allow_hidden=True)
-        return dispatch(sound_override=override)
+        route_settings = config.data.get('sounds', {}).get(
+            'routes', {}).get(route_key, {})
+        if str(route_settings.get('delivery', '')).casefold() == 'off':
+            return dispatch(delivery_override='off')
+        if phase == 'early':
+            if override:
+                return dispatch(sound_override=override)
+            return dispatch(delivery_override='sound')
+        # A Voice-configured route speaks only in the final phase. Sound-only
+        # routes and per-spell WAV overrides have already delivered their one
+        # audible cue at the early threshold, so the final phase is written to
+        # the rail without replaying the same beep or WAV.
+        delivery = str(route_settings.get('delivery', '')).casefold()
+        if not override and delivery == 'voice':
+            return dispatch()
+        if not self._warning_played:
+            # A very short/restored timer can first become attributable inside
+            # the final window. In that case deliver its configured sound once
+            # instead of losing the only audible warning.
+            if override:
+                return dispatch(sound_override=override)
+            if delivery == 'sound':
+                return dispatch(delivery_override='sound')
+        return dispatch(delivery_override='off')
 
     def _sound_menu(self, position):
         settings = config.data['spells']
@@ -4367,6 +4435,18 @@ def _spell_targets_enemy(spell):
         not int(getattr(spell, 'type', 0)) or
         'less aggressive' in str(
             getattr(spell, 'effect_text_other', '')).casefold())
+
+
+def spell_fade_alert_phase(remaining_seconds, warning_seconds=40):
+    """Return the audible phase without speaking before five seconds."""
+    remaining = float(remaining_seconds)
+    if remaining <= 0:
+        return ''
+    if remaining <= 5:
+        return 'final'
+    if remaining <= max(0, int(warning_seconds)):
+        return 'early'
+    return ''
 
 
 def spell_warning_state(remaining_seconds, warning_seconds=40,

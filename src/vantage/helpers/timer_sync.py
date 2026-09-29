@@ -137,6 +137,7 @@ def _row_changed(previous, current):
     after = copy.deepcopy(current)
     for value in (before, after):
         value.pop("warning_played", None)
+        value.pop("final_warning_played", None)
         try:
             value["deadline"] = int(round(float(value.get("deadline", 0))))
         except (TypeError, ValueError, OverflowError):

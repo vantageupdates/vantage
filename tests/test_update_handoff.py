@@ -838,3 +838,32 @@ def test_quick_update_success_uses_verified_exit_path():
         host, info, 'verified.exe') is True
     assert launches == [(info, 'verified.exe')]
     assert exits == [True]
+
+
+def test_update_handoff_preserves_both_fade_phase_claims(tmp_path):
+    from vantage.helpers.update_handoff import (
+        read_spell_handoff, write_spell_handoff)
+
+    now = time.time()
+    path = tmp_path / 'update-spell-handoff.json'
+    row = {
+        'deadline': now + 300,
+        'target': '__you__',
+        'character': 'Spiritflux',
+        'server': 'P1999Green',
+        'warning_played': True,
+        'final_warning_played': True,
+        'spell': {
+            'name': 'Spirit of Wolf',
+            'runtime_key': 'spirit of wolf',
+        },
+    }
+
+    written = write_spell_handoff([row], path=path, now=now)
+    restored = read_spell_handoff(
+        updated_from='verified-update', path=path, now=now + 1)
+
+    assert written[0]['warning_played'] is True
+    assert written[0]['final_warning_played'] is True
+    assert restored[0]['warning_played'] is True
+    assert restored[0]['final_warning_played'] is True
