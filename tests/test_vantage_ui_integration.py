@@ -403,7 +403,7 @@ def test_character_ui_manager_audit_is_accessible_sortable_and_actionable(
     (root / "UI_Gamma_P1999Green.ini").write_text(
         "[Main]\nUISkin=velious\n[ChatWindow]\nXPos=3\n", encoding="cp1252")
     panel.path_edit.setText(str(root))
-    panel._release = SimpleNamespace(version="1.44.115")
+    panel._release = SimpleNamespace(version="1.44.116")
     monkeypatch.setattr(ui_skin_updater, "installed_folder", lambda _root: skin)
     monkeypatch.setattr(
         vantage_ui_module, "data_dir",
@@ -429,7 +429,7 @@ def test_character_ui_manager_audit_is_accessible_sortable_and_actionable(
             "Gamma": "Different installed skin",
         }
         assert "1/3 current" in dialog.status.text()
-        assert "newer release 1.44.115 available but not installed" in (
+        assert "newer release 1.44.116 available but not installed" in (
             dialog.status.text())
         assert dialog.audit_sort_button.text() == "Sort descending"
         dialog.audit_sort_button.click()
@@ -499,7 +499,7 @@ def test_character_ui_manager_empty_states_refresh_and_status_are_accessible(
     (root / "uifiles").mkdir(parents=True)
     (root / "eqgame.exe").write_bytes(b"game")
     panel.path_edit.setText(str(root))
-    panel._release = SimpleNamespace(version="1.44.115")
+    panel._release = SimpleNamespace(version="1.44.116")
     monkeypatch.setattr(ui_skin_updater, "installed_folder", lambda _root: "")
     monkeypatch.setattr(
         vantage_ui_module, "data_dir",

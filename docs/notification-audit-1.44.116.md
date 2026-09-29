@@ -61,3 +61,9 @@ user's currently running `Vantage.exe`.
 - Source compilation and whitespace/diff checks passed. Full-suite, build, and
   installed-runtime verification remain intentionally pending until the
   independent accessibility/UI gate approves the frozen candidate.
+- Independent scoped accessibility/UI review of commit `726d476`: **PASS**.
+  The gate covered painted proxy-hosted pixels, the keyboard path from the
+  Quick Bar history button through Search, Table, Copy, and Close in both
+  directions, newest-first order, stale-selection safety, semantic latest-
+  audio copy, stable compact geometry, and test-profile isolation. This is a
+  scoped approval, not a claim of full-product accessibility certification.

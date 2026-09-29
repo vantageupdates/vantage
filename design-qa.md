@@ -1192,3 +1192,31 @@ independent accessibility review: PASS
   `sha256:cf332bc3abbde88c7708bd72a89c866e8f858dc3191c69bfd701cbe22dd131b8`.
   A fresh unauthenticated download matched the candidate byte-for-byte and
   independently reported FileVersion/ProductVersion **1.44.115**.
+
+## 1.44.116 pre-release painted notification evidence
+
+- Root cause reproduced through actual top-level pixels at the user's compact
+  Quick Bar scale: the proxy-hosted labels were logically visible, but their
+  nested `QGraphicsOpacityEffect` painted a blank rail. Removing that effect
+  paints the attributable category and message in the same surface. Evidence
+  and explicit audit limitations are recorded in
+  `docs/notification-audit-1.44.116.md`.
+- The 19 px authored rail height and 779×72 design geometry remain stable. Its
+  bounded live scheduler prioritizes recent events during a burst, while the
+  searchable, copyable Notification History retains the exact last 250 session
+  events with timestamp, category, and semantic text. Opening history never
+  replays audio.
+- A suite-wide `tests/conftest.py` now forces a fresh per-session profile before
+  application imports and offscreen Qt. Focused tests proved an inherited
+  protected profile sentinel retained identical bytes and nanosecond mtime;
+  the real Vantage profile likewise retained identical size, SHA-256, and
+  modification time through focused verification.
+- Focused verification: **98 notification/audio/isolation tests**, **10 Quick
+  Bar/settings/trigger tests**, and **12 responsive/table/scaled UI tests**
+  passed. Python compilation, English copy audit, and `git diff --check` passed.
+- Independent scoped accessibility/UI review of commit `726d476`: **PASS**.
+  It covered painted output, opening by keyboard, forward/reverse focus order,
+  fixed newest-first history, copy/filter/eviction safety, semantic audio copy,
+  compact geometry, and profile isolation. Dense shared headers and mobile
+  comfort sizing remain documented follow-up opportunities, not hidden claims
+  of a full-product WCAG certification.
