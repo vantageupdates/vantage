@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 SCRIPT = r"""
+import copy
 import datetime
 import json
 
@@ -63,6 +64,31 @@ first = {
 widget._update()
 played_after_second_refresh = len(played)
 
+real_notify = app.notify_event
+delivered = []
+app.notify_event = lambda route, text, **kwargs: (
+    delivered.append({'route': route, 'text': text, **kwargs}) or True)
+widget._play_fade_alert(notice=widget._fading_notice(30))
+
+# A short/restored row enters its warning window during construction.  It
+# must wait until QLayout attaches the SpellTarget so the first voice names
+# the actual recipient and its durable claim reaches the container.
+delivered.clear()
+short_spell = copy.copy(spells.spell_book['Fetter'])
+short_spell.name = 'Short Ward'
+short_spell.runtime_key = 'short ward'
+short_spell.duration_seconds = 30
+short_spell.duration = 5
+spells._spell_container.add_spell(
+    short_spell, datetime.datetime.now(), '__you__',
+    'Spiritflux', 'P1999Green')
+short_target = spells._spell_container.get_spell_target_by_name('__you__')
+short_widget = short_target.spell_widget('short ward')
+before_attached_refresh = len(delivered)
+short_widget._update()
+short_delivery = delivered[-1]
+app.notify_event = real_notify
+
 # The visual warning remains available even when fading audio is disabled.
 config.data['spells']['fade_sound_enabled'] = False
 spells._spell_container.add_spell(
@@ -82,6 +108,8 @@ silent = {
 print(json.dumps({
     'first': first,
     'played_after_second_refresh': played_after_second_refresh,
+    'delivered': [short_delivery],
+    'before_attached_refresh': before_attached_refresh,
     'silent': silent,
 }))
 app.quit()
@@ -109,6 +137,15 @@ def test_fading_window_clicks_once_and_names_spell_target_and_time(tmp_path):
         'channel': 'spells',
     }]
     assert result['played_after_second_refresh'] == 1
+    delivered = result['delivered'][0]
+    assert result['before_attached_refresh'] == 0
+    assert delivered['route'] == 'spell_fading'
+    assert delivered['text'].startswith('Short Ward fading soon · ')
+    assert delivered['voice_text'] == \
+        'Short Ward fading on Spiritflux'
+    assert '30s' not in delivered['voice_text']
+    assert delivered['voice_dedupe_key'].startswith(
+        'spell_fading|P1999Green|Spiritflux|__you__|')
     assert result['silent']['notice'].startswith(
         'See Invisible fading soon')
     assert result['silent']['played_count'] == 1

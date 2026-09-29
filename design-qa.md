@@ -1220,3 +1220,22 @@ independent accessibility review: PASS
   compact geometry, and profile isolation. Dense shared headers and mobile
   comfort sizing remain documented follow-up opportunities, not hidden claims
   of a full-product WCAG certification.
+- Release hold regression: a delivered spell-fading claim previously lived
+  only on the current widget. An unrelated device-sync rebuild or camp/relog
+  could therefore restore the same unexpired generation with
+  `warning_played=false` and speak it again. The claim now schedules durable
+  state immediately, remains local-authoritative across same-identity and
+  same-deadline rebuilds, survives camp snapshots, and rearms only for a real
+  recast. Short restored effects defer their first warning until attached to
+  a named target. Spell voice copy now names the exact effect and recipient,
+  while the visible rail retains its precise countdown. A generation-scoped
+  voice key coalesces only that same spell warning; unrelated critical alerts
+  with identical words remain distinct.
+- Focused spell/audio/sync/camp/update/profile-isolation verification after
+  this release hold: **214 passed** in **60.75 seconds**; the tighter direct
+  regression group passed **101 tests** in **9.22 seconds**. The earlier
+  baseline full run reached **1,637 passed, 2 skipped** and exposed one test-
+  harness-only child import failure. `tests/conftest.py` now propagates the
+  isolated source/profile boundary to subprocess tests, and the portable UI
+  contract passes focused verification. A final clean complete suite remains
+  required on the frozen reviewed candidate before build.

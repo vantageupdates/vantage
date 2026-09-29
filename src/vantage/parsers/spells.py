@@ -2056,6 +2056,7 @@ class Spells(ParserWindow):
                     'seconds': min(seconds, 7 * 24 * 60 * 60),
                     'deadline': now_epoch + min(
                         seconds, 7 * 24 * 60 * 60),
+                    'warning_played': bool(widget._warning_played),
                 })
         return saved[:128]
 
@@ -2096,6 +2097,8 @@ class Spells(ParserWindow):
             spell = Spell(**source.__dict__)
             spell.saved_remaining_seconds = min(
                 remaining, 7 * 24 * 60 * 60)
+            spell.saved_warning_played = bool(
+                item.get('warning_played', False))
             self._spell_container.add_spell(
                 spell, timestamp, '__you__', character, server)
             restored += 1
@@ -2118,8 +2121,45 @@ class Spells(ParserWindow):
                 str(item.get('character') or '').casefold(),
                 str(item.get('server') or '').casefold(),
                 str(spell.get('runtime_key') or spell.get('name') or '').casefold(),
-                deadline))
+                deadline,
+                bool(item.get('warning_played', False))))
         return tuple(sorted(signature))
+
+    @staticmethod
+    def _preserve_local_warning_claims(incoming, current):
+        """Keep one device's delivered-warning claim for the same generation.
+
+        A device-sync refresh replaces every rendered row when any timer in the
+        profile changes.  Warning delivery is local UI state, so an otherwise
+        identical incoming generation must not reset it merely because the
+        peer has not delivered that warning itself.  A materially different
+        deadline is a real recast and remains unclaimed.
+        """
+        claimed = {}
+        for row in current if isinstance(current, list) else ():
+            if not isinstance(row, dict) or not row.get('warning_played'):
+                continue
+            key = timer_identity(row)
+            try:
+                deadline = float(row.get('deadline', 0))
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if key and deadline > 0:
+                claimed[key] = deadline
+        merged = copy.deepcopy(incoming) if isinstance(incoming, list) else []
+        for row in merged:
+            if not isinstance(row, dict):
+                continue
+            key = timer_identity(row)
+            try:
+                deadline = float(row.get('deadline', 0))
+            except (TypeError, ValueError, OverflowError):
+                continue
+            # Restore/serialization can round the same absolute deadline by
+            # one second.  A genuine recast shifts it by far more than this.
+            if key in claimed and abs(deadline - claimed[key]) <= 1.1:
+                row['warning_played'] = True
+        return merged
 
     def _synced_focus_candidates(self):
         """Return stable keys and controls in the visible spell-row order."""
@@ -2178,6 +2218,7 @@ class Spells(ParserWindow):
         """Refresh active buff/countdown rows after a newer device snapshot."""
         saved = config.data.get('spells', {}).get('active_timer_state', [])
         current = self._spell_container.snapshot_runtime_state()
+        saved = Spells._preserve_local_warning_claims(saved, current)
         if self._runtime_sync_signature(saved) == \
                 self._runtime_sync_signature(current):
             return 0
@@ -3994,7 +4035,11 @@ class SpellWidget(QFrame):
             self.progress.setProperty('Critical', critical)
             self.progress.setProperty('Pulse', pulse)
             self.progress.setStyle(self.progress.style())
-            if warning:
+            # Construction calls _update() before QLayout has attached this
+            # row to its SpellTarget.  Defer delivery until the next owned
+            # refresh so the target is attributable and the warning claim can
+            # be persisted through the container's state_changed signal.
+            if warning and isinstance(self.parentWidget(), SpellTarget):
                 if remaining_seconds > 0 and self.claim_fade_alert():
                     notice = self._fading_notice(remaining_seconds)
                     self._play_fade_alert(notice=notice)
@@ -4050,6 +4095,9 @@ class SpellWidget(QFrame):
         if self._warning_played:
             return False
         self._warning_played = True
+        # The claim is durable state, not merely paint state.  Persist it
+        # before an unrelated sync refresh can rebuild this same generation.
+        self._notify_state_changed()
         return True
 
     def elongate(self, seconds):
@@ -4122,6 +4170,36 @@ class SpellWidget(QFrame):
         parts.append(f'{seconds}s')
         return ' · '.join(parts)
 
+    def _fade_voice_text(self, route_key):
+        """Name the exact effect and recipient without volatile countdowns."""
+        target = self.parentWidget()
+        if isinstance(target, SpellTarget):
+            if target.name == '__you__':
+                target_name = self.runtime_character or 'you'
+            elif target.name == '__custom__':
+                target_name = 'custom timer'
+            else:
+                target_name = target.alias or target.title
+        else:
+            target_name = self.runtime_character or 'the tracked target'
+        action = 'worn off' if route_key == 'spell_worn_off' else 'fading'
+        spell_name = string.capwords(str(self.spell.name or 'Spell'))
+        return f'{spell_name} {action} on {target_name}'
+
+    def _fade_voice_dedupe_key(self, route_key):
+        """Identify one spoken warning generation while preserving recasts."""
+        target = self.parentWidget()
+        target_name = str(getattr(target, 'name', '') or '')
+        target_marker = str(getattr(target, 'instance_marker', '') or '')
+        try:
+            generation = int(round(self.end_time.timestamp() * 1000))
+        except (AttributeError, OSError, OverflowError, ValueError):
+            generation = 0
+        return '|'.join((
+            str(route_key or ''), self.runtime_server, self.runtime_character,
+            target_name, target_marker, _spell_runtime_key(self.spell),
+            str(generation)))
+
     @staticmethod
     def _queue_fading_notice(notice):
         app = QApplication.instance()
@@ -4142,6 +4220,8 @@ class SpellWidget(QFrame):
             if callable(notify):
                 return notify(
                     route_key, semantic_notice, overlay=False,
+                    voice_text=self._fade_voice_text(route_key),
+                    voice_dedupe_key=self._fade_voice_dedupe_key(route_key),
                     volume=settings['fade_sound_volume'],
                     character=self.runtime_character,
                     server=self.runtime_server, channel='spells',

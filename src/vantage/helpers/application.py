@@ -634,7 +634,8 @@ class VantageApp(QApplication):
             overlay=True, msecs=5000, overlay_id="alerts", color="",
             text_color="", sound_override=None, delivery_override=None,
             volume=80, repeat=1, character="", server="", channel="",
-            register=True, allow_hidden=False, visual_registered=None):
+            register=True, allow_hidden=False, visual_registered=None,
+            voice_dedupe_key=""):
         """Register and deliver one attributable semantic notification.
 
         The visual event is registered first. Exactly one configured audio
@@ -720,6 +721,7 @@ class VantageApp(QApplication):
                 source=source, character=character, server=server,
                 channel=owner, voice_name=saved["voice"],
                 allow_hidden=allow_hidden, replace_pending=True,
+                dedupe_key=str(voice_dedupe_key or ""),
                 visual_registered=audio_notice_registered)
             reason = playback_block_reason(owner, allow_hidden)
             if not reason and master_volume() <= 0:

@@ -1,3 +1,4 @@
+import copy
 import datetime
 import os
 
@@ -238,6 +239,159 @@ def test_spell_state_restores_current_remaining_time_after_downtime():
     assert widget.runtime_character == "Mindflux"
     assert widget.runtime_server == "Green"
     assert widget._warning_played is True
+
+
+def test_fade_warning_claim_is_durable_and_survives_unrelated_sync_rebuild():
+    _app()
+    started = datetime.datetime.now()
+    container = SpellContainer()
+    container.add_spell(
+        _spell("Spirit of Wolf", runtime_key="spirit of wolf", type=1,
+               duration_seconds=4200),
+        started, "__you__", "Spiritflux", "P1999Green")
+    widget = container.get_spell_target_by_name("__you__").spell_widgets()[0]
+    changes = []
+    container.state_changed.connect(lambda: changes.append(True))
+
+    assert widget.claim_fade_alert() is True
+    assert widget.claim_fade_alert() is False
+    assert changes == [True]
+    current = container.snapshot_runtime_state(
+        now_epoch=10_000, now_datetime=started)
+    assert current[0]["warning_played"] is True
+
+    incoming = copy.deepcopy(current)
+    incoming[0]["warning_played"] = False
+    incoming.append({
+        "deadline": 20_000,
+        "target": "__you__",
+        "target_created_order": 1,
+        "character": "Spiritflux",
+        "server": "P1999Green",
+        "warning_played": False,
+        "spell": {
+            "name": "Focus of Spirit", "runtime_key": "focus of spirit",
+            "duration_seconds": 4200, "type": 1,
+        },
+    })
+    merged = Spells._preserve_local_warning_claims(incoming, current)
+    assert merged[0]["warning_played"] is True
+    assert merged[1]["warning_played"] is False
+    assert Spells._runtime_sync_signature(merged) != \
+        Spells._runtime_sync_signature(incoming)
+
+    # A genuinely later deadline is a new cast generation and must rearm.
+    recast = copy.deepcopy(incoming[:1])
+    recast[0]["deadline"] += 60
+    assert Spells._preserve_local_warning_claims(
+        recast, current)[0]["warning_played"] is False
+
+
+def test_camp_snapshot_preserves_fade_warning_claim_for_same_generation():
+    _app()
+    started = datetime.datetime.now()
+    spell = _spell(
+        "Spirit of Wolf", runtime_key="spirit of wolf", type=1,
+        duration_seconds=4200)
+
+    class _Host:
+        _spell_widget_matches_profile = staticmethod(
+            Spells._spell_widget_matches_profile)
+        snapshot_you_spells = Spells.snapshot_you_spells
+        restore_you_spells = Spells.restore_you_spells
+
+    source = _Host()
+    source._spell_container = SpellContainer()
+    source.spell_book = {"Spirit of Wolf": spell}
+    source._spell_container.add_spell(
+        spell, started, "__you__", "Spiritflux", "P1999Green")
+    original = source._spell_container.get_spell_target_by_name(
+        "__you__").spell_widgets()[0]
+    original._warning_played = True
+    saved = source.snapshot_you_spells(
+        "Spiritflux", "P1999Green", now=started)
+    assert saved[0]["warning_played"] is True
+
+    restored = _Host()
+    restored._spell_container = SpellContainer()
+    restored.spell_book = {"Spirit of Wolf": spell}
+    assert restored.restore_you_spells(
+        saved, "Spiritflux", "P1999Green", timestamp=started) == 1
+    replacement = restored._spell_container.get_spell_target_by_name(
+        "__you__").spell_widgets()[0]
+    assert replacement._warning_played is True
+
+
+def test_unrelated_sync_rebuild_does_not_replay_same_generation_but_recast_does(
+        monkeypatch):
+    _app()
+    original_spells = config.data['spells']
+    now = datetime.datetime.now()
+    sow = _spell(
+        "Spirit of Wolf", runtime_key="spirit of wolf", type=1,
+        duration_seconds=4200)
+    focus = _spell(
+        "Focus of Spirit", runtime_key="focus of spirit", type=1,
+        duration_seconds=4200)
+    alerts = []
+    monkeypatch.setattr(
+        SpellWidget, "_play_fade_alert",
+        lambda self, **kwargs: alerts.append((self.spell.name, kwargs)))
+
+    class _Host:
+        _runtime_sync_signature = staticmethod(Spells._runtime_sync_signature)
+        _synced_focus_candidates = Spells._synced_focus_candidates
+        _capture_synced_focus = Spells._capture_synced_focus
+        _restore_synced_focus = Spells._restore_synced_focus
+
+    host = _Host()
+    host._runtime_state_save_timer = QTimer()
+    host._runtime_state_save_timer.setSingleShot(True)
+    host._character_widget = QLineEdit()
+    host.spell_book = {"Spirit of Wolf": sow, "Focus of Spirit": focus}
+    host._spell_container = SpellContainer()
+    host._spell_container.add_spell(
+        sow, now, "__you__", "Spiritflux", "P1999Green")
+    widget = host._spell_container.get_spell_target_by_name(
+        "__you__").spell_widgets()[0]
+    widget.end_time = datetime.datetime.now() + datetime.timedelta(seconds=10)
+    widget._update()
+    assert [name for name, _kwargs in alerts] == ["Spirit of Wolf"]
+
+    # A peer snapshot has not recorded this PC's local warning claim and also
+    # contains an unrelated new buff, forcing the whole profile to rebuild.
+    stale = host._spell_container.snapshot_runtime_state()
+    stale[0]["warning_played"] = False
+    other = SpellContainer()
+    other.add_spell(
+        focus, now, "__you__", "Spiritflux", "P1999Green")
+    stale.extend(other.snapshot_runtime_state())
+    config.data['spells'] = {
+        **original_spells,
+        'active_timer_state': stale,
+        'active_timer_sync': {},
+    }
+    try:
+        assert Spells.refresh_synced_content(host) == 2
+        rebuilt = next(
+            item for item in host._spell_container.get_spell_target_by_name(
+                "__you__").spell_widgets()
+            if item.spell.name == "Spirit of Wolf")
+        assert rebuilt._warning_played is True
+        rebuilt._update()
+        assert [name for name, _kwargs in alerts] == ["Spirit of Wolf"]
+
+        # A confirmed recast is a new generation and must warn once again.
+        host._spell_container.add_spell(
+            sow, datetime.datetime.now(), "__you__",
+            "Spiritflux", "P1999Green")
+        rebuilt.end_time = datetime.datetime.now() + datetime.timedelta(
+            seconds=10)
+        rebuilt._update()
+        assert [name for name, _kwargs in alerts] == [
+            "Spirit of Wolf", "Spirit of Wolf"]
+    finally:
+        config.data['spells'] = original_spells
 
 
 def test_expired_spell_state_is_not_restored():

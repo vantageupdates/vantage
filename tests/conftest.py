@@ -18,6 +18,12 @@ _PYTEST_PROFILE_ROOT = Path(tempfile.mkdtemp(prefix="vantage-pytest-profile-"))
 _SOURCE_ROOT = Path(__file__).resolve().parents[1] / "src"
 if str(_SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(_SOURCE_ROOT))
+# Child-process tests must inherit the same import boundary as pytest itself.
+# Replacing rather than merely relying on ``sys.path`` keeps portable
+# self-tests isolated and importable without a developer-installed package.
+_inherited_pythonpath = os.environ.get("PYTHONPATH", "")
+os.environ["PYTHONPATH"] = os.pathsep.join(filter(None, (
+    str(_SOURCE_ROOT), _inherited_pythonpath)))
 
 # Always replace an inherited value.  A shell or IDE may otherwise pass the
 # user's live profile explicitly and make a seemingly isolated test mutate it.

@@ -1068,6 +1068,40 @@ def test_native_enqueue_coalesces_duplicates_before_synthesis(monkeypatch):
     assert speech.enqueued == []
 
 
+def test_explicit_generation_key_coalesces_only_that_spoken_spell_warning(
+        monkeypatch):
+    app = _App()
+    config.data = {
+        'general': {'audio_muted': False, 'master_volume': 100},
+        'spells': {'audio_profiles': {}}}
+    speech = _NativeSpeech()
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, '_SPEECH', speech)
+
+    common = {
+        'channel': 'spells', 'replace_pending': True,
+        'dedupe_key': 'spell_fading|green|spiritflux|you|sow|generation-1'}
+    assert audio.speak_text(
+        'Spirit of Wolf fading on Spiritflux', source='35 seconds', **common)
+    assert audio.speak_text(
+        'Spirit of Wolf fading on Spiritflux', source='34 seconds', **common)
+    assert [message for _id, message in speech.enqueued] == [
+        'Spirit of Wolf fading on Spiritflux']
+
+    # Other critical events retain their distinct-source FIFO contract unless
+    # their caller explicitly proves they describe the same generation.
+    assert audio.speak_text(
+        'Danger', source='Low health', channel='vitals',
+        replace_pending=True)
+    assert audio.speak_text(
+        'Danger', source='Low mana', channel='vitals',
+        replace_pending=True)
+    assert [message for _id, message in speech.enqueued] == [
+        'Spirit of Wolf fading on Spiritflux', 'Danger', 'Danger']
+
+
 def test_native_enqueue_bounds_waiting_work_without_interrupting_head(
         monkeypatch):
     app = _App()

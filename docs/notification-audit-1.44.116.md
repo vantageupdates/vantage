@@ -67,3 +67,16 @@ user's currently running `Vantage.exe`.
   directions, newest-first order, stale-selection safety, semantic latest-
   audio copy, stable compact geometry, and test-profile isolation. This is a
   scoped approval, not a claim of full-product accessibility certification.
+
+## Release-hold spell voice verification
+
+The pre-build hold also reproduced why one fading warning could return while
+the player was idle: its delivered claim was widget-only, so an unrelated
+sync rebuild or camp/relog could reconstruct the same deadline as unclaimed.
+The claim is now durable and preserved only for the same timer identity and
+deadline; a real recast still rearms. Text-to-Speech names the exact spell and
+recipient and uses an explicit per-generation coalescing key. This does not
+globally merge unrelated alerts that happen to speak the same words. The
+focused spell/audio/sync/camp/update/profile-isolation group passed **214
+tests** in **60.75 seconds**. Final full-suite and artifact results remain
+pending the independent review of this release-hold change.

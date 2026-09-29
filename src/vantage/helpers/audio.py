@@ -787,6 +787,10 @@ def _bind_speech_scheduler(speech):
 
 def _speech_request_key(request):
     """Coalesce exact automatic duplicates without reordering distinct alerts."""
+    dedupe_key = str(request.get("dedupe_key", "") or "").strip().casefold()
+    if dedupe_key:
+        return ("explicit", str(request.get("channel", "") or "").strip().casefold(),
+                dedupe_key)
     return tuple(str(request.get(part, "") or "").strip().casefold()
                  for part in ("channel", "source", "message"))
 
@@ -1250,7 +1254,7 @@ def speak_text(
         text, volume=80, interrupt=False, source="Vantage speech",
         character="", server="", channel="", allow_hidden=False,
         voice_name="", pitch=0, replace_pending=False,
-        visual_registered=False):
+        visual_registered=False, dedupe_key=""):
     """Submit speech to Vantage's persistent Windows voice scheduler.
 
     Automatic notifications use ``replace_pending=True`` to coalesce exact
@@ -1291,6 +1295,7 @@ def speak_text(
         "channel": str(channel or ""),
         "allow_hidden": bool(allow_hidden),
         "automatic": bool(replace_pending),
+        "dedupe_key": str(dedupe_key or ""),
         "visual_registered": bool(visual_registered),
     }
     return _queue_speech_request(
