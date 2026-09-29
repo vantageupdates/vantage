@@ -1100,3 +1100,30 @@ independent accessibility review: PASS
   `sha256:8a3e39543e68b21c92557e779b1b68e84f720c6d19903f36aea38e2eb0bc15eb`.
   A fresh unauthenticated download matched the tested candidate byte-for-byte
   and independently reported FileVersion/ProductVersion **1.44.113**.
+
+## 1.44.114 pre-release spell attribution evidence
+
+- Sanitized Spiritflux log sequences now require exact evidence before a
+  regeneration timer is created. An owned Regrowth of the Grove cast remains
+  correlatable across linked character logs even when an unrelated Focus of
+  Spirit cast intervenes; recipient-only ambiguous regeneration text no
+  longer becomes an authoritative active timer.
+- Item ownership is strict. A pending owned item glow cannot borrow a nearby
+  player's Petals landing, explicit other-target lines never become a self
+  buff, and foreign-log other-target lines are ignored while same-log owned
+  casts continue to track their confirmed targets.
+- The legacy `regeneration effect (rank unknown)` sentinel is removed from
+  runtime state, camp snapshots, timer sync, and exported device-sync
+  profiles. Exact Regrowth, Chloroplast, and Regrowth of the Grove rows remain
+  unchanged.
+- Fading and worn-off audio is claimed once per spell generation and rearms
+  only on a confirmed recast. Each spell row now owns one single-shot refresh
+  timer, preventing repeated fade/recast cycles from multiplying callback
+  chains.
+- Focused parser, persistence, sync, update-handoff, audio, Bard, item-click,
+  and sanitized Spiritflux verification: **104 passed** in **100.75 seconds**
+  in the implementation run. The exact versioned candidate passed an
+  additional **86 tests** in **141.91 seconds**. Python compilation,
+  `git diff --check`, English-copy audit, Companion **1.44.114** version audit,
+  and `ui/**` isolation: **PASS**. Build and publication remain stopped for
+  independent accessibility review.

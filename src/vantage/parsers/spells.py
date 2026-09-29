@@ -36,7 +36,8 @@ from vantage.helpers.respawn_catalog import NAMED_SPAWN_CATALOG, named_spawn_for
 from vantage.helpers.spell_icons import (
     spell_icon_pixmap, spell_icon_coordinates)
 from vantage.helpers.timer_sync import (
-    record_explicit_timer_removals, record_local_timer_state, timer_identity)
+    LEGACY_UNKNOWN_REGEN_NAMES, record_explicit_timer_removals,
+    record_local_timer_state, sanitize_timer_rows, timer_identity)
 from vantage.helpers.trigger_groups import (
     effective_trigger_style, group_enabled, normalize_trigger_color)
 
@@ -58,6 +59,7 @@ ITEM_GLOW_RX = re.compile(
     r"^Your (?P<item>[A-Z][^.]*?) "
     r"(?:begin(?:s)? to glow(?:[^.]*)?|glows?(?:[^.]*))\.$")
 ITEM_CLICK_WINDOW_SECONDS = 15.0
+OWNED_CAST_EVIDENCE_SECONDS = 20.0
 CHARM_TARGET_WINDOW_SECONDS = 45.0
 # Log lines have one-second timestamps and the file reader polls independently
 # from Qt's timers. Keep a small late-arrival margin so a valid landing line
@@ -499,6 +501,10 @@ class Spells(ParserWindow):
         self._casting = None  # holds Spell when casting
         self._zoning = None  # holds time of zone or None
         self._spell_trigger = None
+        # One application consumes several tailed character logs. Keep a
+        # bounded derived record of owned casts so an intervening cast from a
+        # different log cannot erase exact cross-log attribution evidence.
+        self._recent_owned_casts = deque(maxlen=32)
         self._pending_charm = None
         self._pending_item_click = None
         self._item_self_effects = _anchorless_self_click_effects(
@@ -542,10 +548,40 @@ class Spells(ParserWindow):
             self._schedule_runtime_timer_state_save)
         self._spell_container.timer_rows_removed.connect(
             self._record_runtime_timer_removals)
+        self._migrate_legacy_unknown_regeneration()
         self._refresh_character_profiles()
         self._restore_runtime_timer_state()
         QApplication.instance().aboutToQuit.connect(
             self._persist_runtime_timer_state)
+
+    def _migrate_legacy_unknown_regeneration(self):
+        """Remove only the old non-authoritative unknown-regen sentinel."""
+        changed = False
+        spells = config.data.get('spells', {})
+        rows = spells.get('active_timer_state', [])
+        cleaned_rows = sanitize_timer_rows(rows)
+        if cleaned_rows != rows:
+            spells['active_timer_state'] = cleaned_rows
+            changed = True
+        profiles = config.data.get('general', {}).get(
+            'character_profiles', {})
+        if isinstance(profiles, dict):
+            for profile in profiles.values():
+                if not isinstance(profile, dict):
+                    continue
+                saved = profile.get('saved_you_spells', [])
+                if not isinstance(saved, list):
+                    continue
+                cleaned = [
+                    item for item in saved
+                    if not (isinstance(item, dict) and str(
+                        item.get('name') or '').strip().casefold() in
+                        LEGACY_UNKNOWN_REGEN_NAMES)]
+                if cleaned != saved:
+                    profile['saved_you_spells'] = cleaned
+                    changed = True
+        if changed and getattr(config, '_filename', ''):
+            config.save()
 
     def _setup_ui(self):
         self._spell_container = SpellContainer()
@@ -1076,16 +1112,93 @@ class Spells(ParserWindow):
             return False
         if target_index in trigger.delivered_target_indexes:
             return False
+        owner_character = str(getattr(
+            trigger, 'owner_character', '') or '').strip().casefold()
+        recipient_character = str(getattr(
+            self, '_active_character', '') or '').strip().casefold()
+        if (owner_character and recipient_character and
+                owner_character != recipient_character and
+                target_name != '__you__'):
+            # Another tailed log can prove only that its own character
+            # received the cast. Its nearby explicit-other messages do not
+            # belong to the caster's pending group/target window.
+            return False
         # The spell and caster level belong to the log that opened the cast,
         # not whichever recipient log supplied this landing line. This lets a
         # Druid log name Regrowth of the Grove correctly on an SK log.
         spell = copy.copy(trigger.spell)
+        if (target_name == '__you__' and owner_character and
+                recipient_character and owner_character != recipient_character):
+            # A cross-log landing can be the replacement generation while the
+            # recipient log immediately emits the old generation's wear-off.
+            spell.guard_initial_worn_off = True
         self._spell_container.add_spell(
             spell, timestamp, target_name,
             getattr(self, '_active_character', ''),
             getattr(self, '_active_server', ''),
             named=self._is_named_target(target_name))
         trigger.delivered_target_indexes.add(target_index)
+        if int(getattr(trigger.spell, 'max_targets', 1) or 1) == 1:
+            evidence = getattr(trigger, '_owned_evidence', None)
+            if evidence is not None:
+                try:
+                    self._recent_owned_casts.remove(evidence)
+                except ValueError:
+                    pass
+        return True
+
+    def _remember_owned_cast(self, timestamp, spell):
+        evidence = {
+            'timestamp': timestamp,
+            'spell': copy.copy(spell),
+            'character': str(getattr(self, '_active_character', '') or ''),
+            'server': str(getattr(self, '_active_server', '') or ''),
+        }
+        self._recent_owned_casts.append(evidence)
+        return evidence
+
+    def _consume_cross_log_self_landing(self, timestamp, text):
+        """Resolve a self landing from an exact cast in another tailed log."""
+        if not _is_explicit_self_effect(text):
+            return False
+        recipient = str(getattr(self, '_active_character', '') or '').strip()
+        server = str(getattr(self, '_active_server', '') or '').strip()
+        folded = str(text or '').strip().casefold()
+        matches = []
+        retained = deque(maxlen=self._recent_owned_casts.maxlen)
+        for evidence in self._recent_owned_casts:
+            try:
+                age = (timestamp - evidence['timestamp']).total_seconds()
+            except (KeyError, TypeError, AttributeError):
+                continue
+            if age < 0 or age > OWNED_CAST_EVIDENCE_SECONDS:
+                continue
+            retained.append(evidence)
+            spell = evidence.get('spell')
+            caster = str(evidence.get('character') or '').strip()
+            caster_server = str(evidence.get('server') or '').strip()
+            if (not spell or not caster or not recipient or
+                    caster.casefold() == recipient.casefold() or
+                    (server and caster_server and
+                     server.casefold() != caster_server.casefold()) or
+                    str(getattr(spell, 'effect_text_you', '') or '').strip(
+                    ).casefold() != folded):
+                continue
+            expected = max(
+                0.0, float(getattr(spell, 'cast_time', 0) or 0) / 1000.0)
+            matches.append((abs(age - expected), -age, evidence))
+        self._recent_owned_casts = retained
+        if not matches:
+            return False
+        evidence = min(matches, key=lambda item: (item[0], item[1]))[2]
+        try:
+            self._recent_owned_casts.remove(evidence)
+        except ValueError:
+            pass
+        spell = copy.copy(evidence['spell'])
+        spell.guard_initial_worn_off = True
+        self._spell_container.add_spell(
+            spell, timestamp, '__you__', recipient, server)
         return True
 
     def _consume_charm_activity(self, timestamp, text):
@@ -1188,7 +1301,9 @@ class Spells(ParserWindow):
             self._push_spell_event(
                 event_kind, getattr(faded.spell, 'name', 'Spell'),
                 target_name)
-            if not custom_worn_audio:
+            # A generation that already warned while fading must not emit a
+            # second sound or voice when its worn-off line arrives.
+            if not custom_worn_audio and faded.claim_fade_alert():
                 faded._play_fade_alert(
                     notice=(f"{getattr(faded.spell, 'name', 'Spell')} worn off" +
                             (f" · {target_name}" if target_name else "")),
@@ -1407,8 +1522,16 @@ class Spells(ParserWindow):
         if self._spell_trigger:
             spell_line_consumed = bool(
                 self._spell_trigger.parse(timestamp, text))
+        if spell_line_consumed and self._pending_item_click:
+            # The exact cast/item trigger consumed its own landing. Do not let
+            # that stale ownership anchor block a later instant click.
+            self._pending_item_click = None
+        cross_log_landing = False
+        if not spell_line_consumed:
+            cross_log_landing = self._consume_cross_log_self_landing(
+                timestamp, text)
         if (item_triggers_enabled and not item_glow and
-                not spell_line_consumed):
+                not spell_line_consumed and not cross_log_landing):
             self._consume_item_effect(timestamp, text)
 
         # Initial Spell Cast and trigger setup
@@ -1422,8 +1545,13 @@ class Spells(ParserWindow):
 
                 spell_trigger = SpellTrigger(
                     spell=self._spell_for_active_profile(spell),
-                    timestamp=timestamp
+                    timestamp=timestamp,
+                    owner_character=str(
+                        getattr(self, '_active_character', '') or ''),
+                    owner_server=str(getattr(self, '_active_server', '') or '')
                 )
+                spell_trigger._owned_evidence = self._remember_owned_cast(
+                    timestamp, spell_trigger.spell)
                 spell_trigger.target_detected.connect(
                     self._spell_target_detected)
                 spell_trigger.spell_triggered.connect(self._spell_triggered)
@@ -1561,7 +1689,9 @@ class Spells(ParserWindow):
 
     def _item_effect_landing(
             self, text, include_other=False, preferred_spell=''):
-        preferred = self.spell_book.get(str(preferred_spell or ''))
+        preferred_name = str(preferred_spell or '').strip()
+        preferred = (
+            self.spell_book.get(preferred_name) if preferred_name else None)
         if preferred and preferred.duration_formula != 0:
             if preferred.effect_text_you and text == preferred.effect_text_you:
                 return preferred, '__you__', ''
@@ -1570,9 +1700,14 @@ class Spells(ParserWindow):
                 target = text[:-len(preferred.effect_text_other)].strip()
                 if target:
                     return preferred, target, ''
+            # An owned item glow identifies one exact effect. A different
+            # nearby player's landing must never fall through to a generic
+            # clicky/other-effect lookup and borrow that ownership anchor.
+            return None
         external = self._external_self_effects.get(
             str(text or '').strip().casefold())
-        if external:
+        if (external and str(text or '').strip().casefold() not in
+                AMBIGUOUS_EXTERNAL_SELF_BUFFS):
             return external, '__you__', ''
         indexed = self._item_self_effects.get(
             str(text or '').strip().casefold())
@@ -2448,7 +2583,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.113')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.114')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -3643,6 +3778,11 @@ class SpellWidget(QFrame):
         self._fade_remove_timer = QTimer(self)
         self._fade_remove_timer.setSingleShot(True)
         self._fade_remove_timer.timeout.connect(self._remove_if_still_faded)
+        # Own the refresh callback so repeated fade/recast/manual refreshes
+        # restart one timer instead of multiplying anonymous singleShot chains.
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.setSingleShot(True)
+        self._refresh_timer.timeout.connect(self._update)
 
         self._setup_ui()
         # Child construction can cause some Qt platform styles to restore a
@@ -3806,6 +3946,7 @@ class SpellWidget(QFrame):
 
     def _update(self):
         if self._removed:
+            self._refresh_timer.stop()
             return
         refresh_ms = 1000
         if self._faded:
@@ -3823,8 +3964,9 @@ class SpellWidget(QFrame):
             self.progress.setProperty('Faded', True)
             self.progress.setProperty('Pulse', pulse)
             self.progress.setStyle(self.progress.style())
-            QTimer.singleShot(250 if not config.data['general'].get(
-                'reduce_motion') else 1000, self._update)
+            self._refresh_timer.start(
+                250 if not config.data['general'].get(
+                    'reduce_motion') else 1000)
             return
         if self._active:
             remaining = self.end_time - datetime.datetime.now()
@@ -3846,8 +3988,7 @@ class SpellWidget(QFrame):
             self.progress.setProperty('Pulse', pulse)
             self.progress.setStyle(self.progress.style())
             if warning:
-                if remaining_seconds > 0 and not self._warning_played:
-                    self._warning_played = True
+                if remaining_seconds > 0 and self.claim_fade_alert():
                     notice = self._fading_notice(remaining_seconds)
                     self._play_fade_alert(notice=notice)
             if remaining_seconds <= 0:
@@ -3855,7 +3996,8 @@ class SpellWidget(QFrame):
                 return
             self.progress.set_time_text(format_time(remaining))
         if not self._removed:
-            QTimer.singleShot(refresh_ms if self._active else 1000, self._update)
+            self._refresh_timer.start(
+                refresh_ms if self._active else 1000)
 
     def pause(self):
         self._active = False
@@ -3890,12 +4032,18 @@ class SpellWidget(QFrame):
             'the row remains for 6 seconds')
         self.progress.setToolTip(tooltip)
         self.setToolTip(tooltip)
-        if play_sound and not self._warning_played:
-            self._warning_played = True
+        if play_sound and self.claim_fade_alert():
             self._play_fade_alert()
         self._request_resort()
         self._notify_state_changed()
         self._update()
+
+    def claim_fade_alert(self):
+        """Atomically claim the one fading/worn alert for this generation."""
+        if self._warning_played:
+            return False
+        self._warning_played = True
+        return True
 
     def elongate(self, seconds):
         self.end_time += datetime.timedelta(seconds=seconds)
@@ -3920,6 +4068,7 @@ class SpellWidget(QFrame):
     def _remove(self, authoritative=True):
         if self._removed:
             return
+        self._refresh_timer.stop()
         self._fade_remove_timer.stop()
         target, owner = self._owner_container()
         if (authoritative and owner and
@@ -4488,14 +4637,16 @@ class SpellTrigger(QObject):
             folded = str(text or '').casefold()
             effect_you = str(self.spell.effect_text_you or '')
             effect_other = str(self.spell.effect_text_other or '')
-            if effect_you and folded.startswith(effect_you.casefold()):
-                # cast self
-                self.targets.append((timestamp, '__you__'))
-                matched = True
-            elif effect_other and folded.endswith(effect_other.casefold()):
+            if effect_other and folded.endswith(effect_other.casefold()):
                 # cast other
                 target = text[:-len(effect_other)].strip()
-                self.targets.append((timestamp, target))
+                if target and target.casefold() != 'you':
+                    self.targets.append((timestamp, target))
+                    matched = True
+            elif effect_you and folded == effect_you.casefold():
+                # Self messages are exact. Prefix matching could misclassify
+                # a longer explicit other-target event from an interleaved log.
+                self.targets.append((timestamp, '__you__'))
                 matched = True
             elif _is_charm_spell(self.spell):
                 target = _charmed_pet_from_activity(text)

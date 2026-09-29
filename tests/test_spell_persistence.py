@@ -525,6 +525,26 @@ def test_self_buff_recast_revives_faded_row_and_rejects_stale_worn_off():
     assert original._faded is True
 
 
+def test_repeated_fade_recast_refreshes_keep_one_owned_callback_chain():
+    _app()
+    now = datetime.datetime.now()
+    spell = _spell(
+        "Spirit of Wolf", runtime_key="spirit of wolf",
+        effect_text_worn_off="The spirit of wolf leaves you.", type=1)
+    widget = SpellWidget(spell, now, "Spiritflux", "Green")
+    timer_count = len(widget.findChildren(QTimer))
+
+    for offset in range(5):
+        widget.mark_faded(
+            now + datetime.timedelta(seconds=offset), play_sound=False)
+        widget.recast(now + datetime.timedelta(seconds=offset + 1))
+        widget._update()
+
+    assert len(widget.findChildren(QTimer)) == timer_count == 2
+    assert widget._refresh_timer.isSingleShot() is True
+    assert widget._refresh_timer.isActive() is True
+
+
 def test_runtime_character_level_controls_duration():
     _app()
     previous_level = config.data['spells']['level']

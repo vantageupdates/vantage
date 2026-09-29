@@ -43,7 +43,8 @@ from vantage.helpers.icons import game_icon
 from vantage.helpers.portable import data_dir
 from vantage.helpers.responsive import scrollable
 from vantage.helpers.scaled_dialog import UniformScaleDialog
-from vantage.helpers.timer_sync import sanitize_timer_rows
+from vantage.helpers.timer_sync import (
+    LEGACY_UNKNOWN_REGEN_NAMES, sanitize_timer_rows)
 
 
 PAIR_PREFIX = "VANTAGE-SYNC-1."
@@ -185,6 +186,20 @@ def export_sync_settings(settings, include_layout=True, include_timers=True):
                 key: child for key, child in value.items()
                 if str(key).casefold() not in {
                     "active_timer_state", "active_timer_sync"}}
+        if folded_section == "general" and isinstance(value, dict):
+            value = copy.deepcopy(value)
+            profiles = value.get("character_profiles", {})
+            if isinstance(profiles, dict):
+                for profile in profiles.values():
+                    if not isinstance(profile, dict):
+                        continue
+                    saved = profile.get("saved_you_spells", [])
+                    if isinstance(saved, list):
+                        profile["saved_you_spells"] = [
+                            item for item in saved
+                            if not (isinstance(item, dict) and str(
+                                item.get("name") or "").strip().casefold()
+                                in LEGACY_UNKNOWN_REGEN_NAMES)]
         if section == "vantage_ui":
             value = {
                 key: child for key, child in value.items()
@@ -391,7 +406,7 @@ def _official_release_asset():
     request = Request(
         SYNCTHING_RELEASE_API,
         headers={"Accept": "application/vnd.github+json",
-                 "User-Agent": "Vantage/1.44.113"})
+                 "User-Agent": "Vantage/1.44.114"})
     with urlopen(request, timeout=15) as response:
         raw = response.read(MAX_RELEASE_BYTES + 1)
     if len(raw) > MAX_RELEASE_BYTES:
@@ -416,7 +431,7 @@ def _official_release_asset():
 def install_syncthing(progress=None):
     """Download one verified portable transport binary from the official release."""
     url, expected = _official_release_asset()
-    request = Request(url, headers={"User-Agent": "Vantage/1.44.113"})
+    request = Request(url, headers={"User-Agent": "Vantage/1.44.114"})
     with urlopen(request, timeout=45) as response:
         length = int(response.headers.get("Content-Length") or 0)
         if length > MAX_ARCHIVE_BYTES:

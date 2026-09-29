@@ -23,23 +23,19 @@ config.data['spells']['fade_sound_enabled'] = False
 config.data['spells']['level'] = 1
 now = datetime.datetime.now().replace(microsecond=0)
 
-# With only the recipient log, EQ hides both the rank and caster level. The
-# row must stay useful and honest rather than inventing level-1 Regeneration.
+# With only the recipient log, EQ hides both rank and caster. This is not
+# authoritative enough to create or sync an active self timer.
 app._parse((
     now, 'You begin to regenerate.', 'Harmflux', 'P1999Green'))
 target = spells._spell_container.get_spell_target_by_name('__you__')
-fallback = next(widget for widget in target.spell_widgets()
-                if widget.runtime_character == 'Harmflux')
-fallback_name = fallback.spell.name
-fallback_remaining = int((fallback.end_time - now).total_seconds())
-fallback_accessible = fallback.accessibleDescription()
+fallback_count = len(target.spell_widgets()) if target else 0
 
 # A replaced older rank can report the same worn-off text just after landing.
 # The fresh unresolved family must survive that stale line.
 app._parse((
     now + datetime.timedelta(seconds=1),
     'You have stopped regenerating.', 'Harmflux', 'P1999Green'))
-fallback_survived_stale_worn = not fallback._faded and not fallback._removed
+fallback_count_after_worn = len(target.spell_widgets()) if target else 0
 
 # When both character logs are tailed, preserve the spell and caster level
 # from the Druid's named cast while assigning the self landing to the SK.
@@ -50,6 +46,7 @@ app._parse((
 app._parse((
     now + datetime.timedelta(seconds=16),
     'You begin to regenerate.', 'Harmflux', 'P1999Green'))
+target = spells._spell_container.get_spell_target_by_name('__you__')
 rows = [
     widget for widget in target.spell_widgets()
     if widget.runtime_character == 'Harmflux' and
@@ -64,10 +61,8 @@ app._parse((
 exact_survived_stale_worn = not exact._faded and not exact._removed
 
 print(json.dumps({
-    'fallback_name': fallback_name,
-    'fallback_remaining': fallback_remaining,
-    'fallback_accessible': fallback_accessible,
-    'fallback_survived_stale_worn': fallback_survived_stale_worn,
+    'fallback_count': fallback_count,
+    'fallback_count_after_worn': fallback_count_after_worn,
     'exact_count': len(rows),
     'exact_name': exact.spell.name,
     'exact_runtime_level': exact.spell.runtime_level,
@@ -94,10 +89,8 @@ def test_external_regen_is_honest_and_cross_log_cast_is_exact(tmp_path):
         check=True, capture_output=True, text=True, timeout=30)
     result = json.loads(completed.stdout.strip().splitlines()[-1])
 
-    assert result['fallback_name'] == 'regeneration effect (rank unknown)'
-    assert result['fallback_remaining'] >= 1100
-    assert 'exact rank hidden' in result['fallback_accessible']
-    assert result['fallback_survived_stale_worn'] is True
+    assert result['fallback_count'] == 0
+    assert result['fallback_count_after_worn'] == 0
     assert result['exact_count'] == 1
     assert result['exact_name'] == 'regrowth of the grove'
     assert result['exact_runtime_level'] >= 58

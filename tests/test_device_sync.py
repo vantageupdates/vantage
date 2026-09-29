@@ -14,7 +14,7 @@ from vantage.helpers.device_sync import (
     decode_pair_code, export_sync_settings, sign_snapshot, verify_snapshot)
 from vantage.helpers.timer_sync import (
     merge_timer_state, record_explicit_timer_removals,
-    record_local_timer_state, timer_identity)
+    record_local_timer_state, sanitize_timer_rows, timer_identity)
 from vantage.parsers.spells import Spells
 
 
@@ -22,6 +22,27 @@ DEVICE_ID = "AAAAAAA-BBBBBBB-CCCCCCC-DDDDDDD-EEEEEEE-FFFFFFF-GGGGGGG-HHHHHHH"
 GROUP_ID = "0123456789abcdef01234567"
 GROUP_KEY = "abcdefghijklmnopqrstuvwxyzABCDEFGH_12345678"
 REMOTE_DEVICE_ID = "BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB"
+
+
+def test_unknown_regen_sentinel_never_enters_timer_or_settings_sync():
+    rows = [
+        _buff('regeneration effect (rank unknown)', 5000),
+        _buff('Regrowth', 5001),
+        _buff('Chloroplast', 5002),
+        _buff('Regrowth of the Grove', 5003),
+    ]
+    assert [row['spell']['name'] for row in sanitize_timer_rows(rows)] == [
+        'Regrowth', 'Chloroplast', 'Regrowth of the Grove']
+
+    portable = export_sync_settings({'general': {'character_profiles': {
+        'green|spiritflux': {'saved_you_spells': [
+            {'name': 'regeneration effect (rank unknown)', 'seconds': 50},
+            {'name': 'Regrowth', 'seconds': 51},
+        ]},
+    }}})
+    assert portable['general']['character_profiles'][
+        'green|spiritflux']['saved_you_spells'] == [
+            {'name': 'Regrowth', 'seconds': 51}]
 
 
 def _buff(name, deadline, target="__you__", character="Spiritflux",

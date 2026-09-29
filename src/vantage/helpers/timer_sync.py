@@ -12,13 +12,16 @@ MAX_TIMER_ROWS = 512
 MAX_TIMER_CLOCKS = 1024
 MAX_TIMER_IDENTITY_LENGTH = 720
 TIMER_SYNC_SCHEMA = 2
+LEGACY_UNKNOWN_REGEN_NAMES = frozenset({
+    "regeneration effect (rank unknown)",
+    "external regeneration (rank unknown)",
+})
 SHARED_RUNTIME_FAMILIES = {
     "regeneration": "regeneration",
     "chloroplast": "regeneration",
     "regrowth": "regeneration",
     "pack chloroplast": "regeneration",
     "regrowth of the grove": "regeneration",
-    "regeneration effect (rank unknown)": "regeneration",
 }
 
 
@@ -72,6 +75,11 @@ def sanitize_timer_rows(rows):
         if not isinstance(raw, dict) or not isinstance(raw.get("spell"), dict):
             continue
         row = copy.deepcopy(raw)
+        spell_name = _fold(row["spell"].get("name"), 256)
+        if spell_name in LEGACY_UNKNOWN_REGEN_NAMES:
+            # Older builds promoted an ambiguous recipient-only emote into a
+            # synced active timer. It was never authoritative cast evidence.
+            continue
         if not timer_identity(row):
             continue
         try:

@@ -88,6 +88,11 @@ PET_SUMMON_SPELLS = frozenset(name.casefold() for name in (
         "Greater Conjuration")
     for element in ("Air", "Earth", "Fire", "Water"))
 
+LEGACY_UNKNOWN_REGEN_NAMES = frozenset({
+    "regeneration effect (rank unknown)",
+    "external regeneration (rank unknown)",
+})
+
 
 @dataclass
 class CharacterContext:
@@ -154,6 +159,8 @@ class CharacterContextTracker:
             if not isinstance(item, dict):
                 continue
             name = str(item.get("name") or "").strip()[:96]
+            if name.casefold() in LEGACY_UNKNOWN_REGEN_NAMES:
+                continue
             seconds = max(0, min(
                 7 * 24 * 60 * 60,
                 cls._safe_int(item.get("seconds"), 0)))
