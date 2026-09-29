@@ -1424,3 +1424,13 @@ independent accessibility review: PASS
   passed. The previously intermittent Combat subprocess case passed this run.
   The protected live profile and installed `D:\Vantage.exe` retained their
   exact pre-run size, nanosecond modification time, and SHA-256.
+- PyInstaller **6.22.2** one-file build via `vantage.spec`: **PASS**. The
+  isolated portable self-test exited **0**, wrote only its marker plus the
+  empty recordings directory under a fresh `VANTAGE_DATA_DIR`, and reported
+  **1.44.117**. Recursive archive checks confirmed the application, audio,
+  Quick Bar, spells, Smart Timer keywords, Character UI manager, mobile,
+  Log Searcher, Windows SAPI and WinRT Text-to-Speech plugins, all **20**
+  built-in WAV files, and the required terms, third-party, source, and license
+  documents. FileVersion and ProductVersion are **1.44.117**. Candidate
+  `Vantage.exe`: **75,835,529 bytes**, SHA-256
+  `4252139FFD85DE604FCFED2FA8D03A59B42D091C7BA225A045748076B617CE3F`.
