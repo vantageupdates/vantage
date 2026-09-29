@@ -1268,3 +1268,39 @@ independent accessibility review: PASS
   `sha256:af071b8670177388d85e96e59faf64d4c2d957aceee6d341b4531a02a8058b8f`.
   A fresh unauthenticated download matched the candidate byte-for-byte and
   independently reported FileVersion/ProductVersion **1.44.116**.
+
+## 1.44.117 Companion polish and mobile item sheet
+
+- Fresh isolated screenshot inventory covered every major parser at normal,
+  narrow, and mini sizes plus available dialogs. The bounded fixes and visual
+  evidence are documented in `docs/polish-audit-1.44.117.md`.
+- The mobile item detail now follows a compact classic-EQ property-sheet
+  hierarchy with semantic definition lists, complete common weapon/stat/resist
+  parsing, data-backed flags and restrictions, linked effects/drops/quests, a
+  collapsed original-text fallback, and a secondary market reference. Fair
+  baseline/candidate screenshots use the same synthetic DTO at 319, 390, and
+  768 pixels. No horizontal overflow was observed; Close is at least 44 pixels.
+- Controlled delayed browser requests verify late success, late error,
+  close/reopen, and cross-kind item/spell/install races cannot overwrite the
+  current dialog or announce stale content. Entity links reject non-P99 origins
+  and correctly fall back to their named P99 Wiki path.
+- Adjustable tables now allow Tab and Backtab to leave the grid while arrow
+  keys retain cell navigation and Shift+F10 retains column controls. The policy
+  also applies when a table is first configured with zero columns and populated
+  later. Smart Timers and Zones show actionable textual empty states. Market
+  continues to reject mismatched signed item data and now offers a truthful,
+  accessible Refresh path without weakening digest validation.
+- Focused feature verification: **6 passed** in **13.68 seconds**. Broader
+  mobile, responsive/table, Market, Timers, Zones, and spawn-timer verification:
+  **193 passed** in **155.10 seconds**. Py-compile, English-copy audit, and
+  `git diff --check` passed; `ui/**` is unchanged.
+- Independent final UI/accessibility review of commit `d14591f`: **APPROVE**.
+  Review included actual proxy-hosted forward/reverse table focus, Shift+F10,
+  mobile request races and native Escape/focus return, item-sheet semantics and
+  links, 319/390/768 painted evidence, Timer/Zones after-state captures, and
+  Market verification failure/Refresh behavior.
+- Follow-up only: the reviewer observed a pre-existing Log Indexer worker signal
+  during isolated app shutdown. It did not affect the frozen UI behavior or
+  focused results and is not expanded into this release.
+- Final complete suite, one-file build, portable self-test, and public artifact
+  verification are required below on the exact release candidate.
