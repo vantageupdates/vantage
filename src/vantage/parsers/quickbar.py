@@ -372,17 +372,20 @@ class QuickBarNotificationHistoryDialog(QDialog):
             ["Date / time", "Category", "Notification"])
         self.table.setAccessibleName("Recent Vantage notifications")
         self.table.setAccessibleDescription(
-            "Sortable session history with date, category, and full message")
+            "Newest-first session history with adjustable columns, date, "
+            "category, and full message")
         self.table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(
             QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setSortingEnabled(True)
-        self.table.sortItems(0, Qt.SortOrder.DescendingOrder)
+        # Arrow keys navigate rows; Tab belongs to the dialog workflow and
+        # must leave the table instead of cycling through every cell.
+        self.table.setTabKeyNavigation(False)
+        self.table.setSortingEnabled(False)
         header = self.table.horizontalHeader()
-        header.setSectionsClickable(True)
+        header.setSectionsClickable(False)
         header.setSectionsMovable(True)
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.table.setColumnWidth(0, 155)
@@ -403,12 +406,17 @@ class QuickBarNotificationHistoryDialog(QDialog):
         footer.addWidget(self.copy_button)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.close)
+        self.close_button = buttons.button(
+            QDialogButtonBox.StandardButton.Close)
         footer.addWidget(buttons)
         layout.addLayout(footer)
 
         self.search.textChanged.connect(self.refresh)
         self.table.itemSelectionChanged.connect(self._selection_changed)
         self.copy_button.clicked.connect(self._copy_selected)
+        QWidget.setTabOrder(self.search, self.table)
+        QWidget.setTabOrder(self.table, self.copy_button)
+        QWidget.setTabOrder(self.copy_button, self.close_button)
         self.search.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def refresh(self):
@@ -425,11 +433,6 @@ class QuickBarNotificationHistoryDialog(QDialog):
                 str(row.get("display_time", "")),
                 str(row.get("category", "")),
                 str(row.get("message", "")))).casefold()]
-        sorting = self.table.isSortingEnabled()
-        header = self.table.horizontalHeader()
-        sort_column = header.sortIndicatorSection()
-        sort_order = header.sortIndicatorOrder()
-        self.table.setSortingEnabled(False)
         self.table.clearSelection()
         self.table.setCurrentCell(-1, -1)
         self.table.setRowCount(len(rows))
@@ -441,16 +444,10 @@ class QuickBarNotificationHistoryDialog(QDialog):
                 row.get("display_time", ""), row.get("category", ""),
                 row.get("message", ""))
             for column, value in enumerate(values):
-                item = (
-                    _NotificationHistoryTimeItem(
-                        str(value), float(row.get("occurred_at", 0.0)))
-                    if column == 0 else QTableWidgetItem(str(value)))
+                item = QTableWidgetItem(str(value))
                 item.setToolTip(str(value))
                 item.setData(Qt.ItemDataRole.UserRole, row_key)
                 self.table.setItem(row_index, column, item)
-        self.table.setSortingEnabled(sorting)
-        if sorting and sort_column >= 0:
-            self.table.sortItems(sort_column, sort_order)
         selection_restored = False
         if selected_key is not None:
             for row_index in range(self.table.rowCount()):
@@ -507,21 +504,6 @@ class QuickBarNotificationHistoryDialog(QDialog):
     def showEvent(self, event):
         self.refresh()
         super().showEvent(event)
-
-
-class _NotificationHistoryTimeItem(QTableWidgetItem):
-    """Date cell that sorts equal-second events by their exact timestamp."""
-
-    def __init__(self, text, occurred_at):
-        super().__init__(text)
-        self._occurred_at = float(occurred_at)
-
-    def __lt__(self, other):
-        if isinstance(other, _NotificationHistoryTimeItem):
-            return self._occurred_at < other._occurred_at
-        return super().__lt__(other)
-
-
 class QuickBarVolumeSlider(QSlider):
     """Native slider behavior with deterministic Vantage painting."""
 

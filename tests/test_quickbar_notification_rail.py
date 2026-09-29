@@ -12,6 +12,7 @@ SCRIPT = r"""
 import json
 import time
 from types import SimpleNamespace
+from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from vantage.helpers import config
@@ -292,9 +293,26 @@ app.audio_started(
     'Spawn warning · Nagafen', 'builtin:crystal-ping', 82,
     channel='timers', visual_registered=True)
 audio_before_history = app._last_audio_event
-bar.notification_rail.history_button.click()
+bar.notification_rail.history_button.setFocus()
+QTest.keyClick(
+    bar.notification_rail.history_button, Qt.Key.Key_Space)
 app.processEvents()
 history_dialog = app._notification_history_dialog
+history_dialog.table.selectRow(1)
+history_dialog.search.setFocus()
+QTest.keyClick(history_dialog.search, Qt.Key.Key_Tab)
+tab_search_to_table = QApplication.focusWidget() is history_dialog.table
+QTest.keyClick(history_dialog.table, Qt.Key.Key_Tab)
+tab_table_to_copy = QApplication.focusWidget() is history_dialog.copy_button
+QTest.keyClick(history_dialog.copy_button, Qt.Key.Key_Tab)
+tab_copy_to_close = QApplication.focusWidget() is history_dialog.close_button
+history_dialog.close_button.setFocus()
+QTest.keyClick(history_dialog.close_button, Qt.Key.Key_Backtab)
+backtab_close_to_copy = QApplication.focusWidget() is history_dialog.copy_button
+QTest.keyClick(history_dialog.copy_button, Qt.Key.Key_Backtab)
+backtab_copy_to_table = QApplication.focusWidget() is history_dialog.table
+QTest.keyClick(history_dialog.table, Qt.Key.Key_Backtab)
+backtab_table_to_search = QApplication.focusWidget() is history_dialog.search
 history_dialog.table.selectRow(1)
 selected_before = history_dialog.table.item(
     history_dialog.table.currentRow(), 2).text()
@@ -319,6 +337,11 @@ history = {
     'copied': QApplication.clipboard().text(),
     'selection_preserved': selected_before == selected_after,
     'audio_unchanged': app._last_audio_event == audio_before_history,
+    'keyboard_flow': [
+        tab_search_to_table, tab_table_to_copy, tab_copy_to_close,
+        backtab_close_to_copy, backtab_copy_to_table,
+        backtab_table_to_search,
+    ],
 }
 
 # Equal-second bursts retain exact timestamp order, and filtering/eviction
@@ -544,6 +567,7 @@ def test_quickbar_notification_rail_shows_one_event_then_clears(tmp_path):
     assert 'Manastone for sale · Trader' in result['history']['copied']
     assert result['history']['selection_preserved'] is True
     assert result['history']['audio_unchanged'] is True
+    assert result['history']['keyboard_flow'] == [True] * 6
     assert result['history_safety'] == {
         'rows': 250,
         'newest_same_second': 'Burst history 250',
