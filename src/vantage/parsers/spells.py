@@ -815,7 +815,7 @@ class Spells(ParserWindow):
             outcome = (
                 f"{spell_name} {outcome_labels[kind]}"
                 if spell_name and kind in outcome_labels else message)
-            queue_notice(outcome, target_name)
+            queue_notice(outcome, target_name, channel='spells')
         while len(self._event_pills) > 3:
             self._dismiss_spell_event(self._event_pills[-1])
         self._event_tray.show()
@@ -4637,17 +4637,18 @@ class SpellTrigger(QObject):
             folded = str(text or '').casefold()
             effect_you = str(self.spell.effect_text_you or '')
             effect_other = str(self.spell.effect_text_other or '')
-            if effect_other and folded.endswith(effect_other.casefold()):
+            if effect_you and folded == effect_you.casefold():
+                # Exact self text wins before suffix matching. Some shipped
+                # self messages (for example, Camouflage's "Your body fades
+                # away.") also end with the generic other-target suffix.
+                self.targets.append((timestamp, '__you__'))
+                matched = True
+            elif effect_other and folded.endswith(effect_other.casefold()):
                 # cast other
                 target = text[:-len(effect_other)].strip()
                 if target and target.casefold() != 'you':
                     self.targets.append((timestamp, target))
                     matched = True
-            elif effect_you and folded == effect_you.casefold():
-                # Self messages are exact. Prefix matching could misclassify
-                # a longer explicit other-target event from an interleaved log.
-                self.targets.append((timestamp, '__you__'))
-                matched = True
             elif _is_charm_spell(self.spell):
                 target = _charmed_pet_from_activity(text)
                 if target:
