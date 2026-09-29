@@ -1250,3 +1250,13 @@ independent accessibility review: PASS
   **1,642 passed, 2 skipped** in **782.99 seconds**. The protected live profile
   retained its exact 364-byte size, SHA-256, and nanosecond modification time
   across the run. This is the final pre-build result.
+- PyInstaller **6.22.2** one-file build via `vantage.spec`: **PASS**. The
+  isolated portable self-test exited **0**, wrote only its marker plus the
+  empty recordings directory under a fresh `VANTAGE_DATA_DIR`, and reported
+  **1.44.116**. Recursive archive checks confirmed application, audio, Quick
+  Bar, spells, timer-sync, character-context, and device-sync modules; Windows
+  SAPI and WinRT Text-to-Speech plugins; all **20** built-in WAV files; and the
+  required terms, third-party, source, and license documents. FileVersion and
+  ProductVersion are **1.44.116**. Candidate `Vantage.exe`:
+  **75,803,221 bytes**, SHA-256
+  `AF071B8670177388D85E96E59FAF64D4C2D957ACEEE6D341B4531A02A8058B8F`.

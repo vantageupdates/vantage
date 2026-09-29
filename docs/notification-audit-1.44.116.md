@@ -89,3 +89,15 @@ The exact live Windows utterance was not captured; this is an isolated
 reproduction and regression proof. The final clean complete suite passed
 **1,642 tests** with **2 skipped** in **782.99 seconds**. The protected live
 profile retained identical size, SHA-256, and nanosecond modification time.
+
+## Build verification
+
+The PyInstaller **6.22.2** one-file build completed from the reviewed source.
+Its isolated portable self-test exited 0 and reported **1.44.116**. Recursive
+archive inspection confirmed the application, audio, Quick Bar, spell,
+timer-sync, character-context, and device-sync modules; SAPI and WinRT voice
+plugins; 20 built-in WAV files; and required legal/source documents. Windows
+FileVersion and ProductVersion are **1.44.116**. The tested candidate is
+**75,803,221 bytes**, SHA-256
+`AF071B8670177388D85E96E59FAF64D4C2D957ACEEE6D341B4531A02A8058B8F`.
+Public release verification remains pending.
