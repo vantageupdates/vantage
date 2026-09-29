@@ -1151,3 +1151,28 @@ independent accessibility review: PASS
   `sha256:391721a96937b48c377b590ec2dbce627a6afd3edb7ab5541f7cd46bdfd4a1e4`.
   A fresh unauthenticated download matched the tested candidate byte-for-byte
   and independently reported FileVersion/ProductVersion **1.44.114**.
+
+## 1.44.115 pre-release Quick Bar notification evidence
+
+- Root cause: direct legacy WAV and Text-to-Speech paths updated only the Last
+  Sound diagnostic and did not register the attributable written event in the
+  Quick Bar rail. The centralized audio-start callback now supplies that
+  written counterpart while `notify_event` explicitly marks already-owned
+  visual events to prevent duplicates.
+- Hidden, collapsed, transient-layout, vertical, reduced-motion, muted, and
+  burst cases preserve written counterparts until presentation. The ticker's
+  explicit Off preference remains the only discard action. A real toggle
+  reopen test retains a notice older than 30 seconds; a 75-event hidden burst
+  retains all 75 events in order.
+- Bard AE, spell outcomes, custom triggers, Smart Timers, Vitals, Market, and
+  direct sound/TTS paths use meaningful English event text and the correct
+  accessible Quick Bar lane. Bard overlay-on and overlay-off runtime tests both
+  expose `BUFFS / SPELLS` and the complete event through the accessible name.
+- Exact focused candidate verification: **202 passed** in **77.18 seconds**;
+  Python compilation and `git diff --check`: **PASS**.
+- Independent accessibility/live-region review of commit `1f652b6`: **PASS**.
+  No focus-stealing behavior, duplicate announcement, silent hidden-queue loss,
+  or incorrect SYSTEM-lane fallback remains in the reviewed scope.
+- Final clean complete suite on the exact versioned candidate: **1,636 passed,
+  2 skipped** in **721.78 seconds**. This is the final pre-build result for
+  Companion **1.44.115**.
