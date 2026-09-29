@@ -2825,7 +2825,7 @@ class CustomTriggerSettings(UniformScaleDialog):
             played = bool(sound and play_alert(
                 sound, config.data['spells']['fade_sound_volume'], 1,
                 source=f'Test · {name}', channel='spells',
-                allow_hidden=True))
+                allow_hidden=True, visual_registered=True))
             if audio_muted():
                 outcome = 'blocked by Master Mute'
             elif master_volume() <= 0:
@@ -2843,7 +2843,8 @@ class CustomTriggerSettings(UniformScaleDialog):
                 source=f'Test · {name} · speech', channel='spells',
                 allow_hidden=True,
                 voice_name=str(self._trigger_tts_voice.currentData() or ''),
-                pitch=self._trigger_tts_pitch.value()))
+                pitch=self._trigger_tts_pitch.value(),
+                visual_registered=True))
             if audio_muted():
                 outcome = 'blocked by Master Mute'
             elif master_volume() <= 0:

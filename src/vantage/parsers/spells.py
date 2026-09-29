@@ -1447,7 +1447,8 @@ class Spells(ParserWindow):
                     if has_audio and not outcome_already_registered:
                         app._queue_quickbar_notice(
                             render_trigger_text(ct.alert_text, match, ct)
-                            if ct.alert_text else f'{timer_name} matched')
+                            if ct.alert_text else f'{timer_name} matched',
+                            channel='spells')
                     audio_output = self._deliver_custom_trigger_audio(
                         ct, 'basic', ct.sound_path, rendered_speech,
                         ct.interrupt_speech, f"Trigger · {timer_name}",
@@ -1482,7 +1483,8 @@ class Spells(ParserWindow):
                             character=active_character,
                             text_color=self._trigger_text_color(
                                 ct, active_character),
-                            register=not has_audio)
+                            register=not has_audio,
+                            quickbar_channel='spells')
                         output.append(f"{ct.overlay_id.title()} overlay")
                     self._record_trigger_match(
                         timestamp, ct, text, " · ".join(output) or "Matched",
@@ -1586,7 +1588,7 @@ class Spells(ParserWindow):
             if event_kind == 'RESIST':
                 QApplication.instance().notify_event(
                     'spell_resisted', f'{failed_spell.name} resisted',
-                    overlay=False, register=False,
+                    overlay=False, register=False, visual_registered=True,
                     character=getattr(self, '_active_character', ''),
                     server=getattr(self, '_active_server', ''),
                     channel='spells')
@@ -1601,7 +1603,7 @@ class Spells(ParserWindow):
             self._push_spell_event('RESIST', resist_name)
             QApplication.instance().notify_event(
                 'spell_resisted', f'{resist_name} resisted',
-                overlay=False, register=False,
+                overlay=False, register=False, visual_registered=True,
                 character=getattr(self, '_active_character', ''),
                 server=getattr(self, '_active_server', ''), channel='spells')
 
@@ -1772,13 +1774,14 @@ class Spells(ParserWindow):
                 'bard_count_overlay', True)
             speak = config.data['spells'].get('bard_count_audio', False)
             if speak and not show_overlay:
-                app._queue_quickbar_notice(summary.text)
+                app._queue_quickbar_notice(
+                    summary.text, channel='spells')
             if show_overlay:
                 app.show_overlay_notification(
                     'Bard AE Count', summary.text, msecs=5000,
                     overlay_id='alerts',
                     character=getattr(self, '_active_character', ''),
-                    text_color='#D2B873')
+                    text_color='#D2B873', quickbar_channel='spells')
             if speak:
                 speak_text(
                     summary.text,
@@ -1877,7 +1880,8 @@ class Spells(ParserWindow):
                 else 'countdown'),
             character=run.get('character', ''),
             text_color=self._trigger_text_color(
-                trigger, run.get('character', '')))
+                trigger, run.get('character', '')),
+            quickbar_channel='spells')
 
     @staticmethod
     def _custom_trigger_has_audio(trigger, stage, sound, speech):
@@ -1936,7 +1940,7 @@ class Spells(ParserWindow):
             trigger, stage, sound, speech)
         semantic = text or f"{run['name']} · {label}"
         if has_audio:
-            app._queue_quickbar_notice(semantic)
+            app._queue_quickbar_notice(semantic, channel='spells')
         audio_output = self._deliver_custom_trigger_audio(
             trigger, stage, sound, speech, interrupt,
             f"Trigger · {run['name']} · {label}",
@@ -1951,7 +1955,7 @@ class Spells(ParserWindow):
                 character=run.get('character', ''),
                 text_color=self._trigger_text_color(
                     trigger, run.get('character', '')),
-                register=not has_audio)
+                register=not has_audio, quickbar_channel='spells')
             outputs.append('Overlay')
         if outputs:
             self._record_trigger_match(
@@ -4123,7 +4127,7 @@ class SpellWidget(QFrame):
         app = QApplication.instance()
         queue_notice = getattr(app, '_queue_quickbar_notice', None)
         if callable(queue_notice):
-            queue_notice(notice)
+            queue_notice(notice, channel='spells')
 
     def _play_fade_alert(
             self, force=False, notice='', route_key='spell_fading',
@@ -4141,7 +4145,9 @@ class SpellWidget(QFrame):
                     volume=settings['fade_sound_volume'],
                     character=self.runtime_character,
                     server=self.runtime_server, channel='spells',
-                    register=register, **kwargs)
+                    register=register,
+                    visual_registered=(True if not register else None),
+                    **kwargs)
             # Lightweight widget tests and embedders can provide a plain
             # QApplication. Preserve the semantic rail notice when available,
             # but never crash merely because the Vantage dispatcher is absent.

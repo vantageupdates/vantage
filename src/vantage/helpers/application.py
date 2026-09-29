@@ -628,7 +628,7 @@ class VantageApp(QApplication):
             overlay=True, msecs=5000, overlay_id="alerts", color="",
             text_color="", sound_override=None, delivery_override=None,
             volume=80, repeat=1, character="", server="", channel="",
-            register=True, allow_hidden=False):
+            register=True, allow_hidden=False, visual_registered=None):
         """Register and deliver one attributable semantic notification.
 
         The visual event is registered first. Exactly one configured audio
@@ -663,6 +663,9 @@ class VantageApp(QApplication):
             delivery = "sound" if sound else "off"
         source = f"{route.label} · {semantic_text}"
         owner = str(channel or route.channel)
+        audio_notice_registered = (
+            bool(register) if visual_registered is None else
+            bool(visual_registered))
         if delivery == "sound":
             check = audio_preflight(
                 "sound", sound=sound, volume=volume, character=character,
@@ -682,7 +685,7 @@ class VantageApp(QApplication):
             played = play_alert(
                 sound, volume, repeat, source=source, character=character,
                 server=server, channel=owner, allow_hidden=allow_hidden,
-                visual_registered=register)
+                visual_registered=audio_notice_registered)
             reason = playback_block_reason(owner, allow_hidden)
             if not reason and master_volume() <= 0:
                 reason = "master volume 0%"
@@ -711,7 +714,7 @@ class VantageApp(QApplication):
                 source=source, character=character, server=server,
                 channel=owner, voice_name=saved["voice"],
                 allow_hidden=allow_hidden, replace_pending=True,
-                visual_registered=register)
+                visual_registered=audio_notice_registered)
             reason = playback_block_reason(owner, allow_hidden)
             if not reason and master_volume() <= 0:
                 reason = "master volume 0%"

@@ -39,7 +39,8 @@ def fake_play(path, volume, *args, **kwargs):
         'channel': kwargs.get('channel', ''),
     })
     app.audio_started(
-        kwargs.get('source', ''), path, volume, kwargs.get('channel', ''))
+        kwargs.get('source', ''), path, volume, kwargs.get('channel', ''),
+        kwargs.get('visual_registered', False))
     return True
 application_module.play_alert = fake_play
 

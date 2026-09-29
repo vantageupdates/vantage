@@ -11,9 +11,11 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = r"""
 import json
 import time
+from types import SimpleNamespace
 from PySide6.QtTest import QTest
 from vantage.helpers import config
 from vantage.helpers.application import VantageApp
+from vantage.parsers import spells as spells_module
 
 config.data['general']['startup_window_state'] = 'normal'
 config.data['general']['reduce_motion'] = False
@@ -169,6 +171,35 @@ direct_audio = {
     'accessible': rail.accessibleName(),
 }
 rail._clear()
+
+# Bard summaries use the Spells lane whether the visual is the manual written
+# counterpart or the normal overlay registration.
+spells = app._parsers_dict['spells']
+summary = SimpleNamespace(
+    text='6 Total | 5 Hits | 1 Resist', timestamp='')
+spells._bard_group.add_summary = lambda _summary: None
+original_speak = spells_module.speak_text
+spells_module.speak_text = lambda *_args, **_kwargs: True
+config.data['spells']['bard_count_audio'] = True
+config.data['spells']['bard_count_overlay'] = False
+spells._handle_bard_summaries([summary])
+app.processEvents()
+bard_overlay_off = {
+    'text': rail._label.text(),
+    'channel': rail._channel.text(),
+    'accessible': rail.accessibleName(),
+}
+rail._clear()
+config.data['spells']['bard_count_overlay'] = True
+spells._handle_bard_summaries([summary])
+app.processEvents()
+bard_overlay_on = {
+    'text': rail._label.text(),
+    'channel': rail._channel.text(),
+    'accessible': rail.accessibleName(),
+}
+spells_module.speak_text = original_speak
+rail._clear()
 # A temporary rail hide during layout keeps accepted notices in order and
 # announces each only when it is actually presented.
 before_temporary = len(announcements)
@@ -271,6 +302,8 @@ print(json.dumps({
     'combat_before_fade': combat_before_fade,
     'combat_after_fade': combat_after_fade,
     'direct_audio': direct_audio,
+    'bard_overlay_off': bard_overlay_off,
+    'bard_overlay_on': bard_overlay_on,
     'temporary_pending': temporary_pending,
     'temporary_visible': temporary_visible,
     'hidden_consumed': hidden_consumed,
@@ -368,6 +401,15 @@ def test_quickbar_notification_rail_shows_one_event_then_clears(tmp_path):
             'Latest Vantage notification: BUFFS / SPELLS: '
             'Custom trigger · Enraged'),
     }
+    expected_bard = {
+        'text': '6 Total | 5 Hits | 1 Resist',
+        'channel': 'BUFFS / SPELLS',
+        'accessible': (
+            'Latest Vantage notification: BUFFS / SPELLS: '
+            '6 Total | 5 Hits | 1 Resist'),
+    }
+    assert result['bard_overlay_off'] == expected_bard
+    assert result['bard_overlay_on'] == expected_bard
     assert result['hidden_replayed'] is True
     assert result['real_reopen'] == {
         'visible': True,

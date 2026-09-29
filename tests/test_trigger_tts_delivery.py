@@ -64,7 +64,8 @@ def test_runtime_timer_stage_registers_one_notice_and_marks_tts_owned(
     notices = []
     spoken = []
     app = SimpleNamespace(
-        _queue_quickbar_notice=lambda message: notices.append(message),
+        _queue_quickbar_notice=lambda message, **kwargs:
+            notices.append((message, kwargs.get('channel'))),
         show_overlay_notification=lambda *_args, **_kwargs: None)
     monkeypatch.setattr(spells_module, 'QApplication', type(
         'Application', (), {'instance': staticmethod(lambda: app)}))
@@ -87,7 +88,7 @@ def test_runtime_timer_stage_registers_one_notice_and_marks_tts_owned(
 
     Spells._fire_trigger_stage(owner, run, 'ending')
 
-    assert notices == ['Enrage · Timer ending']
+    assert notices == [('Enrage · Timer ending', 'spells')]
     assert len(spoken) == 1
     assert spoken[0][1]['visual_registered'] is True
 

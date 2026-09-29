@@ -1197,7 +1197,8 @@ def test_bard_count_speech_queues_without_forced_interrupt(monkeypatch):
     calls = []
     notices = []
     app = SimpleNamespace(
-        _queue_quickbar_notice=notices.append,
+        _queue_quickbar_notice=lambda message, **_kwargs:
+            notices.append(message),
         show_overlay_notification=lambda *_args, **_kwargs: None)
     owner = SimpleNamespace(
         _bard_group=SimpleNamespace(add_summary=lambda _summary: None),
