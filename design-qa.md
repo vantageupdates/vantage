@@ -1299,9 +1299,9 @@ independent accessibility review: PASS
   mobile request races and native Escape/focus return, item-sheet semantics and
   links, 319/390/768 painted evidence, Timer/Zones after-state captures, and
   Market verification failure/Refresh behavior.
-- Follow-up only: the reviewer observed a pre-existing Log Indexer worker signal
-  during isolated app shutdown. It did not affect the frozen UI behavior or
-  focused results and is not expanded into this release.
+- The reviewer observed a pre-existing Log Indexer worker signal during
+  isolated app shutdown. It did not affect the frozen polish behavior; a later
+  bounded lifecycle remediation and regression evidence are recorded below.
 - Final complete suite, one-file build, portable self-test, and public artifact
   verification are required below on the exact release candidate.
 - Late release hold, spell-fading timing: the user-configured early warning
@@ -1322,3 +1322,51 @@ independent accessibility review: PASS
   handoff persistence. Focused result: **167 passed** in **42.21 seconds**;
   Python compilation and `git diff --check` passed. Independent final review
   and one clean complete suite remain required on the frozen candidate.
+
+### 1.44.117 Smart Timer keyword actions and Create timer
+
+- Smart Timers now expose a compact `enabled/saved` keyword-rule action in the
+  primary Timer header and a focused native editor. Rules are optional and Off
+  by default, read only the character's own `/say` log lines, and never read
+  game memory, send chat, or edit EverQuest files. Literal bounded templates
+  support Start, Reset, Pause, Resume, Stop-to-READY, and Create-and-start.
+- Fixed timer IDs retain their exact saved identity across zone filters. `%T`
+  uses the existing saved spawn-trigger matching in the current EQ zone;
+  `{timer}` uses an exact current-zone timer name. Ambiguous matches require an
+  explicit all-matching opt-in. Every action uses the existing shared Timer
+  state registry, so independent Timer windows see one state while their
+  existing zone/watch filters still decide whether its row is visible.
+- Create accepts one `%T` or `{name}` plus optional `{duration}`. The documented
+  `$maketimer %T {duration}` example converts `6:40` to exactly 400 seconds.
+  Without `{duration}`, a visible default is required. With it, that irrelevant
+  field is hidden, disabled, and not validated. Create rejects unknown zones by
+  default, invalid names/durations, and an existing exact name+zone; it never
+  overwrites a timer. Replay identity prevents one log line acting twice.
+- Persistence remains inside the existing `timers` settings document, so the
+  established Timer device-sync opt-in carries rules without a parallel store.
+  Reopen coverage verifies both rule data and the compact `enabled/saved`
+  header count.
+- Native accessibility evidence covers labels/buddies and descriptions,
+  progressive focus order, forward/reverse grid escape, Shift+F10 adjustable
+  columns, a default-Cancel `Remove` confirmation, predictable focus after
+  add/update/remove, Escape cancellation, visible textual status, and polite
+  secondary-window announcements without duplicate overlays.
+- Painted isolated evidence:
+  `work/polish-audit-1.44.117/timer-keyword-rules--normal--after.png`,
+  `timer-keyword-rules--narrow--after.png`, and Timer header
+  `timers-keyword-header--{normal,narrow,mini}--after.png`. The populated Create
+  editor and primary `1/2` count remain visible without crop or window growth.
+- Focused candidate verification: **122 passed in 83.67 seconds** across the
+  keyword/Create engine, Timer controls/share/multi-window/cross-zone/routes,
+  device sync, Log Searcher lifecycle, and the isolated Combat column case.
+  The earlier Combat child fast-fail did not reproduce in **10/10** isolated
+  repetitions; this is documented as a limitation rather than assigned a
+  speculative cause.
+- The previously documented Log Indexer shutdown race was reproduced directly:
+  a background producer could emit after Qt deleted its signal owner. Shutdown
+  now cooperatively stops pending producer work, suppresses only the two known
+  deleted-Qt-owner lifetime errors, and re-raises unrelated runtime failures.
+  Dedicated lifecycle regressions and a clean UI subprocess exit verify the
+  bounded fix.
+- Independent final Timer keyword/UI/accessibility review and one clean complete
+  suite remain required on the frozen candidate before build or publication.

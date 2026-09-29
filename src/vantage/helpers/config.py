@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from vantage.helpers.trigger_groups import normalize_trigger_groups
 from vantage.helpers.quickbar_items import QUICKBAR_ITEM_KEYS
 from vantage.helpers.timer_sync import sanitize_timer_sync_meta
+from vantage.helpers.timer_keywords import normalize_keyword_rules
 from vantage.helpers.vitals import (
     MAX_VITAL_BARS, VITALS_DEFAULTS_VERSION, default_vital_bar,
     sanitize_vital_bars)
@@ -1176,6 +1177,8 @@ def verify_settings():
         if len(timer_watches) >= 64:
             break
     data['timers']['watch_timer_ids'] = timer_watches
+    data['timers']['keyword_rules'] = normalize_keyword_rules(
+        data['timers'].get('keyword_rules', []))
     raw_timer_instances = data['timers'].get('instances', [])
     if not isinstance(raw_timer_instances, list):
         raw_timer_instances = []

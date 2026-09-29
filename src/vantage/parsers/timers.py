@@ -9,6 +9,7 @@ import re
 import string
 import time
 import uuid
+from collections import deque
 
 from PySide6.QtCore import QDateTime, QEvent, QLocale, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import (
@@ -16,6 +17,7 @@ from PySide6.QtGui import (
     QLinearGradient, QPainter, QPainterPath, QShortcut)
 from PySide6.QtWidgets import (
     QApplication,
+    QAbstractItemView,
     QBoxLayout,
     QCheckBox,
     QColorDialog,
@@ -35,6 +37,8 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -90,6 +94,10 @@ from vantage.helpers.timer_share import (
     extract_timer_share_codes,
     shared_record_to_state,
 )
+from vantage.helpers.timer_keywords import (
+    KEYWORD_ACTIONS, MAX_KEYWORD_RULES, match_keyword_phrase,
+    normalize_keyword_phrase, normalize_keyword_rules, own_say_message,
+    validate_keyword_rule)
 
 
 LOG_TIMER_COMMAND = re.compile(
@@ -1161,6 +1169,410 @@ class TimerEditDialog(UniformScaleDialog):
             "are also accepted")
 
 
+class TimerKeywordRulesDialog(UniformScaleDialog):
+    """Edit bounded, literal own-/say rules without exposing regex or code."""
+
+    ACTION_LABELS = {
+        "start": "Start if stopped",
+        "reset": "Reset full countdown",
+        "pause": "Pause",
+        "resume": "Resume",
+        "stop": "Stop to READY",
+        "create": "Create and start timer",
+    }
+
+    def __init__(self, timers, rules, parent=None):
+        super().__init__(
+            QSize(760, 540), parent, minimum_size=QSize(430, 390),
+            initial_size=QSize(680, 500))
+        self.setWindowTitle("Smart Timer keyword rules")
+        self._timers = sorted(
+            list(timers), key=lambda timer: (
+                str(timer.zone or "").casefold(), timer.name.casefold(),
+                timer.timer_id))
+        self._rules = normalize_keyword_rules(rules)
+        self._editing_index = -1
+
+        layout = QVBoxLayout(self.scaled_surface)
+        intro = QLabel(
+            "Optional and Off until you enable a rule. Vantage reads only "
+            "your own /say lines from the EQ log; it never reads game memory "
+            "or sends commands. Examples: killed %T, stop {timer}, or "
+            "$maketimer %T {duration}.")
+        intro.setWordWrap(True)
+        intro.setObjectName("TriggerTokenLegend")
+        intro.setAccessibleName("Keyword rule safety and examples")
+        layout.addWidget(intro)
+
+        self.table = QTableWidget(0, 4)
+        self.table.setObjectName("TimerKeywordRulesTable")
+        self.table.setHorizontalHeaderLabels(
+            ["On", "Phrase", "Action", "Target / scope"])
+        self.table.setAccessibleName("Smart Timer keyword rules")
+        self.table.setAccessibleDescription(
+            "Saved literal own-say rules. Arrow keys select rows; Tab leaves "
+            "the table; Shift+F10 opens column controls.")
+        self.table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setTabKeyNavigation(False)
+        self.table.installEventFilter(self)
+        self._table_viewport = self.table.viewport()
+        self._table_viewport.installEventFilter(self)
+        self.table.itemSelectionChanged.connect(self._selection_changed)
+        layout.addWidget(self.table, 1)
+
+        form = QFormLayout()
+        polish_form(form)
+        self.enabled = QCheckBox("Rule enabled")
+        self.enabled.setAccessibleName("Rule enabled")
+        self.enabled.setAccessibleDescription(
+            "Disabled rules remain saved but never act on log messages.")
+        form.addRow("State", self.enabled)
+
+        self.phrase = QLineEdit()
+        self.phrase.setMaxLength(160)
+        self.phrase.setPlaceholderText(
+            "killed %T  ·  stop {timer}  ·  $maketimer %T {duration}")
+        self.phrase.setAccessibleName("Literal own-say phrase")
+        self.phrase.setAccessibleDescription(
+            "Enter ordinary text with bounded placeholders. Existing-timer "
+            "actions accept %T or {timer}. Create accepts %T or {name}, plus "
+            "optional {duration}. Regular expressions and code are rejected.")
+        phrase_label = QLabel("Phrase")
+        phrase_label.setBuddy(self.phrase)
+        form.addRow(phrase_label, self.phrase)
+
+        self.action = QComboBox()
+        self.action.setAccessibleName("Timer action")
+        self.action.setAccessibleDescription(
+            "Reset restarts the full configured countdown. Stop clears the "
+            "timer to READY and never deletes it. Create makes and starts a "
+            "new timer without overwriting an existing timer.")
+        for action in KEYWORD_ACTIONS:
+            self.action.addItem(self.ACTION_LABELS[action], action)
+        action_label = QLabel("Action")
+        action_label.setBuddy(self.action)
+        form.addRow(action_label, self.action)
+
+        self.target = QComboBox()
+        self.target.setAccessibleName("Exact fixed timer")
+        self.target.setAccessibleDescription(
+            "Choose a stable saved timer for a phrase without a placeholder. "
+            "This explicit timer may be in another zone or window.")
+        self.target.addItem("Choose an exact timer…", "")
+        for timer in self._timers:
+            self.target.addItem(
+                f"{timer.name} · {timer.zone or 'Unassigned'}",
+                timer.timer_id)
+        target_label = QLabel("Fixed timer")
+        target_label.setBuddy(self.target)
+        form.addRow(target_label, self.target)
+
+        self.all_matches = QCheckBox("Apply to all matching timers")
+        self.all_matches.setAccessibleName("Apply to all matching timers")
+        self.all_matches.setAccessibleDescription(
+            "For %T, explicitly allow every matching saved spawn trigger in "
+            "the current EQ zone. For {timer}, allow every exact saved name. "
+            "Otherwise an ambiguous match is rejected.")
+        form.addRow("Dynamic scope", self.all_matches)
+        self.create_duration = QLineEdit("6:40")
+        self.create_duration.setMaxLength(16)
+        self.create_duration.setAccessibleName("Default created timer duration")
+        self.create_duration.setAccessibleDescription(
+            "Used only by Create when the phrase has no {duration} token. "
+            "Enter seconds, mm:ss, or hh:mm:ss.")
+        self.create_duration_label = QLabel("Create duration")
+        self.create_duration_label.setBuddy(self.create_duration)
+        form.addRow(self.create_duration_label, self.create_duration)
+        self.allow_unassigned = QCheckBox(
+            "Allow unassigned if current zone is unknown")
+        self.allow_unassigned.setAccessibleName(
+            "Allow unassigned created timer when current zone is unknown")
+        self.allow_unassigned.setAccessibleDescription(
+            "Off by default. When enabled, Create may save a timer under All "
+            "saved timers if Vantage cannot identify the current EQ zone.")
+        self.allow_unassigned_label = QLabel("Create zone")
+        self.allow_unassigned_label.setBuddy(self.allow_unassigned)
+        form.addRow(self.allow_unassigned_label, self.allow_unassigned)
+        # Connect only after every dependent field exists. QComboBox emits as
+        # its first item is added, and an early callback would otherwise read
+        # controls that have not yet been constructed.
+        self.phrase.textChanged.connect(self._sync_scope_controls)
+        self.action.currentIndexChanged.connect(self._sync_scope_controls)
+        layout.addLayout(form)
+
+        actions = QHBoxLayout()
+        self.add_button = QPushButton("Add rule")
+        self.add_button.setObjectName("PrimaryAction")
+        self.add_button.setAccessibleName("Add keyword rule")
+        self.add_button.clicked.connect(self._add_rule)
+        actions.addWidget(self.add_button)
+        self.update_button = QPushButton("Update selected")
+        self.update_button.setAccessibleName("Update selected keyword rule")
+        self.update_button.clicked.connect(self._update_rule)
+        actions.addWidget(self.update_button)
+        self.remove_button = QPushButton("Remove selected…")
+        self.remove_button.setObjectName("DangerAction")
+        self.remove_button.setAccessibleName("Remove selected keyword rule")
+        self.remove_button.clicked.connect(self._remove_rule)
+        actions.addWidget(self.remove_button)
+        actions.addStretch(1)
+        layout.addLayout(actions)
+
+        self.status = QLabel("Add a literal own-say phrase to begin.")
+        self.status.setWordWrap(True)
+        self.status.setAccessibleName(self.status.text())
+        self.status.setAccessibleDescription(self.status.text())
+        layout.addWidget(self.status)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save |
+            QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        buttons.button(QDialogButtonBox.StandardButton.Save).setAccessibleName(
+            "Save keyword rules")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setAccessibleName(
+            "Cancel keyword rule changes")
+        layout.addWidget(buttons)
+        self._save_button = buttons.button(QDialogButtonBox.StandardButton.Save)
+        self._cancel_button = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+
+        self._refresh_table()
+        self._sync_scope_controls()
+        self._selection_changed()
+        app = QApplication.instance()
+        manager = getattr(app, "_column_widths", None)
+        if manager is not None:
+            QTimer.singleShot(0, lambda: manager._configure(self.table))
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.KeyPress and watched in (
+                self.table, self._table_viewport):
+            reverse = (
+                event.key() == Qt.Key.Key_Backtab or
+                (event.key() == Qt.Key.Key_Tab and
+                 event.modifiers() & Qt.KeyboardModifier.ShiftModifier))
+            if reverse:
+                self._move_focus_from_table(reverse=True)
+                return True
+            if event.key() == Qt.Key.Key_Tab:
+                self._move_focus_from_table(reverse=False)
+                return True
+        return super().eventFilter(watched, event)
+
+    def _move_focus_from_table(self, *, reverse):
+        candidate = self.table
+        for _index in range(256):
+            candidate = (
+                candidate.previousInFocusChain() if reverse else
+                candidate.nextInFocusChain())
+            if candidate is self.table or self.table.isAncestorOf(candidate):
+                continue
+            if (candidate.isEnabled() and
+                    candidate.isVisibleTo(self.scaled_surface) and
+                    candidate.focusPolicy() & Qt.FocusPolicy.TabFocus):
+                candidate.setFocus(
+                    Qt.FocusReason.BacktabFocusReason if reverse else
+                    Qt.FocusReason.TabFocusReason)
+                return True
+        return False
+
+    def _announce(self, text):
+        text = str(text)
+        self.status.setText(text)
+        self.status.setAccessibleName(text)
+        self.status.setAccessibleDescription(text)
+        try:
+            QAccessible.updateAccessibility(
+                QAccessibleAnnouncementEvent(self.status, text))
+        except (AttributeError, RuntimeError, TypeError):
+            pass
+
+    def _timer_label(self, timer_id):
+        timer = next((
+            item for item in self._timers if item.timer_id == timer_id), None)
+        return (
+            f"{timer.name} · {timer.zone or 'Unassigned'}"
+            if timer else "Missing fixed timer")
+
+    def _scope_text(self, rule):
+        phrase = rule["phrase"].casefold()
+        if rule["action"] == "create":
+            zone = "current zone or Unassigned" if rule.get(
+                "allow_unassigned") else "known current zone"
+            duration = (
+                "captured duration" if "{duration}" in phrase else
+                f"default {format_seconds(rule.get('create_seconds', 400))}")
+            return f"Create · {zone} · {duration}"
+        if "%t" in phrase:
+            return "All current-zone target matches" if rule["all_matches"] \
+                else "One current-zone target match"
+        if "{timer}" in phrase:
+            return "All current-zone name matches" if rule["all_matches"] \
+                else "One current-zone name match"
+        return self._timer_label(rule["timer_id"])
+
+    def _refresh_table(self, selected=-1):
+        self.table.setRowCount(len(self._rules))
+        for row, rule in enumerate(self._rules):
+            values = (
+                "On" if rule["enabled"] else "Off",
+                rule["phrase"],
+                self.ACTION_LABELS[rule["action"]],
+                self._scope_text(rule),
+            )
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setToolTip(value)
+                item.setData(Qt.ItemDataRole.UserRole, rule["id"])
+                self.table.setItem(row, column, item)
+        if 0 <= selected < self.table.rowCount():
+            self.table.selectRow(selected)
+            self.table.setCurrentCell(selected, 1)
+
+    def _selection_changed(self):
+        row = self.table.currentRow()
+        valid = 0 <= row < len(self._rules)
+        self.update_button.setEnabled(valid)
+        self.remove_button.setEnabled(valid)
+        if not valid:
+            self._editing_index = -1
+            return
+        self._editing_index = row
+        rule = self._rules[row]
+        self.enabled.setChecked(rule["enabled"])
+        self.phrase.setText(rule["phrase"])
+        self.action.setCurrentIndex(
+            max(0, self.action.findData(rule["action"])))
+        self.target.setCurrentIndex(
+            max(0, self.target.findData(rule["timer_id"])))
+        self.all_matches.setChecked(rule["all_matches"])
+        self.create_duration.setText(format_seconds(
+            int(rule.get("create_seconds", 400))))
+        self.allow_unassigned.setChecked(bool(
+            rule.get("allow_unassigned", False)))
+        self._sync_scope_controls()
+
+    def _sync_scope_controls(self):
+        phrase = self.phrase.text().casefold()
+        create = self.action.currentData() == "create"
+        captured_duration = "{duration}" in phrase
+        dynamic = any(token in phrase for token in (
+            "%t", "{timer}", "{name}", "{duration}"))
+        self.target.setEnabled(not dynamic and not create)
+        self.all_matches.setEnabled(dynamic and not create)
+        self.create_duration.setVisible(create and not captured_duration)
+        self.create_duration_label.setVisible(create and not captured_duration)
+        self.allow_unassigned.setVisible(create)
+        self.allow_unassigned_label.setVisible(create)
+        self.create_duration.setEnabled(create and not captured_duration)
+        self.allow_unassigned.setEnabled(create)
+        if not dynamic or create:
+            self.all_matches.setChecked(False)
+
+    def _candidate(self, existing_id=""):
+        action = self.action.currentData()
+        capture_duration = "{duration}" in self.phrase.text().casefold()
+        duration = 400
+        if action == "create" and not capture_duration:
+            duration = parse_duration_input(
+                self.create_duration.text(), single_unit="seconds")
+        return validate_keyword_rule({
+            "id": existing_id,
+            "enabled": self.enabled.isChecked(),
+            "phrase": self.phrase.text(),
+            "action": action,
+            "timer_id": self.target.currentData(),
+            "all_matches": self.all_matches.isChecked(),
+            "create_seconds": duration,
+            "allow_unassigned": self.allow_unassigned.isChecked(),
+        }, known_timer_ids={timer.timer_id for timer in self._timers})
+
+    def _collision(self, candidate, skip=-1):
+        key = normalize_keyword_phrase(candidate["phrase"]).casefold()
+        return any(
+            index != skip and
+            normalize_keyword_phrase(rule["phrase"]).casefold() == key
+            for index, rule in enumerate(self._rules))
+
+    def _add_rule(self):
+        if len(self._rules) >= MAX_KEYWORD_RULES:
+            self._announce("Maximum 64 keyword rules reached.")
+            return
+        try:
+            rule = self._candidate()
+        except ValueError as error:
+            self._announce(str(error))
+            self.phrase.setFocus(Qt.FocusReason.OtherFocusReason)
+            return
+        if self._collision(rule):
+            self._announce("That phrase already has a rule; update it instead.")
+            return
+        self._rules.append(rule)
+        row = len(self._rules) - 1
+        self._refresh_table(row)
+        self._announce(f"Added · {rule['phrase']} · {self.ACTION_LABELS[rule['action']]}")
+        self.table.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _update_rule(self):
+        row = self._editing_index
+        if not 0 <= row < len(self._rules):
+            self._announce("Select a rule to update.")
+            return
+        try:
+            rule = self._candidate(self._rules[row]["id"])
+        except ValueError as error:
+            self._announce(str(error))
+            self.phrase.setFocus(Qt.FocusReason.OtherFocusReason)
+            return
+        if self._collision(rule, row):
+            self._announce("That phrase already belongs to another rule.")
+            return
+        self._rules[row] = rule
+        self._refresh_table(row)
+        self._announce(f"Updated · {rule['phrase']}")
+        self.table.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _remove_rule(self):
+        row = self._editing_index
+        if not 0 <= row < len(self._rules):
+            self._announce("Select a rule to remove.")
+            return
+        phrase = self._rules[row]["phrase"]
+        if not self._confirm_remove_rule(phrase):
+            self._announce("Remove cancelled; the selected rule was kept.")
+            self.table.setFocus(Qt.FocusReason.OtherFocusReason)
+            return
+        self._rules.pop(row)
+        next_row = min(row, len(self._rules) - 1)
+        self._refresh_table(next_row)
+        self._announce(f"Removed · {phrase}")
+        (self.table if next_row >= 0 else self.add_button).setFocus(
+            Qt.FocusReason.OtherFocusReason)
+
+    def _confirm_remove_rule(self, phrase):
+        message = QMessageBox(self)
+        message.setIcon(QMessageBox.Icon.Question)
+        message.setWindowTitle("Remove keyword rule")
+        message.setText(
+            f"Remove the rule “{phrase}”?\n\nNo timer is deleted or changed.")
+        remove_button = message.addButton(
+            "Remove", QMessageBox.ButtonRole.DestructiveRole)
+        cancel_button = message.addButton(QMessageBox.StandardButton.Cancel)
+        remove_button.setAccessibleName("Remove keyword rule")
+        cancel_button.setAccessibleName("Cancel removing keyword rule")
+        message.setDefaultButton(cancel_button)
+        message.setEscapeButton(cancel_button)
+        message.exec()
+        return message.clickedButton() is remove_button
+
+    def rules(self):
+        return [dict(rule) for rule in self._rules]
+
+
 class TimerWatchDialog(UniformScaleDialog):
     """Choose explicit cross-zone timer rows for one timer window."""
 
@@ -1810,6 +2222,7 @@ class SpawnTimers(ParserWindow):
                 config.data['timers'].get('death_loop_deaths', 4),
                 config.data['timers'].get('death_loop_seconds', 120))
             if self._is_primary else None)
+        self._keyword_seen = deque(maxlen=512) if self._is_primary else None
 
         add = QPushButton()
         add.setIcon(game_icon("add"))
@@ -1819,6 +2232,16 @@ class SpawnTimers(ParserWindow):
             "Add a named Smart Timer with editable respawn, kill estimate, color, sound, and volume")
         add.clicked.connect(self.add_timer)
         self.menu_area.addWidget(add)
+
+        self.keyword_rules_button = QPushButton("0/0")
+        self.keyword_rules_button.setIcon(game_icon("trigger"))
+        self.keyword_rules_button.setProperty('HeaderPriority', 75)
+        self.keyword_rules_button.setAccessibleDescription(
+            "Opens editable, optional own-/say keyword rules for Start, Reset, "
+            "Pause, Resume, Stop, and Create timer actions.")
+        self.keyword_rules_button.clicked.connect(self.edit_keyword_rules)
+        self.menu_area.addWidget(self.keyword_rules_button)
+        self.keyword_rules_button.setVisible(self._is_primary)
 
         self.new_window_button = QPushButton()
         self.new_window_button.setIcon(game_icon("ph-stack"))
@@ -2006,6 +2429,7 @@ class SpawnTimers(ParserWindow):
         else:
             for timer in self._states.values():
                 self._add_row(timer)
+        self._refresh_keyword_rules_button()
         self._refresh_zone_filter(self._selected_zone)
         if self._is_primary:
             QApplication.instance().aboutToQuit.connect(
@@ -2740,6 +3164,39 @@ class SpawnTimers(ParserWindow):
             self._refresh_all_view_filters()
             self.state_changed(layout_changed=True)
 
+    def _refresh_keyword_rules_button(self):
+        rules = config.data.get('timers', {}).get('keyword_rules', [])
+        enabled = sum(
+            1 for rule in rules
+            if isinstance(rule, dict) and rule.get('enabled'))
+        total = sum(1 for rule in rules if isinstance(rule, dict))
+        self.keyword_rules_button.setText(f"{enabled}/{total}")
+        label = f"Keyword timer rules, {enabled} enabled, {total} saved"
+        self.keyword_rules_button.setAccessibleName(label)
+        self.keyword_rules_button.setToolTip(
+            f"{label}\nOnly your own /say lines can run enabled rules.")
+
+    def edit_keyword_rules(self):
+        controller = self if self._is_primary else self._controller
+        dialog = TimerKeywordRulesDialog(
+            controller._states.values(),
+            config.data.get('timers', {}).get('keyword_rules', []), self)
+        if not dialog.exec():
+            self.announce("KEYWORD RULES · changes cancelled")
+            self.keyword_rules_button.setFocus(
+                Qt.FocusReason.OtherFocusReason)
+            return False
+        config.data['timers']['keyword_rules'] = dialog.rules()
+        controller.state_changed()
+        for view in controller._views:
+            view._refresh_keyword_rules_button()
+        enabled = sum(
+            1 for rule in dialog.rules() if rule.get('enabled'))
+        controller.announce(
+            f"KEYWORD RULES · saved · {enabled} enabled")
+        self.keyword_rules_button.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
+
     def edit_timer(self, timer_id):
         timer = self._states[timer_id]
         dialog = TimerEditDialog(timer, self)
@@ -3170,6 +3627,156 @@ class SpawnTimers(ParserWindow):
             f'{label}: log command timer started · {format_seconds(duration)}')
         self.state_changed()
 
+    def _keyword_status(self, message):
+        self.announce(message)
+        for view in self.secondary_windows:
+            view.status.setText(message)
+            view.status.setAccessibleName(str(message))
+            view.status.setAccessibleDescription(message)
+            if not view.isVisible():
+                continue
+            try:
+                QAccessible.updateAccessibility(
+                    QAccessibleAnnouncementEvent(view.status, str(message)))
+            except (AttributeError, RuntimeError, TypeError):
+                pass
+
+    def _keyword_candidates(self, rule, captures):
+        timer_id = str(rule.get("timer_id") or "")
+        if timer_id:
+            timer = self._states.get(timer_id)
+            return [timer] if timer is not None else []
+        current_zone = str(self._current_zone or "").strip()
+        if not current_zone:
+            return []
+        if captures.get("target"):
+            return [
+                timer for timer in self._states.values()
+                if timer.matches_kill(captures["target"], current_zone)]
+        captured_name = str(captures.get("timer") or "").strip().casefold()
+        return [
+            timer for timer in self._states.values()
+            if timer.name.casefold() == captured_name and
+            str(timer.zone or "").strip().casefold() ==
+            current_zone.casefold()]
+
+    def _create_keyword_timer(self, rule, captures, event_time):
+        name = str(captures.get("target") or captures.get("name") or "").strip()
+        if not name or len(name) > 128:
+            self._keyword_status(
+                "KEYWORD · Create rejected · captured timer name is invalid")
+            return False
+        duration_text = captures.get("duration")
+        duration = (
+            parse_duration_input(duration_text, single_unit="seconds")
+            if duration_text else int(rule.get("create_seconds", 0)))
+        if not 1 <= duration <= 30 * 24 * 60 * 60:
+            self._keyword_status(
+                f"KEYWORD · Create rejected · invalid duration for {name}")
+            return False
+        zone = string.capwords(str(self._current_zone or "").strip())
+        if not zone and not rule.get("allow_unassigned"):
+            self._keyword_status(
+                f"KEYWORD · Create rejected · current EQ zone is unknown · {name}")
+            return False
+        duplicate = next((
+            timer for timer in self._states.values()
+            if timer.name.casefold() == name.casefold() and
+            str(timer.zone or "").strip().casefold() == zone.casefold()), None)
+        if duplicate is not None:
+            self._keyword_status(
+                f"KEYWORD · Create skipped · {name} already exists · "
+                f"{zone or 'Unassigned'}")
+            return False
+        timer = SpawnTimerState(
+            name=name, respawn_seconds=duration, kill_seconds=60,
+            warning_seconds=min(30, max(1, duration // 10)),
+            color=automatic_timer_color(zone, name), smart=False, zone=zone,
+            sound_path=None, volume=config.data['timers']['volume'],
+            source="Keyword rule", automatic=False,
+            timer_mode=TIMER_MODE_COUNTDOWN)
+        timer.start(event_time)
+        self._register_timer(timer)
+        self._refresh_all_view_filters()
+        self.state_changed(layout_changed=True)
+        self._keyword_status(
+            f"KEYWORD · Created and started in shared timer list · {name} · "
+            f"{zone or 'Unassigned'} · {format_seconds(duration)}")
+        return True
+
+    def _apply_keyword_action(self, rule, timer, event_time):
+        action = rule["action"]
+        changed = False
+        if action == "start":
+            if timer.phase in (PHASE_IDLE, PHASE_AVAILABLE) and not timer.running:
+                timer.start(event_time)
+                changed = True
+        elif action == "reset":
+            timer.restart(event_time)
+            changed = True
+        elif action == "pause":
+            if timer.running:
+                timer.pause(event_time)
+                changed = True
+        elif action == "resume":
+            if not timer.running and timer.paused_remaining is not None:
+                timer.resume(event_time)
+                changed = True
+        elif action == "stop":
+            if timer.phase != PHASE_IDLE or timer.running:
+                timer.reset()
+                changed = True
+        return changed
+
+    def _apply_keyword_rules(self, timestamp, text, event_time):
+        message = own_say_message(text)
+        if not message:
+            return False
+        stamp = (
+            int(timestamp.timestamp()) if isinstance(
+                timestamp, datetime.datetime) else int(event_time))
+        replay_key = (stamp, " ".join(message.split()).casefold())
+        if replay_key in self._keyword_seen:
+            return True
+        rules = config.data.get('timers', {}).get('keyword_rules', [])
+        for rule in rules if isinstance(rules, list) else ():
+            if not isinstance(rule, dict) or not rule.get("enabled"):
+                continue
+            captures = match_keyword_phrase(rule.get("phrase"), message)
+            if captures is None:
+                continue
+            self._keyword_seen.append(replay_key)
+            if rule.get("action") == "create":
+                self._create_keyword_timer(rule, captures, event_time)
+                return True
+            candidates = self._keyword_candidates(rule, captures)
+            if not candidates:
+                self._keyword_status(
+                    f"KEYWORD · {rule.get('action', 'Action').title()} skipped · "
+                    "no timer matched in the allowed scope")
+                return True
+            if len(candidates) > 1 and not rule.get("all_matches"):
+                self._keyword_status(
+                    f"KEYWORD · {rule['action'].title()} rejected · "
+                    f"{len(candidates)} timers matched; enable all matching timers")
+                return True
+            selected = candidates if rule.get("all_matches") else candidates[:1]
+            changed = [
+                timer for timer in selected
+                if self._apply_keyword_action(rule, timer, event_time)]
+            if changed:
+                self.state_changed()
+            zones = sorted({timer.zone or "Unassigned" for timer in selected})
+            names = ", ".join(timer.name for timer in selected[:3])
+            if len(selected) > 3:
+                names += f" +{len(selected) - 3}"
+            outcome = "applied" if changed else "no state change"
+            self._keyword_status(
+                f"KEYWORD · {rule['action'].title()} · {names} · "
+                f"{', '.join(zones)} · {outcome}")
+            return True
+        return False
+
     def parse(self, timestamp, text):
         if not self._is_primary:
             return
@@ -3208,6 +3815,8 @@ class SpawnTimers(ParserWindow):
                         encounter.message,
                         'FTE' if encounter.kind == 'fte' else 'server quake')
                 return
+        if self._apply_keyword_rules(timestamp, text, event_time):
+            return
         command = extract_log_timer_command(text)
         if command:
             self._start_log_command_timer(*command, event_time)

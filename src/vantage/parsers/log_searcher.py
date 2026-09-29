@@ -26,6 +26,30 @@ class _LogSearchSignals(QObject):
     search_done = Signal(object, bool, str)
 
 
+def _safe_signal_emit(signal, *args):
+    """Ignore a late worker result after Qt has destroyed its signal owner."""
+    try:
+        signal.emit(*args)
+    except RuntimeError as error:
+        message = str(error)
+        if ("Signal source has been deleted" in message or
+                ("Internal C++ object" in message and
+                 "already deleted" in message)):
+            return False
+        raise
+    return True
+
+
+class _LogSearchCancelled(Exception):
+    """Internal cooperative stop for background cache work."""
+
+
+def _emit_unless_cancelled(stop_event, signal, *args):
+    if stop_event.is_set():
+        raise _LogSearchCancelled()
+    return _safe_signal_emit(signal, *args)
+
+
 class LogSearcher(ParserWindow):
     """Fast, local history search with an incremental live-log listener."""
 
@@ -54,6 +78,10 @@ class LogSearcher(ParserWindow):
         self._listener_timer.setSingleShot(True)
         self._listener_timer.setInterval(700)
         self._listener_timer.timeout.connect(self.refresh_index)
+        self._shutdown_event = threading.Event()
+        app = QApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self.shutdown_workers)
         self._build_ui()
         QTimer.singleShot(0, self.refresh_index)
 
@@ -221,6 +249,8 @@ class LogSearcher(ParserWindow):
             self._listener_timer.start()
 
     def refresh_index(self, *, user_initiated=False):
+        if self._shutdown_event.is_set():
+            return False
         directory = self._logs_directory()
         if not directory:
             self.source.setText("No EverQuest Logs folder linked")
@@ -247,12 +277,18 @@ class LogSearcher(ParserWindow):
             try:
                 summary = cache.index_directory(
                     directory,
-                    lambda current, total, source: self._signals.index_progress.emit(
+                    lambda current, total, source: _emit_unless_cancelled(
+                        self._shutdown_event, self._signals.index_progress,
                         current, total, source))
+            except _LogSearchCancelled:
+                return
             except (OSError, ValueError) as error:
-                self._signals.index_done.emit(None, str(error))
+                if not self._shutdown_event.is_set():
+                    _safe_signal_emit(
+                        self._signals.index_done, None, str(error))
             else:
-                self._signals.index_done.emit(summary, "")
+                if not self._shutdown_event.is_set():
+                    _safe_signal_emit(self._signals.index_done, summary, "")
 
         threading.Thread(
             target=worker, name="Vantage-Log-Indexer", daemon=True).start()
@@ -296,6 +332,8 @@ class LogSearcher(ParserWindow):
             self._index_fallback_focus = None
 
     def search(self, _checked=False):
+        if self._shutdown_event.is_set():
+            return False
         directory = self._logs_directory()
         if not directory:
             self._set_status("Select the EverQuest Logs folder first.")
@@ -325,13 +363,23 @@ class LogSearcher(ParserWindow):
                     query, character=character, server=server,
                     category=category, since_epoch=since, limit=2000)
             except (OSError, ValueError) as error:
-                self._signals.search_done.emit((), False, str(error))
+                if not self._shutdown_event.is_set():
+                    _safe_signal_emit(
+                        self._signals.search_done, (), False, str(error))
             else:
-                self._signals.search_done.emit(results, truncated, "")
+                if not self._shutdown_event.is_set():
+                    _safe_signal_emit(
+                        self._signals.search_done, results, truncated, "")
 
         threading.Thread(
             target=worker, name="Vantage-Log-Search", daemon=True).start()
         return True
+
+    def shutdown_workers(self):
+        """Cooperatively stop cache producers before their Qt owner is gone."""
+        self._shutdown_event.set()
+        self._index_pending = False
+        self._listener_timer.stop()
 
     @staticmethod
     def _display_time(value):

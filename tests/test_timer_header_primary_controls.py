@@ -72,6 +72,7 @@ def snapshot(width, rolled=False):
         'share_visible': panel.share_button.isVisibleTo(panel._surface),
         'zone_visible': panel.zone_filter.isVisibleTo(panel._surface),
         'mobile_visible': panel.mobile_button.isVisibleTo(panel._surface),
+        'keyword_visible': panel.keyword_rules_button.isVisibleTo(panel._surface),
         'root_separate': separate(root_rects),
         'controls_separate': separate(control_rects),
         'root_inside': all(
@@ -95,12 +96,15 @@ result = {
     'wide': snapshot(520),
     'narrow': snapshot(300),
     'rolled': snapshot(300, rolled=True),
+    'mini': snapshot(384, rolled=True),
     'share_always_visible': bool(
         panel.share_button.property('HeaderAlwaysVisible')),
     'zone_always_visible': bool(
         panel.zone_filter.property('HeaderAlwaysVisible')),
     'share_accessible_name': panel.share_button.accessibleName(),
     'zone_accessible_name': panel.zone_filter.accessibleName(),
+    'keyword_accessible_name': panel.keyword_rules_button.accessibleName(),
+    'keyword_tooltip': panel.keyword_rules_button.toolTip(),
     'share_tooltip': panel.share_button.toolTip(),
     'zone_tooltip': panel.zone_filter.toolTip(),
     'share_strong_focus': (
@@ -165,6 +169,9 @@ def test_share_and_zone_stay_directly_visible_in_timer_header(tmp_path):
     assert result['share_accessible_name'] == \
         'Share visible zone timers by code'
     assert result['zone_accessible_name'] == 'Timer zone view'
+    assert result['keyword_accessible_name'] == \
+        'Keyword timer rules, 0 enabled, 0 saved'
+    assert 'own /say' in result['keyword_tooltip']
     assert result['share_tooltip']
     assert result['zone_tooltip']
     assert result['share_strong_focus'] is True
@@ -174,10 +181,11 @@ def test_share_and_zone_stay_directly_visible_in_timer_header(tmp_path):
     assert result['focus_moved_to_overflow'] is False
     assert result['focus_restored_to_mobile'] is True
 
-    for name in ('wide', 'narrow', 'rolled'):
+    for name in ('wide', 'narrow', 'rolled', 'mini'):
         state = result[name]
         assert state['share_visible'] is True, name
         assert state['zone_visible'] is True, name
+        assert state['keyword_visible'] is True, name
         assert state['root_separate'] is True, name
         assert state['controls_separate'] is True, name
         assert state['root_inside'] is True, name
@@ -195,3 +203,4 @@ def test_share_and_zone_stay_directly_visible_in_timer_header(tmp_path):
 
     assert result['wide']['mobile_visible'] is True
     assert result['rolled']['window'][1] <= 24
+    assert result['mini']['window'][1] <= 24
