@@ -100,4 +100,10 @@ plugins; 20 built-in WAV files; and required legal/source documents. Windows
 FileVersion and ProductVersion are **1.44.116**. The tested candidate is
 **75,803,221 bytes**, SHA-256
 `AF071B8670177388D85E96E59FAF64D4C2D957ACEEE6D341B4531A02A8058B8F`.
-Public release verification remains pending.
+The stable, non-draft, non-prerelease
+[v1.44.116](https://github.com/vantageupdates/vantage/releases/tag/v1.44.116)
+contains exactly one asset, `Vantage.exe`. GitHub's **75,803,221-byte** asset
+and SHA-256 digest match the tested candidate. A fresh unauthenticated download
+matched byte-for-byte and independently reports FileVersion/ProductVersion
+**1.44.116**. The annotated release tag resolves to tested commit
+`e7eb204577a957a34853b1844f08a7bb83a9170c`.
