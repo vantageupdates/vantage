@@ -1962,6 +1962,10 @@ class SpawnTimers(ParserWindow):
         self.empty_message.setObjectName("SpawnTimerEmptyMessage")
         self.empty_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty_message.setWordWrap(True)
+        # Honor QLabel's height-for-width hint instead of letting the centered
+        # empty card shrink below its wrapped text at compact panel widths.
+        self.empty_message.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         empty_layout.addWidget(self.empty_message)
         self.empty_add_button = QPushButton("Add timer…")
         self.empty_add_button.setObjectName("PrimaryAction")
@@ -2431,6 +2435,15 @@ class SpawnTimers(ParserWindow):
         self.empty_message.setText(
             f"No timers in {scope}.\n"
             "Add one here, choose another zone, or watch an existing timer.")
+        required = self.empty_message.heightForWidth(
+            max(1, self.empty_message.width()))
+        if required > 0:
+            self.empty_message.setMinimumHeight(required)
+            margins = self.empty_state.layout().contentsMargins()
+            self.empty_state.setMinimumHeight(
+                required + self.empty_add_button.sizeHint().height() +
+                margins.top() + margins.bottom() +
+                self.empty_state.layout().spacing())
         self.empty_state.setAccessibleName(f"No timers in {scope}")
         self.empty_state.setVisible(empty)
         return empty

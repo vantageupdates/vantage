@@ -202,6 +202,20 @@ market._refresh_gear_index = lambda: calls.append('gear')
 market.refresh = lambda: calls.append('prices')
 market._refresh_button.setEnabled(True)
 market._refresh_button.click()
+refresh_calls = list(calls)
+
+timer_sizes = []
+for width, height in ((520, 360), (302, 281)):
+    timers.resize(width, height)
+    QTest.qWait(40)
+    timers._sync_timer_canvas()
+    QTest.qWait(20)
+    timer_sizes.append({
+        'window': [width, height],
+        'label': [timers.empty_message.width(), timers.empty_message.height()],
+        'needed': timers.empty_message.heightForWidth(
+            timers.empty_message.width()),
+    })
 
 print(json.dumps({
     'timer_visible': timers.empty_state.isVisibleTo(timers._surface),
@@ -209,6 +223,9 @@ print(json.dumps({
     'timer_name': timers.empty_state.accessibleName(),
     'timer_button': timers.empty_add_button.text(),
     'timer_button_name': timers.empty_add_button.accessibleName(),
+    'timer_label_height': timers.empty_message.height(),
+    'timer_label_needed': timers.empty_message.heightForWidth(
+        timers.empty_message.width()),
     'zone_initial': zone_initial,
     'zone_no_drops': zone_no_drops,
     'zone_enabled': zones.zone_drop_selector.isEnabled(),
@@ -218,7 +235,8 @@ print(json.dumps({
     'market_reply_deleted': mismatch.deleted,
     'market_cache_written': cache_written,
     'refresh_name': market._refresh_button.accessibleName(),
-    'refresh_calls': calls,
+    'refresh_calls': refresh_calls,
+    'timer_sizes': timer_sizes,
 }))
 app.quit()
 """
@@ -233,6 +251,9 @@ def test_actionable_timer_zone_and_market_states(tmp_path):
     assert result["timer_name"] == "No timers in Chardok"
     assert result["timer_button"] == "Add timer…"
     assert result["timer_button_name"] == "Add a Smart Timer"
+    assert result["timer_label_height"] >= result["timer_label_needed"]
+    assert all(sample["label"][1] >= sample["needed"]
+               for sample in result["timer_sizes"])
     assert result["zone_initial"] == "Select an NPC to see its drops"
     assert result["zone_no_drops"] == "No known drops"
     assert result["zone_enabled"] is False
