@@ -60,8 +60,14 @@ separate workspaces; **Start raid** still navigates to local evidence.
 - Installed `D:\\Vantage.exe` and the live Vantage config match their original
   SHA-256 digests. No EverQuest, WinEQ, or installed Vantage process was stopped
   or replaced. Only this task's own test processes were restarted during QA.
-- Draft asset verification will be recorded after preparation. Public release
-  verification remains outstanding while publication is restricted.
+- Source and annotated tag `v1.44.120` resolve to tested build commit
+  `795fd02966cd660628b36e9953ef0d3eb570d248`, pushed to `main`.
+- GitHub draft **399721796**, asset **600042349**, contains exactly one
+  `Vantage.exe`; GitHub's size and SHA-256 digest match the tested candidate.
+  Owner draft URL:
+  https://github.com/vantageupdates/vantage/releases/tag/untagged-08e907895857f4c449d4
+  Draft is true, prerelease is false. Public publication and a fresh public
+  download/self-test remain outstanding; this is not yet updater-available.
 
 ## Publication boundary
 

@@ -1534,3 +1534,7 @@ independent accessibility review: PASS
 - Draft preparation is permitted; public publication remains restricted by the
   previously rejected publication operation. Do not claim this update is public
   until a human publishes it and fresh public verification completes.
+- Tested source/tag: `795fd02966cd660628b36e9953ef0d3eb570d248`, pushed to
+  `main`. Draft release **399721796** / exe asset **600042349** verified:
+  exactly one `Vantage.exe`, matching candidate size and GitHub SHA-256 digest,
+  draft true, prerelease false. It is **not publicly published**.
