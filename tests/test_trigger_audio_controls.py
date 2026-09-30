@@ -70,7 +70,7 @@ from PySide6.QtWidgets import QPushButton
 from vantage.helpers import config, settings as sm, application as am
 from vantage.helpers.application import VantageApp
 from vantage.helpers.settings import SettingsWindow, CustomTriggerSettings
-from vantage.parsers.spells import CustomTrigger, Spells, compile_trigger_pattern
+from vantage.parsers.spells import CustomTrigger, Spells, Spell, compile_trigger_pattern
 from types import SimpleNamespace
 
 app = VantageApp([])
@@ -95,6 +95,28 @@ assert muted.audio_muted and muted.enabled
 assert running.audio_muted and running.audio_delivery('ending') == 'off'
 assert running.audio_delivery('ended') == 'off'
 assert parser._trigger_runs['mute-running']['deadline'] == 12345
+generic_audio, generic_events = [], []
+am.play_alert = lambda *a, **k: generic_audio.append('beep') or True
+am.speak_text = lambda *a, **k: generic_audio.append('voice') or True
+config.data['general']['audio_muted'] = False
+config.data['general']['master_volume'] = 100
+config.data['sounds']['routes']['spell_fading']['delivery'] = 'voice'
+config.data['spells']['fade_sound_enabled'] = True
+config.data['spells']['sounds_when_hidden'] = True
+parser._spell_container.add_spell(
+    Spell(name='Owned trigger timer', runtime_key='mute-running', duration=10,
+          duration_formula=11, spell_icon=14), datetime.datetime.now(), '__custom__')
+timer_row = parser._spell_container.get_spell_target_by_name('__custom__').spell_widget('mute-running')
+timer_row._play_fade_alert(phase='early')
+timer_row._play_fade_alert(phase='final')
+assert not generic_audio
+parser._spell_container.add_spell(
+    Spell(name='Restored named timer', runtime_key='Mob is casting', duration=10,
+          duration_formula=11, spell_icon=14), datetime.datetime.now(), '__custom__')
+restored_row = parser._spell_container.get_spell_target_by_name('__custom__').spell_widget('Mob is casting')
+restored_row._play_fade_alert(phase='final')
+assert not generic_audio
+parser._spell_container.end_custom_timer('Restored named timer', runtime_key='Mob is casting')
 assert muted.sound_path == original.sound_path
 assert muted.tts_text == original.tts_text
 assert muted.configured_audio_delivery() == original.configured_audio_delivery()
@@ -127,6 +149,9 @@ assert stored('Mob is casting').sound_path == original.sound_path
 assert stored('Mob is casting').tts_text == original.tts_text
 assert stored('Mob is casting').audio_delivery() == original.audio_delivery()
 assert not running.audio_muted
+timer_row._play_fade_alert(phase='final')
+assert generic_audio == ['voice']
+parser._spell_container.end_custom_timer('Owned trigger timer', runtime_key='mute-running')
 parser._trigger_runs.pop('mute-running')
 # Explicit Off is persisted; it does not restore the default WAV or legacy TTS.
 dialog._trigger_delivery.setCurrentIndex(dialog._trigger_delivery.findData('off'))

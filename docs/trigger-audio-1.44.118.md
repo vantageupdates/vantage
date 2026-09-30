@@ -13,7 +13,8 @@
   timers, or configured visual alerts. Unmuting restores the configured sound
   and voice choices. Preview tests respect the mute and show its state.
 - Running custom timers receive saved audio changes without resetting their
-  deadlines or rendered target text.
+  deadlines or rendered target text. Their mute also blocks the general buff
+  fading route, not only the trigger-specific ending and ended actions.
 - Named the local auction route **Auctions / Market sale**. Both it and
   **OpenDKP auction** expose Off / Sound / Voice. Off is persistent and keeps
   written notifications available while blocking their audio.

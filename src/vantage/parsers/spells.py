@@ -4276,6 +4276,22 @@ class SpellWidget(QFrame):
                 semantic_notice = f"{self.spell.name} fading soon"
         app = QApplication.instance()
         notify = getattr(app, 'notify_event', None)
+        trigger_muted = False
+        target = self.parentWidget()
+        if isinstance(target, SpellTarget) and target.name == '__custom__':
+            # Custom timer rows also use the general buff fading renderer.
+            # Resolve their owner so its mute cannot leak through that route.
+            parser = getattr(app, '_parsers_dict', {}).get('spells')
+            runtime_key = str(getattr(self.spell, 'runtime_key', '') or '')
+            run = getattr(parser, '_trigger_runs', {}).get(runtime_key)
+            if run is not None:
+                trigger_muted = run['trigger'].audio_muted
+            else:
+                # Plain named timers can survive a reload without an active
+                # trigger run. Never match another trigger by a partial name.
+                row = next((item for item in settings.get('custom_timers', [])
+                            if item and item[0] == runtime_key), None)
+                trigger_muted = bool(row and CustomTrigger(*row).audio_muted)
 
         def dispatch(**kwargs):
             if callable(notify):
@@ -4298,7 +4314,7 @@ class SpellWidget(QFrame):
             return False
 
         if not force and (
-                not settings['fade_sound_enabled'] or
+                trigger_muted or not settings['fade_sound_enabled'] or
                 key in settings['fade_sound_muted']):
             return dispatch(delivery_override='off')
         override = settings['fade_sound_overrides'].get(key)
