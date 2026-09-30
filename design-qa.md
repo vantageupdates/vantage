@@ -1563,4 +1563,11 @@ independent accessibility review: PASS
   `B5FA6C38C735A9EBB09849B6B13FC58C84014000F772429A3226F58CE75F7617`.
   Isolated self-test exit **0**; frozen editor, saved preferences, bounded
   lookup queue, union and pooled raid-DKP detail verified. VantageUI and user
-  installations/game processes remain untouched. Publication checks pending.
+  installations/game processes remain untouched.
+- Tested source/tag `1c27fa55ec156d53a4986ec4e2b5df439b8e3ade` published as
+  stable/latest **v1.44.121**, release **399746700** / exe asset **600129160**,
+  2026-09-30 05:38:02 UTC. Public metadata confirms draft false, prerelease
+  false and one executable with the matching size/SHA-256 digest. The anonymous
+  public release page confirms Latest and source. The previously blocked
+  combined fresh public binary download/self-test was not attempted again;
+  no fresh-public-download self-test is claimed.

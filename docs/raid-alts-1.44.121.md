@@ -56,15 +56,26 @@ Pool column; the feature does not combine account balances.
   Isolated self-test exit **0**; frozen editor, preference restoration, bounded
   queue, attendance union and public pooled-DKP check verified.
 - Complete final suite: **1,726 passed, 2 expected skips, 798.78 seconds**.
-- Public release verification is pending publication.
+- Tested source/tag: `1c27fa55ec156d53a4986ec4e2b5df439b8e3ade` on `main`.
+- Published stable/latest release **399746700**, asset **600129160**, at
+  `https://github.com/vantageupdates/vantage/releases/tag/v1.44.121` on
+  2026-09-30 05:38:02 UTC. The latest endpoint reports draft false and
+  prerelease false, with exactly one uploaded `Vantage.exe` matching the
+  candidate's size and SHA-256 digest. The anonymous public release page
+  independently confirms the version, Latest designation and source commit.
+- Installed `D:\Vantage.exe` remained the user's 1.44.120 executable with
+  SHA-256 `F68A5E48AB6ADB77329E48618BB1D8301DB50556822951E2783BEA8DDFB5C8B1`;
+  the live config remained
+  `C418D49888A0E4B38FE0A34C9CA1075D57FD98F50E00981F2CF1C97B476BC0A5`.
 
 ## Release verification boundary
 
-The standard publication command is permitted and must be used after tests
-finish; the user expects a public update, not a draft-only handoff. Do not
-replace the installed executable or close EverQuest/WinEQ/Vantage processes.
+The normal standard publication command succeeded after the complete tests;
+the delivered update is public, not draft-only. The installed executable and
+EverQuest/WinEQ/Vantage processes were not replaced or closed.
 The previous combined fresh public binary download-and-execution verification
 was rejected by tool policy. Do not bypass that restriction through another
 route; distinguish candidate self-test and public size/digest metadata checks
-from any unperformed fresh-public-download self-test. VantageUI ownership and
-its files remain unchanged.
+from the unperformed fresh-public-download self-test. That extra check was not
+retried for this release; the candidate self-test and public size/digest checks
+are the verified evidence. VantageUI ownership and its files remain unchanged.
