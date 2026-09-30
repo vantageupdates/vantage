@@ -1445,3 +1445,34 @@ independent accessibility review: PASS
   the isolated portable self-test with exit **0**. The installed executable,
   live profile, EverQuest, WinEQ, and the user's running Vantage processes were
   not replaced or stopped.
+
+## 1.44.118 Trigger mute and fading stops
+
+- Scoped native Qt fix, retaining existing dark/gold styling and English labels.
+  Implementation and verification details: `docs/trigger-audio-1.44.118.md`.
+- Sounds now saves changed custom trigger audio by name, rather than requiring
+  the unrelated Buffs settings section. Clearing a WAV explicitly sets that
+  phase Off; unedited stale controls do not revert newer trigger changes.
+- Mute is independent of trigger On/Off and preserves saved voice/WAV settings.
+  It applies to all trigger phases, current timers, and their general buff
+  fading route, while retaining deadlines, detection, and configured visuals.
+- Auctions / Market sale and OpenDKP auction expose persistent Off. Written
+  notices remain. Spoken fading timing is configurable from 1–600 seconds,
+  default 5, separately from the early beep; each warning remains once per cast.
+- Isolated Qt evidence: `work/trigger-audio-1.44.118/trigger-mute.png`,
+  `auction-off.png`, and `fading-stops.png`. Keyboard-focusable controls use
+  explicit accessible names and descriptions. No physical screen reader,
+  live in-game utterance, or OS-large-font verification is claimed.
+- Complete final suite: **1,686 passed, 2 expected skips, 737.77 seconds**.
+  Single-file candidate, version **1.44.118**, portable self-test exit **0**;
+  **75,839,973 bytes**, SHA-256
+  `A9016029DA7F902BDE212E292983D1F2D700AB7F97DB41C0671477ADAA6E8C72`.
+- Tested source/tag is `28a0f28d9e59bdffe3bcaae3e2492c0d601ceb2b` on `main`.
+  GitHub draft release 399654138 has one asset with matching size/digest.
+  **Publication remains blocked:** the execution tool rejected the final
+  combined publish/download/public self-test command before execution.
+  Read-only verification still shows draft true; fresh public verification is
+  therefore outstanding. Do not report this release as publicly available.
+- VantageUI authority remained with its chat. No skin/updater/character INIs
+  changed. Installed Vantage, its live profile, EverQuest and WinEQ were not
+  replaced or stopped.
