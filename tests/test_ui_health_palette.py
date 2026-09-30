@@ -39,7 +39,7 @@ def test_palette_is_dense_in_the_former_green_yellow_jump_and_keeps_anchors():
 
 
 @pytest.mark.parametrize('filename', palette.CONFIGS)
-def test_every_intermediate_layer_preserves_native_binding_origin_and_clipping(filename):
+def test_every_health_layer_preserves_native_binding_origin_and_clipping(filename):
     text = (SKIN / filename).read_text(encoding='ascii')
     root = ET.fromstring(text)
     parent_name, prefixes = palette.CONFIGS[filename]
@@ -57,12 +57,9 @@ def test_every_intermediate_layer_preserves_native_binding_origin_and_clipping(f
         for hp in palette.THRESHOLDS[1:]:
             name = layer(prefix, hp)
             expected.extend((name + 'A_X', name + 'B'))
-            if hp % 20 == 0:
-                continue
             a = palette.item(root, 'Gauge', name + 'A')
             b = palette.item(root, 'Gauge', name + 'B')
             clip = palette.item(root, 'Screen', name + 'A_X')
-            anim = palette.item(root, 'Ui2DAnimation', name + 'Fill')
             cut = width * hp // 100
             assert rect(clip) == (x,y,cut,height)
             assert rect(a) == (0,0,10000-100*hp,height)
@@ -71,6 +68,9 @@ def test_every_intermediate_layer_preserves_native_binding_origin_and_clipping(f
             assert b.findtext('GaugeOffsetX') == str(-cut)
             assert clip.findtext('Pieces') == name + 'A'
             assert clip.findtext('Style_Transparent') == 'true'
+            if hp % 20 == 0:
+                continue
+            anim = palette.item(root, 'Ui2DAnimation', name + 'Fill')
             assert anim.findtext('Frames/Location/X') == str(origin - 100*hp)
             assert anim.findtext('Frames/Location/Y') == base_anim.findtext('Frames/Location/Y')
             assert anim.findtext('Frames/Texture') == base_anim.findtext('Frames/Texture')

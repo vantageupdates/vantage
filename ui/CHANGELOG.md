@@ -1,5 +1,19 @@
 # VantageUI releases
 
+## 1.44.94
+
+Install folder: `VantageUI-v1.44.94`.
+
+- Centered the pet-health bar itself within the compact 136-pixel Pet Info
+  window, giving the 100-pixel gauge equal 18-pixel margins.
+- Kept the native health percentage compact against the gauge's left edge so
+  the bar stays centered while the value remains readable on the dark panel.
+- Preserved the pet name, native HP binding, threshold-color layers, command
+  buttons, tooltips and click targets.
+
+Load with `/loadskin VantageUI-v1.44.94 1`. Native rendering and live health
+updates remain unverified until an in-game reload.
+
 ## 1.44.88
 
 Install folder: `VantageUI-v1.44.88`.

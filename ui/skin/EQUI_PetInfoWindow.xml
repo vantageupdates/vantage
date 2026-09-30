@@ -552,7 +552,7 @@
       <CY>34</CY>
     </Size>
     <GaugeOffsetY>14</GaugeOffsetY>
-    <GaugeOffsetX>20</GaugeOffsetX>
+    <GaugeOffsetX>10</GaugeOffsetX>
     <Text>No Pet</Text>
     <TextOffsetY>0</TextOffsetY>
     <TextOffsetX>25</TextOffsetX>
@@ -583,7 +583,7 @@
   <Gauge item="Pet_HP_0">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -648,7 +648,7 @@
   <Screen item="Pet_HP_1A_X">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -661,7 +661,7 @@
   <Gauge item="Pet_HP_1B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>48</X>
+      <X>38</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -726,7 +726,7 @@
   <Screen item="Pet_HP_2A_X">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -739,7 +739,7 @@
   <Gauge item="Pet_HP_2B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>68</X>
+      <X>58</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -804,7 +804,7 @@
   <Screen item="Pet_HP_3A_X">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -817,7 +817,7 @@
   <Gauge item="Pet_HP_3B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>88</X>
+      <X>78</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -882,7 +882,7 @@
   <Screen item="Pet_HP_4A_X">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -895,7 +895,7 @@
   <Gauge item="Pet_HP_4B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>108</X>
+      <X>98</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -935,7 +935,7 @@
       <Y>25</Y>
     </Location>
     <Size>
-      <CX>27</CX>
+      <CX>18</CX>
       <CY>12</CY>
     </Size>
     <Text>100</Text>
@@ -1239,7 +1239,7 @@
   <Gauge item="Pet_HealthDetail">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -1319,7 +1319,7 @@
   <Gauge item="Pet_HP_S05B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>33</X>
+      <X>23</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -1352,7 +1352,7 @@
   <Screen item="Pet_HP_S05A_X">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -1416,7 +1416,7 @@
   <Gauge item="Pet_HP_S10B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>38</X>
+      <X>28</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -1449,7 +1449,7 @@
   <Screen item="Pet_HP_S10A_X">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -1513,7 +1513,7 @@
   <Gauge item="Pet_HP_S15B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>43</X>
+      <X>33</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -1546,7 +1546,7 @@
   <Screen item="Pet_HP_S15A_X">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -1610,7 +1610,7 @@
   <Gauge item="Pet_HP_S25B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>53</X>
+      <X>43</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -1643,7 +1643,7 @@
   <Screen item="Pet_HP_S25A_X">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -1707,7 +1707,7 @@
   <Gauge item="Pet_HP_S30B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>58</X>
+      <X>48</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -1740,7 +1740,7 @@
   <Screen item="Pet_HP_S30A_X">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -1804,7 +1804,7 @@
   <Gauge item="Pet_HP_S35B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>63</X>
+      <X>53</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -1837,7 +1837,7 @@
   <Screen item="Pet_HP_S35A_X">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -1901,7 +1901,7 @@
   <Gauge item="Pet_HP_S45B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>73</X>
+      <X>63</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -1934,7 +1934,7 @@
   <Screen item="Pet_HP_S45A_X">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -1998,7 +1998,7 @@
   <Gauge item="Pet_HP_S50B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>78</X>
+      <X>68</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -2031,7 +2031,7 @@
   <Screen item="Pet_HP_S50A_X">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -2095,7 +2095,7 @@
   <Gauge item="Pet_HP_S55B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>83</X>
+      <X>73</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -2128,7 +2128,7 @@
   <Screen item="Pet_HP_S55A_X">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -2192,7 +2192,7 @@
   <Gauge item="Pet_HP_S62B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>90</X>
+      <X>80</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -2225,7 +2225,7 @@
   <Screen item="Pet_HP_S62A_X">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -2289,7 +2289,7 @@
   <Gauge item="Pet_HP_S64B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>92</X>
+      <X>82</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -2322,7 +2322,7 @@
   <Screen item="Pet_HP_S64A_X">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -2386,7 +2386,7 @@
   <Gauge item="Pet_HP_S66B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>94</X>
+      <X>84</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -2419,7 +2419,7 @@
   <Screen item="Pet_HP_S66A_X">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -2483,7 +2483,7 @@
   <Gauge item="Pet_HP_S68B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>96</X>
+      <X>86</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -2516,7 +2516,7 @@
   <Screen item="Pet_HP_S68A_X">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -2580,7 +2580,7 @@
   <Gauge item="Pet_HP_S70B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>98</X>
+      <X>88</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -2613,7 +2613,7 @@
   <Screen item="Pet_HP_S70A_X">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -2677,7 +2677,7 @@
   <Gauge item="Pet_HP_S72B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>100</X>
+      <X>90</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -2710,7 +2710,7 @@
   <Screen item="Pet_HP_S72A_X">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -2774,7 +2774,7 @@
   <Gauge item="Pet_HP_S74B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>102</X>
+      <X>92</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -2807,7 +2807,7 @@
   <Screen item="Pet_HP_S74A_X">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -2871,7 +2871,7 @@
   <Gauge item="Pet_HP_S76B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>104</X>
+      <X>94</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -2904,7 +2904,7 @@
   <Screen item="Pet_HP_S76A_X">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -2968,7 +2968,7 @@
   <Gauge item="Pet_HP_S78B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>106</X>
+      <X>96</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -3001,7 +3001,7 @@
   <Screen item="Pet_HP_S78A_X">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>
@@ -3093,7 +3093,7 @@
   <StaticAnimation item="Pet_HP_VantageTicks">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>18</X>
       <Y>19</Y>
     </Location>
     <Size>

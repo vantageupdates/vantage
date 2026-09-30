@@ -90,9 +90,27 @@ def test_pet_health_and_commands_are_centered_in_compact_window():
     assert health.findtext('EQType')=='16'
     assert health.findtext('Text')=='No Pet'
     assert (health.findtext('TextOffsetX'),health.findtext('TextOffsetY'))==('25','0')
-    assert (health.findtext('GaugeOffsetX'),health.findtext('GaugeOffsetY'))==('20','14')
+    assert (health.findtext('GaugeOffsetX'),health.findtext('GaugeOffsetY'))==('10','14')
     assert health.findtext('GaugeDrawTemplate/Background')=='A_dzBackground'
     assert rect(health)[0] == rect(parent)[2]-(rect(health)[0]+rect(health)[2]) == 6
+    gauge_offset=int(health.findtext('GaugeOffsetX'))
+    background= root('EQUI_Animations.xml').find("Ui2DAnimation[@item='A_dzBackground']/Frames")
+    background_left=rect(health)[0]+gauge_offset
+    background_width=rect(background)[2]
+    assert (background_left,background_width)==(16,104)
+    assert background_left == rect(parent)[2]-(background_left+background_width) == 16
+    bar_left,_,bar_width,_=rect(xml.find("Gauge[@item='Pet_HP_0']"))
+    assert (bar_left,bar_width)==(18,100)
+    assert bar_left == rect(parent)[2]-(bar_left+bar_width) == 18
+    assert bar_left-background_left == (background_left+background_width)-(bar_left+bar_width) == 2
+    hp_label=xml.find("Label[@item='PIW_Pet_HPLabel']")
+    assert rect(hp_label)==(-2,25,18,12)
+    assert hp_label.findtext('EQType')=='69'
+    assert hp_label.findtext('AlignCenter')=='false'
+    assert hp_label.findtext('AlignRight')=='true'
+    assert rect(hp_label)[0]+rect(hp_label)[2] == background_left
+    for item in ('Pet_HP_0','Pet_HealthDetail','Pet_HP_VantageTicks'):
+        assert rect(xml.find(f"*[@item='{item}']"))[:3] == (bar_left,19,bar_width)
     attack=rect(xml.find("Button[@item='PIW_AttackButton']"))
     assert attack[0]==2 and rect(parent)[2]-(attack[0]+attack[2])==6
     assert (attack[0]+attack[2]/2)-rect(parent)[2]/2 == -2
