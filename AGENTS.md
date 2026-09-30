@@ -11,6 +11,11 @@ For every completed user-facing Vantage change made in this repository:
 7. The user installs published updates manually through Vantage's updater.
 8. Verify the public Release, asset size, and GitHub SHA-256 digest against the tested candidate.
 
+The user expects a published update after each completed Companion change,
+not just a prepared draft. Complete the normal release flow when authorized
+and permitted. If a tool policy blocks a step, do not bypass it through another
+route; report exactly which publication or verification step remains incomplete.
+
 The update repository is only for Vantage. Do not add unrelated organization, project, or account branding to the application or release metadata.
 
 ## Independent VantageUI release exception

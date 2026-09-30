@@ -1531,10 +1531,12 @@ independent accessibility review: PASS
   SHA-256 `F68A5E48AB6ADB77329E48618BB1D8301DB50556822951E2783BEA8DDFB5C8B1`.
   Frozen attendance code and date theme verified. Installed executable and live
   config hashes unchanged; VantageUI skin/shared updater/character INIs untouched.
-- Draft preparation is permitted; public publication remains restricted by the
-  previously rejected publication operation. Do not claim this update is public
-  until a human publishes it and fresh public verification completes.
 - Tested source/tag: `795fd02966cd660628b36e9953ef0d3eb570d248`, pushed to
-  `main`. Draft release **399721796** / exe asset **600042349** verified:
+  `main`. Release **399721796** / exe asset **600042349** verified:
   exactly one `Vantage.exe`, matching candidate size and GitHub SHA-256 digest,
-  draft true, prerelease false. It is **not publicly published**.
+  draft false, prerelease false, **published stable/latest on 2026-09-30**.
+  Following the user's explicit renewed request, standard `gh release edit`
+  publication succeeded. The anonymous public release page and latest endpoint
+  confirm `v1.44.120`. The subsequent combined fresh public binary download /
+  self-test operation was rejected before execution; those extra verification
+  steps remain incomplete and were not retried through an alternative route.

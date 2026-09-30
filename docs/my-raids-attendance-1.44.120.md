@@ -62,19 +62,25 @@ separate workspaces; **Start raid** still navigates to local evidence.
   or replaced. Only this task's own test processes were restarted during QA.
 - Source and annotated tag `v1.44.120` resolve to tested build commit
   `795fd02966cd660628b36e9953ef0d3eb570d248`, pushed to `main`.
-- GitHub draft **399721796**, asset **600042349**, contains exactly one
+- GitHub release **399721796**, asset **600042349**, contains exactly one
   `Vantage.exe`; GitHub's size and SHA-256 digest match the tested candidate.
-  Owner draft URL:
-  https://github.com/vantageupdates/vantage/releases/tag/untagged-08e907895857f4c449d4
-  Draft is true, prerelease is false. Public publication and a fresh public
-  download/self-test remain outstanding; this is not yet updater-available.
+  Published stable/latest on **2026-09-30**:
+  https://github.com/vantageupdates/vantage/releases/tag/v1.44.120
+  Draft is false, prerelease is false, and the latest-release endpoint reports
+  `v1.44.120`. The anonymous public release page also confirms publication and
+  tested source commit `795fd02`.
 
-## Publication boundary
+## Publication and verification boundary
 
-The previous release-publication operation was rejected by the execution
-tool. This task will not bypass that restriction through a different route.
-The tested portable candidate can be prepared as a draft, but it must not be
-reported as public or available in the application's updater until a human
-publishes it and public asset verification completes. No installed executable
-is replaced automatically. VantageUI files and its release authority are
-unchanged.
+After the user's renewed explicit request to deliver the update, the normal
+`gh release edit` publication command succeeded. No alternative publication
+route was used. The release is now public and latest; its executable asset size
+and GitHub SHA-256 digest match the already self-tested candidate.
+
+The subsequent combined anonymous-download/hash/fresh-executable-self-test
+command was rejected by execution policy **before starting**. Therefore a fresh
+public binary download and its separate self-test remain unverified. No retry
+through an alternative command, API, or browser was attempted for those blocked
+steps. Read-only metadata and the anonymous release-page checks succeeded.
+The original candidate already passed the complete suite and portable self-test.
+No installed executable was replaced. VantageUI files and authority are unchanged.
