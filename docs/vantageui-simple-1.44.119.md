@@ -75,7 +75,15 @@ the live profile retained SHA-256
 Neither was changed by this work.
 
 The final complete suite passed **1,697 tests**, with **2 platform skips**, in
-**839.24 seconds**. Final draft metadata is recorded after upload.
+**839.24 seconds**. Tested source and annotated `v1.44.119` tag resolve to
+`39a6ccc807f78ca650a4ca1bbb6c17f75d1718c1`, pushed to `main`.
+
+GitHub draft release **399695422** contains exactly one uploaded `Vantage.exe`
+asset (**599933132**); its size and GitHub SHA-256 digest match the candidate.
+Read-only checks confirm `isDraft: true` and `isPrerelease: false`. The
+[owner-visible draft](https://github.com/vantageupdates/vantage/releases/tag/untagged-f822ebb1df5029a57598)
+is prepared, not public. Publication and a fresh public asset/self-test check
+remain required before installed users can receive this update.
 
 Publication of the prior Companion draft
 was blocked by the execution tool; no alternate publication method is used here
