@@ -42,7 +42,7 @@ _ROUTES = (
     NotificationRoute("raid_encounter", "Raid encounter",
                       "An FTE, quake, Ring War, or raid milestone is detected.",
                       "sound", "builtin:warden-bell", "Raid encounter", "timers"),
-    NotificationRoute("market_sale", "Market sale",
+    NotificationRoute("market_sale", "Auctions / Market sale",
                       "A watched item appears in a local EC Tunnel auction line.",
                       "sound", "builtin:crystal-ping", "Item for sale", "market"),
     NotificationRoute("opendkp_auction", "OpenDKP auction",

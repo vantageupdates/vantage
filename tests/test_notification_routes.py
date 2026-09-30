@@ -586,17 +586,17 @@ def test_sounds_route_test_status_is_truthful_and_accessible(monkeypatch):
     zero = SettingsWindow._test_notification_route(
         None, 'market_sale', delivery, picker, status)
 
-    assert sound == 'Market sale test: sound queued'
-    assert missing == 'Market sale test: Sound file unavailable'
+    assert sound == 'Auctions / Market sale test: sound queued'
+    assert missing == 'Auctions / Market sale test: Sound file unavailable'
     assert audio_unavailable == (
-        'Market sale test: Windows audio backend unavailable')
-    assert voice == 'Market sale test: voice queued'
+        'Auctions / Market sale test: Windows audio backend unavailable')
+    assert voice == 'Auctions / Market sale test: voice queued'
     assert played_calls[0][1]['channel'] == 'market'
     assert spoken_calls[0][1]['channel'] == 'market'
-    assert unavailable == 'Market sale test: Windows voice unavailable'
-    assert off == 'Market sale test: Off'
-    assert muted == 'Market sale test: Master Mute'
-    assert zero == 'Market sale test: Master Volume 0%'
+    assert unavailable == 'Auctions / Market sale test: Windows voice unavailable'
+    assert off == 'Auctions / Market sale test: Off'
+    assert muted == 'Auctions / Market sale test: Master Mute'
+    assert zero == 'Auctions / Market sale test: Master Volume 0%'
     assert status.text() == zero
     assert status.isHidden() is False
     assert status.accessibleName() == zero

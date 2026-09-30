@@ -2498,6 +2498,22 @@ class Spells(ParserWindow):
                 continue
             self._custom_timers.append((rx, end_rxs, ct))
         self._trigger_compile_errors = compile_errors
+        # Running timers retain their deadlines and rendered target text, but
+        # audio edits must apply now, not only after the next trigger match.
+        current = {trigger.name: trigger for _, _, trigger in self._custom_timers}
+        for run in self._trigger_runs.values():
+            saved = current.get(run['trigger'].name)
+            if saved is not None:
+                running = run['trigger']
+                running.audio_muted = saved.audio_muted
+                for stage in ('basic', 'ending', 'ended'):
+                    fields = (
+                        ('delivery', 'sound_path', 'tts_voice', 'tts_volume',
+                         'tts_pitch') if stage == 'basic' else
+                        tuple(f'timer_{stage}_{suffix}' for suffix in
+                              ('delivery', 'sound', 'voice', 'volume', 'pitch')))
+                    for field in fields:
+                        setattr(running, field, getattr(saved, field))
 
     def _record_trigger_match(
             self, timestamp, trigger, line, output, status="Matched",
@@ -2645,7 +2661,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.117')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.118')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -4061,7 +4077,8 @@ class SpellWidget(QFrame):
             # be persisted through the container's state_changed signal.
             phase = spell_fade_alert_phase(
                 remaining_seconds,
-                config.data['spells']['fade_warning_seconds'])
+                config.data['spells']['fade_warning_seconds'],
+                config.data['spells'].get('fade_voice_warning_seconds', 5))
             if phase and isinstance(self.parentWidget(), SpellTarget):
                 claimed = (
                     self.claim_final_fade_alert()
@@ -4127,7 +4144,7 @@ class SpellWidget(QFrame):
         return True
 
     def claim_final_fade_alert(self):
-        """Atomically claim the <=5-second or worn-off alert generation."""
+        """Atomically claim the configured final or worn-off alert generation."""
         if self._final_warning_played:
             return False
         self._final_warning_played = True
@@ -4437,12 +4454,13 @@ def _spell_targets_enemy(spell):
             getattr(spell, 'effect_text_other', '')).casefold())
 
 
-def spell_fade_alert_phase(remaining_seconds, warning_seconds=40):
-    """Return the audible phase without speaking before five seconds."""
+def spell_fade_alert_phase(remaining_seconds, warning_seconds=40,
+                          voice_warning_seconds=5):
+    """Return one warning phase; the spoken stop takes priority over the cue."""
     remaining = float(remaining_seconds)
     if remaining <= 0:
         return ''
-    if remaining <= 5:
+    if remaining <= max(1, min(600, int(voice_warning_seconds))):
         return 'final'
     if remaining <= max(0, int(warning_seconds)):
         return 'early'
@@ -4997,7 +5015,7 @@ class CustomTrigger:
                  timer_ending_pitch=0, timer_ended_delivery='legacy',
                  timer_ended_voice='', timer_ended_volume=100,
                  timer_ended_pitch=0, match_filter='',
-                 match_cooldown_seconds=0.75, **_):
+                 match_cooldown_seconds=0.75, audio_muted=False, **_):
         self.name, self.text, self.time = name, text, time
         self.zone = zone
         self.sound_path = sound_path
@@ -5094,6 +5112,8 @@ class CustomTrigger:
                 return 0
 
         self.delivery = delivery_mode(delivery)
+        self.audio_muted = (audio_muted is True or str(audio_muted).strip().casefold()
+                            in {'true', '1', 'on', 'yes'})
         self.tts_voice = str(tts_voice or '')[:160]
         self.tts_volume = percent(tts_volume)
         self.tts_pitch = speech_pitch(tts_pitch)
@@ -5143,10 +5163,16 @@ class CustomTrigger:
             self.timer_ending_pitch, self.timer_ended_delivery,
             self.timer_ended_voice, self.timer_ended_volume,
             self.timer_ended_pitch, self.match_filter,
-            self.match_cooldown_seconds]
+            self.match_cooldown_seconds, self.audio_muted]
 
     def audio_delivery(self, stage='basic'):
-        """Resolve explicit delivery while preserving the old WAV-first rule."""
+        """Resolve effective delivery without discarding muted audio choices."""
+        if self.audio_muted:
+            return 'off'
+        return self.configured_audio_delivery(stage)
+
+    def configured_audio_delivery(self, stage='basic'):
+        """Resolve saved delivery, even while muted, for editing and restore."""
         prefix = '' if stage == 'basic' else f'timer_{stage}_'
         mode = getattr(self, f'{prefix}delivery', 'legacy')
         if mode != 'legacy':

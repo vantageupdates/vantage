@@ -1045,6 +1045,8 @@ def verify_settings():
     data['spells']['fade_warning_seconds'] = get_setting(
         warning_seconds, 40,
         lambda x: 0 <= x <= 600)
+    data['spells']['fade_voice_warning_seconds'] = _bounded_int(
+        data['spells'].get('fade_voice_warning_seconds', 5), 5, 1, 600)
     data['spells']['fade_sound_volume'] = get_setting(
         data['spells'].get('fade_sound_volume', 80), 80,
         lambda x: 0 <= x <= 100)

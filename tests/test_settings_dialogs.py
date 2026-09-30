@@ -66,7 +66,14 @@ if trigger_settings._trigger_sound_routes:
     trigger_combo.setCurrentIndex(
         trigger_combo.findData('builtin:arcane-bloom'))
     trigger_saved = [item_index, field_index]
-trigger_settings._save()
+trigger_settings._cancelled()
+sound_settings = SettingsWindow('Sounds')
+if trigger_saved:
+    item_index, field_index = trigger_saved
+    trigger_combo = next(combo for index, field, combo in sound_settings._trigger_sound_routes
+                         if index == item_index and field == field_index)
+    trigger_combo.setCurrentIndex(trigger_combo.findData('builtin:arcane-bloom'))
+sound_settings._save()
 settings._save()
 # Reuse the same SettingsWindow for two more editing sessions. Both ways of
 # dismissing it must restore the value saved by the immediately prior session.

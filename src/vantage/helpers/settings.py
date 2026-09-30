@@ -293,6 +293,7 @@ class SettingsWindow(UniformScaleDialog):
         self._notification_sound_combos = []
         self._notification_route_widgets = []
         self._trigger_sound_routes = []
+        self._trigger_audio_mutes = []
 
         settings = self._create_settings()
         if settings:
@@ -393,7 +394,7 @@ class SettingsWindow(UniformScaleDialog):
         for stacked_widget in self._widget_stack.findChildren(QFrame):
             for widget in stacked_widget.children():
                 wt = type(widget)
-                if wt == QCheckBox:
+                if wt == QCheckBox and ':' in widget.objectName():
                     key1, key2 = widget.objectName().split(':')
                     config.data[key1][key2] = widget.isChecked()
                 elif wt == QSpinBox:
@@ -415,20 +416,38 @@ class SettingsWindow(UniformScaleDialog):
                 hexcolor = hex(widget.currentColor().rgb()).replace('0xff', '#')
                 config.data[key1][key2] = hexcolor
         trigger_sounds_changed = False
-        if 'Buffs & Triggers' in self._visible_sections:
+        if 'Sounds' in self._visible_sections:
             custom_timers = config.data.get(
                 'spells', {}).get('custom_timers', [])
             for item_index, field_index, combo in self._trigger_sound_routes:
-                if item_index >= len(custom_timers):
-                    continue
-                item = custom_timers[item_index]
-                if not isinstance(item, list):
+                item = next((row for row in custom_timers
+                             if isinstance(row, list) and row and
+                             row[0] == combo._trigger_name), None)
+                if item is None:
                     continue
                 while len(item) <= field_index:
                     item.append('')
                 selected = str(combo.currentData() or '')
+                if selected == getattr(combo, '_saved_trigger_sound', selected):
+                    continue
                 if item[field_index] != selected:
                     item[field_index] = selected
+                    # Clearing a WAV must not fall through to legacy TTS.
+                    trigger = CustomTrigger(*item)
+                    setattr(trigger, {4: 'delivery', 19: 'timer_ending_delivery',
+                                      21: 'timer_ended_delivery'}[field_index],
+                            'sound' if selected else 'off')
+                    item[:] = trigger.to_list()
+                    trigger_sounds_changed = True
+            for name, mute in self._trigger_audio_mutes:
+                if mute.isChecked() == mute._saved_trigger_mute:
+                    continue
+                item = next((row for row in custom_timers
+                             if isinstance(row, list) and row and row[0] == name), None)
+                if item is not None:
+                    trigger = CustomTrigger(*item)
+                    trigger.audio_muted = mute.isChecked()
+                    item[:] = trigger.to_list()
                     trigger_sounds_changed = True
         if 'Sounds' in self._visible_sections:
             for route_key, delivery, picker in self._notification_route_widgets:
@@ -581,7 +600,7 @@ class SettingsWindow(UniformScaleDialog):
         for stacked_widget in self._widget_stack.findChildren(QFrame):
             for widget in stacked_widget.children():
                 wt = type(widget)
-                if wt == QCheckBox:
+                if wt == QCheckBox and ':' in widget.objectName():
                     key1, key2 = widget.objectName().split(':')
                     widget.setChecked(config.data[key1][key2])
                     if key1 == 'sharing' and key2 == 'player_name_override' \
@@ -620,11 +639,20 @@ class SettingsWindow(UniformScaleDialog):
                 widget.setCurrentColor(QColor(intcolor))
         custom_timers = config.data.get('spells', {}).get('custom_timers', [])
         for item_index, field_index, combo in self._trigger_sound_routes:
-            if (item_index < len(custom_timers) and
-                    isinstance(custom_timers[item_index], list) and
-                    field_index < len(custom_timers[item_index])):
+            item = next((row for row in custom_timers
+                         if isinstance(row, list) and row and
+                         row[0] == combo._trigger_name), None)
+            if item is not None and field_index < len(item):
                 set_sound_combo_value(
-                    combo, custom_timers[item_index][field_index])
+                    combo, item[field_index])
+                combo.setItemText(combo.findData(''), 'Off (no audio)')
+                combo._saved_trigger_sound = str(combo.currentData() or '')
+        for name, mute in self._trigger_audio_mutes:
+            row = next((item for item in custom_timers
+                        if isinstance(item, list) and item and item[0] == name), None)
+            value = CustomTrigger(*row).audio_muted if row is not None else False
+            mute.setChecked(value)
+            mute._saved_trigger_mute = value
         for route_key, delivery, picker in self._notification_route_widgets:
             values = normalized_route_settings(
                 config.data.get('sounds', {}).get('routes', {}).get(route_key),
@@ -922,12 +950,17 @@ class SettingsWindow(UniformScaleDialog):
         ssl.addRow('Triggers and timers', ssl_open_custom)
 
         ssl.addRow(SettingsHeader('FADING ALERTS'))
+        fade_note = QLabel(
+            'Choose the early beep and spoken stops below. Each plays once '
+            'per cast. Speech requires the Spell fading route to use Voice in Sounds.')
+        fade_note.setWordWrap(True)
+        ssl.addRow(fade_note)
         fade_enabled = QCheckBox()
         fade_enabled.setObjectName('spells:fade_sound_enabled')
         fade_enabled.setToolTip(
             'At the configured warning time, play one short sound cue and show '
             'the spell and target. If the fading route uses Voice, speak once '
-            'when five seconds remain.')
+            'at the Speak before fading stop (five seconds by default).')
         fade_enabled.setAccessibleName('Enable fading alerts')
         fade_enabled.setAccessibleDescription(fade_enabled.toolTip())
         self.fade_alerts_enabled = fade_enabled
@@ -950,12 +983,26 @@ class SettingsWindow(UniformScaleDialog):
         fade_warning.setObjectName('spells:fade_warning_seconds')
         fade_warning.setToolTip(
             'Sets when the yellow warning and early sound cue begin. If the '
-            'fading route uses Voice, speech waits until five seconds remain; '
+            'fading route uses Voice, speech uses the separate spoken stop; '
             'the final 20 seconds use the faster red critical warning.')
         fade_warning.setAccessibleName('Warn before fading')
         fade_warning.setAccessibleDescription(fade_warning.toolTip())
         self.fade_warning_seconds = fade_warning
         ssl.addRow('Warn before fading', fade_warning)
+        fade_voice_warning = QSpinBox()
+        fade_voice_warning.setRange(1, 600)
+        fade_voice_warning.setSuffix(' s')
+        fade_voice_warning.setObjectName('spells:fade_voice_warning_seconds')
+        fade_voice_warning.setAccessibleName('Speak before fading')
+        fade_voice_warning.setToolTip(
+            'Seconds remaining when the fading Voice speaks once (default 5). '
+            'Set the fading delivery to Voice in Sounds. Choose a lower stop '
+            'than Warn before fading to hear an early beep followed by speech. '
+            'A spoken stop at or above the early stop skips that early beep. '
+            'Sound/WAV and Off choices are respected.')
+        fade_voice_warning.setAccessibleDescription(fade_voice_warning.toolTip())
+        self.fade_voice_warning_seconds = fade_voice_warning
+        ssl.addRow('Speak before fading', fade_voice_warning)
         fade_volume = QSpinBox()
         fade_volume.setRange(0, 100)
         fade_volume.setSuffix('%')
@@ -1179,7 +1226,8 @@ class SettingsWindow(UniformScaleDialog):
                 self._notification_route_widgets[0][1])
         sound_sl.addRow('Test status', route_test_status)
 
-        def add_sound_route(label, object_name, default, volume, source):
+        def add_sound_route(label, object_name, default, volume, source,
+                            trigger_name):
             row = QHBoxLayout()
             row.setContentsMargins(0, 0, 0, 0)
             row.setSpacing(3)
@@ -1203,12 +1251,19 @@ class SettingsWindow(UniformScaleDialog):
             test.setIcon(game_icon('play'))
             test.setAccessibleName(f'Test {label} sound')
             test.setToolTip(f'Play the selected {label.casefold()} sound now')
-            test.clicked.connect(
-                lambda _checked=False, combo=combo, volume=volume,
-                source=source: play_alert(
-                    combo.currentData(), volume(), 1, source=source,
-                    channel='spells', allow_hidden=True)
-                if combo.currentData() else None)
+            def preview_sound():
+                mute = dict(self._trigger_audio_mutes).get(trigger_name)
+                if mute is not None and mute.isChecked():
+                    result = f'{label} test: this trigger is muted'
+                    route_test_status.setText(result)
+                    route_test_status.setAccessibleName(result)
+                    route_test_status.setVisible(True)
+                    return
+                if combo.currentData():
+                    play_alert(
+                        combo.currentData(), volume(), 1, source=source,
+                        channel='spells', allow_hidden=True)
+            test.clicked.connect(preview_sound)
             row.addWidget(test)
             sound_sl.addRow(label, row)
             self._notification_sound_combos.append(combo)
@@ -1243,9 +1298,35 @@ class SettingsWindow(UniformScaleDialog):
                 combo = add_sound_route(
                     f'{name} · {stage}', '', current,
                     lambda: self._fade_volume.value(),
-                    f'Test · {name} · {stage}')
+                    f'Test · {name} · {stage}', name)
                 self._trigger_sound_routes.append(
                     (item_index, field_index, combo))
+                combo._trigger_name = config.data['spells'][
+                    'custom_timers'][item_index][0]
+                combo._saved_trigger_sound = str(combo.currentData() or '')
+                combo.setItemText(combo.findData(''), 'Off (no audio)')
+        sound_sl.addRow(SettingsHeader('MUTE INDIVIDUAL TRIGGERS'))
+        mute_note = QLabel(
+            'Mute stops Sound/WAV and speech for this trigger, including timer '
+            'warnings. Detection and visual alerts stay on. Save to apply; '
+            'uncheck to restore its saved audio choices.')
+        mute_note.setWordWrap(True)
+        sound_sl.addRow(mute_note)
+        for item in config.data.get('spells', {}).get('custom_timers', []):
+            if not isinstance(item, list) or not item:
+                continue
+            trigger = CustomTrigger(*item)
+            mute = QCheckBox('Mute this trigger')
+            mute.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            mute.setAccessibleName(f'Mute this trigger: {trigger.name}')
+            mute.setAccessibleDescription(
+                'Silence all audio without disabling detection or visual alerts. '
+                'Save applies this setting; uncheck restores saved audio.')
+            mute.setToolTip(mute.accessibleDescription())
+            mute.setChecked(trigger.audio_muted)
+            mute._saved_trigger_mute = trigger.audio_muted
+            self._trigger_audio_mutes.append((trigger.name, mute))
+            sound_sl.addRow(trigger.name, mute)
         overrides = QLabel(
             'Every configured trigger sound action is listed above. Saved '
             'Smart Timers keep their own optional alarm in each timer editor.')
@@ -2191,6 +2272,17 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_enabled.toggled.connect(self._sync_trigger_enabled_text)
         trigger_layout.addRow('Status', self._trigger_enabled)
 
+        self._trigger_audio_muted = QCheckBox('Mute this trigger')
+        self._trigger_audio_muted.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._trigger_audio_muted.setAccessibleName('Mute this trigger audio')
+        self._trigger_audio_muted.setAccessibleDescription(
+            'Silence this trigger Sound/WAV and text-to-speech in all phases. '
+            'Detection, timers and visual alerts stay enabled. Save applies '
+            'the change; uncheck restores your saved audio choices.')
+        self._trigger_audio_muted.setToolTip(
+            self._trigger_audio_muted.accessibleDescription())
+        trigger_layout.addRow('Audio mute', self._trigger_audio_muted)
+
         self._test_trigger_button = QPushButton('Test trigger now')
         self._test_trigger_button.setIcon(game_icon('play'))
         self._test_trigger_button.setAccessibleName(
@@ -2377,11 +2469,8 @@ class CustomTriggerSettings(UniformScaleDialog):
             'Play the selected trigger sound at the configured trigger volume')
         trigger_sound_test.setAccessibleName('Test basic trigger sound')
         trigger_sound_test.clicked.connect(
-            lambda: play_alert(
-                self._trigger_sound.currentData(),
-                config.data['spells']['fade_sound_volume'], 1,
-                source="Test · trigger sound", channel='spells')
-            if self._trigger_sound.currentData() else None)
+            lambda: self._test_trigger_sound(
+                self._trigger_sound, 'Test · trigger sound'))
         trigger_sound_actions.addWidget(trigger_sound_test)
         trigger_sound_row.addWidget(trigger_sound_actions)
         self._trigger_timer_type = QComboBox()
@@ -2599,11 +2688,7 @@ class CustomTriggerSettings(UniformScaleDialog):
             test.setIcon(game_icon('play'))
             test.setToolTip('Play this stage sound at the configured volume')
             test.setAccessibleName(f'Test {label.casefold()} sound')
-            test.clicked.connect(lambda: play_alert(
-                combo.currentData(),
-                config.data['spells']['fade_sound_volume'], 1,
-                source=source, channel='spells')
-                if combo.currentData() else None)
+            test.clicked.connect(lambda: self._test_trigger_sound(combo, source))
             actions.addWidget(test)
             panel_layout.addWidget(actions)
             return panel
@@ -2832,7 +2917,8 @@ class CustomTriggerSettings(UniformScaleDialog):
                 f'Test · {name}', semantic, msecs=3500,
                 overlay_id=overlay_id, register=False)
 
-        mode = str(self._trigger_delivery.currentData() or 'off')
+        mode = ('off' if self._trigger_audio_muted.isChecked() else
+                str(self._trigger_delivery.currentData() or 'off'))
         if mode == 'sound':
             sound = str(self._trigger_sound.currentData() or '')
             played = bool(sound and play_alert(
@@ -2866,7 +2952,9 @@ class CustomTriggerSettings(UniformScaleDialog):
                 outcome = 'Text to speech queued' if played else \
                     'Windows voice unavailable'
         else:
-            outcome = 'audio Off; visual notification sent'
+            outcome = ('this trigger is muted; visual notification sent'
+                       if self._trigger_audio_muted.isChecked() else
+                       'audio Off; visual notification sent')
         return self._announce_trigger_test(f'Test status · {outcome}')
 
     @staticmethod
@@ -2886,7 +2974,9 @@ class CustomTriggerSettings(UniformScaleDialog):
             self, editor, interrupt, voice, volume, pitch, source, label,
             status):
         message = editor.text().strip()
-        if not message:
+        if self._trigger_audio_muted.isChecked():
+            result = f'{label} speech test: this trigger is muted'
+        elif not message:
             result = f'{label} speech test: enter a message first'
         elif audio_muted():
             result = f'{label} speech test: blocked by Master Mute'
@@ -2912,6 +3002,16 @@ class CustomTriggerSettings(UniformScaleDialog):
         except (AttributeError, RuntimeError, TypeError):
             pass
         return result
+
+    def _test_trigger_sound(self, combo, source):
+        if self._trigger_audio_muted.isChecked():
+            return self._announce_trigger_test(
+                'Test status · this trigger is muted')
+        if combo.currentData():
+            return play_alert(
+                combo.currentData(), config.data['spells']['fade_sound_volume'],
+                1, source=source, channel='spells', allow_hidden=True)
+        return self._announce_trigger_test('Test status · audio Off')
 
     def _timer_type_changed(self, *_):
         timer_type = self._trigger_timer_type.currentData()
@@ -3271,6 +3371,7 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_text.setText(trigger.text)
         self._trigger_time.setText(trigger.time)
         self._trigger_enabled.setChecked(trigger.enabled)
+        self._trigger_audio_muted.setChecked(trigger.audio_muted)
         self._trigger_regex.setChecked(trigger.regex)
         self._trigger_match_cooldown.setValue(
             trigger.match_cooldown_seconds)
@@ -3300,7 +3401,7 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_tts.setText(trigger.tts_text)
         self._trigger_interrupt_speech.setChecked(trigger.interrupt_speech)
         self._set_combo_data(
-            self._trigger_delivery, trigger.audio_delivery('basic'))
+            self._trigger_delivery, trigger.configured_audio_delivery('basic'))
         self._set_voice_combo(self._trigger_tts_voice, trigger.tts_voice)
         self._trigger_tts_volume.setValue(trigger.tts_volume)
         self._trigger_tts_pitch.setValue(trigger.tts_pitch)
@@ -3313,7 +3414,7 @@ class CustomTriggerSettings(UniformScaleDialog):
             trigger.timer_ending_interrupt)
         self._set_combo_data(
             self._trigger_ending_delivery,
-            trigger.audio_delivery('ending'))
+            trigger.configured_audio_delivery('ending'))
         self._set_voice_combo(
             self._trigger_ending_voice, trigger.timer_ending_voice)
         self._trigger_ending_volume.setValue(trigger.timer_ending_volume)
@@ -3325,7 +3426,7 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_ended_interrupt.setChecked(
             trigger.timer_ended_interrupt)
         self._set_combo_data(
-            self._trigger_ended_delivery, trigger.audio_delivery('ended'))
+            self._trigger_ended_delivery, trigger.configured_audio_delivery('ended'))
         self._set_voice_combo(
             self._trigger_ended_voice, trigger.timer_ended_voice)
         self._trigger_ended_volume.setValue(trigger.timer_ended_volume)
@@ -3418,7 +3519,7 @@ class CustomTriggerSettings(UniformScaleDialog):
                         self._trigger_text.text(),
                         self._trigger_time.text(),
                         self._trigger_zone.text().strip(),
-                        str(self._trigger_sound.currentData() or DEFAULT_SOUND),
+                        str(self._trigger_sound.currentData() or ''),
                         self._trigger_alert.text().strip(),
                         self._trigger_enabled.isChecked(),
                         self._trigger_regex.isChecked(),
@@ -3475,6 +3576,7 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_text.clear()
         self._trigger_time.clear()
         self._trigger_enabled.setChecked(True)
+        self._trigger_audio_muted.setChecked(False)
         self._trigger_regex.setChecked(False)
         self._trigger_match_cooldown.setValue(0.75)
         self._trigger_source.setText('Vantage')
@@ -3536,7 +3638,8 @@ class CustomTriggerSettings(UniformScaleDialog):
         trigger.zone = self._trigger_zone.text().strip()
         trigger.alert_text = self._trigger_alert.text().strip()
         trigger.text_color = self._trigger_color.value()
-        trigger.sound_path = str(self._trigger_sound.currentData() or DEFAULT_SOUND)
+        trigger.sound_path = str(self._trigger_sound.currentData() or '')
+        trigger.audio_muted = self._trigger_audio_muted.isChecked()
         trigger.category = (
             self._trigger_category.currentText().strip() or 'Default')
         trigger.profile = self._trigger_profile.text().strip()

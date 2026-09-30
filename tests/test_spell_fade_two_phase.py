@@ -195,5 +195,5 @@ def test_spell_fade_two_phase_delivery_matrix_and_worn_off_claims(tmp_path):
         'At the configured warning time, play one short sound cue')
     assert settings['warning_name'] == 'Warn before fading'
     assert 'early sound cue begin' in settings['warning_description']
-    assert 'speech waits until five seconds remain' in \
+    assert 'speech uses the separate spoken stop' in \
         settings['warning_description']
