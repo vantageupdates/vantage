@@ -1434,3 +1434,14 @@ independent accessibility review: PASS
   documents. FileVersion and ProductVersion are **1.44.117**. Candidate
   `Vantage.exe`: **75,835,529 bytes**, SHA-256
   `4252139FFD85DE604FCFED2FA8D03A59B42D091C7BA225A045748076B617CE3F`.
+- Public verification: stable, non-draft, non-prerelease
+  [v1.44.117](https://github.com/vantageupdates/vantage/releases/tag/v1.44.117)
+  resolves through its annotated tag to tested build commit
+  `6451379ae40f953926e3fd74138c63c5c8b96091` and contains exactly one asset,
+  `Vantage.exe`. GitHub reports **75,835,529 bytes** and digest
+  `sha256:4252139ffd85de604fcfed2fa8d03a59b42d091c7ba225a045748076b617ce3f`.
+  A fresh unauthenticated public download matched the candidate byte-for-byte,
+  independently reported FileVersion/ProductVersion **1.44.117**, and passed
+  the isolated portable self-test with exit **0**. The installed executable,
+  live profile, EverQuest, WinEQ, and the user's running Vantage processes were
+  not replaced or stopped.

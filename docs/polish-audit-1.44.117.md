@@ -19,7 +19,12 @@ The bounded release fixes are:
 - a truthful Market verification failure with a safe Refresh action; and
 - a compact mobile EQ-style item sheet with complete common stats, data-backed
   flags/restrictions, linked effects/drops/quests, a secondary market reference,
-  and a collapsed original-text fallback.
+  and a collapsed original-text fallback;
+- generic own-message Smart Timer keyword actions, including safe Create timer;
+- an early fading sound cue with exact spell/recipient speech at five seconds;
+  and
+- reversible Character UI layout copy with explicit source/target/backup
+  preview and a truthful installed-versus-available VantageUI audit.
 
 ## Visual evidence
 
@@ -71,9 +76,14 @@ PigParse prices available, and offers Refresh to retry both sources.
   a slow Jade Mace request was closed, Golden Efreeti Boots loaded, and the late
   Jade response did not replace Golden.
 
-Final independent accessibility review, complete suite, build, portable
-self-test, and public artifact verification are recorded in `design-qa.md` when
-the release candidate is frozen.
+Independent scoped reviews approved the mobile/polish, spell fading, Timer
+keyword, and Character UI candidates. The final combined suite passed
+**1,666 tests with 2 expected platform skips in 943.13 seconds**. The one-file
+candidate and a fresh public download both passed the isolated portable
+self-test and reported **1.44.117**. Public `Vantage.exe` is **75,835,529
+bytes**, SHA-256
+`4252139FFD85DE604FCFED2FA8D03A59B42D091C7BA225A045748076B617CE3F`.
+Full release evidence is recorded in `design-qa.md`.
 
 ## Limits
 
