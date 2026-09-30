@@ -63,7 +63,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=118,
+    patch=119,
     build=""
 )
 
@@ -1850,15 +1850,11 @@ class VantageApp(QApplication):
         return True
 
     def start_vantage_ui_update(self):
-        """Open VantageUI, then use its normal verified confirmation flow."""
+        """Open VantageUI and start its one-click verified install/update."""
         panel = self._parsers_dict.get("vantage_ui")
         if panel is None or not self.open_vantage_ui():
             return False
-        snapshot = panel.update_snapshot()
-        if snapshot.get("busy"):
-            return False
-        QTimer.singleShot(0, panel.update_skin)
-        return True
+        return panel.install_or_update()
 
     def new_version_available(self):
         latest = getattr(self, '_update_controller', None)

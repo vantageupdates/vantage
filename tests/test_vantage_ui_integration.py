@@ -920,9 +920,7 @@ def test_fresh_install_button_checks_then_continues_verified_flow(
     release = SimpleNamespace(version="1.44.51")
     panel._operation_completed(
         panel._operation_token, "check", (release, "", ""))
-    assert confirmations[0][0] == "Install VantageUI"
-    assert confirmations[0][1].startswith(
-        "Install verified release files in uifiles\\VantageUI-v1.44.51")
+    assert confirmations == []
     assert installs == [release]
 
 
@@ -948,7 +946,7 @@ def test_fresh_install_check_defers_confirmation_when_focus_leaves(
     monkeypatch.setattr(
         panel, "_confirm",
         lambda *_args: confirmations.append(True) or True)
-    panel.update_button.click()
+    panel.update_skin(confirm=True)
     assert panel._install_after_check is True
 
     external = QLineEdit()
@@ -998,16 +996,15 @@ def test_primary_action_keeps_native_keyboard_order_and_activation(panel):
     app = QApplication.instance()
     panel.show()
     app.processEvents()
-    assert panel.check_button.nextInFocusChain() is panel.update_button
-    assert panel.update_button.nextInFocusChain() is panel.restore_button
+    assert panel.update_button.nextInFocusChain() is panel.check_button
     def next_focusable(control):
         candidate = control.nextInFocusChain()
         while candidate.focusPolicy() == Qt.FocusPolicy.NoFocus:
             candidate = candidate.nextInFocusChain()
         return candidate
 
-    assert next_focusable(panel.browse_button) is panel.target_value
-    assert next_focusable(panel.target_value) is panel.check_button
+    assert next_focusable(panel.browse_button) is panel.update_button
+    assert next_focusable(panel.options_button) is panel.target_value
     assert panel.target_value.focusPolicy() == Qt.FocusPolicy.StrongFocus
     assert panel.update_button.focusPolicy() != Qt.FocusPolicy.NoFocus
     activated = []
@@ -1211,6 +1208,7 @@ def test_progress_announces_stage_changes_and_quarter_milestones_once(
 
 
 def test_success_preserves_current_enabled_focus(panel, monkeypatch):
+    panel.options_button.setChecked(True)
     class DormantThread:
         def __init__(self, *args, **kwargs):
             pass
@@ -1224,16 +1222,19 @@ def test_success_preserves_current_enabled_focus(panel, monkeypatch):
     panel.check_button.setFocus(Qt.FocusReason.OtherFocusReason)
     assert panel._start(
         "local", lambda *_args: ("", ""), "Reading local state")
+    fallback = panel._surface.focusWidget()
+    assert fallback.isEnabled()
     panel._operation_completed(panel._operation_token, "local", ("", ""))
     QApplication.processEvents()
     QApplication.processEvents()
     assert panel.update_button.isEnabled()
-    assert panel._surface.focusWidget() is panel.log
-    assert panel.log.hasFocus()
+    assert panel._surface.focusWidget() is fallback
+    assert fallback.hasFocus()
 
 
 def test_non_permission_failure_preserves_current_enabled_focus(
         panel, monkeypatch):
+    panel.options_button.setChecked(True)
     class DormantThread:
         def __init__(self, *args, **kwargs):
             pass
@@ -1246,13 +1247,15 @@ def test_non_permission_failure_preserves_current_enabled_focus(
     QApplication.processEvents()
     panel.check_button.setFocus(Qt.FocusReason.OtherFocusReason)
     assert panel._start("check", lambda *_args: None, "Checking")
+    fallback = panel._surface.focusWidget()
+    assert fallback.isEnabled()
     panel._operation_failed(
         panel._operation_token, "check", RuntimeError("network unavailable"))
     QApplication.processEvents()
     QApplication.processEvents()
     assert panel.check_button.isEnabled()
-    assert panel._surface.focusWidget() is panel.log
-    assert panel.log.hasFocus()
+    assert panel._surface.focusWidget() is fallback
+    assert fallback.hasFocus()
 
 
 def test_background_check_completion_never_activates_or_moves_focus(
@@ -1369,6 +1372,7 @@ def test_background_heartbeat_is_silent_but_manual_check_announces(
 
 
 def test_completion_preserves_focus_when_user_moves_to_log(panel, monkeypatch):
+    panel.options_button.setChecked(True)
     class DormantThread:
         def __init__(self, *args, **kwargs):
             pass
@@ -1571,3 +1575,179 @@ app.quit()
     assert result == {
         "label": "VantageUI", "opened": True, "closed": True,
         "tray_registered": True}
+
+
+def test_simple_panel_hides_advanced_controls_but_keeps_them_available(panel):
+    panel.show()
+    QApplication.processEvents()
+    assert panel.update_button.isVisibleTo(panel)
+    assert panel.update_button.objectName() == "PrimaryAction"
+    assert panel.options_card.isHidden()
+    assert not panel.restore_button.isVisibleTo(panel)
+    assert not panel.character_ui_button.isVisibleTo(panel)
+    assert not panel.log.isVisibleTo(panel)
+    panel.options_button.click()
+    assert panel.options_card.isVisibleTo(panel)
+    assert panel.restore_button.isVisibleTo(panel)
+    assert panel.character_ui_button.isVisibleTo(panel)
+    assert panel.log.isVisibleTo(panel)
+    assert "expanded" in panel.options_button.accessibleDescription()
+    panel.options_button.click()
+    assert panel.options_card.isHidden()
+
+
+def test_one_click_known_release_does_not_show_second_confirmation(
+        panel, monkeypatch):
+    release = SimpleNamespace(version="3.0.0")
+    panel._release = release
+    panel._installed = "2.0.0"
+    monkeypatch.setattr(
+        panel, "_confirm", lambda *_args: pytest.fail("unexpected second dialog"))
+    calls = []
+    monkeypatch.setattr(panel, "_install_release", lambda item: calls.append(item) or True)
+    assert panel.install_or_update()
+    assert calls == [release]
+    assert panel._install_action == "update"
+
+
+def test_one_click_check_continues_without_stealing_external_focus(
+        panel, monkeypatch):
+    class DormantThread:
+        def __init__(self, *args, **kwargs):
+            pass
+        def start(self):
+            pass
+
+    monkeypatch.setattr(vantage_ui_module.threading, "Thread", DormantThread)
+    monkeypatch.setattr(
+        panel, "_confirm", lambda *_args: pytest.fail("unexpected second dialog"))
+    panel.show()
+    panel.activateWindow()
+    QApplication.processEvents()
+    panel.update_button.setFocus()
+    assert panel.install_or_update()
+    token = panel._operation_token
+    external = QLineEdit()
+    external.show()
+    external.activateWindow()
+    external.setFocus()
+    QApplication.processEvents()
+    try:
+        panel._operation_completed(
+            token, "check", (SimpleNamespace(version="3.0.0"), "", ""))
+        QApplication.processEvents()
+        assert panel._busy
+        assert panel._active_action == "update"
+        assert panel._operation_token == token + 1
+        assert QApplication.focusWidget() is external
+    finally:
+        external.close()
+
+
+def test_one_click_failed_check_never_installs(panel, monkeypatch):
+    monkeypatch.setattr(panel, "check_for_updates", lambda: True)
+    assert panel.install_or_update()
+    monkeypatch.setattr(
+        panel, "_install_release", lambda *_args: pytest.fail("install after failed check"))
+    panel._operation_failed(panel._operation_token, "check", RuntimeError("offline"))
+    assert not panel._install_after_check
+    assert panel.update_button.isEnabled()
+    assert "offline" in panel.status.text()
+
+
+def test_reload_card_appears_after_success_and_hides_during_operation(panel):
+    assert panel.reload_card.isHidden()
+    panel._operation_completed(
+        panel._operation_token, "update",
+        ui_skin_updater.InstallResult("3.0.0", 5, "installed", "VantageUI-v3.0.0"))
+    assert not panel.reload_card.isHidden()
+    assert "/loadskin VantageUI-v3.0.0 1" in panel.instruction.text()
+    assert panel.copy_command_button.isEnabled()
+    panel._busy = True
+    panel._active_action = "update"
+    panel._refresh_controls()
+    assert panel.reload_card.isHidden()
+    assert not panel.copy_command_button.isEnabled()
+
+
+def test_old_loadskin_command_does_not_compete_with_available_update(panel):
+    panel._installed = "2.0.0"
+    panel._installed_folder = "VantageUI-v2.0.0"
+    panel._release = SimpleNamespace(version="3.0.0")
+    panel._refresh_controls()
+    assert panel.reload_card.isHidden()
+    assert panel.update_button.isEnabled()
+
+
+def test_unchanged_path_does_not_reset_known_release_or_start_worker(panel, monkeypatch):
+    release = SimpleNamespace(version="3.0.0")
+    panel._release = release
+    panel._installed = "2.0.0"
+    monkeypatch.setattr(panel, "refresh_local", lambda: pytest.fail("unneeded folder read"))
+    panel._path_edited()
+    assert panel._release is release
+    assert panel._installed == "2.0.0"
+
+
+def test_changed_path_is_saved_without_consuming_install_click(panel, tmp_path, monkeypatch):
+    root = str(tmp_path / "EverQuest")
+    panel.path_edit.setText(root)
+    panel._release = SimpleNamespace(version="3.0.0")
+    monkeypatch.setattr(panel, "refresh_local", lambda: pytest.fail("extra folder worker"))
+    panel._path_edited()
+    assert not panel._busy
+    assert panel._release is None
+    assert config.data["vantage_ui"]["eq_dir"] == root
+    checks = []
+    monkeypatch.setattr(panel, "check_for_updates", lambda: checks.append(True) or True)
+    assert panel.install_or_update()
+    assert checks == [True]
+
+
+def test_updates_action_opens_panel_and_continues_local_check_then_install(
+        panel, monkeypatch):
+    from vantage.helpers.application import VantageApp
+
+    class DormantThread:
+        def __init__(self, *args, **kwargs):
+            pass
+        def start(self):
+            pass
+
+    monkeypatch.setattr(vantage_ui_module.threading, "Thread", DormantThread)
+    monkeypatch.setattr(
+        panel, "_confirm", lambda *_args: pytest.fail("unexpected second dialog"))
+    shim = SimpleNamespace(_parsers_dict={"vantage_ui": panel})
+    shim.open_vantage_ui = lambda: VantageApp.open_vantage_ui(shim)
+    assert VantageApp.start_vantage_ui_update(shim)
+    assert panel._active_action == "local"
+    assert panel._install_after_local
+    panel._operation_completed(panel._operation_token, "local", ("", ""))
+    assert not panel._install_after_local
+    assert panel._active_action == "check"
+    assert panel._install_after_check
+    panel._operation_completed(
+        panel._operation_token, "check",
+        (SimpleNamespace(version="3.0.0"), "", ""))
+    assert panel._active_action == "update"
+    assert panel._busy
+
+
+def test_local_recovery_failure_cancels_queued_one_click_install(panel, monkeypatch):
+    panel._busy = True
+    panel._active_action = "local"
+    assert panel.install_or_update()
+    assert panel._install_after_local
+    panel._operation_failed(panel._operation_token, "local", RuntimeError("invalid journal"))
+    assert not panel._install_after_local
+    monkeypatch.setattr(panel, "install_or_update", lambda: pytest.fail("retry without consent"))
+    panel._operation_completed(panel._operation_token, "local", ("", ""))
+    assert not panel._busy
+
+
+def test_one_click_does_not_queue_duplicate_running_install(panel):
+    panel._busy = True
+    panel._active_action = "update"
+    assert panel.install_or_update() is False
+    assert not panel._install_after_local
+    assert not panel._install_after_check

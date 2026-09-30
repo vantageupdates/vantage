@@ -1239,6 +1239,20 @@ QWidget[ResponsiveViewport="true"], QWidget[ResponsivePage="true"] {
     font-size: 9px;
     font-weight: 800;
 }
+
+#VantageUIOptionsScroll, #VantageUIOptionsScroll > QWidget,
+#VantageUIBody {
+    background-color: #0C0E11;
+    border: none;
+}
+#VantageUICard {
+    background-color: #101419;
+    border: 1px solid #2D3238;
+    border-radius: 6px;
+}
+#VantageUIIntro { color: #D8D4CC; }
+#VantageUIScope { color: #B5B0A6; font-size: 11px; }
+#VantageUIStatus { color: #D7BD80; }
 #QuickBarNotificationHistoryButton {
     background-color: #11181D;
     border: none;

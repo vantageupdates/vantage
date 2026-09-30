@@ -1,5 +1,36 @@
 # Vantage Companion 1.44.102 design QA
 
+## 1.44.119: simpler VantageUI updates
+
+- Applied Qt progressive disclosure to the Companion-only integration:
+  highlighted Install / Update, visible path and versions, opt-in automatic
+  updates, progress, and a completion /loadskin card. Restore, layouts,
+  versioned paths, and logs remain available under More options.
+- Eight isolated captures cover install, available update, completion, and
+  expanded options at 620×480 and 420×500. Corrected the new scroll area's
+  default light background, a long-path minimum-width overflow, a truncated
+  folder field, and unsupported disclosure glyphs. Evidence is in
+  `work/vantageui-simple-1.44.119/`.
+- Native keyboard order leads with the main action. Hidden controls leave
+  the normal tab path; expanded options retain native focusability and
+  accessible names. Existing progress announcements and external-focus
+  preservation are covered. No live screen-reader or in-game rendering claim.
+- Focused integration/Updates/heartbeat checks: 63 passed. The one-click action
+  survives the opening local-read race; failures clear it and duplicate
+  running installs are not queued. Folder editing no longer drops the click.
+- Single-file final candidate reports 1.44.119 and passed isolated portable
+  self-test (exit 0). Frozen-code checks confirm the new action, local-read
+  continuation, shared verified installer, options, theme, and 20 WAVs.
+- Skin, core updater, standalone updater, and profile helper are unchanged;
+  their existing safety and Windows permission flows remain. VantageUI chat
+  retains authority. Public ready UI 1.44.94 was verified independently.
+- Full suite: **1,697 passed, 2 platform skips, 839.24 seconds**. Candidate is
+  **75,841,487 bytes**, SHA-256
+  `06FD737B4BE804DE318B477CED8A3DEB984B79057EC29E827556A18D31BF766A`.
+  Final draft metadata is recorded in `docs/vantageui-simple-1.44.119.md`. Publication
+  remains pending the previous execution restriction; this is not yet an
+  update available to installed users.
+
 release verification: pending
 
 independent accessibility review: PASS
