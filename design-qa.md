@@ -1540,3 +1540,27 @@ independent accessibility review: PASS
   confirm `v1.44.120`. The subsequent combined fresh public binary download /
   self-test operation was rejected before execution; those extra verification
   steps remain incomplete and were not retried through an alternative route.
+
+## 1.44.121 My raids alt groups
+
+- Recorded attendance adds a compact Manage alts editor, Add/Remove, Save/Cancel,
+  an explicit Include alts checkbox, and a Characters column. Groups and the
+  inclusion preference persist separately for each guild. The selected main
+  is always included; duplicate identities never issue duplicate requests.
+- Qt design guidance informed the visible editable list, written partial/retry
+  feedback, keyboard names/help, and narrow-window table scrolling. The themed
+  workspace was inspected at 1000×580 and 520×580; the editor at 440×360.
+  No physical screen-reader or OS-large-font testing is claimed.
+- Stable raid IDs and shared tick IDs are counted once. Unknown/conflicting
+  awards remain unknown. At most two character histories load concurrently;
+  failed members preserve successful results and stale responses are rejected.
+- Live read-only Castle verification for Mindflux, Wildflux, Fistflux and
+  Spiritflux: **39 unique raids / 53 unique ticks** over 90 days. These names
+  are fixtures, not production defaults or edits to the user's live profile.
+- Focused tests **70 passed**. Complete final suite **1,726 passed, 2 skipped,
+  798.78 seconds**. Details: `docs/raid-alts-1.44.121.md`.
+- Portable candidate **1.44.121**, **75,862,610 bytes**, SHA-256
+  `B5FA6C38C735A9EBB09849B6B13FC58C84014000F772429A3226F58CE75F7617`.
+  Isolated self-test exit **0**; frozen editor, saved preferences, bounded
+  lookup queue, union and pooled raid-DKP detail verified. VantageUI and user
+  installations/game processes remain untouched. Publication checks pending.

@@ -10,6 +10,7 @@ import tempfile
 from datetime import datetime, timezone
 
 from vantage.helpers.trigger_groups import normalize_trigger_groups
+from vantage.helpers.raid_attendance import sanitize_attendance_alts
 from vantage.helpers.quickbar_items import QUICKBAR_ITEM_KEYS
 from vantage.helpers.timer_sync import sanitize_timer_sync_meta
 from vantage.helpers.timer_keywords import normalize_keyword_rules
@@ -1605,6 +1606,8 @@ def verify_settings():
             'username': ' '.join(str(
                 raw_profile.get('username') or '').split())[:160],
             'watch_items': watches[:64],
+            'attendance_alts': sanitize_attendance_alts(raw_profile.get('attendance_alts', [])),
+            'attendance_include_alts': bool(raw_profile.get('attendance_include_alts', True)),
         })
     data['opendkp']['guilds'] = guilds[:12]
     active_guild = str(

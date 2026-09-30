@@ -15,9 +15,9 @@ from PySide6.QtCore import QDate, QObject, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent, QColor
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QComboBox, QDateEdit, QDialog, QDialogButtonBox,
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QDateEdit, QDialog, QDialogButtonBox,
     QFormLayout, QFrame, QGridLayout, QGroupBox, QHeaderView, QLabel, QLineEdit,
-    QListWidget, QMessageBox, QProgressBar, QPushButton, QSpinBox, QSplitter,
+    QListWidget, QListWidgetItem, QMessageBox, QProgressBar, QPushButton, QSpinBox, QSplitter,
     QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout, QHBoxLayout,
     QToolButton, QWidget)
 
@@ -37,6 +37,8 @@ from vantage.helpers.raid_ledger import (
     parse_timestamp, raid_time_matches, remote_raid_id, remote_raid_name,
     remote_raid_timestamp,
     remote_tick_evidence, character_raid_attendance)
+from vantage.helpers.raid_attendance import (
+    sanitize_attendance_alts, pool_raid_attendance, pooled_tick_evidence)
 from vantage.helpers.responsive import (
     ensure_tab_tooltips, ensure_table_header_tooltips)
 
@@ -1168,6 +1170,9 @@ class OpenDKP(ParserWindow):
         self._attendance_token = ""
         self._attendance_slug = ""
         self._attendance_page = 0
+        self._attendance_alts = []
+        self._attendance_pending = set()
+        self._attendance_inflight = set()
         page = QWidget()
         layout = QVBoxLayout(page)
         help_text = QLabel(
@@ -1186,6 +1191,21 @@ class OpenDKP(ParserWindow):
         self.attendance_character.currentIndexChanged.connect(self._invalidate_attendance)
         self.attendance_character.editTextChanged.connect(self._invalidate_attendance)
         form.addRow("Character", self.attendance_character)
+        alt_row = QHBoxLayout()
+        self.attendance_include_alts = QCheckBox("Include alts")
+        self.attendance_include_alts.setChecked(True)
+        self.attendance_include_alts.setToolTip("Combine this character and the saved alts; shared raids and ticks count once")
+        self.attendance_include_alts.setAccessibleName("Include saved alts in raid attendance")
+        self.attendance_include_alts.toggled.connect(self._attendance_alt_mode_changed)
+        self.attendance_alt_summary = QLabel("No alts added")
+        self.attendance_alt_summary.setWordWrap(True)
+        self.attendance_alt_button = self._make_button(
+            "Manage alts…", "add", self._edit_attendance_alts,
+            "Add or remove guild characters from your saved attendance group")
+        alt_row.addWidget(self.attendance_include_alts)
+        alt_row.addWidget(self.attendance_alt_summary, 1)
+        alt_row.addWidget(self.attendance_alt_button)
+        form.addRow("Alt group", alt_row)
         dates = QHBoxLayout()
         self.attendance_from = QDateEdit(QDate.currentDate().addDays(-90))
         self.attendance_to = QDateEdit(QDate.currentDate())
@@ -1213,10 +1233,10 @@ class OpenDKP(ParserWindow):
         self.attendance_status.setWordWrap(True)
         layout.addWidget(self.attendance_status)
         self.attendance_table = self._table(
-            ("Date", "Raid / event", "Pool", "Attended ticks", "Awarded DKP"),
+            ("Date", "Raid / event", "Pool", "Attended ticks", "Awarded DKP", "Characters"),
             "Recorded OpenDKP attendance", (0, Qt.SortOrder.DescendingOrder))
         self.attendance_table.horizontalHeader().setStretchLastSection(False)
-        for column, width in enumerate((185, 350, 80, 110, 110)):
+        for column, width in enumerate((185, 320, 80, 110, 110, 210)):
             self.attendance_table.setColumnWidth(column, width)
         layout.addWidget(self.attendance_table, 1)
         self.attendance_detail = self._make_button(
@@ -1239,6 +1259,102 @@ class OpenDKP(ParserWindow):
         self.raid_workspace_tabs.setCurrentWidget(page)
         self._render_attendance()
 
+    def _attendance_alt_mode_changed(self, *_args):
+        self._save_profile(attendance_include_alts=self.attendance_include_alts.isChecked())
+        self._invalidate_attendance()
+
+    def _restore_attendance_alts(self):
+        profile = self._profile() or {}
+        self._attendance_alts = sanitize_attendance_alts(profile.get("attendance_alts", []))
+        self.attendance_include_alts.blockSignals(True)
+        self.attendance_include_alts.setChecked(profile.get("attendance_include_alts", True))
+        self.attendance_include_alts.blockSignals(False)
+        self._update_attendance_alt_summary()
+
+    def _update_attendance_alt_summary(self):
+        text = ", ".join(alt["name"] for alt in self._attendance_alts) or "No alts added"
+        self.attendance_alt_summary.setText(text)
+        self.attendance_alt_summary.setToolTip(text)
+
+    def _edit_attendance_alts(self):
+        if not self.client.slug or not any(self.attendance_character.itemData(i)
+                                           for i in range(self.attendance_character.count())):
+            self.attendance_status.setText("Load a guild's character directory before adding alts.")
+            return False
+        dialog = QDialog(self)
+        dialog.setWindowTitle("My raid alts")
+        dialog.resize(440, 360)
+        layout = QVBoxLayout(dialog)
+        help_text = QLabel("Saved for this guild. Shared raids and tick IDs count once, even when several alts attended.")
+        help_text.setWordWrap(True)
+        layout.addWidget(help_text)
+        chooser = QComboBox()
+        chooser.setEditable(True)
+        chooser.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        chooser.setAccessibleName("Choose an alt character")
+        chooser.setToolTip("Choose or type an exact character from this guild's directory")
+        chooser.lineEdit().setToolTip(chooser.toolTip())
+        chooser.lineEdit().setAccessibleName("Type an alt character name")
+        for index in range(self.attendance_character.count()):
+            if self.attendance_character.itemData(index):
+                chooser.addItem(self.attendance_character.itemText(index), self.attendance_character.itemData(index))
+        layout.addWidget(chooser)
+        saved = QListWidget()
+        saved.setAccessibleName("Saved raid alts")
+        saved.setToolTip("Select an alt to remove it from the group")
+        for alt in self._attendance_alts:
+            item = QListWidgetItem(alt["name"])
+            item.setData(Qt.ItemDataRole.UserRole, alt["character_id"])
+            saved.addItem(item)
+        layout.addWidget(saved, 1)
+        feedback = QLabel("Choose a character, then Add alt.")
+        feedback.setWordWrap(True)
+        layout.addWidget(feedback)
+        actions = QHBoxLayout()
+        add = QPushButton("Add alt")
+        remove = QPushButton("Remove selected")
+        add.setToolTip("Add the chosen character; duplicates are ignored")
+        remove.setToolTip("Remove the selected character from this local saved group")
+
+        def add_alt():
+            index = next((i for i in range(chooser.count()) if chooser.itemText(i).casefold() ==
+                          chooser.currentText().strip().casefold()), -1)
+            char_id = chooser.itemData(index) if index >= 0 else None
+            if not char_id:
+                feedback.setText("Choose an exact character from the guild directory.")
+            elif any(saved.item(i).data(Qt.ItemDataRole.UserRole) == char_id for i in range(saved.count())):
+                feedback.setText("That character is already in the group.")
+            elif saved.count() >= 24:
+                feedback.setText("A group can contain up to 24 saved alts.")
+            else:
+                item = QListWidgetItem(chooser.itemText(index))
+                item.setData(Qt.ItemDataRole.UserRole, char_id)
+                saved.addItem(item)
+                feedback.setText(f"Added {item.text()}. Choose Save to keep changes.")
+
+        def remove_alt():
+            item = saved.takeItem(saved.currentRow()) if saved.currentRow() >= 0 else None
+            feedback.setText(f"Removed {item.text()}. Choose Save to keep changes." if item else "Select an alt to remove.")
+
+        add.clicked.connect(add_alt)
+        remove.clicked.connect(remove_alt)
+        actions.addWidget(add)
+        actions.addWidget(remove)
+        layout.addLayout(actions)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return False
+        self._attendance_alts = sanitize_attendance_alts([
+            {"character_id": saved.item(i).data(Qt.ItemDataRole.UserRole), "name": saved.item(i).text()}
+            for i in range(saved.count())])
+        self._save_profile(attendance_alts=self._attendance_alts)
+        self._update_attendance_alt_summary()
+        self._invalidate_attendance()
+        return True
+
     def _check_attendance_detail(self):
         items = self.attendance_table.selectedItems()
         raid = self.attendance_table.item(items[0].row(), 0).data(Qt.ItemDataRole.UserRole) if items else None
@@ -1251,6 +1367,8 @@ class OpenDKP(ParserWindow):
     def _invalidate_attendance(self, *_args):
         self._attendance_token = ""
         self._attendance_rows = []
+        self._attendance_pending = set()
+        self._attendance_inflight = set()
         self.attendance_search.setEnabled(True)
         self.attendance_status.setText("Choose a guild character and search attendance.")
         self._filter_attendance()
@@ -1274,23 +1392,92 @@ class OpenDKP(ParserWindow):
         self._attendance_slug = self.client.slug
         self._attendance_range = (start.toPython(), end.toPython())
         self._attendance_name = self.attendance_character.itemText(index)
+        members = {char_id: self._attendance_name}
+        if self.attendance_include_alts.isChecked():
+            directory = {self.attendance_character.itemData(i): self.attendance_character.itemText(i)
+                         for i in range(self.attendance_character.count()) if self.attendance_character.itemData(i)}
+            for alt in self._attendance_alts:
+                if alt["character_id"] not in directory:
+                    self.attendance_status.setText(f"{alt['name']} is not in this guild's loaded directory. Update Manage alts and try again.")
+                    self._attendance_token = ""
+                    return False
+                members[alt["character_id"]] = directory[alt["character_id"]]
+        self._attendance_members = members
+        self._attendance_days = days
+        self._attendance_data = {}
+        self._attendance_failures = []
+        self._attendance_unknown = 0
+        self._attendance_queue = list(members)
+        self._attendance_pending = set(members)
+        self._attendance_inflight = set()
         self.attendance_search.setEnabled(False)
-        self.attendance_status.setText(f"Loading recorded attendance for {self._attendance_name}…")
-        return self.client.fetch_attendance(char_id, days, self._attendance_token)
+        self._pump_attendance()
+        return True
 
-    def _receive_attendance(self, payload):
+    def _pump_attendance(self):
+        while self._attendance_queue and len(self._attendance_inflight) < 2:
+            char_id = self._attendance_queue.pop(0)
+            self._attendance_inflight.add(char_id)
+            args = (char_id, self._attendance_days, self._attendance_token)
+            if len(self._attendance_members) > 1:
+                args += (True,)
+            if not self.client.fetch_attendance(*args):
+                self._settle_attendance(char_id, "Request could not start")
+        self._update_attendance_result_status()
+
+    def _attendance_request_member(self, operation):
+        parts = operation.split("|", 2)
+        if (parts[1] != self._attendance_token or not self._attendance_token or
+                self._attendance_slug != self.client.slug):
+            return None
+        if len(parts) == 2:
+            return next(iter(self._attendance_pending), None) if len(self._attendance_members) == 1 else None
+        try:
+            char_id = int(parts[2])
+        except ValueError:
+            return None
+        return char_id if char_id in self._attendance_inflight else None
+
+    def _settle_attendance(self, char_id, error=""):
+        self._attendance_pending.discard(char_id)
+        self._attendance_inflight.discard(char_id)
+        if error:
+            self._attendance_failures.append(f"{self._attendance_members[char_id]} ({error})")
+        self._attendance_rows = pool_raid_attendance({
+            self._attendance_members[member_id]: rows for member_id, rows in self._attendance_data.items()})
+        self._filter_attendance()
+        self._pump_attendance()
+
+    def _update_attendance_result_status(self):
+        self.attendance_search.setEnabled(not self._attendance_pending)
+        if self._attendance_pending:
+            complete = len(self._attendance_members) - len(self._attendance_pending)
+            text = f"Loading attendance: {complete}/{len(self._attendance_members)} characters complete · {len(self._attendance_rows)} raids so far…"
+        else:
+            ticks = sum(raid.get("_attendance_tick_count") or 0 for raid in self._attendance_rows)
+            label = self._attendance_name if len(self._attendance_members) == 1 else f"{len(self._attendance_members)} characters"
+            text = f"{label}: {len(self._attendance_rows):,} attended raids · {ticks:,} unique ticks."
+            if any(raid.get("_attendance_tick_count") is None for raid in self._attendance_rows):
+                text += " Some tick IDs were missing; those unique totals are unknown."
+        if self._attendance_unknown:
+            text += f" {self._attendance_unknown:,} records had no attendance evidence and were not counted."
+        if self._attendance_failures:
+            text += " Partial results; attendance unavailable: " + "; ".join(self._attendance_failures) + ". Try Search attendance again."
+        self.attendance_status.setText(text)
+
+    def _receive_attendance(self, payload, char_id):
         rows = rows_from_payload(payload, "Raids", "Models")
         if not isinstance(payload, list) and not (
                 isinstance(payload, dict) and any(isinstance(payload.get(key), list)
                                                   for key in ("Raids", "Models"))):
-            self.attendance_status.setText("Attendance response unavailable. Try Search attendance again.")
+            self._settle_attendance(char_id, "response unavailable")
             return
-        unknown = 0
+        filtered = []
         seen = set()
         for raid in rows:
             count, amount = character_raid_attendance(raid)
             if count is None:
-                unknown += 1
+                self._attendance_unknown += 1
                 continue
             stamp = remote_raid_timestamp(raid)
             if not count or stamp is None or not (
@@ -1300,13 +1487,9 @@ class OpenDKP(ParserWindow):
             if marker in seen:
                 continue
             seen.add(marker)
-            self._attendance_rows.append(raid)
-        ticks = sum(character_raid_attendance(raid)[0] for raid in self._attendance_rows)
-        text = f"{self._attendance_name}: {len(self._attendance_rows):,} attended raids · {ticks:,} ticks."
-        if unknown:
-            text += f" {unknown:,} records had no attendance evidence and were not counted."
-        self.attendance_status.setText(text)
-        self._filter_attendance()
+            filtered.append(raid)
+        self._attendance_data[char_id] = filtered
+        self._settle_attendance(char_id)
 
     def _filter_attendance(self, *_args):
         self._attendance_page = 0
@@ -1322,6 +1505,7 @@ class OpenDKP(ParserWindow):
         rows = [raid for raid in rows if query in " ".join((
             str(raid.get("Timestamp") or ""), remote_raid_name(raid),
             str(raid.get("PoolName") or ""), remote_raid_id(raid),
+            " ".join(raid.get("_attendance_members", {})),
             _date_text(raid.get("Timestamp")))).casefold()]
         pages = max(1, (len(rows) + 249) // 250)
         self._attendance_page = min(self._attendance_page, pages - 1)
@@ -1329,16 +1513,19 @@ class OpenDKP(ParserWindow):
         cells = []
         for raid in rows[start:start + 250]:
             count, amount = character_raid_attendance(raid)
+            count = raid.get("_attendance_tick_count", count)
             amount = raid.get("_attendance_dkp", amount)
             cells.append((_date_cell(raid.get("Timestamp"), raid, True),
                           (_attendance_event_name(raid), raid), _clean(raid.get("PoolName")),
-                          (str(count), None, count), (_number(amount, 1), None, amount)))
+                          (_number(count), None, count), (_number(amount, 1), None, amount),
+                          ", ".join(raid.get("_attendance_members", {}))))
         self._set_rows(self.attendance_table, cells)
         for row in range(self.attendance_table.rowCount()):
             item = self.attendance_table.item(row, 1)
             item.setToolTip(remote_raid_name(item.data(Qt.ItemDataRole.UserRole)))
         self.attendance_previous.setEnabled(self._attendance_page > 0)
         self.attendance_next.setEnabled(self._attendance_page + 1 < pages)
+        self.attendance_detail.setEnabled(bool(rows) and not self._attendance_pending)
         self.attendance_page_label.setText(
             f"Page {self._attendance_page + 1} of {pages} · {len(rows):,} matching raids")
 
@@ -2578,7 +2765,7 @@ class OpenDKP(ParserWindow):
             return False
         request = QNetworkRequest(QUrl(csv_url))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.120")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.121")
         request.setAttribute(
             QNetworkRequest.Attribute.RedirectPolicyAttribute,
             QNetworkRequest.RedirectPolicy.NoLessSafeRedirectPolicy)
@@ -2879,21 +3066,21 @@ class OpenDKP(ParserWindow):
             _, token, raid_id = operation.split("|", 2)
             if token != self._attendance_token or self._attendance_slug != self.client.slug or not token:
                 return
-            matches, amount = remote_tick_evidence(payload, self._attendance_name)
+            count, amount, members = pooled_tick_evidence(payload, self._attendance_members.values())
             for raid in self._attendance_rows:
-                if remote_raid_id(raid) == raid_id and matches:
+                if remote_raid_id(raid) == raid_id and count:
                     raid["_attendance_dkp"] = amount
             self.attendance_status.setText(
-                f"{self._attendance_name}: {len(matches)} verified ticks · "
-                f"awarded DKP {_number(amount, 1)}. Read-only check." if matches else
+                f"{count} verified ticks · awarded DKP {_number(amount, 1)}. "
+                + ", ".join(f"{name}: {ticks}" for name, ticks in members.items())
+                + ". Shared ticks counted once; read-only check." if count else
                 "No matching tick details were supplied. Recorded attendance was not changed.")
             self._render_attendance()
             return
         if operation.startswith("attendance|"):
-            if (operation.partition("|")[2] == self._attendance_token and
-                    self._attendance_slug == self.client.slug and self._attendance_token):
-                self.attendance_search.setEnabled(True)
-                self._receive_attendance(payload)
+            char_id = self._attendance_request_member(operation)
+            if char_id is not None:
+                self._receive_attendance(payload, char_id)
             return
         raid_kind, raid_token, raid_id = _raid_request_context(operation)
         if raid_kind:
@@ -2977,11 +3164,9 @@ class OpenDKP(ParserWindow):
                 self.attendance_status.setText(f"Raid details unavailable: {_clean(message)}. You can try again.")
             return
         if operation.startswith("attendance|"):
-            if (operation.partition("|")[2] == self._attendance_token and
-                    self._attendance_slug == self.client.slug and self._attendance_token):
-                self.attendance_search.setEnabled(True)
-                self.attendance_status.setText(
-                    f"Attendance unavailable: {_clean(message, f'HTTP {status}')}. Try Search attendance again.")
+            char_id = self._attendance_request_member(operation)
+            if char_id is not None:
+                self._settle_attendance(char_id, _clean(message, f"HTTP {status}"))
             return
         raid_kind, raid_token, raid_id = _raid_request_context(operation)
         if raid_kind:
@@ -3166,6 +3351,7 @@ class OpenDKP(ParserWindow):
                 selected_index = self.attendance_character.findData(preferred)
             self.attendance_character.setCurrentIndex(max(0, selected_index))
             self.attendance_character.blockSignals(False)
+            self._restore_attendance_alts()
         self._update_overview()
 
     def _character_selected(self):
@@ -3634,6 +3820,8 @@ class OpenDKP(ParserWindow):
 
     def _clear_views(self):
         self._invalidate_attendance()
+        self._attendance_alts = []
+        self._update_attendance_alt_summary()
         self.attendance_character.clear()
         self._guild_details = {}
         for key in self._datasets:

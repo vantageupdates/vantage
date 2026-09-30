@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 from PySide6.QtCore import QDate, Qt
-from PySide6.QtWidgets import QApplication, QTabWidget, QWidget
+from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QListWidget, QPushButton, QTabWidget, QWidget
 
 from vantage.helpers.opendkp import OpenDkpClient
 from vantage.helpers.raid_ledger import character_raid_attendance
@@ -33,6 +33,7 @@ def panel():
             QWidget.__init__(self)
             self.raid_workspace_tabs = QTabWidget(self)
             self.requests = []
+            self._save_profile = lambda **_kwargs: None
             self.client = SimpleNamespace(
                 slug="example", fetch_attendance=lambda *args: self.requests.append(args) or True,
                 fetch_attendance_detail=lambda *args: self.requests.append(args) or True)
@@ -174,3 +175,136 @@ def test_overview_uses_personal_evidence_and_full_character_directory(panel):
     panel._update_overview()
     assert panel.character_raids.rowCount() == 0  # no guild fallback masquerading as attendance
     page.deleteLater()
+
+
+def add_alts(panel):
+    panel.attendance_character.addItem('Wildflux', 2)
+    panel.attendance_character.addItem('Fistflux', 3)
+    panel.attendance_character.addItem('Spiritflux', 4)
+    panel._attendance_alts = [{'character_id': i, 'name': name} for i, name in
+                              ((2, 'Wildflux'), (3, 'Fistflux'), (4, 'Spiritflux'))]
+
+
+def test_alt_union_correlates_out_of_order_and_bounds_concurrency(panel):
+    add_alts(panel)
+    panel._search_attendance()
+    token = panel._attendance_token
+    assert len(panel.requests) == 2
+    panel._response(f'attendance|{token}|2', [raid(1, value=0.5), raid(2, value=1)])
+    assert len(panel.requests) == 3
+    assert not panel.attendance_search.isEnabled()
+    panel._response(f'attendance|{token}|163372', [raid(1, value=0.5)])
+    assert len(panel.requests) == 4
+    panel._response(f'attendance|{token}|3', [raid(3, value=1)])
+    panel._response(f'attendance|{token}|4', [raid(1, value=0.5)])
+    assert len(panel._attendance_rows) == 3
+    assert '3 attended raids' in panel.attendance_status.text()
+    assert '3 unique ticks' in panel.attendance_status.text()
+    shared = next(row for row in panel._attendance_rows if row['RaidId'] == 1)
+    assert shared['_attendance_members'] == {'Mindflux': 1, 'Spiritflux': 1, 'Wildflux': 1}
+    assert shared['_attendance_dkp'] == 0.5
+    panel.attendance_query.setText('Spiritflux')
+    assert panel.attendance_table.rowCount() == 1
+    assert 'Spiritflux' in panel.attendance_table.item(0, 5).text()
+    assert panel.attendance_search.isEnabled()
+
+
+def test_partial_alt_failure_survives_and_retry_does_not_mix_generations(panel):
+    add_alts(panel)
+    panel._search_attendance()
+    old = panel._attendance_token
+    panel._failed(f'attendance|{old}|2', 'Timeout', 0)
+    panel._response(f'attendance|{old}|163372', [raid()])
+    panel._response(f'attendance|{old}|3', [])
+    panel._response(f'attendance|{old}|4', [])
+    assert len(panel._attendance_rows) == 1
+    assert 'Partial results' in panel.attendance_status.text()
+    assert 'Wildflux (Timeout)' in panel.attendance_status.text()
+    panel._search_attendance()
+    panel._response(f'attendance|{old}|2', [raid(999)])
+    assert panel._attendance_rows == []
+
+
+def test_opt_out_and_duplicate_main_do_not_request_it_twice(panel):
+    add_alts(panel)
+    panel._attendance_alts.append({'character_id': 163372, 'name': 'Mindflux'})
+    panel._search_attendance()
+    assert len(panel._attendance_members) == 4
+    panel.attendance_include_alts.setChecked(False)
+    panel._search_attendance()
+    assert len(panel._attendance_members) == 1
+    assert panel.requests[-1][0] == 163372
+
+
+def test_removed_alt_and_wrong_guild_do_not_pollute_pool(panel):
+    add_alts(panel)
+    panel._search_attendance()
+    token = panel._attendance_token
+    panel.client.slug = 'other'
+    panel._response(f'attendance|{token}|2', [raid()])
+    assert not panel._attendance_rows
+    panel.client.slug = 'example'
+    panel._attendance_alts = [{'character_id': 999999, 'name': 'NotHere'}]
+    assert panel._search_attendance() is False
+    assert 'not in this guild' in panel.attendance_status.text()
+
+
+def test_manage_alts_add_remove_save_and_cancel(panel, monkeypatch):
+    add_alts(panel)
+    panel._attendance_alts = [{'character_id': 3, 'name': 'Fistflux'}]
+    writes = []
+    panel._save_profile = lambda **values: writes.append(values)
+
+    def edit(dialog):
+        chooser = dialog.findChild(QComboBox)
+        saved = dialog.findChild(QListWidget)
+        add = next(button for button in dialog.findChildren(QPushButton) if button.text() == 'Add alt')
+        remove = next(button for button in dialog.findChildren(QPushButton) if button.text() == 'Remove selected')
+        chooser.setCurrentText('wildflux')
+        add.click()
+        add.click()
+        assert saved.count() == 2
+        saved.setCurrentRow(0)
+        remove.click()
+        assert saved.count() == 1
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(QDialog, 'exec', edit)
+    assert panel._edit_attendance_alts()
+    assert writes == [{'attendance_alts': [{'character_id': 2, 'name': 'Wildflux'}]}]
+    assert panel.attendance_alt_summary.text() == 'Wildflux'
+    monkeypatch.setattr(QDialog, 'exec', lambda _dialog: QDialog.DialogCode.Rejected)
+    assert panel._edit_attendance_alts() is False
+    assert len(writes) == 1
+
+
+def test_alt_preferences_restore_per_guild_and_persist_include_toggle(panel):
+    profiles = {'example': {'attendance_alts': [{'character_id': 2, 'name': 'Wildflux'}],
+                            'attendance_include_alts': False}, 'other': {}}
+    panel._profile = lambda: profiles[panel.client.slug]
+    writes = []
+    panel._save_profile = lambda **values: writes.append(values)
+    panel._restore_attendance_alts()
+    assert panel._attendance_alts[0]['name'] == 'Wildflux'
+    assert panel.attendance_include_alts.isChecked() is False
+    assert not writes
+    panel.attendance_include_alts.setChecked(True)
+    assert writes == [{'attendance_include_alts': True}]
+    panel.client.slug = 'other'
+    panel._restore_attendance_alts()
+    assert panel._attendance_alts == []
+    assert panel.attendance_alt_summary.text() == 'No alts added'
+
+
+def test_group_detail_counts_shared_award_once(panel):
+    add_alts(panel)
+    panel._search_attendance()
+    token = panel._attendance_token
+    for char_id in (163372, 2, 3, 4):
+        panel._response(f'attendance|{token}|{char_id}', [raid()])
+    panel._response(f'attendance_detail|{token}|1', {'Ticks': [
+        {'TickId': 1, 'Value': 0.5, 'Characters': [{'Name': 'Mindflux'}, {'Name': 'Wildflux'}]},
+        {'TickId': 2, 'Value': 1, 'Characters': [{'Name': 'Spiritflux'}]}]})
+    assert panel.attendance_table.item(0, 4).text() == '1.5'
+    assert '2 verified ticks' in panel.attendance_status.text()
+    assert 'Wildflux: 1' in panel.attendance_status.text()

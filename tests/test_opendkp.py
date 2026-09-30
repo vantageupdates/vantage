@@ -922,6 +922,7 @@ def test_opendkp_profiles_and_sheets_are_bounded_and_never_store_passwords():
             "character_id": 25, "character_name": "A Character",
             "username": "Account",
             "watch_items": ["Cloak of Flames", "Manastone"],
+            "attendance_alts": [], "attendance_include_alts": True,
         }]
         assert "password" not in json.dumps(config.data["opendkp"]).casefold()
         assert config.data["opendkp"]["raid_tick_phrases"] == [
