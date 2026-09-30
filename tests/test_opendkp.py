@@ -623,7 +623,7 @@ def test_my_raids_tick_finder_is_compact_keyboard_accessible_and_adjustable(
     try:
         labels = [widget.raid_workspace_tabs.tabText(index)
                   for index in range(widget.raid_workspace_tabs.count())]
-        assert labels == ["History & evidence", "Find raid ticks", "Tick phrases"]
+        assert labels == ["History & evidence", "Find raid ticks", "Tick phrases", "Recorded attendance"]
         assert widget.raid_workspace_tabs.accessibleName() == "My raids workspaces"
         assert widget.raid_log_query.focusPolicy() & Qt.FocusPolicy.TabFocus
         assert widget.raid_log_profile.focusPolicy() & Qt.FocusPolicy.TabFocus

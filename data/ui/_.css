@@ -397,7 +397,7 @@ QPushButton#WarningAction:focus { border: 1px solid #C89B4B; }
 QDialogButtonBox QPushButton { min-width: 70px; }
 
 QLineEdit, QTextEdit, QPlainTextEdit,
-QSpinBox, QDoubleSpinBox, QComboBox {
+QSpinBox, QDoubleSpinBox, QComboBox, QDateEdit {
     color: #ECE8E0;
     background-color: #101317;
     border: 1px solid #393F46;
@@ -409,13 +409,33 @@ QSpinBox, QDoubleSpinBox, QComboBox {
 }
 
 QLineEdit:hover, QTextEdit:hover, QPlainTextEdit:hover,
-QSpinBox:hover, QDoubleSpinBox:hover, QComboBox:hover { border-color: #535A62; }
+QSpinBox:hover, QDoubleSpinBox:hover, QComboBox:hover, QDateEdit:hover { border-color: #535A62; }
 QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus,
-QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus,
+QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus, QDateEdit:focus,
 QTableView:focus, QTableWidget:focus, QTreeView:focus, QTreeWidget:focus,
 QListWidget:focus { border: 1px solid #A88B57; }
 QLineEdit:disabled, QTextEdit:disabled, QPlainTextEdit:disabled,
-QSpinBox:disabled, QComboBox:disabled { color: #6B7076; background-color: #0E1114; border-color: #292E34; }
+QSpinBox:disabled, QComboBox:disabled, QDateEdit:disabled { color: #6B7076; background-color: #0E1114; border-color: #292E34; }
+
+QDateEdit { padding-right: 24px; }
+QDateEdit::drop-down {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 22px;
+    border: none;
+    border-left: 1px solid #40505C;
+    background-color: transparent;
+}
+QDateEdit::down-arrow {
+    image: url("__VANTAGE_CHEVRON_BOTTOM_ICON__");
+    width: 8px;
+    height: 6px;
+}
+QCalendarWidget QWidget { color: #ECE8E0; background-color: #101317; }
+QCalendarWidget QAbstractItemView {
+    selection-background-color: #594A31;
+    selection-color: #FFFFFF;
+}
 
 /* One embedded rocker pattern for every numeric control in Vantage. */
 QSpinBox, QDoubleSpinBox { padding-right: 19px; }
@@ -1633,7 +1653,7 @@ QPushButton#SupportAction:hover {
 }
 
 QLineEdit, QTextEdit, QPlainTextEdit,
-QSpinBox, QDoubleSpinBox, QComboBox {
+QSpinBox, QDoubleSpinBox, QComboBox, QDateEdit {
     color: #E7E4DE;
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
         stop:0 #090D11, stop:1 #151D23);

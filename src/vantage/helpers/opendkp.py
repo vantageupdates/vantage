@@ -27,7 +27,7 @@ API_ROOT = "https://api.opendkp.com"
 COGNITO_ROOT = "https://cognito-idp.us-east-2.amazonaws.com/"
 COGNITO_TARGET = "AWSCognitoIdentityProviderService.InitiateAuth"
 LIVE_ROOT = "wss://a2d3ggob45.execute-api.us-east-2.amazonaws.com/production"
-USER_AGENT = "Vantage/1.44.119 (vantagecompanion@gmail.com)"
+USER_AGENT = "Vantage/1.44.120 (vantagecompanion@gmail.com)"
 
 _GUILD_SLUG = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
@@ -309,6 +309,26 @@ class OpenDkpClient(QObject):
         self._request(
             operation, "GET",
             f"/clients/{quote(self.slug)}/raids?count=100")
+        return True
+
+    def fetch_attendance(self, character_id, lookback=90, request_token=""):
+        """Read character attendance directly, without local sessions or login."""
+        if not self.slug or not character_id:
+            return False
+        days = max(1, min(3650, int(lookback)))
+        token = str(request_token or "").strip()[:64]
+        self._request(
+            f"attendance|{token}", "GET",
+            f"/clients/{quote(self.slug)}/characters/"
+            f"{quote(str(character_id), safe='')}/raids?lookback={days}")
+        return True
+
+    def fetch_attendance_detail(self, raid_id, request_token):
+        if not self.slug or not raid_id:
+            return False
+        self._request(
+            f"attendance_detail|{request_token}|{raid_id}", "GET",
+            f"/clients/{quote(self.slug)}/raids/{quote(str(raid_id), safe='')}")
         return True
 
     def fetch_raid_details(self, raid_id, request_token=""):

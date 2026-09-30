@@ -1507,3 +1507,30 @@ independent accessibility review: PASS
 - VantageUI authority remained with its chat. No skin/updater/character INIs
   changed. Installed Vantage, its live profile, EverQuest and WinEQ were not
   replaced or stopped.
+
+## 1.44.120 Recorded OpenDKP attendance
+
+- My raids now opens a separate public recorded-attendance workspace with
+  a full guild character directory, dates, whole-history filtering, and
+  250-row pages. No local session, CSV, or sign-in is required.
+- Actual OpenDKP `RaidName` / `Ticks[].Attended` evidence determines attendance;
+  guild raids are not substituted as personal history. Missing awarded DKP
+  remains unknown, with optional read-only verification against a tick roster.
+- Qt design guidance influenced the separated local/public workflows, explicit
+  error and retry states, dark calendar/date controls, keyboard names/help,
+  readable event titles, and adjustable columns with narrow-window scrolling.
+- Live read-only Castle check: Mindflux **19 attended raids / 26 ticks** from
+  **757** returned records over 90 days. Native themed fixtures at 900×540 and
+  520×540 and the real ParserWindow shell were visually reviewed. No physical
+  screen-reader or OS-large-font test is claimed.
+- Focused verification **57 passed**; interaction/scaled verification **18
+  passed** (overlapping attendance coverage). Complete final suite **1,714
+  passed, 2 skipped, 816.95 seconds**. Details:
+  `docs/my-raids-attendance-1.44.120.md`.
+- Final portable version **1.44.120**, self-test exit **0**, **75,850,973 bytes**,
+  SHA-256 `F68A5E48AB6ADB77329E48618BB1D8301DB50556822951E2783BEA8DDFB5C8B1`.
+  Frozen attendance code and date theme verified. Installed executable and live
+  config hashes unchanged; VantageUI skin/shared updater/character INIs untouched.
+- Draft preparation is permitted; public publication remains restricted by the
+  previously rejected publication operation. Do not claim this update is public
+  until a human publishes it and fresh public verification completes.

@@ -70,6 +70,31 @@ def remote_raid_timestamp(raid):
     return None
 
 
+def character_raid_attendance(raid):
+    """Normalize character history; a returned raid is not proof of attendance.
+
+    None means the server supplied no usable per-tick attendance evidence.
+    Missing monetary values stay unknown rather than becoming zero DKP.
+    """
+    if not isinstance(raid, dict) or not isinstance(raid.get("Ticks"), list):
+        return None, None
+    ticks = [tick for tick in raid["Ticks"] if isinstance(tick, dict)]
+    if not ticks or any("Attended" not in tick for tick in ticks):
+        return None, None
+    if any(str(tick["Attended"]).strip().casefold() not in
+           ("0", "1", "false", "true") for tick in ticks):
+        return None, None
+    attended = [tick for tick in ticks
+                if str(tick["Attended"]).strip().casefold() in ("1", "true")]
+    amounts = []
+    for tick in attended:
+        try:
+            amounts.append(float(tick.get("Value")))
+        except (ValueError, TypeError):
+            return len(attended), None
+    return len(attended), sum(amounts)
+
+
 def raid_time_matches(session, raid, early_hours=2, late_hours=8):
     """Require the remote timestamp to be plausibly inside this local raid."""
     remote = remote_raid_timestamp(raid)
