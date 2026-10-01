@@ -47,22 +47,22 @@ def test_all_three_bars_are_separated_and_percentage_is_not_under_a_fill():
     assert rect(node('Label','STR'))[1] == 152
     assert 152 - (bars[-1][1] + bars[-1][3]) == 4
     group_size = rect(node('Screen','GroupWindow'))[2:]
-    assert group_size == (284,247)
+    assert group_size == (284,281)
     top_frame_inset = bottom_frame_inset = 4
     client_height = group_size[1] - top_frame_inset - bottom_frame_inset
-    assert client_height == 239
+    assert client_height == 273
     for name in ('FR','CR','MR','PR','DR'):
         x,y,w,h = rect(node('Label',name))
         assert y == 220 and y+h <= client_height
 
 
-@pytest.mark.parametrize('left,right',[('Invite','Disband'),('Follow','Decline')])
-def test_button_pairs_restore_known_visible_top_row_with_nine_pixel_gap(left,right):
-    a,b = [rect(node('Button','GW_'+name+'Button')) for name in (left,right)]
-    assert a == (133,0,64,16) and b == (206,0,64,16)
-    assert b[0] - (a[0]+a[2]) == 9
-    assert a[0]-129 == 274-(b[0]+b[2]) == 4
-    for name in (left,right):
+@pytest.mark.parametrize('upper,lower',[('Invite','Disband'),('Follow','Decline')])
+def test_button_alias_pairs_stack_in_the_compact_column(upper,lower):
+    a,b = [rect(node('Button','GW_'+name+'Button')) for name in (upper,lower)]
+    assert a == (5,0,64,16) and b == (5,17,64,16)
+    assert b[1] - (a[1]+a[3]) == 1
+    assert a[0]+a[2] == b[0]+b[2] == 69 < 126
+    for name in (upper,lower):
         button = node('Button','GW_'+name+'Button')
         assert button.findtext('Font') == '2'
         assert button.findtext('Text') == name

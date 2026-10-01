@@ -1,5 +1,17 @@
 # VantageUI releases
 
+## 1.44.95
+
+Install folder: `VantageUI-v1.44.95`.
+
+- Moved Invite and Disband above the group roster, with their native aliases
+  sharing the same compact controls.
+- Added native horizontal resizing so the stats column can be hidden or
+  restored while the roster remains visible.
+- Reserved dedicated titlebar space for dragging the Group window.
+
+Load with `/loadskin VantageUI-v1.44.95 1`.
+
 ## 1.44.94
 
 Install folder: `VantageUI-v1.44.94`.

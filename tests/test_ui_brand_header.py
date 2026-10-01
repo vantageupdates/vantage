@@ -85,8 +85,11 @@ def test_native_group_version_is_static_readable_below_the_wordmark():
     assert label.findtext('Font') == '1'
     assert label.findtext('NoWrap') == label.findtext('AlignCenter') == 'true'
     assert label.find('EQType') is None
-    assert (int(mark.findtext('Location/X')), int(mark.findtext('Location/Y'))) == (5, 205)
-    assert (int(label.findtext('Location/X')), int(label.findtext('Location/Y'))) == (5, 225)
+    mark_location = (int(mark.findtext('Location/X')), int(mark.findtext('Location/Y')))
+    label_location = (int(label.findtext('Location/X')), int(label.findtext('Location/Y')))
+    assert mark_location == (5, 239)
+    assert label_location == (5, 259)
+    assert label_location[1] - mark_location[1] == 20
     assert int(label.findtext('Size/CX')) == 116
     rgb = [int(label.findtext('TextColor/' + c)) / 255 for c in 'RGB']
     def linear(v):

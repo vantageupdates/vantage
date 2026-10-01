@@ -26,13 +26,15 @@ def pixel(state,x,y):
     return tuple(data[pos:pos+4])
 
 
-@pytest.mark.parametrize('name,x', [('Invite',133),('Follow',133),('Disband',206),('Decline',206)])
-def test_group_alias_buttons_keep_native_ids_and_fit_text_without_touching(name,x):
+@pytest.mark.parametrize('name,x,y', [
+    ('Invite',5,0), ('Follow',5,0), ('Disband',5,17), ('Decline',5,17),
+])
+def test_group_alias_buttons_keep_native_ids_and_fit_text_without_touching(name,x,y):
     b=node('Button','GW_'+name+'Button')
     assert b.findtext('ScreenID') == name+'Button'
     assert b.findtext('Text') == name
     assert b.findtext('Font') == '2'
-    assert rect(b) == (x,0,64,16)
+    assert rect(b) == (x,y,64,16)
     assert b.findtext('Style_Transparent') == 'true'
     assert b.findtext('Style_Border') == b.findtext('Style_Checkbox') == 'false'
     assert b.find('EQType') is None
@@ -44,17 +46,17 @@ def test_group_alias_buttons_keep_native_ids_and_fit_text_without_touching(name,
         assert b.findtext('ButtonDrawTemplate/'+state) == 'A_VantageGroup'+state
 
 
-def test_known_visible_top_row_clears_heading_and_preserves_player_column():
-    assert rect(node('Screen','GroupWindow')) == (516,78,284,247)
-    left = rect(node('Button','GW_InviteButton'))
-    right = rect(node('Button','GW_DisbandButton'))
-    assert right[0]-(left[0]+left[2]) == 9
-    assert left[0]-129 == 274-(right[0]+right[2]) == 4
-    assert left[1] == right[1] == 0
-    assert int(node('Label','Level').findtext('Location/Y'))-(left[1]+left[3]) == 2
-    assert int(node('Label','Class').findtext('Location/Y'))-(right[1]+right[3]) == 2
-    assert int(node('Label','Level').findtext('Location/Y')) == 18
-    assert int(node('Label','Class').findtext('Location/Y')) == 18
+def test_compact_button_column_leaves_a_native_titlebar_drag_strip_open():
+    assert rect(node('Screen','GroupWindow')) == (516,78,284,281)
+    upper = rect(node('Button','GW_InviteButton'))
+    lower = rect(node('Button','GW_DisbandButton'))
+    assert upper == (5,0,64,16)
+    assert lower == (5,17,64,16)
+    assert upper[1] + upper[3] < lower[1]
+    # Pixels x=73..125 in the native 16px titlebar remain free for moving.
+    assert upper[0] + upper[2] < 73
+    assert lower[0] + lower[2] < 73
+    assert rect(node('Gauge','Party1_HP_BG'))[1] == 35
     assert int(node('Label','PlayerHP').findtext('Location/X')) == 178
     assert rect(node('Button','GW_LFGButton')) == (-3,16,1,1)
     assert node('Button','GW_LFGButton').findtext('ButtonDrawTemplate/Normal') == 'A_SquareBtnNormal'
@@ -72,8 +74,8 @@ def test_alternate_button_states_share_positions_and_preserve_native_piece_order
             button.tail = None
         assert ET.tostring(pair[0]) == ET.tostring(pair[1])
     pieces = [p.text for p in node('Screen','GroupWindow').findall('Pieces')]
-    assert pieces[:5] == ['GWDummy','GW_InviteButton','GW_DisbandButton',
-                          'GW_FollowButton','GW_DeclineButton']
+    assert pieces[:6] == ['GW_StatsResizeGrip','GWDummy','GW_InviteButton',
+                          'GW_DisbandButton','GW_FollowButton','GW_DeclineButton']
     # Member indices are native target bindings; button placement must never
     # reorder the roster or change the order of the layered health pieces.
     member_indices = [int(p[5]) for p in pieces if p.startswith('Party')]
@@ -85,7 +87,7 @@ def test_alternate_button_states_share_positions_and_preserve_native_piece_order
         assert pieces.index(f'Party{i}_HealthDetail') < pieces.index(f'GW_PetGauge{i}')
 
 
-@pytest.mark.parametrize('member,y', [(1,1),(2,42),(3,83),(4,125),(5,167)])
+@pytest.mark.parametrize('member,y', [(1,35),(2,76),(3,117),(4,159),(5,201)])
 def test_party_rows_keep_their_geometry_target_bindings_and_function_key_labels(member,y):
     background = node('Gauge',f'Party{member}_HP_BG')
     assert rect(background) == (-2,y,124,30)
@@ -105,6 +107,52 @@ def test_party_rows_keep_their_geometry_target_bindings_and_function_key_labels(
     shortcut = node('Label',f'F{member+1}')
     assert shortcut.findtext('ScreenID') == shortcut.findtext('Text') == f'F{member+1}'
     assert rect(shortcut) == (5,y,20 if member == 1 else 14,14)
+    hidden_percent = node('Label',f'GW_HPPercLabel{member}')
+    assert rect(hidden_percent) == (-2,42,1,1)
+
+
+def test_every_global_roster_layer_moves_by_exactly_34_without_moving_internal_layers():
+    root = ET.parse(SKIN/'EQUI_GroupWindow.xml').getroot()
+    bases = (1,42,83,125,167)
+    for member, old_base in enumerate(bases, 1):
+        global_y = old_base + 10 + 34
+        party_nodes = [n for n in root if (n.get('item') or '').startswith(f'Party{member}_HP_')]
+        for part in party_nodes:
+            y = part.findtext('Location/Y')
+            if y is None:
+                continue
+            if part.get('item') == f'Party{member}_HP_BG':
+                assert int(y) == old_base + 34
+            else:
+                assert int(y) in (0, global_y)
+        assert rect(node('Gauge',f'Party{member}_HealthDetail'))[1] == global_y
+
+
+def test_compact_width_keeps_controls_roster_and_brand_but_clips_personal_stats():
+    compact_width = 126
+    for name in ('GW_InviteButton','GW_FollowButton','GW_DisbandButton','GW_DeclineButton'):
+        x,_,w,_ = rect(node('Button',name))
+        assert x >= 0 and x+w <= compact_width
+    for member in range(1,6):
+        for kind,name in (
+            ('Gauge',f'Party{member}_HP_BG'),
+            ('Gauge',f'GW_PetGauge{member}'),
+        ):
+            x,_,w,_ = rect(node(kind,name))
+            assert x+w <= 122
+    for kind,name in (
+        ('StaticAnimation','GW_VantageBrandMark'),
+        ('Label','GW_VantageVersionLabel'),
+    ):
+        x,_,w,_ = rect(node(kind,name))
+        assert x+w <= 121
+    for kind,name in (
+        ('StaticAnimation','GW_StatHPIcon'), ('Label','PlayerHPLabel'),
+        ('Gauge','PlayerXPGauge_BG'), ('StaticAnimation','FRIcon'), ('Label','FR'),
+    ):
+        x,_,w,_ = rect(node(kind,name))
+        assert x >= compact_width
+        assert x+w <= 284
 
 
 @pytest.mark.parametrize('i,state', list(enumerate(STATES)))

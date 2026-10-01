@@ -455,16 +455,16 @@ def test_group_brand_and_version_are_bound_to_release_beside_the_resists():
     assert label.findtext("Font") == "1"
     assert label.findtext("NoWrap") == label.findtext("AlignCenter") == "true"
     assert label.find("EQType") is None  # Never let live game data overwrite it.
-    assert _rect(label) == (5, 225, 116, 12)
+    assert _rect(label) == (5, 259, 116, 12)
     assert tuple(int(label.findtext(f"TextColor/{c}")) for c in "RGB") == (218, 195, 147)
-    assert _rect(mark) == (5, 205, 116, 20)
+    assert _rect(mark) == (5, 239, 116, 20)
     assert mark.findtext("Animation") == animation.attrib["item"]
     assert mark.findtext("AutoDraw") == "true"
     assert animation.findtext("Cycle") == "false"
     assert window.findtext("Style_Transparent") == "false"
-    assert window.findtext("DrawTemplate") == "WDT_RoundedNoTitle"
+    assert window.findtext("DrawTemplate") == "WDT_Rounded"
     window_size = _rect(window)[2:]
-    assert window_size == (284, 247)
+    assert window_size == (284, 281)
     assert list(root).index(animation) < list(root).index(mark) < list(root).index(label) < list(root).index(window)
     pieces = [p.text.strip() for p in window.findall("Pieces")]
     assert pieces.count("GW_VantageBrandMark") == pieces.count("GW_VantageVersionLabel") == 1
@@ -472,11 +472,11 @@ def test_group_brand_and_version_are_bound_to_release_beside_the_resists():
     # Group coordinates are measured against the client area, which excludes
     # the four-pixel top and bottom frame from the outer screen height.
     client_size = (window_size[0], window_size[1] - 4 - 4)
-    assert client_size == (284, 239)
+    assert client_size == (284, 273)
     for rect in (_rect(mark), _rect(label)):
         _assert_in_bounds(rect, client_size)
         assert rect[0] + rect[2] <= 126  # Left of the resist column.
-        assert rect[1] >= 205  # Below member five and its pet gauge.
+        assert rect[1] >= 239  # Below member five and its pet gauge.
     assert client_size[1] - (_rect(label)[1] + _rect(label)[3]) == 2
     _assert_nonoverlapping({"brand": _rect(mark), "version": _rect(label)})
     pet = _item(root, "Gauge", "GW_PetGauge5")
@@ -506,6 +506,40 @@ def test_group_brand_and_version_are_bound_to_release_beside_the_resists():
     assert alpha(103, 12) == 255
     assert all(alpha(x, y) == 0 for x in range(1, 119) for y in (1, 22))
     assert all(alpha(1, y) == 0 for y in range(1, 23))
+
+
+def test_group_window_uses_native_move_resize_chrome_and_a_nonfocusable_edge_grip():
+    root = _root("EQUI_GroupWindow.xml")
+    window = _item(root, "Screen", "GroupWindow")
+    pieces = [p.text.strip() for p in window.findall("Pieces")]
+    assert pieces[0] == "GW_StatsResizeGrip"
+    assert window.find("Style_ClientMovable") is None
+    assert window.findtext("DrawTemplate") == "WDT_Rounded"
+    assert window.findtext("Style_Titlebar") == "true"
+    assert window.findtext("Style_Sizable") == "true"
+    assert window.findtext("TooltipReference") == (
+        "Drag the open top strip to move; drag the right edge left to hide "
+        "stats or right to restore."
+    )
+
+    grip = _item(root, "StaticAnimation", "GW_StatsResizeGrip")
+    assert grip.findtext("AutoStretch") == "true"
+    assert grip.findtext("LeftAnchorToLeft") == "false"
+    assert grip.findtext("RightAnchorToLeft") == "false"
+    assert int(grip.findtext("LeftAnchorOffset")) == 38
+    assert int(grip.findtext("RightAnchorOffset")) == 16
+    assert int(grip.findtext("TopAnchorOffset")) == 9
+    assert int(grip.findtext("BottomAnchorOffset")) == 1
+    assert grip.findtext("TopAnchorToTop") == "false"
+    assert grip.findtext("BottomAnchorToTop") == "false"
+    assert grip.findtext("Animation") == "A_CursorResizeEW"
+    assert grip.findtext("AutoDraw") == "true"
+    assert not any(n.attrib.get("item") == "GW_StatsResizeGrip"
+                   for n in root.findall("Button"))
+
+    # Existing pieces retain their exact order after the new leading affordance.
+    assert pieces[1:6] == ["GWDummy", "GW_InviteButton", "GW_DisbandButton",
+                           "GW_FollowButton", "GW_DeclineButton"]
 
 
 def test_all_drawable_inventory_slots_use_the_dedicated_gold_border():
