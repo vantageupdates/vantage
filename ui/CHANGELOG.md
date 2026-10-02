@@ -1,5 +1,16 @@
 # VantageUI releases
 
+## 1.44.97
+
+Install folder: `VantageUI-v1.44.97`.
+
+- Fixed overlapping personal-stat values and adjacent column icons. Both
+  columns now retain a five-pixel boundary and left-aligned values beside labels.
+- Preserved four-digit stat capacity and the compact side-by-side group buttons.
+- Accounted for the native titlebar height so the version below the logo fits.
+
+Load with `/loadskin VantageUI-v1.44.97 1`.
+
 ## 1.44.96
 
 Install folder: `VantageUI-v1.44.96`.

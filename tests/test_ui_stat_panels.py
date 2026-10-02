@@ -34,7 +34,7 @@ def row(file, owner_kind, owner, stat, label_id, value_id, x, y, eq, label_width
     assert value.findtext('EQType') == eq
     assert value.findtext('Font') == label.findtext('Font') == '2'
     assert value.findtext('NoWrap') == label.findtext('NoWrap') == 'true'
-    assert [e.text for e in value.findall('AlignRight')] == ['true']
+    assert [e.text for e in value.findall('AlignRight')] == ['false' if file == 'GroupWindow' and stat not in ('HP','MANA') else 'true']
     assert value.findtext('AlignLeft') != 'true'
     assert label.findtext('AlignRight') == 'false'
     assert value_width >= 4 * 5 + 6  # Four native Font-2 digits plus breathing room.
@@ -72,24 +72,24 @@ def test_actions_resists_have_nonoverlapping_abbreviations_and_full_tooltips(i,k
 
 
 @pytest.mark.parametrize('stat,label,value,x,y,eq', [
-    ('ATK','ATKLabel','ATK',129,72,'23'), ('AC','ACLabel','AC',193,72,'22'),
+    ('ATK','ATKLabel','ATK',129,72,'23'), ('AC','ACLabel','AC',197,72,'22'),
     ('STR','STRLabel','STR',129,152,'5'), ('STA','STALabel','STA',129,163,'6'),
     ('AGI','AGILabel','AGI',129,174,'8'), ('DEX','DEXLabel','DEX',129,185,'7'),
-    ('WIS','WISLabel','WIS',193,152,'9'), ('INT','INTLabel','INT',193,163,'10'),
-    ('CHA','CHALabel','CHA',193,174,'11'), ('WEIGHT','WGTLabel','WGT',193,185,'24'),
+    ('WIS','WISLabel','WIS',197,152,'9'), ('INT','INTLabel','INT',197,163,'10'),
+    ('CHA','CHALabel','CHA',197,174,'11'), ('WEIGHT','WGTLabel','WGT',197,185,'24'),
     ('HP','PlayerHPLabel','PlayerHP',129,45,'70'), ('MANA','PlayerManaLabel','PlayerMana',129,57,'128'),
 ])
 def test_group_personal_stat_rows(stat,label,value,x,y,eq):
     resource = stat in ('HP','MANA')
     row('GroupWindow','Screen','GroupWindow',stat,label,value,x,y,eq,
-        31 if resource else 23,176 if resource else x+37,84 if resource else 30)
+        31 if resource else 23,176 if resource else x+37,84 if resource else 26)
     if resource:
         assert rect(node('GroupWindow','Label',value))[2] >= len('1,000/1,000') * 6 + 6
 
 
 def test_window_bounds_and_native_xp_fatigue_breath_remain_distinct():
     assert rect(node('ActionsWindow','Screen','ActionsWindow')) == (516,292,144,182)
-    assert rect(node('GroupWindow','Screen','GroupWindow')) == (516,78,270,281)
+    assert rect(node('GroupWindow','Screen','GroupWindow')) == (516,78,270,297)
     for name,eq in (('PlayerXPGauge','4'),('PlayerXPGauge_BG','4'),('P_Fatigue','3'),('P_Breath','8')):
         g=node('GroupWindow','Gauge',name)
         assert g.findtext('EQType') == eq
@@ -119,3 +119,18 @@ def test_compact_sprites_are_complete_native_size_and_original_atlas_is_unchange
         for x in range(64):
             if x%16<3 or x%16>=13 or y%16<3 or y%16>=13:
                 assert data[18+4*(y*64+x)+3] == 0
+
+
+@pytest.mark.parametrize('left,right', [('ATK','AC'),('STR','WIS'),('STA','INT'),('AGI','CHA'),('DEX','WEIGHT')])
+def test_group_columns_reserve_space_for_four_digit_values_without_icon_overlap(left,right):
+    value=node('GroupWindow','Label',left)
+    icon=node('GroupWindow','StaticAnimation','GW_Stat'+right+'Icon')
+    label=node('GroupWindow','Label',left+'Label')
+    vx,vy,vw,vh=rect(value)
+    ix,iy,iw,ih=rect(icon)
+    lx,ly,lw,lh=rect(label)
+    assert vx >= lx+lw+2
+    assert vw >= 4*5+6
+    assert ix-(vx+vw) >= 5
+    assert value.findtext('AlignRight') == 'false'
+    assert value.findtext('AlignCenter') == 'false'

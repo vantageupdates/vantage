@@ -464,14 +464,14 @@ def test_group_brand_and_version_are_bound_to_release_beside_the_resists():
     assert window.findtext("Style_Transparent") == "false"
     assert window.findtext("DrawTemplate") == "WDT_Rounded"
     window_size = _rect(window)[2:]
-    assert window_size == (270, 281)
+    assert window_size == (270, 297)
     assert list(root).index(animation) < list(root).index(mark) < list(root).index(label) < list(root).index(window)
     pieces = [p.text.strip() for p in window.findall("Pieces")]
     assert pieces.count("GW_VantageBrandMark") == pieces.count("GW_VantageVersionLabel") == 1
     assert pieces.index("GW_VantageBrandMark") < pieces.index("GW_StatHPIcon")
     # Group coordinates are measured against the client area, which excludes
-    # the four-pixel top and bottom frame from the outer screen height.
-    client_size = (window_size[0], window_size[1] - 4 - 4)
+    # the 16-pixel titlebar and four-pixel top/bottom frame.
+    client_size = (window_size[0], window_size[1] - 16 - 4 - 4)
     assert client_size == (270, 273)
     for rect in (_rect(mark), _rect(label)):
         _assert_in_bounds(rect, client_size)

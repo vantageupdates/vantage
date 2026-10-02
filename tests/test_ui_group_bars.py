@@ -50,9 +50,9 @@ def test_all_three_bars_are_separated_and_percentage_is_not_under_a_fill():
     assert rect(node('Label','STR'))[1] == 152
     assert 152 - (bars[-1][1] + bars[-1][3]) == 4
     group_size = rect(node('Screen','GroupWindow'))[2:]
-    assert group_size == (270,281)
+    assert group_size == (270,297)
     top_frame_inset = bottom_frame_inset = 4
-    client_height = group_size[1] - top_frame_inset - bottom_frame_inset
+    client_height = group_size[1] - top_frame_inset - bottom_frame_inset - 16
     assert client_height == 273
     for name in ('FR','CR','MR','PR','DR'):
         x,y,w,h = rect(node('Label',name))
@@ -157,7 +157,7 @@ def test_experience_heading_matches_left_labels_and_right_resource_values():
     assert 75 >= len('Experience')*6+8
     for name in ('PlayerHPLabel','PlayerManaLabel','ATKLabel','STRLabel'):
         assert rect(node('Label',name))[0] == rect(label)[0]
-    for name in ('PlayerHP','PlayerMana','AC','WIS'):
+    for name in ('PlayerHP','PlayerMana'):
         value = node('Label',name)
         assert value.findtext('AlignRight') == 'true'
         assert rect(value)[0] + rect(value)[2] == 260

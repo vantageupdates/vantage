@@ -3145,7 +3145,7 @@
       <Y>72</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>26</CX>
       <CY>14</CY>
     </Size>
     <TextColor>
@@ -3156,7 +3156,7 @@
     </TextColor>
     <NoWrap>true</NoWrap>
     <Text>9999</Text>
-    <AlignRight>true</AlignRight>
+    <AlignRight>false</AlignRight>
     <AlignCenter>false</AlignCenter>
   </Label>
   <Label item="ACLabel">
@@ -3164,7 +3164,7 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>205</X>
+      <X>209</X>
       <Y>72</Y>
     </Location>
     <Size>
@@ -3188,11 +3188,11 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>230</X>
+      <X>234</X>
       <Y>72</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>26</CX>
       <CY>14</CY>
     </Size>
     <TextColor>
@@ -3203,7 +3203,7 @@
     </TextColor>
     <NoWrap>true</NoWrap>
     <Text>9999</Text>
-    <AlignRight>true</AlignRight>
+    <AlignRight>false</AlignRight>
     <AlignCenter>false</AlignCenter>
   </Label>
   <Gauge item="PlayerXPGauge_BG">
@@ -3407,7 +3407,7 @@
       <Y>152</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>26</CX>
       <CY>14</CY>
     </Size>
     <Text>255</Text>
@@ -3418,7 +3418,7 @@
     </TextColor>
     <NoWrap>true</NoWrap>
     <Style_Tooltip>false</Style_Tooltip>
-    <AlignRight>true</AlignRight>
+    <AlignRight>false</AlignRight>
     <AlignCenter>false</AlignCenter>
   </Label>
   <Label item="STALabel">
@@ -3455,7 +3455,7 @@
       <Y>163</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>26</CX>
       <CY>14</CY>
     </Size>
     <Text>255</Text>
@@ -3466,7 +3466,7 @@
     </TextColor>
     <NoWrap>true</NoWrap>
     <Style_Tooltip>false</Style_Tooltip>
-    <AlignRight>true</AlignRight>
+    <AlignRight>false</AlignRight>
     <AlignCenter>false</AlignCenter>
   </Label>
   <Label item="AGILabel">
@@ -3503,7 +3503,7 @@
       <Y>174</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>26</CX>
       <CY>14</CY>
     </Size>
     <Text>255</Text>
@@ -3514,7 +3514,7 @@
     </TextColor>
     <NoWrap>true</NoWrap>
     <Style_Tooltip>false</Style_Tooltip>
-    <AlignRight>true</AlignRight>
+    <AlignRight>false</AlignRight>
     <AlignCenter>false</AlignCenter>
   </Label>
   <Label item="DEXLabel">
@@ -3551,7 +3551,7 @@
       <Y>185</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>26</CX>
       <CY>14</CY>
     </Size>
     <Text>255</Text>
@@ -3562,7 +3562,7 @@
     </TextColor>
     <NoWrap>true</NoWrap>
     <Style_Tooltip>false</Style_Tooltip>
-    <AlignRight>true</AlignRight>
+    <AlignRight>false</AlignRight>
     <AlignCenter>false</AlignCenter>
   </Label>
   <Label item="WISLabel">
@@ -3570,7 +3570,7 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>205</X>
+      <X>209</X>
       <Y>152</Y>
     </Location>
     <Size>
@@ -3595,11 +3595,11 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>230</X>
+      <X>234</X>
       <Y>152</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>26</CX>
       <CY>14</CY>
     </Size>
     <Text>255</Text>
@@ -3610,7 +3610,7 @@
     </TextColor>
     <NoWrap>true</NoWrap>
     <Style_Tooltip>false</Style_Tooltip>
-    <AlignRight>true</AlignRight>
+    <AlignRight>false</AlignRight>
     <AlignCenter>false</AlignCenter>
   </Label>
   <Label item="INTLabel">
@@ -3618,7 +3618,7 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>205</X>
+      <X>209</X>
       <Y>163</Y>
     </Location>
     <Size>
@@ -3643,11 +3643,11 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>230</X>
+      <X>234</X>
       <Y>163</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>26</CX>
       <CY>14</CY>
     </Size>
     <Text>255</Text>
@@ -3658,7 +3658,7 @@
     </TextColor>
     <NoWrap>true</NoWrap>
     <Style_Tooltip>false</Style_Tooltip>
-    <AlignRight>true</AlignRight>
+    <AlignRight>false</AlignRight>
     <AlignCenter>false</AlignCenter>
   </Label>
   <Label item="CHALabel">
@@ -3666,7 +3666,7 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>205</X>
+      <X>209</X>
       <Y>174</Y>
     </Location>
     <Size>
@@ -3691,11 +3691,11 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>230</X>
+      <X>234</X>
       <Y>174</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>26</CX>
       <CY>14</CY>
     </Size>
     <Text>255</Text>
@@ -3706,7 +3706,7 @@
     </TextColor>
     <NoWrap>true</NoWrap>
     <Style_Tooltip>false</Style_Tooltip>
-    <AlignRight>true</AlignRight>
+    <AlignRight>false</AlignRight>
     <AlignCenter>false</AlignCenter>
   </Label>
   <Label item="WGTLabel">
@@ -3714,7 +3714,7 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>205</X>
+      <X>209</X>
       <Y>185</Y>
     </Location>
     <Size>
@@ -3739,11 +3739,11 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>230</X>
+      <X>234</X>
       <Y>185</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>26</CX>
       <CY>14</CY>
     </Size>
     <Text>255</Text>
@@ -3754,7 +3754,7 @@
     </TextColor>
     <NoWrap>true</NoWrap>
     <Style_Tooltip>false</Style_Tooltip>
-    <AlignRight>true</AlignRight>
+    <AlignRight>false</AlignRight>
     <AlignCenter>false</AlignCenter>
   </Label>
   <StaticAnimation item="FRIcon">
@@ -12840,7 +12840,7 @@
     <RelativePosition>true</RelativePosition>
     <Location><X>5</X><Y>259</Y></Location>
     <Size><CX>116</CX><CY>12</CY></Size>
-    <Text>v1.44.96</Text>
+    <Text>v1.44.97</Text>
     <TextColor><R>218</R><G>195</G><B>147</B></TextColor>
     <NoWrap>true</NoWrap>
     <AlignCenter>true</AlignCenter>
@@ -12871,7 +12871,7 @@
     </Location>
     <Size>
       <CX>270</CX>
-      <CY>281</CY>
+      <CY>297</CY>
     </Size>
     <Text>Group</Text>
     <Style_VScroll>false</Style_VScroll>
@@ -13276,15 +13276,15 @@
     <Animation>A_VantageHP100Lines</Animation>
   </StaticAnimation>
   <StaticAnimation item="GW_StatATKIcon"><ScreenID>GW_StatATKIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>129</X><Y>74</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatATK</Animation></StaticAnimation>
-  <StaticAnimation item="GW_StatACIcon"><ScreenID>GW_StatACIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>193</X><Y>74</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatAC</Animation></StaticAnimation>
+  <StaticAnimation item="GW_StatACIcon"><ScreenID>GW_StatACIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>197</X><Y>74</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatAC</Animation></StaticAnimation>
   <StaticAnimation item="GW_StatSTRIcon"><ScreenID>GW_StatSTRIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>129</X><Y>154</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatSTR</Animation></StaticAnimation>
-  <StaticAnimation item="GW_StatWISIcon"><ScreenID>GW_StatWISIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>193</X><Y>154</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatWIS</Animation></StaticAnimation>
+  <StaticAnimation item="GW_StatWISIcon"><ScreenID>GW_StatWISIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>197</X><Y>154</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatWIS</Animation></StaticAnimation>
   <StaticAnimation item="GW_StatSTAIcon"><ScreenID>GW_StatSTAIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>129</X><Y>165</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatSTA</Animation></StaticAnimation>
-  <StaticAnimation item="GW_StatINTIcon"><ScreenID>GW_StatINTIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>193</X><Y>165</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatINT</Animation></StaticAnimation>
+  <StaticAnimation item="GW_StatINTIcon"><ScreenID>GW_StatINTIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>197</X><Y>165</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatINT</Animation></StaticAnimation>
   <StaticAnimation item="GW_StatAGIIcon"><ScreenID>GW_StatAGIIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>129</X><Y>176</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatAGI</Animation></StaticAnimation>
-  <StaticAnimation item="GW_StatCHAIcon"><ScreenID>GW_StatCHAIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>193</X><Y>176</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatCHA</Animation></StaticAnimation>
+  <StaticAnimation item="GW_StatCHAIcon"><ScreenID>GW_StatCHAIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>197</X><Y>176</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatCHA</Animation></StaticAnimation>
   <StaticAnimation item="GW_StatDEXIcon"><ScreenID>GW_StatDEXIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>129</X><Y>187</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatDEX</Animation></StaticAnimation>
-  <StaticAnimation item="GW_StatWEIGHTIcon"><ScreenID>GW_StatWEIGHTIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>193</X><Y>187</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatWEIGHT</Animation></StaticAnimation>
+  <StaticAnimation item="GW_StatWEIGHTIcon"><ScreenID>GW_StatWEIGHTIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>197</X><Y>187</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatWEIGHT</Animation></StaticAnimation>
   <StaticAnimation item="GW_StatHPIcon"><ScreenID>GW_StatHPIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>129</X><Y>47</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatHP</Animation></StaticAnimation>
   <StaticAnimation item="GW_StatMANAIcon"><ScreenID>GW_StatMANAIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>129</X><Y>59</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatMANA</Animation></StaticAnimation>
   <StaticAnimation item="GW_StatEXPIcon"><ScreenID>GW_StatEXPIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>129</X><Y>90</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatEXP</Animation></StaticAnimation>
