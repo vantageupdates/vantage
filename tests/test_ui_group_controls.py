@@ -47,7 +47,7 @@ def test_group_alias_buttons_keep_native_ids_and_fit_text_without_touching(name,
 
 
 def test_compact_button_column_leaves_a_native_titlebar_drag_strip_open():
-    assert rect(node('Screen','GroupWindow')) == (516,78,288,281)
+    assert rect(node('Screen','GroupWindow')) == (516,78,288,283)
     left = rect(node('Button','GW_InviteButton'))
     right = rect(node('Button','GW_DisbandButton'))
     assert left == (5,2,56,16)

@@ -3761,7 +3761,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>129</X>
-      <Y>194</Y>
+      <Y>223</Y>
     </Location>
     <Size>
       <CX>20</CX>
@@ -3773,7 +3773,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>160</X>
-      <Y>194</Y>
+      <Y>223</Y>
     </Location>
     <Size>
       <CX>20</CX>
@@ -3785,7 +3785,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>191</X>
-      <Y>194</Y>
+      <Y>223</Y>
     </Location>
     <Size>
       <CX>20</CX>
@@ -3797,7 +3797,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>222</X>
-      <Y>194</Y>
+      <Y>223</Y>
     </Location>
     <Size>
       <CX>20</CX>
@@ -3809,7 +3809,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>253</X>
-      <Y>194</Y>
+      <Y>223</Y>
     </Location>
     <Size>
       <CX>20</CX>
@@ -3823,7 +3823,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>126</X>
-      <Y>214</Y>
+      <Y>243</Y>
     </Location>
     <Size>
       <CX>26</CX>
@@ -3847,7 +3847,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>157</X>
-      <Y>214</Y>
+      <Y>243</Y>
     </Location>
     <Size>
       <CX>26</CX>
@@ -3871,7 +3871,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>188</X>
-      <Y>214</Y>
+      <Y>243</Y>
     </Location>
     <Size>
       <CX>26</CX>
@@ -3895,7 +3895,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>219</X>
-      <Y>214</Y>
+      <Y>243</Y>
     </Location>
     <Size>
       <CX>26</CX>
@@ -3919,7 +3919,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>250</X>
-      <Y>214</Y>
+      <Y>243</Y>
     </Location>
     <Size>
       <CX>26</CX>
@@ -12838,27 +12838,22 @@
     <ScreenID>GW_VantageVersionLabel</ScreenID>
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
-    <Location><X>5</X><Y>243</Y></Location>
+    <Location><X>5</X><Y>244</Y></Location>
     <Size><CX>116</CX><CY>12</CY></Size>
-    <Text>v1.44.98</Text>
+    <Text>v1.44.99</Text>
     <TextColor><R>218</R><G>195</G><B>147</B></TextColor>
     <NoWrap>true</NoWrap>
     <AlignCenter>true</AlignCenter>
     <AlignRight>false</AlignRight>
   </Label>
-  <!-- Non-focusable native resize affordance anchored to the lower-right edge. -->
+  <!-- Expanded-panel resize hint sits above the footer, clear of live values.
+       Fixed stats coordinates keep the hint hidden when that panel is closed. -->
   <StaticAnimation item="GW_StatsResizeGrip">
     <ScreenID>GW_StatsResizeGrip</ScreenID>
     <RelativePosition>true</RelativePosition>
-    <AutoStretch>true</AutoStretch>
-    <LeftAnchorOffset>38</LeftAnchorOffset>
-    <TopAnchorOffset>9</TopAnchorOffset>
-    <RightAnchorOffset>16</RightAnchorOffset>
-    <BottomAnchorOffset>1</BottomAnchorOffset>
-    <TopAnchorToTop>false</TopAnchorToTop>
-    <BottomAnchorToTop>false</BottomAnchorToTop>
-    <LeftAnchorToLeft>false</LeftAnchorToLeft>
-    <RightAnchorToLeft>false</RightAnchorToLeft>
+    <AutoStretch>false</AutoStretch>
+    <Location><X>244</X><Y>195</Y></Location>
+    <Size><CX>22</CX><CY>22</CY></Size>
     <Animation>A_CursorResizeEW</Animation>
     <AutoDraw>true</AutoDraw>
   </StaticAnimation>
@@ -12871,7 +12866,7 @@
     </Location>
     <Size>
       <CX>288</CX>
-      <CY>281</CY>
+      <CY>283</CY>
     </Size>
     <Text>Group</Text>
     <Style_VScroll>false</Style_VScroll>

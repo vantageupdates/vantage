@@ -50,13 +50,13 @@ def test_all_three_bars_are_separated_and_percentage_is_not_under_a_fill():
     assert rect(node('Label','STR'))[1] == 136
     assert 136 - (bars[-1][1] + bars[-1][3]) == 4
     group_size = rect(node('Screen','GroupWindow'))[2:]
-    assert group_size == (288,281)
+    assert group_size == (288,283)
     top_frame_inset = bottom_frame_inset = 4
     client_height = group_size[1] - top_frame_inset - bottom_frame_inset - 16
-    assert client_height == 257
+    assert client_height == 259
     for name in ('FR','CR','MR','PR','DR'):
         x,y,w,h = rect(node('Label',name))
-        assert y == 214 and y+h <= client_height
+        assert y == 243 and y+h+2 <= client_height
 
 
 @pytest.mark.parametrize('left,right',[('Invite','Disband'),('Follow','Decline')])
@@ -185,11 +185,11 @@ def test_expanded_native_client_leaves_clearance_beyond_every_visible_control():
     width,height=rect(window)[2:]
     client_width=width-4-4
     client_height=height-16-4-4
-    assert client_width == 280 and client_height == 257
+    assert client_width == 280 and client_height == 259
     for kind,names in (
         ('Gauge',('PlayerXPGauge_BG','PlayerXPGauge','P_Fatigue','P_Breath')),
         ('Label',('PlayerHP','PlayerMana','AC','WIS','INT','CHA','WGT','DR','GW_VantageVersionLabel')),
-        ('StaticAnimation',('DRIcon','GW_VantageBrandMark')),
+        ('StaticAnimation',('DRIcon','GW_VantageBrandMark','GW_StatsResizeGrip')),
     ):
         for name in names:
             x,y,w,h=rect(node(kind,name))

@@ -455,7 +455,7 @@ def test_group_brand_and_version_are_bound_to_release_beside_the_resists():
     assert label.findtext("Font") == "1"
     assert label.findtext("NoWrap") == label.findtext("AlignCenter") == "true"
     assert label.find("EQType") is None  # Never let live game data overwrite it.
-    assert _rect(label) == (5, 243, 116, 12)
+    assert _rect(label) == (5, 244, 116, 12)
     assert tuple(int(label.findtext(f"TextColor/{c}")) for c in "RGB") == (218, 195, 147)
     assert _rect(mark) == (5, 223, 116, 20)
     assert mark.findtext("Animation") == animation.attrib["item"]
@@ -464,7 +464,7 @@ def test_group_brand_and_version_are_bound_to_release_beside_the_resists():
     assert window.findtext("Style_Transparent") == "false"
     assert window.findtext("DrawTemplate") == "WDT_Rounded"
     window_size = _rect(window)[2:]
-    assert window_size == (288, 281)
+    assert window_size == (288, 283)
     assert list(root).index(animation) < list(root).index(mark) < list(root).index(label) < list(root).index(window)
     pieces = [p.text.strip() for p in window.findall("Pieces")]
     assert pieces.count("GW_VantageBrandMark") == pieces.count("GW_VantageVersionLabel") == 1
@@ -472,12 +472,12 @@ def test_group_brand_and_version_are_bound_to_release_beside_the_resists():
     # Group coordinates are measured against the client area, which excludes
     # the 16-pixel titlebar and four-pixel top/bottom frame.
     client_size = (window_size[0] - 4 - 4, window_size[1] - 16 - 4 - 4)
-    assert client_size == (280, 257)
+    assert client_size == (280, 259)
     for rect in (_rect(mark), _rect(label)):
         _assert_in_bounds(rect, client_size)
         assert rect[0] + rect[2] <= 126  # Left of the resist column.
         assert rect[1] >= 223  # Below member five and its pet gauge.
-    assert client_size[1] - (_rect(label)[1] + _rect(label)[3]) == 2
+    assert client_size[1] - (_rect(label)[1] + _rect(label)[3]) == 3
     _assert_nonoverlapping({"brand": _rect(mark), "version": _rect(label)})
     pet = _item(root, "Gauge", "GW_PetGauge5")
     assert _rect(pet)[1] + _rect(pet)[3] < _rect(mark)[1]
@@ -496,6 +496,14 @@ def test_group_brand_and_version_are_bound_to_release_beside_the_resists():
                             for node in resist_nodes[:5]})
     _assert_nonoverlapping({node.attrib["item"]: _rect(node)
                             for node in resist_nodes[5:]})
+    # Align native 20px artwork and center the two differently sized text
+    # rows without intruding into the final member's health/pet controls.
+    assert all(_rect(node)[1] == _rect(mark)[1] for node in resist_nodes[:5])
+    version_center = _rect(label)[1] + _rect(label)[3] / 2
+    assert all(_rect(node)[1] + _rect(node)[3] / 2 == version_center
+               for node in resist_nodes[5:])
+    assert all(client_size[1] - (_rect(node)[1] + _rect(node)[3]) >= 2
+               for node in resist_nodes)
 
     frame = _only_frame(animation)
     assert mark.findtext("TooltipReference") == "Vantage UI"
@@ -513,7 +521,7 @@ def test_group_brand_and_version_are_bound_to_release_beside_the_resists():
     assert all(alpha(1, y) == 0 for y in range(1, 23))
 
 
-def test_group_window_uses_native_move_resize_chrome_and_a_nonfocusable_edge_grip():
+def test_group_window_uses_native_move_resize_chrome_and_a_nonfocusable_panel_hint():
     root = _root("EQUI_GroupWindow.xml")
     window = _item(root, "Screen", "GroupWindow")
     pieces = [p.text.strip() for p in window.findall("Pieces")]
@@ -528,19 +536,25 @@ def test_group_window_uses_native_move_resize_chrome_and_a_nonfocusable_edge_gri
     )
 
     grip = _item(root, "StaticAnimation", "GW_StatsResizeGrip")
-    assert grip.findtext("AutoStretch") == "true"
-    assert grip.findtext("LeftAnchorToLeft") == "false"
-    assert grip.findtext("RightAnchorToLeft") == "false"
-    assert int(grip.findtext("LeftAnchorOffset")) == 38
-    assert int(grip.findtext("RightAnchorOffset")) == 16
-    assert int(grip.findtext("TopAnchorOffset")) == 9
-    assert int(grip.findtext("BottomAnchorOffset")) == 1
-    assert grip.findtext("TopAnchorToTop") == "false"
-    assert grip.findtext("BottomAnchorToTop") == "false"
+    assert grip.findtext("AutoStretch") == "false"
+    assert _rect(grip) == (244, 195, 22, 22)
+    assert not any("Anchor" in child.tag for child in grip)
     assert grip.findtext("Animation") == "A_CursorResizeEW"
     assert grip.findtext("AutoDraw") == "true"
     assert not any(n.attrib.get("item") == "GW_StatsResizeGrip"
                    for n in root.findall("Button"))
+    controls = {"hint": _rect(grip)}
+    for kind, name in (
+        ("Label", "WGT"),
+        ("StaticAnimation", "GW_VantageBrandMark"),
+        ("Label", "GW_VantageVersionLabel"),
+        ("StaticAnimation", "DRIcon"),
+        ("Label", "DR"),
+    ):
+        controls[name] = _rect(_item(root, kind, name))
+    _assert_nonoverlapping(controls)
+    animation = _item(_root("EQUI_Animations.xml"), "Ui2DAnimation", "A_CursorResizeEW")
+    assert _rect(_only_frame(animation))[2:] == _rect(grip)[2:]
 
     # Existing pieces retain their exact order after the new leading affordance.
     assert pieces[1:6] == ["GWDummy", "GW_InviteButton", "GW_DisbandButton",
