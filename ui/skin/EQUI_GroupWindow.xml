@@ -2773,10 +2773,10 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>5</X>
-      <Y>0</Y>
+      <Y>18</Y>
     </Location>
     <Size>
-      <CX>64</CX>
+      <CX>56</CX>
       <CY>16</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
@@ -2804,11 +2804,11 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>5</X>
-      <Y>17</Y>
+      <X>65</X>
+      <Y>18</Y>
     </Location>
     <Size>
-      <CX>64</CX>
+      <CX>56</CX>
       <CY>16</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
@@ -2837,10 +2837,10 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>5</X>
-      <Y>0</Y>
+      <Y>18</Y>
     </Location>
     <Size>
-      <CX>64</CX>
+      <CX>56</CX>
       <CY>16</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
@@ -2868,11 +2868,11 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>5</X>
-      <Y>17</Y>
+      <X>65</X>
+      <Y>18</Y>
     </Location>
     <Size>
-      <CX>64</CX>
+      <CX>56</CX>
       <CY>16</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
@@ -2956,7 +2956,7 @@
       <Y>18</Y>
     </Location>
     <Size>
-      <CX>121</CX>
+      <CX>107</CX>
       <CY>14</CY>
     </Size>
     <Text>Shadow Knight</Text>
@@ -3004,7 +3004,7 @@
       <Y>30</Y>
     </Location>
     <Size>
-      <CX>121</CX>
+      <CX>107</CX>
       <CY>14</CY>
     </Size>
     <Text>Mithaniel Marr</Text>
@@ -3048,11 +3048,11 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>178</X>
+      <X>176</X>
       <Y>45</Y>
     </Location>
     <Size>
-      <CX>96</CX>
+      <CX>84</CX>
       <CY>14</CY>
     </Size>
     <Text>9999/9999</Text>
@@ -3094,11 +3094,11 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>178</X>
+      <X>176</X>
       <Y>57</Y>
     </Location>
     <Size>
-      <CX>96</CX>
+      <CX>84</CX>
       <CY>14</CY>
     </Size>
     <Text>9999/9999</Text>
@@ -3164,7 +3164,7 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>219</X>
+      <X>205</X>
       <Y>72</Y>
     </Location>
     <Size>
@@ -3188,7 +3188,7 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>244</X>
+      <X>230</X>
       <Y>72</Y>
     </Location>
     <Size>
@@ -3214,7 +3214,7 @@
       <Y>102</Y>
     </Location>
     <Size>
-      <CX>145</CX>
+      <CX>131</CX>
       <CY>20</CY>
     </Size>
     <GaugeOffsetY>0</GaugeOffsetY>
@@ -3248,7 +3248,7 @@
       <Y>102</Y>
     </Location>
     <Size>
-      <CX>141</CX>
+      <CX>127</CX>
       <CY>20</CY>
     </Size>
     <GaugeOffsetY>0</GaugeOffsetY>
@@ -3278,7 +3278,7 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location><X>141</X><Y>88</Y></Location>
-    <Size><CX>89</CX><CY>14</CY></Size>
+    <Size><CX>75</CX><CY>14</CY></Size>
     <Text>Experience</Text>
     <TextColor><R>240</R><G>243</G><B>247</B></TextColor>
     <NoWrap>true</NoWrap>
@@ -3290,7 +3290,7 @@
     <EQType>26</EQType>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>236</X>
+      <X>222</X>
       <Y>88</Y>
     </Location>
     <Size>
@@ -3315,7 +3315,7 @@
       <Y>125</Y>
     </Location>
     <Size>
-      <CX>145</CX>
+      <CX>131</CX>
       <CY>10</CY>
     </Size>
     <GaugeOffsetY>0</GaugeOffsetY>
@@ -3348,7 +3348,7 @@
       <Y>138</Y>
     </Location>
     <Size>
-      <CX>145</CX>
+      <CX>131</CX>
       <CY>10</CY>
     </Size>
     <GaugeOffsetY>0</GaugeOffsetY>
@@ -3570,7 +3570,7 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>219</X>
+      <X>205</X>
       <Y>152</Y>
     </Location>
     <Size>
@@ -3595,7 +3595,7 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>244</X>
+      <X>230</X>
       <Y>152</Y>
     </Location>
     <Size>
@@ -3618,7 +3618,7 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>219</X>
+      <X>205</X>
       <Y>163</Y>
     </Location>
     <Size>
@@ -3643,7 +3643,7 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>244</X>
+      <X>230</X>
       <Y>163</Y>
     </Location>
     <Size>
@@ -3666,7 +3666,7 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>219</X>
+      <X>205</X>
       <Y>174</Y>
     </Location>
     <Size>
@@ -3691,7 +3691,7 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>244</X>
+      <X>230</X>
       <Y>174</Y>
     </Location>
     <Size>
@@ -3714,7 +3714,7 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>219</X>
+      <X>205</X>
       <Y>185</Y>
     </Location>
     <Size>
@@ -3739,7 +3739,7 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>244</X>
+      <X>230</X>
       <Y>185</Y>
     </Location>
     <Size>
@@ -3760,7 +3760,7 @@
   <StaticAnimation item="FRIcon">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>131</X>
+      <X>129</X>
       <Y>200</Y>
     </Location>
     <Size>
@@ -3772,7 +3772,7 @@
   <StaticAnimation item="CRIcon">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>161</X>
+      <X>156</X>
       <Y>200</Y>
     </Location>
     <Size>
@@ -3784,7 +3784,7 @@
   <StaticAnimation item="MRIcon">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>191</X>
+      <X>183</X>
       <Y>200</Y>
     </Location>
     <Size>
@@ -3796,7 +3796,7 @@
   <StaticAnimation item="PRIcon">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>221</X>
+      <X>210</X>
       <Y>200</Y>
     </Location>
     <Size>
@@ -3808,7 +3808,7 @@
   <StaticAnimation item="DRIcon">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>251</X>
+      <X>237</X>
       <Y>200</Y>
     </Location>
     <Size>
@@ -3826,7 +3826,7 @@
       <Y>220</Y>
     </Location>
     <Size>
-      <CX>28</CX>
+      <CX>26</CX>
       <CY>14</CY>
     </Size>
     <EQType>14</EQType>
@@ -3846,11 +3846,11 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>156</X>
+      <X>153</X>
       <Y>220</Y>
     </Location>
     <Size>
-      <CX>28</CX>
+      <CX>26</CX>
       <CY>14</CY>
     </Size>
     <EQType>15</EQType>
@@ -3870,11 +3870,11 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>186</X>
+      <X>180</X>
       <Y>220</Y>
     </Location>
     <Size>
-      <CX>28</CX>
+      <CX>26</CX>
       <CY>14</CY>
     </Size>
     <EQType>16</EQType>
@@ -3894,11 +3894,11 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>216</X>
+      <X>207</X>
       <Y>220</Y>
     </Location>
     <Size>
-      <CX>28</CX>
+      <CX>26</CX>
       <CY>14</CY>
     </Size>
     <EQType>12</EQType>
@@ -3918,11 +3918,11 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>246</X>
+      <X>234</X>
       <Y>220</Y>
     </Location>
     <Size>
-      <CX>28</CX>
+      <CX>26</CX>
       <CY>14</CY>
     </Size>
     <EQType>13</EQType>
@@ -12840,7 +12840,7 @@
     <RelativePosition>true</RelativePosition>
     <Location><X>5</X><Y>259</Y></Location>
     <Size><CX>116</CX><CY>12</CY></Size>
-    <Text>v1.44.95</Text>
+    <Text>v1.44.96</Text>
     <TextColor><R>218</R><G>195</G><B>147</B></TextColor>
     <NoWrap>true</NoWrap>
     <AlignCenter>true</AlignCenter>
@@ -12870,7 +12870,7 @@
       <Y>78</Y>
     </Location>
     <Size>
-      <CX>284</CX>
+      <CX>270</CX>
       <CY>281</CY>
     </Size>
     <Text>Group</Text>
@@ -13276,19 +13276,19 @@
     <Animation>A_VantageHP100Lines</Animation>
   </StaticAnimation>
   <StaticAnimation item="GW_StatATKIcon"><ScreenID>GW_StatATKIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>129</X><Y>74</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatATK</Animation></StaticAnimation>
-  <StaticAnimation item="GW_StatACIcon"><ScreenID>GW_StatACIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>207</X><Y>74</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatAC</Animation></StaticAnimation>
+  <StaticAnimation item="GW_StatACIcon"><ScreenID>GW_StatACIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>193</X><Y>74</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatAC</Animation></StaticAnimation>
   <StaticAnimation item="GW_StatSTRIcon"><ScreenID>GW_StatSTRIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>129</X><Y>154</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatSTR</Animation></StaticAnimation>
-  <StaticAnimation item="GW_StatWISIcon"><ScreenID>GW_StatWISIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>207</X><Y>154</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatWIS</Animation></StaticAnimation>
+  <StaticAnimation item="GW_StatWISIcon"><ScreenID>GW_StatWISIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>193</X><Y>154</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatWIS</Animation></StaticAnimation>
   <StaticAnimation item="GW_StatSTAIcon"><ScreenID>GW_StatSTAIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>129</X><Y>165</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatSTA</Animation></StaticAnimation>
-  <StaticAnimation item="GW_StatINTIcon"><ScreenID>GW_StatINTIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>207</X><Y>165</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatINT</Animation></StaticAnimation>
+  <StaticAnimation item="GW_StatINTIcon"><ScreenID>GW_StatINTIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>193</X><Y>165</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatINT</Animation></StaticAnimation>
   <StaticAnimation item="GW_StatAGIIcon"><ScreenID>GW_StatAGIIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>129</X><Y>176</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatAGI</Animation></StaticAnimation>
-  <StaticAnimation item="GW_StatCHAIcon"><ScreenID>GW_StatCHAIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>207</X><Y>176</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatCHA</Animation></StaticAnimation>
+  <StaticAnimation item="GW_StatCHAIcon"><ScreenID>GW_StatCHAIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>193</X><Y>176</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatCHA</Animation></StaticAnimation>
   <StaticAnimation item="GW_StatDEXIcon"><ScreenID>GW_StatDEXIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>129</X><Y>187</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatDEX</Animation></StaticAnimation>
-  <StaticAnimation item="GW_StatWEIGHTIcon"><ScreenID>GW_StatWEIGHTIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>207</X><Y>187</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatWEIGHT</Animation></StaticAnimation>
+  <StaticAnimation item="GW_StatWEIGHTIcon"><ScreenID>GW_StatWEIGHTIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>193</X><Y>187</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatWEIGHT</Animation></StaticAnimation>
   <StaticAnimation item="GW_StatHPIcon"><ScreenID>GW_StatHPIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>129</X><Y>47</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatHP</Animation></StaticAnimation>
   <StaticAnimation item="GW_StatMANAIcon"><ScreenID>GW_StatMANAIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>129</X><Y>59</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatMANA</Animation></StaticAnimation>
   <StaticAnimation item="GW_StatEXPIcon"><ScreenID>GW_StatEXPIcon</ScreenID><RelativePosition>true</RelativePosition><Location><X>129</X><Y>90</Y></Location><Size><CX>10</CX><CY>10</CY></Size><Animation>A_VantageCompactStatEXP</Animation></StaticAnimation>
-  <!-- Native-size, rounded Group buttons. Native client owns enabled/alias states. -->
+  <!-- Rounded Group button sources scale into compact native client hitboxes. -->
   <TextureInfo item="VantageGroupControls.tga"><Size><CX>128</CX><CY>128</CY></Size></TextureInfo>
   <Ui2DAnimation item="A_VantageGroupNormal"><Cycle>false</Cycle><Frames><Texture>VantageGroupControls.tga</Texture><Location><X>2</X><Y>2</Y></Location><Size><CX>64</CX><CY>16</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>
   <Ui2DAnimation item="A_VantageGroupFlyby"><Cycle>false</Cycle><Frames><Texture>VantageGroupControls.tga</Texture><Location><X>2</X><Y>22</Y></Location><Size><CX>64</CX><CY>16</CY></Size><Hotspot><X>0</X><Y>0</Y></Hotspot><Duration>1000</Duration></Frames></Ui2DAnimation>

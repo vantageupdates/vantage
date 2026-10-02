@@ -72,29 +72,29 @@ def test_actions_resists_have_nonoverlapping_abbreviations_and_full_tooltips(i,k
 
 
 @pytest.mark.parametrize('stat,label,value,x,y,eq', [
-    ('ATK','ATKLabel','ATK',129,72,'23'), ('AC','ACLabel','AC',207,72,'22'),
+    ('ATK','ATKLabel','ATK',129,72,'23'), ('AC','ACLabel','AC',193,72,'22'),
     ('STR','STRLabel','STR',129,152,'5'), ('STA','STALabel','STA',129,163,'6'),
     ('AGI','AGILabel','AGI',129,174,'8'), ('DEX','DEXLabel','DEX',129,185,'7'),
-    ('WIS','WISLabel','WIS',207,152,'9'), ('INT','INTLabel','INT',207,163,'10'),
-    ('CHA','CHALabel','CHA',207,174,'11'), ('WEIGHT','WGTLabel','WGT',207,185,'24'),
+    ('WIS','WISLabel','WIS',193,152,'9'), ('INT','INTLabel','INT',193,163,'10'),
+    ('CHA','CHALabel','CHA',193,174,'11'), ('WEIGHT','WGTLabel','WGT',193,185,'24'),
     ('HP','PlayerHPLabel','PlayerHP',129,45,'70'), ('MANA','PlayerManaLabel','PlayerMana',129,57,'128'),
 ])
 def test_group_personal_stat_rows(stat,label,value,x,y,eq):
     resource = stat in ('HP','MANA')
     row('GroupWindow','Screen','GroupWindow',stat,label,value,x,y,eq,
-        31 if resource else 23,178 if resource else x+37,96 if resource else 30)
+        31 if resource else 23,176 if resource else x+37,84 if resource else 30)
     if resource:
         assert rect(node('GroupWindow','Label',value))[2] >= len('1,000/1,000') * 6 + 6
 
 
 def test_window_bounds_and_native_xp_fatigue_breath_remain_distinct():
     assert rect(node('ActionsWindow','Screen','ActionsWindow')) == (516,292,144,182)
-    assert rect(node('GroupWindow','Screen','GroupWindow')) == (516,78,284,281)
+    assert rect(node('GroupWindow','Screen','GroupWindow')) == (516,78,270,281)
     for name,eq in (('PlayerXPGauge','4'),('PlayerXPGauge_BG','4'),('P_Fatigue','3'),('P_Breath','8')):
         g=node('GroupWindow','Gauge',name)
         assert g.findtext('EQType') == eq
         x,y,w,h=rect(g)
-        assert x+w == (272 if name=='PlayerXPGauge' else 274)
+        assert x+w == (258 if name=='PlayerXPGauge' else 260)
     assert rect(node('GroupWindow','StaticAnimation','GW_StatEXPIcon')) == (129,90,10,10)
     assert node('GroupWindow','Label','PlayerXPPerc').findtext('EQType') == '26'
     assert rect(node('ActionsWindow','Label','CHAnum'))[1]+14 == 80

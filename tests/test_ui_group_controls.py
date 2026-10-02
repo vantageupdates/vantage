@@ -1,4 +1,4 @@
-"""Group buttons have independent native-size faces, spacing and alias bindings."""
+"""Group buttons have compact faces, spacing and atomic native alias bindings."""
 from copy import deepcopy
 from pathlib import Path
 import hashlib
@@ -27,18 +27,18 @@ def pixel(state,x,y):
 
 
 @pytest.mark.parametrize('name,x,y', [
-    ('Invite',5,0), ('Follow',5,0), ('Disband',5,17), ('Decline',5,17),
+    ('Invite',5,18), ('Follow',5,18), ('Disband',65,18), ('Decline',65,18),
 ])
 def test_group_alias_buttons_keep_native_ids_and_fit_text_without_touching(name,x,y):
     b=node('Button','GW_'+name+'Button')
     assert b.findtext('ScreenID') == name+'Button'
     assert b.findtext('Text') == name
     assert b.findtext('Font') == '2'
-    assert rect(b) == (x,y,64,16)
+    assert rect(b) == (x,y,56,16)
     assert b.findtext('Style_Transparent') == 'true'
     assert b.findtext('Style_Border') == b.findtext('Style_Checkbox') == 'false'
     assert b.find('EQType') is None
-    assert 64 >= len(name)*6+12
+    assert rect(b)[2] >= len(name)*6+12
     assert b.find('TextOffsetX') is None and b.find('TextOffsetY') is None
     pieces=[p.text for p in node('Screen','GroupWindow').findall('Pieces')]
     assert pieces.count(b.get('item')) == 1
@@ -47,17 +47,20 @@ def test_group_alias_buttons_keep_native_ids_and_fit_text_without_touching(name,
 
 
 def test_compact_button_column_leaves_a_native_titlebar_drag_strip_open():
-    assert rect(node('Screen','GroupWindow')) == (516,78,284,281)
-    upper = rect(node('Button','GW_InviteButton'))
-    lower = rect(node('Button','GW_DisbandButton'))
-    assert upper == (5,0,64,16)
-    assert lower == (5,17,64,16)
-    assert upper[1] + upper[3] < lower[1]
-    # Pixels x=73..125 in the native 16px titlebar remain free for moving.
-    assert upper[0] + upper[2] < 73
-    assert lower[0] + lower[2] < 73
-    assert rect(node('Gauge','Party1_HP_BG'))[1] == 35
-    assert int(node('Label','PlayerHP').findtext('Location/X')) == 178
+    assert rect(node('Screen','GroupWindow')) == (516,78,270,281)
+    left = rect(node('Button','GW_InviteButton'))
+    right = rect(node('Button','GW_DisbandButton'))
+    assert left == (5,18,56,16)
+    assert right == (65,18,56,16)
+    assert right[0] - (left[0] + left[2]) == 4
+    assert 126 - (right[0] + right[2]) == 5
+    # The native 16px titlebar remains completely clear for moving.
+    assert min(left[1],right[1]) >= 18
+    roster_y = rect(node('Gauge','Party1_HP_BG'))[1]
+    assert roster_y == 35
+    assert left[1] + left[3] < roster_y
+    assert right[1] + right[3] < roster_y
+    assert int(node('Label','PlayerHP').findtext('Location/X')) == 176
     assert rect(node('Button','GW_LFGButton')) == (-3,16,1,1)
     assert node('Button','GW_LFGButton').findtext('ButtonDrawTemplate/Normal') == 'A_SquareBtnNormal'
 
@@ -152,7 +155,7 @@ def test_compact_width_keeps_controls_roster_and_brand_but_clips_personal_stats(
     ):
         x,_,w,_ = rect(node(kind,name))
         assert x >= compact_width
-        assert x+w <= 284
+        assert x+w <= 270
 
 
 @pytest.mark.parametrize('i,state', list(enumerate(STATES)))

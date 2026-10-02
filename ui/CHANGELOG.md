@@ -1,5 +1,24 @@
 # VantageUI releases
 
+## 1.44.96
+
+Install folder: `VantageUI-v1.44.96`.
+
+- Placed Invite and Disband side by side below the draggable titlebar while
+  preserving their native Follow and Decline aliases in the same slots.
+- Compacted the full Group window to 270 pixels without reducing dynamic
+  HP/Mana or four-digit stat readability; the 126-pixel roster-only view and
+  native resize grip remain intact.
+- Tightened the stat, resist and experience rails to a 260-pixel endpoint.
+  Native Gauge scaling keeps the original bar atlas, endcaps and dividers
+  unchanged while rendering the shorter tracks.
+- Centered the Pet Info health background and every fill/detail/tick layer,
+  keeping the percentage immediately to its left. Titanium Gauge exposes only
+  a fixed name `TextOffsetX`, so the six-character fallback/common case is
+  centered while names of other lengths cannot be centered dynamically.
+
+Load with `/loadskin VantageUI-v1.44.96 1`.
+
 ## 1.44.95
 
 Install folder: `VantageUI-v1.44.95`.

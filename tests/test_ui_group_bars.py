@@ -18,13 +18,13 @@ def rect(n):
     return tuple(int(n.findtext(p)) for p in ('Location/X','Location/Y','Size/CX','Size/CY'))
 
 
-@pytest.mark.parametrize('name,bounds,eq', [
-    ('PlayerXPGauge_BG',(129,102,145,20),'4'),
-    ('PlayerXPGauge',(131,102,141,20),'4'),
-    ('P_Fatigue',(129,125,145,10),'3'),
-    ('P_Breath',(129,138,145,10),'8'),
+@pytest.mark.parametrize('name,bounds,eq,source_width', [
+    ('PlayerXPGauge_BG',(129,102,131,20),'4',145),
+    ('PlayerXPGauge',(131,102,127,20),'4',141),
+    ('P_Fatigue',(129,125,131,10),'3',145),
+    ('P_Breath',(129,138,131,10),'8',145),
 ])
-def test_gauge_hitbox_and_every_drawn_layer_have_identical_width(name,bounds,eq):
+def test_gauge_hitbox_scales_complete_native_bar_sources(name,bounds,eq,source_width):
     gauge = node('Gauge',name)
     assert rect(gauge) == bounds
     assert gauge.findtext('EQType') == eq
@@ -32,22 +32,25 @@ def test_gauge_hitbox_and_every_drawn_layer_have_identical_width(name,bounds,eq)
     for layer in gauge.find('GaugeDrawTemplate'):
         frame = node('Ui2DAnimation',layer.text).find('Frames')
         assert frame.findtext('Texture') == 'VantageGroupBars.tga'
-        assert rect(frame)[2:] == bounds[2:]
-    assert bounds[0] + bounds[2] == (272 if name == 'PlayerXPGauge' else 274)
+        # Preserve the complete atlas slice (including both endcaps and its
+        # dividers) and let the native Gauge renderer scale it to the hitbox.
+        assert rect(frame)[2:] == (source_width,bounds[3])
+        assert source_width >= bounds[2]
+    assert bounds[0] + bounds[2] == (258 if name == 'PlayerXPGauge' else 260)
 
 
 def test_all_three_bars_are_separated_and_percentage_is_not_under_a_fill():
     bars = [rect(node('Gauge',s)) for s in ('PlayerXPGauge_BG','P_Fatigue','P_Breath')]
-    assert all(b[0] == 129 and b[2] == 145 for b in bars)
+    assert all(b[0] == 129 and b[2] == 131 for b in bars)
     assert bars[1][1] - sum(bars[0][1::2]) == 3
     assert bars[2][1] - sum(bars[1][1::2]) == 3
-    assert rect(node('Label','PlayerXPPerc')) == (236,88,38,14)
+    assert rect(node('Label','PlayerXPPerc')) == (222,88,38,14)
     assert node('Label','PlayerXPPerc').findtext('EQType') == '26'
     assert rect(node('StaticAnimation','GW_StatEXPIcon')) == (129,90,10,10)
     assert rect(node('Label','STR'))[1] == 152
     assert 152 - (bars[-1][1] + bars[-1][3]) == 4
     group_size = rect(node('Screen','GroupWindow'))[2:]
-    assert group_size == (284,281)
+    assert group_size == (270,281)
     top_frame_inset = bottom_frame_inset = 4
     client_height = group_size[1] - top_frame_inset - bottom_frame_inset
     assert client_height == 273
@@ -56,13 +59,13 @@ def test_all_three_bars_are_separated_and_percentage_is_not_under_a_fill():
         assert y == 220 and y+h <= client_height
 
 
-@pytest.mark.parametrize('upper,lower',[('Invite','Disband'),('Follow','Decline')])
-def test_button_alias_pairs_stack_in_the_compact_column(upper,lower):
-    a,b = [rect(node('Button','GW_'+name+'Button')) for name in (upper,lower)]
-    assert a == (5,0,64,16) and b == (5,17,64,16)
-    assert b[1] - (a[1]+a[3]) == 1
-    assert a[0]+a[2] == b[0]+b[2] == 69 < 126
-    for name in (upper,lower):
+@pytest.mark.parametrize('left,right',[('Invite','Disband'),('Follow','Decline')])
+def test_button_alias_pairs_share_the_compact_row(left,right):
+    a,b = [rect(node('Button','GW_'+name+'Button')) for name in (left,right)]
+    assert a == (5,18,56,16) and b == (65,18,56,16)
+    assert b[0] - (a[0]+a[2]) == 4
+    assert b[0]+b[2] == 121 < 126
+    for name in (left,right):
         button = node('Button','GW_'+name+'Button')
         assert button.findtext('Font') == '2'
         assert button.findtext('Text') == name
@@ -143,20 +146,36 @@ def test_experience_heading_matches_left_labels_and_right_resource_values():
     label = node('Label', 'GW_ExperienceLabel')
     percent = node('Label', 'PlayerXPPerc')
     assert label.findtext('Text') == 'Experience'
-    assert rect(label) == (141,88,89,14)
+    assert rect(label) == (141,88,75,14)
     assert label.findtext('EQType') is None
     assert label.findtext('AlignRight') == label.findtext('AlignCenter') == 'false'
     assert label.findtext('NoWrap') == percent.findtext('NoWrap') == 'true'
     assert label.findtext('Font') == percent.findtext('Font') == '2'
     assert rect(label)[1::2] == rect(percent)[1::2]
     assert percent.findtext('AlignRight') == 'true'
-    assert 141+89+6 == rect(percent)[0]
-    assert 89 >= len('Experience')*6+8
+    assert 141+75+6 == rect(percent)[0]
+    assert 75 >= len('Experience')*6+8
     for name in ('PlayerHPLabel','PlayerManaLabel','ATKLabel','STRLabel'):
         assert rect(node('Label',name))[0] == rect(label)[0]
     for name in ('PlayerHP','PlayerMana','AC','WIS'):
         value = node('Label',name)
         assert value.findtext('AlignRight') == 'true'
-        assert rect(value)[0] + rect(value)[2] == 274
+        assert rect(value)[0] + rect(value)[2] == 260
     pieces = [p.text for p in node('Screen','GroupWindow').findall('Pieces')]
     assert pieces.count('GW_ExperienceLabel') == 1
+
+
+def test_compacted_right_panel_keeps_readable_identity_fields_and_frame_clearance():
+    for name in ('Class','Deity'):
+        value = node('Label',name)
+        assert rect(value) == (153,18 if name == 'Class' else 30,107,14)
+        assert rect(value)[2] >= len(value.findtext('Text'))*6+8
+    essential = [
+        ('Label','Class'), ('Label','Deity'), ('Label','PlayerHP'),
+        ('Label','PlayerMana'), ('Label','PlayerXPPerc'), ('Label','AC'),
+        ('Label','WIS'), ('Label','DR'), ('Gauge','PlayerXPGauge_BG'),
+    ]
+    right_edge = max(rect(node(kind,name))[0] + rect(node(kind,name))[2]
+                     for kind,name in essential)
+    assert right_edge == 260
+    assert rect(node('Screen','GroupWindow'))[2] - right_edge == 10

@@ -544,18 +544,20 @@
     <Font>2</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>6</X>
+      <X>16</X>
       <Y>5</Y>
     </Location>
     <Size>
-      <CX>124</CX>
+      <CX>104</CX>
       <CY>34</CY>
     </Size>
     <GaugeOffsetY>14</GaugeOffsetY>
-    <GaugeOffsetX>10</GaugeOffsetX>
+    <GaugeOffsetX>0</GaugeOffsetX>
     <Text>No Pet</Text>
     <TextOffsetY>0</TextOffsetY>
-    <TextOffsetX>25</TextOffsetX>
+    <!-- Titanium Gauge names only accept a fixed text offset. This centers
+         the six-character fallback/common case without unsupported tags. -->
+    <TextOffsetX>37</TextOffsetX>
     <TextColor>
       <R>240</R>
       <G>243</G>

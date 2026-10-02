@@ -85,14 +85,19 @@ def test_pet_health_and_commands_are_centered_in_compact_window():
             prefix='A_VantageActions' if name=='Attack' else 'A_VantagePet'
             assert button.findtext('ButtonDrawTemplate/'+state) == prefix+state
     health=xml.find("Gauge[@item='Pet_HP_BG']")
-    assert rect(health)==(6,5,124,34)
+    assert rect(health)==(16,5,104,34)
     assert health.findtext('Font')=='2'
     assert health.findtext('EQType')=='16'
     assert health.findtext('Text')=='No Pet'
-    assert (health.findtext('TextOffsetX'),health.findtext('TextOffsetY'))==('25','0')
-    assert (health.findtext('GaugeOffsetX'),health.findtext('GaugeOffsetY'))==('10','14')
+    assert (health.findtext('TextOffsetX'),health.findtext('TextOffsetY'))==('37','0')
+    assert health.find('AlignCenter') is None  # Unsupported on Titanium Gauge text.
+    assert (health.findtext('GaugeOffsetX'),health.findtext('GaugeOffsetY'))==('0','14')
     assert health.findtext('GaugeDrawTemplate/Background')=='A_dzBackground'
-    assert rect(health)[0] == rect(parent)[2]-(rect(health)[0]+rect(health)[2]) == 6
+    assert rect(health)[0] == rect(parent)[2]-(rect(health)[0]+rect(health)[2]) == 16
+    # TextOffset is necessarily fixed; it centers the six-character fallback
+    # and common-case pet name at native Font-2's five-pixel glyph width.
+    text_left=rect(health)[0]+int(health.findtext('TextOffsetX'))
+    assert text_left + len(health.findtext('Text'))*5/2 == rect(parent)[2]/2
     gauge_offset=int(health.findtext('GaugeOffsetX'))
     background= root('EQUI_Animations.xml').find("Ui2DAnimation[@item='A_dzBackground']/Frames")
     background_left=rect(health)[0]+gauge_offset
@@ -110,7 +115,24 @@ def test_pet_health_and_commands_are_centered_in_compact_window():
     assert hp_label.findtext('AlignRight')=='true'
     assert rect(hp_label)[0]+rect(hp_label)[2] == background_left
     for item in ('Pet_HP_0','Pet_HealthDetail','Pet_HP_VantageTicks'):
-        assert rect(xml.find(f"*[@item='{item}']"))[:3] == (bar_left,19,bar_width)
+        assert rect(xml.find(f"*[@item='{item}']")) == (bar_left,19,bar_width,20)
+    # Every threshold clip and complementary fill shares the same centered
+    # 100px rail, while the large internal A gauges remain local at (0,0).
+    clips=[n for n in xml.findall('Screen')
+           if (n.get('item') or '').startswith('Pet_HP_')
+           and n.get('item').endswith('A_X')]
+    assert len(clips) == 22
+    for clip in clips:
+        clip_box=rect(clip)
+        internal_name=clip.get('item')[:-2]
+        complement_name=internal_name[:-1]+'B'
+        internal=xml.find(f"Gauge[@item='{internal_name}']")
+        complement=xml.find(f"Gauge[@item='{complement_name}']")
+        assert clip_box[0] == bar_left and clip_box[1] == 19 and clip_box[3] == 20
+        assert rect(internal)[:2] == (0,0)
+        assert rect(complement)[1] == 19
+        assert rect(complement)[0] == bar_left+clip_box[2]
+        assert rect(complement)[0]+rect(complement)[2] == bar_left+bar_width
     attack=rect(xml.find("Button[@item='PIW_AttackButton']"))
     assert attack[0]==2 and rect(parent)[2]-(attack[0]+attack[2])==6
     assert (attack[0]+attack[2]/2)-rect(parent)[2]/2 == -2
