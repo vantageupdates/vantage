@@ -34,7 +34,7 @@ def row(file, owner_kind, owner, stat, label_id, value_id, x, y, eq, label_width
     assert value.findtext('EQType') == eq
     assert value.findtext('Font') == label.findtext('Font') == '2'
     assert value.findtext('NoWrap') == label.findtext('NoWrap') == 'true'
-    assert [e.text for e in value.findall('AlignRight')] == ['false' if file == 'GroupWindow' and stat not in ('HP','MANA') else 'true']
+    assert [e.text for e in value.findall('AlignRight')] == ['true']
     assert value.findtext('AlignLeft') != 'true'
     assert label.findtext('AlignRight') == 'false'
     assert value_width >= 4 * 5 + 6  # Four native Font-2 digits plus breathing room.
@@ -72,30 +72,30 @@ def test_actions_resists_have_nonoverlapping_abbreviations_and_full_tooltips(i,k
 
 
 @pytest.mark.parametrize('stat,label,value,x,y,eq', [
-    ('ATK','ATKLabel','ATK',129,72,'23'), ('AC','ACLabel','AC',197,72,'22'),
-    ('STR','STRLabel','STR',129,152,'5'), ('STA','STALabel','STA',129,163,'6'),
-    ('AGI','AGILabel','AGI',129,174,'8'), ('DEX','DEXLabel','DEX',129,185,'7'),
-    ('WIS','WISLabel','WIS',197,152,'9'), ('INT','INTLabel','INT',197,163,'10'),
-    ('CHA','CHALabel','CHA',197,174,'11'), ('WEIGHT','WGTLabel','WGT',197,185,'24'),
-    ('HP','PlayerHPLabel','PlayerHP',129,45,'70'), ('MANA','PlayerManaLabel','PlayerMana',129,57,'128'),
+    ('ATK','ATKLabel','ATK',129,56,'23'), ('AC','ACLabel','AC',207,56,'22'),
+    ('STR','STRLabel','STR',129,136,'5'), ('STA','STALabel','STA',129,150,'6'),
+    ('AGI','AGILabel','AGI',129,164,'8'), ('DEX','DEXLabel','DEX',129,178,'7'),
+    ('WIS','WISLabel','WIS',207,136,'9'), ('INT','INTLabel','INT',207,150,'10'),
+    ('CHA','CHALabel','CHA',207,164,'11'), ('WEIGHT','WGTLabel','WGT',207,178,'24'),
+    ('HP','PlayerHPLabel','PlayerHP',129,29,'70'), ('MANA','PlayerManaLabel','PlayerMana',129,41,'128'),
 ])
 def test_group_personal_stat_rows(stat,label,value,x,y,eq):
     resource = stat in ('HP','MANA')
     row('GroupWindow','Screen','GroupWindow',stat,label,value,x,y,eq,
-        31 if resource else 23,176 if resource else x+37,84 if resource else 26)
+        31 if resource else 23,190 if resource else x+37,84 if resource else 30)
     if resource:
         assert rect(node('GroupWindow','Label',value))[2] >= len('1,000/1,000') * 6 + 6
 
 
 def test_window_bounds_and_native_xp_fatigue_breath_remain_distinct():
     assert rect(node('ActionsWindow','Screen','ActionsWindow')) == (516,292,144,182)
-    assert rect(node('GroupWindow','Screen','GroupWindow')) == (516,78,270,297)
+    assert rect(node('GroupWindow','Screen','GroupWindow')) == (516,78,288,281)
     for name,eq in (('PlayerXPGauge','4'),('PlayerXPGauge_BG','4'),('P_Fatigue','3'),('P_Breath','8')):
         g=node('GroupWindow','Gauge',name)
         assert g.findtext('EQType') == eq
         x,y,w,h=rect(g)
-        assert x+w == (258 if name=='PlayerXPGauge' else 260)
-    assert rect(node('GroupWindow','StaticAnimation','GW_StatEXPIcon')) == (129,90,10,10)
+        assert x+w == (272 if name=='PlayerXPGauge' else 274)
+    assert rect(node('GroupWindow','StaticAnimation','GW_StatEXPIcon')) == (129,74,10,10)
     assert node('GroupWindow','Label','PlayerXPPerc').findtext('EQType') == '26'
     assert rect(node('ActionsWindow','Label','CHAnum'))[1]+14 == 80
     assert rect(node('ActionsWindow','Button','AMP_CampButton')) == (4,87,128,18)
@@ -130,7 +130,13 @@ def test_group_columns_reserve_space_for_four_digit_values_without_icon_overlap(
     ix,iy,iw,ih=rect(icon)
     lx,ly,lw,lh=rect(label)
     assert vx >= lx+lw+2
-    assert vw >= 4*5+6
-    assert ix-(vx+vw) >= 5
-    assert value.findtext('AlignRight') == 'false'
+    assert vw >= 4*6+6
+    assert ix-(vx+vw) >= 11
+    assert value.findtext('AlignRight') == 'true'
     assert value.findtext('AlignCenter') == 'false'
+
+def test_group_attribute_rows_do_not_overlap_vertically():
+    for names in (('STR','STA','AGI','DEX'),('WIS','INT','CHA','WGT')):
+        rows=[rect(node('GroupWindow','Label',name)) for name in names]
+        for previous,current in zip(rows,rows[1:]):
+            assert current[1] >= previous[1]+previous[3]

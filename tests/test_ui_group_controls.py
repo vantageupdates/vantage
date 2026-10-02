@@ -27,7 +27,7 @@ def pixel(state,x,y):
 
 
 @pytest.mark.parametrize('name,x,y', [
-    ('Invite',5,18), ('Follow',5,18), ('Disband',65,18), ('Decline',65,18),
+    ('Invite',5,2), ('Follow',5,2), ('Disband',65,2), ('Decline',65,2),
 ])
 def test_group_alias_buttons_keep_native_ids_and_fit_text_without_touching(name,x,y):
     b=node('Button','GW_'+name+'Button')
@@ -47,20 +47,20 @@ def test_group_alias_buttons_keep_native_ids_and_fit_text_without_touching(name,
 
 
 def test_compact_button_column_leaves_a_native_titlebar_drag_strip_open():
-    assert rect(node('Screen','GroupWindow')) == (516,78,270,297)
+    assert rect(node('Screen','GroupWindow')) == (516,78,288,281)
     left = rect(node('Button','GW_InviteButton'))
     right = rect(node('Button','GW_DisbandButton'))
-    assert left == (5,18,56,16)
-    assert right == (65,18,56,16)
+    assert left == (5,2,56,16)
+    assert right == (65,2,56,16)
     assert right[0] - (left[0] + left[2]) == 4
     assert 126 - (right[0] + right[2]) == 5
-    # The native 16px titlebar remains completely clear for moving.
-    assert min(left[1],right[1]) >= 18
+    # Coordinates begin below the native titlebar; do not reserve it twice.
+    assert min(left[1],right[1]) == 2
     roster_y = rect(node('Gauge','Party1_HP_BG'))[1]
-    assert roster_y == 35
+    assert roster_y == 19
     assert left[1] + left[3] < roster_y
     assert right[1] + right[3] < roster_y
-    assert int(node('Label','PlayerHP').findtext('Location/X')) == 176
+    assert int(node('Label','PlayerHP').findtext('Location/X')) == 190
     assert rect(node('Button','GW_LFGButton')) == (-3,16,1,1)
     assert node('Button','GW_LFGButton').findtext('ButtonDrawTemplate/Normal') == 'A_SquareBtnNormal'
 
@@ -90,7 +90,7 @@ def test_alternate_button_states_share_positions_and_preserve_native_piece_order
         assert pieces.index(f'Party{i}_HealthDetail') < pieces.index(f'GW_PetGauge{i}')
 
 
-@pytest.mark.parametrize('member,y', [(1,35),(2,76),(3,117),(4,159),(5,201)])
+@pytest.mark.parametrize('member,y', [(1,19),(2,60),(3,101),(4,143),(5,185)])
 def test_party_rows_keep_their_geometry_target_bindings_and_function_key_labels(member,y):
     background = node('Gauge',f'Party{member}_HP_BG')
     assert rect(background) == (-2,y,124,30)
@@ -114,18 +114,18 @@ def test_party_rows_keep_their_geometry_target_bindings_and_function_key_labels(
     assert rect(hidden_percent) == (-2,42,1,1)
 
 
-def test_every_global_roster_layer_moves_by_exactly_34_without_moving_internal_layers():
+def test_every_global_roster_layer_moves_by_exactly_18_without_moving_internal_layers():
     root = ET.parse(SKIN/'EQUI_GroupWindow.xml').getroot()
     bases = (1,42,83,125,167)
     for member, old_base in enumerate(bases, 1):
-        global_y = old_base + 10 + 34
+        global_y = old_base + 10 + 18
         party_nodes = [n for n in root if (n.get('item') or '').startswith(f'Party{member}_HP_')]
         for part in party_nodes:
             y = part.findtext('Location/Y')
             if y is None:
                 continue
             if part.get('item') == f'Party{member}_HP_BG':
-                assert int(y) == old_base + 34
+                assert int(y) == old_base + 18
             else:
                 assert int(y) in (0, global_y)
         assert rect(node('Gauge',f'Party{member}_HealthDetail'))[1] == global_y
@@ -155,7 +155,7 @@ def test_compact_width_keeps_controls_roster_and_brand_but_clips_personal_stats(
     ):
         x,_,w,_ = rect(node(kind,name))
         assert x >= compact_width
-        assert x+w <= 270
+        assert x+w <= 288
 
 
 @pytest.mark.parametrize('i,state', list(enumerate(STATES)))
@@ -163,12 +163,12 @@ def test_all_button_states_have_matching_native_frames_clear_corners_and_neutral
     a=node('Ui2DAnimation','A_VantageGroup'+state)
     assert a.findtext('Cycle') == 'false'
     assert a.findtext('Frames/Texture') == 'VantageGroupControls.tga'
-    assert rect(a.find('Frames')) == (2,2+20*i,64,16)
+    assert rect(a.find('Frames')) == (2,2+20*i,56,16)
     assert a.findtext('Frames/Duration') == '1000'
-    for x,y in ((0,0),(63,0),(0,15),(63,15)):
+    for x,y in ((0,0),(55,0),(0,15),(55,15)):
         assert pixel(i,x,y) == (0,0,0,0)
     for y in range(16):
-        for x in range(64):
+        for x in range(56):
             b,g,r,alpha=pixel(i,x,y)
             assert b==g==r
     assert pixel(i,35,8)[3] == 255
@@ -178,9 +178,9 @@ def test_all_button_states_have_matching_native_frames_clear_corners_and_neutral
 def test_raised_pressed_hover_and_disabled_faces_are_distinct_with_identical_alpha():
     hashes=set()
     for i in range(5):
-        values=b''.join(bytes(pixel(i,x,y)) for y in range(16) for x in range(64))
+        values=b''.join(bytes(pixel(i,x,y)) for y in range(16) for x in range(56))
         hashes.add(hashlib.sha256(values).digest())
-        assert all(pixel(i,x,y)[3]==pixel(0,x,y)[3] for y in range(16) for x in range(64))
+        assert all(pixel(i,x,y)[3]==pixel(0,x,y)[3] for y in range(16) for x in range(56))
     assert len(hashes)==5
     assert pixel(0,35,3)[0]>pixel(0,35,12)[0]  # Raised.
     assert pixel(2,35,3)[0]<pixel(2,35,12)[0]  # Depressed.
@@ -194,11 +194,13 @@ def test_atlas_is_flat_power_of_two_and_has_clear_gutters():
     assert data[12:18]==bytes((128,0,128,0,32,40))
     for y in range(128):
         for x in range(128):
-            if not (2<=x<66 and any(2+20*i<=y<18+20*i for i in range(5))):
+            if not (2<=x<58 and any(2+20*i<=y<18+20*i for i in range(5))):
                 assert data[18+4*(y*128+x)+3]==0
 
 
-def test_group_faces_restore_exact_known_visible_ui80_art():
-    # Baseline: commit 96b7b6b, before the footer move and 54px shrink.
-    assert hashlib.sha256((SKIN/'VantageGroupControls.tga').read_bytes()).hexdigest() == \
-        '02299d2a6fe961b13f8436863958f12cbe2a10e42af61f378ebe53c7b083f2ca'
+def test_native_button_art_never_exceeds_its_control():
+    for name in ('Invite','Disband','Follow','Decline'):
+        button=node('Button','GW_'+name+'Button')
+        for state in STATES:
+            frame=node('Ui2DAnimation',button.findtext('ButtonDrawTemplate/'+state)).find('Frames')
+            assert rect(frame)[2:] == rect(button)[2:]
