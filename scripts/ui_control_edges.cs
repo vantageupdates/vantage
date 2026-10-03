@@ -9,6 +9,13 @@ using System.Drawing.Imaging;
 public static class VantageControlEdgesRenderer {
     public const int SpellWidth=136, SpellFillWidth=SpellWidth-4;
     public const int SpellOutlineTop=144, SpellFooterTop=176, SpellFillTop=196;
+    // Existing native slice rectangles and source offsets. Never expand them.
+    static readonly int[,] SlotSlices={
+        {2,2,6,1,0,0},{10,2,1,1,20,0},{13,2,6,1,34,0},
+        {21,2,1,5,39,1},{24,2,1,1,39,20},{27,2,1,5,39,34},
+        {30,2,6,1,34,39},{38,2,1,1,20,39},{41,2,6,1,0,39},
+        {49,2,1,5,0,1},{52,2,1,1,0,20},{55,2,1,5,0,34}};
+    static readonly int[,] PetCells={{128,34},{256,34},{256,54},{256,74},{256,94}};
     // Spell-only cells live in unused space of the existing spell atlas. The
     // shared control atlas remains unchanged beside Pet/Actions/HP artwork.
     public static void RenderSpellWindowArt(string destination) {
@@ -146,11 +153,44 @@ public static class VantageControlEdgesRenderer {
         double tone=down ? 17+9*t : 30-13*t+9*Math.Exp(-Math.Pow((t-0.22)/0.20,2));
         if(state==1 || state==3) tone+=7;
         if(state==4) tone=16+4*(1-t);
-        double depth=Math.Max(0,-RoundedDistance(x+0.5,y+0.5,width,18,7,0.5));
-        double rim=0.18*Math.Exp(-Math.Pow(depth/0.65,2));
+        // An explicit 0.75px inner ring keeps the outer coverage and face intact.
+        int inner=RoundedAlpha(x,y,width,18,6.25,1.25);
+        bool hover=state==1 || state==3;
+        double rim=Math.Max(0,alpha-inner)/(double)alpha
+            *(state==4 ? 0.12 : hover ? 0.36 : down ? 0.26 : 0.28);
         // Only the fine structural rim is gold; the softly raised face is neutral.
         return Color.FromArgb(alpha,(int)Math.Round(tone*(1-rim)+158*rim),
             (int)Math.Round(tone*(1-rim)+131*rim),(int)Math.Round(tone*(1-rim)+75*rim));
+    }
+    // Patch the delivery atlas in place. Deterministic RGB replacement preserves
+    // every alpha byte and every pixel outside the existing slot/button cells.
+    // Repeating the patch is byte-idempotent; never regenerate unrelated art.
+    public static void PatchCrispControls(string destination) {
+        if(Path.GetFileName(destination)!="VantageControlEdges.tga")
+            throw new ArgumentException("Only the dedicated edge atlas is supported.");
+        byte[] data=File.ReadAllBytes(destination);
+        if(data.Length!=18+512*128*4 || data[0]!=0 || data[1]!=0 || data[2]!=2
+            || data[12]!=0 || data[13]!=2 || data[14]!=128 || data[15]!=0
+            || data[16]!=32 || data[17]!=40)
+            throw new ArgumentException("Expected the reviewed top-origin 512x128 BGRA atlas.");
+        for(int n=0;n<SlotSlices.GetLength(0);n++)
+            for(int y=0;y<SlotSlices[n,3];y++) for(int x=0;x<SlotSlices[n,2];x++) {
+                int i=18+((SlotSlices[n,1]+y)*512+SlotSlices[n,0]+x)*4;
+                if(data[i+3]==0) continue;
+                data[i]=80; data[i+1]=119; data[i+2]=142;
+            }
+        for(int kind=0;kind<2;kind++) for(int state=0;state<5;state++) {
+            int left=kind==0 ? 352 : PetCells[state,0];
+            int top=kind==0 ? 4+24*state : PetCells[state,1];
+            int width=kind==0 ? 128 : 62;
+            for(int y=0;y<18;y++) for(int x=0;x<width;x++) {
+                int i=18+((top+y)*512+left+x)*4;
+                if(data[i+3]==0) continue;
+                Color c=ActionsPixel(x,y,state,width);
+                data[i]=c.B; data[i+1]=c.G; data[i+2]=c.R;
+            }
+        }
+        File.WriteAllBytes(destination,data);
     }
     public static void RepairSpellCorners(string destination) {
         if(Path.GetFileName(destination)!="v3_controls.tga")
@@ -224,19 +264,15 @@ public static class VantageControlEdgesRenderer {
             for(int y=0;y<40;y++) for(int x=0;x<40;x++) {
                 int coverage=RoundedAlpha(x,y,40,40,6,0.5)-RoundedAlpha(x,y,40,40,5.4,1.1);
                 int alpha=(Math.Max(0,coverage)*120+127)/255;
-                frame.SetPixel(x,y,alpha==0 ? Color.Transparent : Color.FromArgb(alpha,108,91,61));
+                frame.SetPixel(x,y,alpha==0 ? Color.Transparent : Color.FromArgb(alpha,142,119,80));
             }
             // x, y, width, height, source x, source y. Keep every XML slice exact.
             // Wider corner spans leave the diagonal clear without changing the
             // one-pixel client inset or the native inventory icon rectangles.
-            int[,] slices={ {2,2,6,1,0,0},{10,2,1,1,20,0},{13,2,6,1,34,0},
-                {21,2,1,5,39,1},{24,2,1,1,39,20},{27,2,1,5,39,34},
-                {30,2,6,1,34,39},{38,2,1,1,20,39},{41,2,6,1,0,39},
-                {49,2,1,5,0,1},{52,2,1,1,0,20},{55,2,1,5,0,34} };
-            for(int n=0;n<slices.GetLength(0);n++)
-                for(int y=0;y<slices[n,3];y++) for(int x=0;x<slices[n,2];x++)
-                    atlas.SetPixel(slices[n,0]+x,slices[n,1]+y,
-                        frame.GetPixel(slices[n,4]+x,slices[n,5]+y));
+            for(int n=0;n<SlotSlices.GetLength(0);n++)
+                for(int y=0;y<SlotSlices[n,3];y++) for(int x=0;x<SlotSlices[n,2];x++)
+                    atlas.SetPixel(SlotSlices[n,0]+x,SlotSlices[n,1]+y,
+                        frame.GetPixel(SlotSlices[n,4]+x,SlotSlices[n,5]+y));
             {
                 int[,] strips={{2,240},{246,100}};
                 // Neutral transparent relief, clipped by a live HP gauge.
@@ -286,10 +322,9 @@ public static class VantageControlEdgesRenderer {
                     atlas.SetPixel(352+x,4+state*24+y,ActionsPixel(x,y,state));
             // Pet's half-width commands get native 62x18 art, not a squashed
             // wide button. These isolated cells never overlap existing art.
-            int[,] petCells={{128,34},{256,34},{256,54},{256,74},{256,94}};
             for(int state=0;state<5;state++)
                 for(int y=0;y<18;y++) for(int x=0;x<62;x++)
-                    atlas.SetPixel(petCells[state,0]+x,petCells[state,1]+y,
+                    atlas.SetPixel(PetCells[state,0]+x,PetCells[state,1]+y,
                         ActionsPixel(x,y,state,62));
             // Compact identity tab. Neutral fill, softly rounded gold rim;
             // version text is a native XML label, never baked into the image.

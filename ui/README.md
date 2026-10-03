@@ -35,6 +35,14 @@ health bars with yellow/orange/red thresholds, and restored native containers.
 Keep future exports explicit and review
 their asset diffs before packaging or publication.
 
+The 1.44.101 definition pass gives all buff buttons explicit positions in the
+numbered icon column and removes opaque inactive backplates, targeting the
+reported square in the text area. Native buff icons, names and cancellation
+bindings are retained. Buff holders and existing native-size control rims
+are more clearly defined without enlarging controls, changing item icons or
+altering health/mana/experience art. Texture dimensions stay unchanged; this
+is not engine-level HD scaling. Reload in P99 to verify the actual result.
+
 The 1.44.100 conservative premium pass widens the spell-name lane by 16px
 without shrinking text or changing spell icons/colors. Inventory bag hit boxes
 no longer overlap, footer actions fit the inner frame, and Bank/bag/Social
@@ -121,7 +129,7 @@ version or tag. A UI-only release does not increment Companion and does not buil
 or publish `Vantage.exe`. After focused and complete tests, coordinate publication
 of the updater and both transport assets on a reviewed
 `vantage-ui-v<major.minor.patch>` tag in `vantageupdates/vantage`. For this
-candidate the tag is `vantage-ui-v1.44.100`. Verify public asset sizes and
+candidate the tag is `vantage-ui-v1.44.101`. Verify public asset sizes and
 SHA-256 digests against the tested artifacts. An arbitrary source push must not
 automatically publish an unreviewed UI update. The repository
 [release policy](../AGENTS.md) records the separation between Companion and UI

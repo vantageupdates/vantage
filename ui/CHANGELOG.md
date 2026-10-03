@@ -1,5 +1,35 @@
 # VantageUI releases
 
+## 1.44.101
+
+Install folder: `VantageUI-v1.44.101`.
+
+- Corrected the buff-window paint source behind the reported empty square:
+  every buff button now explicitly occupies its numbered icon row, rather
+  than inheriting a default-client location. Transparent native controls and
+  clear Normal/Disabled backplates prevent empty buttons painting squares in
+  the text lane. Active icons, native aliases, decals, cancellation and child
+  order remain unchanged; hover/pressed feedback uses only a fine outline.
+- Buff holders have clean native-size rounded contours, with transparent
+  corners and one-pixel row gutters. Buff names and shadow labels retain
+  their existing size, color, alignment and EQType bindings.
+- Defined the existing thin contours of inventory, Bank, bag, Social, Group,
+  Actions and Pet buttons. Equipment/slot gold is clearer without thicker
+  borders, larger controls or different icons. The control atlases retain
+  their original dimensions and alpha masks; health, mana, experience,
+  school-colored spell gems, logos and unrelated pixels are untouched.
+- Artwork is rendered at its actual native control sizes, not enlarged and
+  rescaled. This improves perceived definition; it does not add engine-level
+  HD/DPI scaling or remake the game's item/spell icons.
+
+Source geometry, atlas containment, transparency, native bindings and
+deterministic generation are checked offline. The user's screenshot does not
+establish which native button was painting the artifact. Load the skin and
+verify buff hover/cancellation, empty rows and long names in P99; this release
+does not claim in-game verification and does not install or reset settings.
+
+Load with `/loadskin VantageUI-v1.44.101 1`.
+
 ## 1.44.100
 
 Install folder: `VantageUI-v1.44.100`.

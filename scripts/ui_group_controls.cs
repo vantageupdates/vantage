@@ -30,7 +30,7 @@ public static class VantageGroupControls {
                 double face=down?18+11*t:32-14*t+3*Math.Exp(-Math.Pow((t-.2)/.18,2));
                 if(hover)face+=7;
                 if(state==4)face=18-3*t;
-                double rim=edge*(state==4?.12:hover?.38:down?.28:.23);
+                double rim=edge*(state==4?.15:hover?.43:down?.34:.30);
                 int tone=(int)Math.Round(face*(1-rim)+255*rim);
                 atlas.SetPixel(2+x,2+20*state+y,Color.FromArgb((int)Math.Round(a*255),tone,tone,tone));
             }

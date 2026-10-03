@@ -770,10 +770,16 @@
   <Button item="BW_Buff0_Button">
     <ScreenID>Buff0</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>1</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
@@ -794,10 +800,16 @@
   <Button item="BW_Buff1_Button">
     <ScreenID>Buff1</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>26</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
@@ -818,10 +830,16 @@
   <Button item="BW_Buff2_Button">
     <ScreenID>Buff2</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>51</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
@@ -842,10 +860,16 @@
   <Button item="BW_Buff3_Button">
     <ScreenID>Buff3</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>76</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
@@ -866,10 +890,16 @@
   <Button item="BW_Buff4_Button">
     <ScreenID>Buff4</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>101</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
@@ -890,10 +920,16 @@
   <Button item="BW_Buff5_Button">
     <ScreenID>Buff5</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>126</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
@@ -914,10 +950,16 @@
   <Button item="BW_Buff6_Button">
     <ScreenID>Buff6</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>151</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
@@ -938,10 +980,16 @@
   <Button item="BW_Buff7_Button">
     <ScreenID>Buff7</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>176</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
@@ -962,10 +1010,16 @@
   <Button item="BW_Buff8_Button">
     <ScreenID>Buff8</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>201</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
@@ -986,10 +1040,16 @@
   <Button item="BW_Buff9_Button">
     <ScreenID>Buff9</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>226</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
@@ -1010,10 +1070,16 @@
   <Button item="BW_Buff10_Button">
     <ScreenID>Buff10</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>251</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
@@ -1034,10 +1100,16 @@
   <Button item="BW_Buff11_Button">
     <ScreenID>Buff11</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>276</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
@@ -1058,10 +1130,16 @@
   <Button item="BW_Buff12_Button">
     <ScreenID>Buff12</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>301</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
@@ -1082,10 +1160,16 @@
   <Button item="BW_Buff13_Button">
     <ScreenID>Buff13</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>326</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
@@ -1106,10 +1190,16 @@
   <Button item="BW_Buff14_Button">
     <ScreenID>Buff14</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>351</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
@@ -1130,10 +1220,16 @@
   <Button item="BW_Buff15_Button">
     <ScreenID>Buff15</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>376</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
@@ -1154,10 +1250,16 @@
   <Button item="BW_Buff16_Button">
     <ScreenID>Buff16</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>401</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
@@ -1178,10 +1280,16 @@
   <Button item="BW_Buff17_Button">
     <ScreenID>Buff17</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>426</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
@@ -1202,10 +1310,16 @@
   <Button item="BW_Buff18_Button">
     <ScreenID>Buff18</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>451</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
@@ -1226,10 +1340,16 @@
   <Button item="BW_Buff19_Button">
     <ScreenID>Buff19</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>476</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
@@ -1250,10 +1370,16 @@
   <Button item="BW_Buff20_Button">
     <ScreenID>Buff20</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>501</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
@@ -1274,10 +1400,16 @@
   <Button item="BW_Buff21_Button">
     <ScreenID>Buff21</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>526</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
@@ -1298,10 +1430,16 @@
   <Button item="BW_Buff22_Button">
     <ScreenID>Buff22</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>551</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
@@ -1322,10 +1460,16 @@
   <Button item="BW_Buff23_Button">
     <ScreenID>Buff23</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>576</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
@@ -1346,10 +1490,16 @@
   <Button item="BW_Buff24_Button">
     <ScreenID>Buff24</ScreenID>
     <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>175</X>
+      <Y>601</Y>
+    </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <Style_Transparent>true</Style_Transparent>
+    <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
       <Normal>CleanBuffNormal</Normal>
       <NormalDecal>BuffIcons</NormalDecal>
