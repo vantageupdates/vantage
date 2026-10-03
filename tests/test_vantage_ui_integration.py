@@ -525,6 +525,7 @@ def test_character_ui_manager_empty_states_refresh_and_status_are_accessible(
         monkeypatch.setattr(
             vantage_ui_module.QAccessible, "updateAccessibility",
             lambda event: announcements.append(event.message()))
+        dialog.tabs.setCurrentIndex(1)
         dialog.show()
         dialog.activateWindow()
         dialog.audit_refresh_button.setFocus(Qt.FocusReason.OtherFocusReason)
@@ -669,6 +670,7 @@ def test_character_ui_manager_cards_do_not_overlap_at_supported_sizes(
     try:
         for size in ((760, 590), (620, 500)):
             dialog.resize(*size)
+            dialog.tabs.setCurrentIndex(1)
             dialog.show()
             QApplication.processEvents()
             table_bottom = dialog.audit_table.geometry().bottom()
@@ -678,7 +680,7 @@ def test_character_ui_manager_cards_do_not_overlap_at_supported_sizes(
                 dialog.select_outdated_button.geometry().bottom())
             assert dialog.progress.height() >= dialog.progress.minimumHeight()
             assert dialog.status.height() >= dialog.status.minimumHeight()
-            assert dialog.options_scroll.verticalScrollBar().maximum() > 0
+            assert dialog.tabs.count() == 3
 
         dialog.audit_table.setCurrentCell(1, 2)
         original_cell = (
@@ -698,21 +700,27 @@ def test_character_ui_manager_cards_do_not_overlap_at_supported_sizes(
         assert (dialog.audit_table.currentRow(),
                 dialog.audit_table.currentColumn()) == original_cell
 
+        dialog.tabs.setCurrentIndex(0)
         dialog._select_all_targets()
-        dialog.clear_targets_button.setFocus(Qt.FocusReason.TabFocusReason)
-        QTest.keyClick(dialog.clear_targets_button, Qt.Key.Key_Tab)
+        dialog.copy_skin.setFocus(Qt.FocusReason.TabFocusReason)
+        QTest.keyClick(dialog.copy_skin, Qt.Key.Key_Tab)
         QApplication.processEvents()
         assert QApplication.focusWidget() is dialog.copy_layout_button
-        copy_top = dialog.copy_layout_button.mapTo(
-            dialog.options_scroll.viewport(), QPoint(0, 0)).y()
-        assert 0 <= copy_top < dialog.options_scroll.viewport().height()
+        assert dialog.progress.isHidden()
+        assert dialog.rect().contains(dialog.copy_layout_button.geometry())
+        # The progress row is intentionally absent until an operation begins;
+        # a hidden widget has no meaningful layout position. Verify the real
+        # working layout too, rather than depending on stale hidden geometry.
+        dialog.progress.show()
+        QApplication.processEvents()
+        assert dialog.copy_layout_button.geometry().bottom() < dialog.progress.geometry().top()
+        dialog.progress.hide()
+        dialog.tabs.setCurrentIndex(2)
         dialog.backup_combo.setFocus(Qt.FocusReason.TabFocusReason)
         QTest.keyClick(dialog.backup_combo, Qt.Key.Key_Tab)
         QApplication.processEvents()
         assert QApplication.focusWidget() is dialog.restore_button
-        restore_top = dialog.restore_button.mapTo(
-            dialog.options_scroll.viewport(), QPoint(0, 0)).y()
-        assert 0 <= restore_top < dialog.options_scroll.viewport().height()
+        assert dialog.restore_button.isVisibleTo(dialog)
     finally:
         dialog.close()
         dialog.deleteLater()
@@ -738,6 +746,7 @@ def test_character_ui_manager_preserves_sort_selection_and_sort_focus(
     try:
         dialog.show()
         dialog.activateWindow()
+        dialog.tabs.setCurrentIndex(1)
         dialog.audit_table.setCurrentCell(0, 0)
         dialog.audit_table.setFocus(Qt.FocusReason.OtherFocusReason)
         first_use = dialog.audit_table.item(0, 0)
@@ -818,6 +827,7 @@ def test_character_ui_manager_restores_action_focus_and_lists_copy_targets(
             (dialog.restore_button, "restore", {"backup_id": backup.backup_id}),
         )
         for control, action, options in operations:
+            dialog.tabs.setCurrentIndex({"skin": 1, "layout": 0, "restore": 2}[action])
             control.setFocus(Qt.FocusReason.OtherFocusReason)
             QApplication.processEvents()
             assert dialog._execute(action, options)
@@ -829,6 +839,7 @@ def test_character_ui_manager_restores_action_focus_and_lists_copy_targets(
 
         monkeypatch.setattr(
             vantage_ui_module, "apply_skin_to_profiles", fail_apply)
+        dialog.tabs.setCurrentIndex(1)
         dialog.apply_selected_button.setFocus(Qt.FocusReason.OtherFocusReason)
         QApplication.processEvents()
         assert dialog._execute("skin", operations[0][2]) is False
@@ -857,6 +868,91 @@ def test_character_ui_manager_restores_action_focus_and_lists_copy_targets(
         dialog.close()
         dialog.deleteLater()
         QApplication.processEvents()
+
+
+def _copy_selection_fixture(panel, tmp_path, monkeypatch, *, installed=True):
+    root = tmp_path / "EQ-copy"
+    skin = "VantageUI-v1.44.99"
+    (root / "uifiles" / skin).mkdir(parents=True)
+    (root / "eqgame.exe").write_bytes(b"fixture")
+    for character, server in (("Alpha", "Green"), ("Beta", "Blue"), ("Gamma", "Green")):
+        (root / f"UI_{character}_P1999{server}.ini").write_text(
+            "[Main]\nUISkin=velious\n[ChatWindow]\nXPos1920x1080=1\n[BuffWindow]\nYPos1280x720=2\n")
+    panel.path_edit.setText(str(root))
+    monkeypatch.setattr(ui_skin_updater, "installed_folder", lambda _root: skin if installed else "")
+    monkeypatch.setattr(vantage_ui_module, "data_dir", lambda *parts: tmp_path.joinpath("state", *parts))
+    return vantage_ui_module.CharacterUIManagerDialog(panel)
+
+
+def test_copy_search_selections_survive_filters_and_never_select_source(panel, tmp_path, monkeypatch):
+    dialog = _copy_selection_fixture(panel, tmp_path, monkeypatch)
+    try:
+        assert dialog.tabs.currentIndex() == 0
+        dialog.target_search.setText("beta blue")
+        dialog.select_all_button.click()
+        assert dialog._checked_targets() == ["UI_Beta_P1999Blue.ini"]
+        dialog.target_search.setText("gamma")
+        dialog.select_all_button.click()
+        assert set(dialog._checked_targets()) == {"UI_Beta_P1999Blue.ini", "UI_Gamma_P1999Green.ini"}
+        assert "1 selected character(s) hidden" in dialog.layout_preview.text()
+        dialog.clear_targets_button.click()
+        assert dialog._checked_targets() == ["UI_Beta_P1999Blue.ini"]
+        dialog.target_search.clear()
+        dialog.source_combo.setCurrentIndex(1)
+        assert dialog._checked_targets() == []
+        dialog.select_all_button.click()
+        assert "UI_Beta_P1999Blue.ini" not in dialog._checked_targets()
+        assert dialog.copy_layout_button.isEnabled()
+        dialog.source_combo.setEditText("not a chosen character")
+        assert not dialog.copy_layout_button.isEnabled()
+        monkeypatch.setattr(dialog, "_confirm", lambda *_args: pytest.fail("invalid source was accepted"))
+        assert dialog.apply_layout() is False
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+
+
+def test_copy_specific_windows_can_keep_skin_without_vantageui(panel, tmp_path, monkeypatch):
+    dialog = _copy_selection_fixture(panel, tmp_path, monkeypatch, installed=False)
+    try:
+        assert not dialog.copy_skin.isChecked()
+        assert not dialog.copy_skin.isEnabled()
+        dialog._select_all_targets()
+        assert dialog.copy_layout_button.isEnabled()
+        dialog.copy_scope.setCurrentIndex(1)
+        assert not dialog.copy_layout_button.isEnabled()
+        dialog.section_search.setText("Buff")
+        dialog.select_sections_button.click()
+        assert dialog._checked_sections() == ["BuffWindow"]
+        assert dialog.copy_layout_button.isEnabled()
+        calls, confirmations = [], []
+        monkeypatch.setattr(dialog, "_confirm", lambda title, text: confirmations.append(text) or True)
+        monkeypatch.setattr(dialog, "_run_or_queue", lambda action, options: calls.append((action, options)) or True)
+        assert dialog.apply_layout()
+        assert calls[0][1]["sections"] == ["BuffWindow"]
+        assert calls[0][1]["update_skin"] is False
+        assert "Each target keeps its existing skin" in confirmations[0]
+        assert "BuffWindow" in confirmations[0]
+        assert "never copied" in confirmations[0]
+        dialog.clear_sections_button.click()
+        assert not dialog.copy_layout_button.isEnabled()
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+
+
+def test_copy_source_remembers_choice_and_regular_inis_are_not_destinations(panel, tmp_path, monkeypatch):
+    dialog = _copy_selection_fixture(panel, tmp_path, monkeypatch)
+    try:
+        dialog.source_combo.setCurrentIndex(2)
+        assert config.data["vantage_ui"]["layout_source"] == "UI_Gamma_P1999Green.ini"
+        dialog.refresh()
+        assert dialog.source_combo.currentData() == "UI_Gamma_P1999Green.ini"
+        assert all(dialog.source_combo.itemData(i).startswith("UI_") for i in range(dialog.source_combo.count()))
+        assert all(str(dialog.target_list.item(i).data(Qt.ItemDataRole.UserRole)).startswith("UI_") for i in range(dialog.target_list.count()))
+    finally:
+        dialog.close()
+        dialog.deleteLater()
 
 
 def test_selected_and_available_folders_and_copy_command_are_exact(
@@ -1584,7 +1680,7 @@ def test_simple_panel_hides_advanced_controls_but_keeps_them_available(panel):
     assert panel.update_button.objectName() == "PrimaryAction"
     assert panel.options_card.isHidden()
     assert not panel.restore_button.isVisibleTo(panel)
-    assert not panel.character_ui_button.isVisibleTo(panel)
+    assert panel.character_ui_button.isVisibleTo(panel)
     assert not panel.log.isVisibleTo(panel)
     panel.options_button.click()
     assert panel.options_card.isVisibleTo(panel)

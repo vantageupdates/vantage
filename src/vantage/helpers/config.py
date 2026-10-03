@@ -1795,6 +1795,11 @@ def verify_settings():
         data['vantage_ui'].get('auto_update', False), False)
     data['vantage_ui']['auto_apply_profiles'] = get_setting(
         data['vantage_ui'].get('auto_apply_profiles', True), True)
+    data['vantage_ui']['layout_source'] = get_setting(
+        data['vantage_ui'].get('layout_source', ''), '',
+        lambda value: len(value) <= 240 and
+        (not value or (value.startswith('UI_') and value.endswith('.ini') and
+                       '/' not in value and '\\' not in value)))
     pending_profile_sync = data['vantage_ui'].get('pending_profile_sync', {})
     if not isinstance(pending_profile_sync, dict):
         pending_profile_sync = {}

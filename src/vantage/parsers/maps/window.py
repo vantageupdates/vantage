@@ -3,10 +3,10 @@ import json
 import re
 import string
 
-from PySide6.QtCore import Signal, QObject, Qt, QTimer
+from PySide6.QtCore import Signal, QObject, Qt, QTimer, QSignalBlocker
 from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtWidgets import (
-    QApplication, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QMenu,
+    QApplication, QComboBox, QCompleter, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QMenu,
     QPushButton, QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget)
 
 from vantage.helpers.parser import ParserWindow
@@ -183,6 +183,80 @@ class MapsSignals(QObject):
     rename_recording = Signal(str)
     stop_recording = Signal()
 
+
+class MapBrowserDialog(QDialog):
+    """Search bundled maps without changing the character's live zone."""
+
+    def __init__(self, maps):
+        super().__init__(maps)
+        self.setWindowTitle('Browse maps')
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.resize(400, 205)
+        layout = QVBoxLayout(self)
+        label = QLabel('Find a map')
+        label.setObjectName('SettingsHeader')
+        layout.addWidget(label)
+        self.selector = QComboBox()
+        self.selector.setEditable(True)
+        self.selector.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.selector.setMaxVisibleItems(12)
+        self.selector.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.selector.setAccessibleName('Search or choose a map')
+        self.selector.lineEdit().setPlaceholderText('Search zone name…')
+        self.selector.lineEdit().setClearButtonEnabled(True)
+        for name in sorted(MapData.get_zone_dict()):
+            self.selector.addItem(string.capwords(name), name)
+        completer = self.selector.completer()
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.selector.setCurrentIndex(-1)
+        label.setBuddy(self.selector)
+        layout.addWidget(self.selector)
+        self.hint = QLabel(
+            'Temporary preview. Your current zone and timers stay unchanged. '
+            'A new /loc or zone change returns to the live map.')
+        self.hint.setWordWrap(True)
+        self.hint.setObjectName('InlineStatus')
+        self.hint.setAccessibleName('Map preview status')
+        layout.addWidget(self.hint)
+        self.view_button = QPushButton('View map')
+        self.view_button.setObjectName('PrimaryAction')
+        self.view_button.setDefault(True)
+        self.view_button.setEnabled(False)
+        self.view_button.clicked.connect(lambda: self._view(maps))
+        self.return_button = QPushButton('Back to current zone')
+        self.return_button.clicked.connect(lambda: self._return(maps))
+        self.return_button.setEnabled(maps._preview_map is not None)
+        actions = QHBoxLayout()
+        actions.addWidget(self.view_button)
+        actions.addWidget(self.return_button)
+        layout.addLayout(actions)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self.selector.currentTextChanged.connect(self._update_selection)
+        QTimer.singleShot(0, lambda: self.selector.setFocus(
+            Qt.FocusReason.TabFocusReason))
+
+    def _update_selection(self):
+        self.view_button.setEnabled(bool(MapData.resolve_zone_name(
+            self.selector.currentText())))
+
+    def _view(self, maps):
+        name = self.selector.currentText()
+        if maps._preview_zone(name):
+            self.accept()
+        else:
+            self.hint.setText('This map could not be loaded. Choose another map.')
+            _announce(self.hint, self.hint.text())
+
+    def _return(self, maps):
+        maps._return_to_live_map()
+        self.accept()
+
+
 class Maps(ParserWindow):
     # MapCanvas is itself a QGraphicsView. Keep it native so its paths and
     # labels render once, at the correct resolution, without nested transforms.
@@ -193,8 +267,11 @@ class Maps(ParserWindow):
         super().__init__()
         # interface
         self._map = MapCanvas()
+        self._preview_map = None
+        self._browse_dialog = None
         self._map.manual_pan.connect(self._manual_pan_started)
         self._map.poi_activated.connect(self._poi_label_activated)
+        self._map.browse_requested.connect(self._open_map_browser)
         self.content.addWidget(self._map, 1)
         # buttons
         button_layout = ResponsiveActionBar(20, spacing=1)
@@ -272,6 +349,13 @@ class Maps(ParserWindow):
         self._poi_actions = []
         self._loot_dialog = None
 
+        self._browse_button = QPushButton()
+        self._browse_button.setIcon(game_icon('map'))
+        self._browse_button.setCheckable(True)
+        self._browse_button.setAccessibleName('Browse maps or return to current zone')
+        self._browse_button.setToolTip('Browse maps · search another zone')
+        self._browse_button.clicked.connect(self._browse_or_return)
+        self.menu_area.addWidget(self._browse_button)
         self.menu_area.addWidget(self._poi_button)
         self.menu_area.addWidget(button_layout)
 
@@ -287,9 +371,11 @@ class Maps(ParserWindow):
 
         detected_zone, source = detect_log_zone(text)
         if detected_zone:
+            current = self._map._data.zone.lower() if self._map._data else ""
+            if source == 'zoning' or detected_zone != current:
+                self._return_to_live_map()
             if source == 'zoning':
                 self._map.clear_location_hud_position()
-            current = self._map._data.zone.lower() if self._map._data else ""
             if detected_zone != current:
                 self._load_zone(detected_zone)
             elif source == "zoning":
@@ -302,6 +388,7 @@ class Maps(ParserWindow):
 
         location = detect_log_location(text)
         if location is not None:
+            self._return_to_live_map()
             QApplication.instance()._signals["maps"].location.emit(timestamp.isoformat(), text[17:])
             self._map.update_location_hud_position(location)
             x, y, z = location
@@ -327,23 +414,119 @@ class Maps(ParserWindow):
             QApplication.instance()._signals["maps"].death.emit(timestamp.isoformat(), text)
 
     def _load_zone(self, zone):
+        self._return_to_live_map()
         canonical = MapData.resolve_zone_name(zone)
         if not canonical or not self._map.load_map(canonical):
             return False
         visible_name = string.capwords(self._map._data.zone)
         self._map.update_location_hud_zone(visible_name)
-        self._title.setText(f"Map · {visible_name}")
-        self._title.setToolTip(f"Zone detected from the log: {visible_name}")
-        self.setWindowTitle(f"Vantage · Map · {visible_name}")
+        self._update_map_title()
         self._refresh_poi_menu()
         QApplication.instance()._signals["maps"].new_zone.emit(canonical)
         return True
 
+    def _display_map(self):
+        return self._preview_map if self._preview_map is not None else self._map
+
+    def _update_map_title(self):
+        visible_name = string.capwords(self._display_map()._data.zone)
+        preview = self._preview_map is not None
+        suffix = ' · Preview' if preview else ''
+        self._title.setText(f"Map · {visible_name}{suffix}")
+        self._title.setToolTip(
+            f'Temporary map preview: {visible_name}. Next /loc returns to your zone.'
+            if preview else f"Zone detected from the log: {visible_name}")
+        self.setWindowTitle(f"Vantage · Map · {visible_name}{suffix}")
+        with QSignalBlocker(self._browse_button):
+            self._browse_button.setChecked(preview)
+        self._browse_button.setToolTip(
+            'Back to current zone · a new /loc also returns automatically'
+            if preview else 'Browse maps · search another zone')
+
+    def _browse_or_return(self, _checked=False):
+        if self._preview_map is not None:
+            self._return_to_live_map()
+        else:
+            self._browse_button.setChecked(False)
+            self._open_map_browser()
+
+    def _open_map_browser(self):
+        if self._browse_dialog is not None:
+            self._browse_dialog.raise_()
+            self._browse_dialog.activateWindow()
+            return
+        dialog = MapBrowserDialog(self)
+        self._browse_dialog = dialog
+
+        def finished(_result):
+            self._browse_dialog = None
+            QTimer.singleShot(0, lambda: self._restore_poi_focus(self._browse_button))
+
+        dialog.finished.connect(finished)
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def _preview_zone(self, zone):
+        canonical = MapData.resolve_zone_name(zone)
+        if not canonical:
+            return False
+        if self._map._data and canonical == self._map._data.zone:
+            self._return_to_live_map()
+            self._map.fit_overview()
+            return True
+        # Keep the live canvas, player markers, map timers and recording intact.
+        # A preview never emits new_zone or persists itself as the active zone.
+        preview = MapCanvas()
+        if not preview.load_map(canonical, remember=False):
+            preview.deleteLater()
+            return False
+        preview.manual_pan.connect(self._manual_pan_started)
+        preview.poi_activated.connect(self._poi_label_activated)
+        preview.browse_requested.connect(self._open_map_browser)
+        if self._loot_dialog is not None:
+            self._loot_dialog.close()
+        if self._preview_map is not None:
+            old = self._preview_map
+            self.content.removeWidget(old)
+            old.hide()
+            old.deleteLater()
+        else:
+            self._map.hide()
+        self._preview_map = preview
+        self.content.addWidget(preview, 1)
+        preview.update_location_hud_zone(string.capwords(canonical), 'preview')
+        preview.show()
+        self._update_map_title()
+        self._refresh_poi_menu()
+        _announce(self._browse_button,
+                  f'Previewing {string.capwords(canonical)}. Next slash loc returns to your zone.')
+        return True
+
+    def _return_to_live_map(self):
+        if self._preview_map is None:
+            return False
+        preview = self._preview_map
+        self._preview_map = None
+        self.content.removeWidget(preview)
+        preview.hide()
+        preview.deleteLater()
+        if self._loot_dialog is not None:
+            self._loot_dialog.close()
+        self._map.show()
+        self._update_map_title()
+        self._refresh_poi_menu()
+        if self._browse_dialog is not None:
+            self._browse_dialog.return_button.setEnabled(False)
+        _announce(self._browse_button, 'Returned to the current zone map')
+        return True
+
     def _zone_mobs(self):
         """Return existing Zones state/cache; never start a parallel request."""
-        if not self._map._data:
+        canvas = self._display_map()
+        if not canvas._data:
             return []
-        zone_name = self._map._data.zone
+        zone_name = canvas._data.zone
         app = QApplication.instance()
         zones = getattr(app, '_parsers_dict', {}).get('zones') if app else None
         if zones is not None:
@@ -385,17 +568,18 @@ class Maps(ParserWindow):
             if mob.get('named') or mob.get('drops'):
                 return mob
         short_name = MapData.get_zone_dict().get(
-            str(self._map._data.zone).strip().casefold(), '')
+            str(self._display_map()._data.zone).strip().casefold(), '')
         catalog = named_spawn_for(short_name, point.label)
         if catalog is not None:
             return {'name': catalog.npc_name, 'named': True, 'drops': []}
         return None
 
     def _all_pois(self):
-        if not self._map._data:
+        canvas = self._display_map()
+        if not canvas._data:
             return []
-        return [point for z in self._map._data.keys()
-                for point in self._map._data[z]['poi']]
+        return [point for z in canvas._data.keys()
+                for point in canvas._data[z]['poi']]
 
     def _refresh_poi_menu(self):
         self._poi_menu.clear()
@@ -432,14 +616,15 @@ class Maps(ParserWindow):
             self._poi_actions.append(action)
 
     def _activate_poi(self, point, *, open_details=False):
-        if not self._map.focus_poi(point):
+        canvas = self._display_map()
+        if not canvas.focus_poi(point):
             return False
         if not config.data['maps']['show_poi']:
             config.data['maps']['show_poi'] = True
             config.save()
             self._show_poi_button.setChecked(True)
-            self._map.update_()
-            self._map.centerOn(point.location.x, point.location.y)
+            canvas.update_()
+            canvas.centerOn(point.location.x, point.location.y)
         self._manual_pan_started()
         self._poi_button.setText('POI')
         self._poi_button.setToolTip(
@@ -463,7 +648,7 @@ class Maps(ParserWindow):
         # triggers. Return to a stable, visible control instead of that menu.
         return_focus = self._poi_button
         dialog = MapLootDialog(
-            point, detail, string.capwords(self._map._data.zone),
+            point, detail, string.capwords(self._display_map()._data.zone),
             self._open_map_loot_item, self._open_current_zone_browser, self)
         self._loot_dialog = dialog
 
@@ -507,7 +692,7 @@ class Maps(ParserWindow):
         zones = getattr(app, '_parsers_dict', {}).get('zones') if app else None
         if zones is None:
             return False
-        zones._select_zone(self._map._data.zone)
+        zones._select_zone(self._display_map()._data.zone)
         zones.show()
         zones.raise_()
         zones.activateWindow()
@@ -528,8 +713,11 @@ class Maps(ParserWindow):
         config.data['maps']['show_poi'] = not config.data['maps']['show_poi']
         config.save()
         self._map.update_()
+        if self._preview_map is not None:
+            self._preview_map.update_()
 
     def _toggle_auto_follow(self, checked):
+        self._return_to_live_map()
         config.data['maps']['auto_follow'] = bool(checked)
         config.save()
         self._auto_follow_button.setToolTip(
@@ -540,6 +728,8 @@ class Maps(ParserWindow):
 
     def _manual_pan_started(self):
         """Keep a manually dragged map where the user leaves it."""
+        if self._preview_map is not None:
+            return
         if config.data['maps']['auto_follow']:
             config.data['maps']['auto_follow'] = False
             config.save()
@@ -551,11 +741,15 @@ class Maps(ParserWindow):
         config.data['maps']['use_z_layers'] = not config.data['maps']['use_z_layers']
         config.save()
         self._map.update_()
+        if self._preview_map is not None:
+            self._preview_map.update_()
 
     def _toggle_show_grid(self, _):
         config.data['maps']['show_grid'] = not config.data['maps']['show_grid']
         config.save()
         self._map.update_()
+        if self._preview_map is not None:
+            self._preview_map.update_()
 
     def _toggle_show_mouse_location(self, _=False):
         config.data['maps']['show_mouse_location'] = not config.data['maps']['show_mouse_location']
@@ -565,3 +759,5 @@ class Maps(ParserWindow):
         config.data['maps']['show_location_hud'] = bool(checked)
         config.save()
         self._map.set_location_hud_visible(checked)
+        if self._preview_map is not None:
+            self._preview_map.set_location_hud_visible(checked)

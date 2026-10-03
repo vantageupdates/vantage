@@ -124,7 +124,9 @@ wrong_zone = SpawnTimerState(
 for timer in (fixed, target_a, target_b, wrong_zone):
     panel._register_timer(timer)
 
-stamp = datetime.datetime(2026, 9, 29, 12, 0, 0)
+# This is a live-window test, not historical replay. Its Qt ticker must not
+# backfill days of expirations while exercising the keyword actions.
+stamp = datetime.datetime.now().replace(microsecond=0)
 
 def apply(rule, message, seconds):
     config.data['timers']['keyword_rules'] = [validate_keyword_rule(rule)]

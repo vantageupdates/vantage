@@ -390,18 +390,86 @@ def apply_skin_to_all(
         allow_no_changes=allow_no_changes)
 
 
+def _layout_blocks(payload):
+    """Keep untouched INI blocks byte-for-byte; reject ambiguous sections."""
+    blocks, names = [], set()
+    name, lines = "", []
+    for line in payload.splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped.startswith(b"[") and stripped.endswith(b"]"):
+            if lines:
+                blocks.append((name, b"".join(lines)))
+            name = stripped[1:-1].decode("cp1252").strip()
+            if not name or name.casefold() in names:
+                raise UIProfileError("The UI profile contains ambiguous sections")
+            names.add(name.casefold())
+            lines = []
+        lines.append(line)
+    if lines:
+        blocks.append((name, b"".join(lines)))
+    return blocks
+
+
+def layout_sections(eq_root, source_filename):
+    """List selectable UI sections; Main is managed separately, not copied."""
+    root = _validated_eq_root(eq_root)
+    source = _profile_paths(root).get(str(source_filename).casefold())
+    if source is None:
+        raise UIProfileError("Choose a valid source character layout")
+    return tuple(name for name, _payload in _layout_blocks(_read_bytes(source))
+                 if name and name.casefold() != "main")
+
+
+def _merge_layout(source, target, sections):
+    source_blocks = _layout_blocks(source)
+    available = {name.casefold(): payload for name, payload in source_blocks
+                 if name and name.casefold() != "main"}
+    if sections is None:
+        selected = set(available)
+    else:
+        if (not isinstance(sections, (list, tuple)) or not sections or
+                len(sections) > 256 or
+                any(not isinstance(name, str) for name in sections)):
+            raise UIProfileError("Choose at least one valid UI window section")
+        selected = {name.casefold() for name in sections}
+        if not selected.issubset(available):
+            raise UIProfileError("A selected UI window is missing from the source")
+    if not selected:
+        raise UIProfileError("The source has no UI windows to copy")
+    newline = b"\r\n" if b"\r\n" in target else b"\n"
+    replacements = {
+        name: newline.join(available[name].splitlines()) + newline
+        for name in selected}
+    pieces, replaced = [], set()
+    for name, payload in _layout_blocks(target):
+        key = name.casefold()
+        pieces.append(replacements[key] if key in selected else payload)
+        replaced.add(key)
+    for name, _payload in source_blocks:
+        key = name.casefold()
+        if key in selected and key not in replaced:
+            if pieces and not pieces[-1].endswith((b"\n", b"\r")):
+                pieces.append(newline)
+            pieces.append(replacements[key])
+            replaced.add(key)
+    return b"".join(pieces)
+
+
 def copy_layout(eq_root, skin_folder, source_filename, target_filenames,
-                state_dir):
+                state_dir, *, sections=None, update_skin=True):
     """Copy one complete UI layout to selected P99 targets, never hotkey INIs."""
     if ui_skin_updater.game_running():
         raise UIProfileError("Close EverQuest before copying character layouts")
     root = _validated_eq_root(eq_root)
-    skin_folder = _selected_skin(root, skin_folder)
+    if not isinstance(update_skin, bool):
+        raise UIProfileError("The UI skin copy option is invalid")
+    if update_skin:
+        skin_folder = _selected_skin(root, skin_folder)
     paths = _profile_paths(root)
     source = paths.get(str(source_filename).casefold())
     if source is None:
         raise UIProfileError("Choose a valid source character layout")
-    source_payload = _set_skin(_read_bytes(source), skin_folder)
+    source_payload = _read_bytes(source)
     targets = []
     seen = set()
     for filename in target_filenames or ():
@@ -413,9 +481,15 @@ def copy_layout(eq_root, skin_folder, source_filename, target_filenames,
         targets.append(target)
     if not targets:
         raise UIProfileError("Choose at least one other character")
-    updates = [
-        (target, source_payload) for target in targets
-        if _read_bytes(target) != source_payload]
+    updates = []
+    for target in targets:
+        original = _read_bytes(target)
+        updated = (source_payload if sections is None and update_skin else
+                   _merge_layout(source_payload, original, sections))
+        if update_skin:
+            updated = _set_skin(updated, skin_folder)
+        if updated != original:
+            updates.append((target, updated))
     if not updates:
         return ProfileOperationResult("layout", 0, "", ())
     return _backup_and_apply(
@@ -577,7 +651,9 @@ def process_elevated_profile_request(request_path, nonce):
                 raise UIProfileError("UI profile targets are invalid")
             operation = copy_layout(
                 root, options.get("skin_folder", ""),
-                options.get("source", ""), targets, state)
+                options.get("source", ""), targets, state,
+                sections=options.get("sections"),
+                update_skin=options.get("update_skin", True))
         elif action == "restore":
             operation = restore_backup(
                 root, state, options.get("backup_id", ""))

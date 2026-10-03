@@ -16,12 +16,12 @@ import time
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog,
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QCompleter, QDialog,
     QDialogButtonBox,
     QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit,
     QHeaderView, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit,
     QProgressBar, QPushButton, QScrollArea, QSizePolicy, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget)
+    QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from vantage.helpers import config
 from vantage.helpers.icons import game_icon
@@ -32,7 +32,7 @@ from vantage.helpers import ui_skin_updater
 from vantage.helpers.ui_profile_manager import (
     UIProfileError, apply_skin_to_all, apply_skin_to_profiles,
     audit_character_profiles, copy_layout,
-    discover_character_profiles, list_backups, read_elevated_profile_result,
+    discover_character_profiles, layout_sections, list_backups, read_elevated_profile_result,
     request_elevated_profile_action, restore_backup)
 
 
@@ -166,9 +166,9 @@ class CharacterUIManagerDialog(QDialog):
         self._poll_attempts = 0
         self._operation_focus_control = None
         self._operation_fallback_control = None
-        self.setWindowTitle("Character UI & layouts · VantageUI")
+        self.setWindowTitle("Copy character UI · VantageUI")
         self.setModal(False)
-        self.resize(760, 590)
+        self.resize(760, 640)
         self.setMinimumSize(620, 500)
 
         root = QVBoxLayout(self)
@@ -196,14 +196,17 @@ class CharacterUIManagerDialog(QDialog):
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(7)
-        content_layout.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
+        content_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         self.options_content = content
         scroll.setWidget(content)
-        root.addWidget(scroll, 1)
+        self.tabs = QTabWidget()
+        self.tabs.setAccessibleName("Character UI tasks")
+        self.tabs.addTab(scroll, "Copy layout")
+        root.addWidget(self.tabs, 1)
         intro = QLabel(
-            "Update every character to the selected VantageUI version, or "
-            "copy one character's complete window and chat layout to others. "
-            "Macros, socials, friends, and hotkeys are never copied.")
+            "Choose a source, check the characters to receive its layout, then copy. "
+            "Positions and sizes are stored in UI_<character>_<server>.ini. "
+            "The regular character INI (hotkeys, macros and friends) stays unchanged.")
         intro.setWordWrap(True)
         intro.setObjectName("VantageUIIntro")
         content_layout.addWidget(intro)
@@ -214,7 +217,7 @@ class CharacterUIManagerDialog(QDialog):
         skin_layout.setContentsMargins(8, 7, 8, 7)
         skin_layout.setHorizontalSpacing(6)
         skin_layout.setVerticalSpacing(5)
-        skin_title = QLabel("1 · Verify character VantageUI")
+        skin_title = QLabel("Keep characters on the installed VantageUI")
         skin_title.setObjectName("OpenDkpPanelTitle")
         skin_layout.addWidget(skin_title, 0, 0, 1, 5)
         self.skin_value = QLabel("No verified VantageUI selected")
@@ -321,7 +324,11 @@ class CharacterUIManagerDialog(QDialog):
         audit_sort_actions.addWidget(self.audit_sort_button)
         skin_layout.addLayout(audit_sort_actions, 7, 1, 1, 4)
         skin_layout.setColumnStretch(1, 1)
-        content_layout.addWidget(skin_card)
+        audit_scroll = QScrollArea()
+        audit_scroll.setWidgetResizable(True)
+        audit_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        audit_scroll.setWidget(skin_card)
+        self.tabs.addTab(audit_scroll, "VantageUI versions")
 
         layout_card = QFrame()
         layout_card.setObjectName("VantageUICard")
@@ -329,27 +336,42 @@ class CharacterUIManagerDialog(QDialog):
         layout_grid.setContentsMargins(8, 7, 8, 7)
         layout_grid.setHorizontalSpacing(6)
         layout_grid.setVerticalSpacing(5)
-        layout_title = QLabel("2 · Copy a character layout")
+        layout_title = QLabel("Copy the layout you already like")
         layout_title.setObjectName("OpenDkpPanelTitle")
         layout_grid.addWidget(layout_title, 0, 0, 1, 3)
-        source_label = QLabel("Copy from")
+        source_label = QLabel("1 · Copy from")
         self.source_combo = QComboBox()
         self.source_combo.setAccessibleName("Source character UI layout")
+        self.source_combo.setEditable(True)
+        self.source_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.source_combo.completer().setFilterMode(Qt.MatchFlag.MatchContains)
+        self.source_combo.completer().setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.source_combo.completer().setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.source_combo.lineEdit().setPlaceholderText("Search character or server…")
+        self.source_combo.editTextChanged.connect(self._update_action_states)
         self.source_combo.setToolTip(
             "Choose the character whose complete UI window layout is correct")
         self.source_combo.currentIndexChanged.connect(self._source_changed)
         source_label.setBuddy(self.source_combo)
         layout_grid.addWidget(source_label, 1, 0)
         layout_grid.addWidget(self.source_combo, 1, 1, 1, 2)
-        target_label = QLabel("Apply to")
+        target_label = QLabel("2 · Copy to")
+        self.target_search = QLineEdit()
+        self.target_search.setPlaceholderText("Search characters or server…")
+        self.target_search.setClearButtonEnabled(True)
+        self.target_search.setAccessibleName("Search destination characters")
+        self.target_search.textChanged.connect(self._filter_targets)
+        layout_grid.addWidget(self.target_search, 2, 1, 1, 2)
         self.target_list = QListWidget()
         self.target_list.setAccessibleName("Characters receiving the copied layout")
         self.target_list.setToolTip(
             "Check every character that should receive the source window layout")
         self.target_list.itemChanged.connect(self._update_action_states)
+        self.target_list.setMinimumHeight(120)
+        self.target_list.setMaximumHeight(150)
         target_label.setBuddy(self.target_list)
         layout_grid.addWidget(target_label, 2, 0, Qt.AlignmentFlag.AlignTop)
-        layout_grid.addWidget(self.target_list, 2, 1, 1, 2)
+        layout_grid.addWidget(self.target_list, 3, 1, 1, 2)
         self.layout_preview = QLabel("Source stays unchanged · no targets selected")
         self.layout_preview.setWordWrap(True)
         self.layout_preview.setMinimumWidth(0)
@@ -358,19 +380,21 @@ class CharacterUIManagerDialog(QDialog):
         self.layout_preview.setAccessibleName("Layout copy preview")
         self.layout_preview.setAccessibleDescription(
             "Shows the source, selected targets, installed skin, and backup scope")
-        layout_grid.addWidget(self.layout_preview, 3, 1, 1, 2)
+        layout_grid.addWidget(self.layout_preview, 4, 1, 1, 2)
         target_actions = QHBoxLayout()
-        self.select_all_button = QPushButton("Select all others")
+        self.select_all_button = QPushButton("Select shown")
         self.select_all_button.setToolTip(
-            "Select every character except the source")
+            "Select the matching characters shown; other selections stay checked")
         self.select_all_button.clicked.connect(self._select_all_targets)
         target_actions.addWidget(self.select_all_button)
-        self.clear_targets_button = QPushButton("Clear")
-        self.clear_targets_button.setToolTip("Clear all target characters")
-        self.clear_targets_button.clicked.connect(self._clear_targets)
+        self.clear_targets_button = QPushButton("Clear shown")
+        self.clear_targets_button.setToolTip("Uncheck matching characters without changing hidden selections")
+        self.clear_targets_button.clicked.connect(self._clear_shown_targets)
         target_actions.addWidget(self.clear_targets_button)
         target_actions.addStretch(1)
         self.copy_layout_button = QPushButton("Copy layout…")
+        self.copy_layout_button.setObjectName("PrimaryAction")
+        self.copy_layout_button.setMinimumHeight(36)
         self.copy_layout_button.setIcon(game_icon("copy"))
         self.copy_layout_button.setAccessibleName(
             "Copy source UI layout to selected characters")
@@ -378,8 +402,50 @@ class CharacterUIManagerDialog(QDialog):
             "Back up each target, then copy window and chat layout while keeping "
             "target filenames and identities")
         self.copy_layout_button.clicked.connect(self.apply_layout)
-        target_actions.addWidget(self.copy_layout_button)
-        layout_grid.addLayout(target_actions, 4, 1, 1, 2)
+        self.clear_all_targets_button = QPushButton("Clear all")
+        self.clear_all_targets_button.clicked.connect(self._clear_targets)
+        target_actions.addWidget(self.clear_all_targets_button)
+        self.copy_refresh_button = QPushButton("Refresh characters")
+        self.copy_refresh_button.clicked.connect(lambda: self.refresh(announce=True))
+        target_actions.addWidget(self.copy_refresh_button)
+        layout_grid.addLayout(target_actions, 5, 1, 1, 2)
+        self.copy_scope = QComboBox()
+        self.copy_scope.addItems(("All window and chat settings", "Only selected windows / settings"))
+        self.copy_scope.setAccessibleName("What to copy")
+        scope_label = QLabel("3 · What to copy")
+        scope_label.setBuddy(self.copy_scope)
+        layout_grid.addWidget(scope_label, 6, 0)
+        layout_grid.addWidget(self.copy_scope, 6, 1, 1, 2)
+        self.section_picker = QWidget()
+        section_layout = QVBoxLayout(self.section_picker)
+        section_layout.setContentsMargins(0, 0, 0, 0)
+        self.section_search = QLineEdit()
+        self.section_search.setPlaceholderText("Search windows: chat, buff, hotbutton…")
+        self.section_search.setClearButtonEnabled(True)
+        self.section_search.setAccessibleName("Search source UI windows")
+        section_layout.addWidget(self.section_search)
+        self.section_list = QListWidget()
+        self.section_list.setAccessibleName("UI windows and settings to copy")
+        self.section_list.setMinimumHeight(140)
+        self.section_list.setMaximumHeight(180)
+        section_layout.addWidget(self.section_list)
+        self.section_search.textChanged.connect(self._filter_sections)
+        self.section_list.itemChanged.connect(self._update_action_states)
+        section_actions = QHBoxLayout()
+        self.select_sections_button = QPushButton("Select shown windows")
+        self.clear_sections_button = QPushButton("Clear all windows")
+        self.select_sections_button.clicked.connect(self._select_shown_sections)
+        self.clear_sections_button.clicked.connect(self._clear_sections)
+        section_actions.addWidget(self.select_sections_button)
+        section_actions.addWidget(self.clear_sections_button)
+        section_layout.addLayout(section_actions)
+        layout_grid.addWidget(self.section_picker, 7, 1, 1, 2)
+        self.section_picker.hide()
+        self.copy_scope.currentIndexChanged.connect(self._scope_changed)
+        self.copy_skin = QCheckBox("Also use the installed VantageUI on these characters")
+        self.copy_skin.setToolTip("Off keeps each target's current skin. On changes only UISkin to the verified installed version.")
+        self.copy_skin.toggled.connect(self._update_action_states)
+        layout_grid.addWidget(self.copy_skin, 8, 1, 1, 2)
         layout_grid.setColumnStretch(1, 1)
         content_layout.addWidget(layout_card)
 
@@ -411,9 +477,14 @@ class CharacterUIManagerDialog(QDialog):
         self.restore_button.clicked.connect(self.restore_selected)
         restore_layout.addWidget(self.restore_button, 1, 2)
         restore_layout.setColumnStretch(1, 1)
-        content_layout.addWidget(restore_card)
+        restore_scroll = QScrollArea()
+        restore_scroll.setWidgetResizable(True)
+        restore_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        restore_scroll.setWidget(restore_card)
+        self.tabs.addTab(restore_scroll, "Restore backups")
         content_layout.addStretch(1)
-        content.setMinimumHeight(content_layout.sizeHint().height() + 80)
+        root.addWidget(self.copy_layout_button, 0, Qt.AlignmentFlag.AlignRight)
+        self.tabs.currentChanged.connect(lambda index: self.copy_layout_button.setVisible(index == 0))
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
@@ -424,6 +495,7 @@ class CharacterUIManagerDialog(QDialog):
         self.progress.setStyleSheet(
             "QProgressBar { min-height: 18px; max-height: 18px; }")
         root.addWidget(self.progress)
+        self.progress.hide()
         self.status = QLabel("Ready")
         self.status.setWordWrap(True)
         self.status.setMinimumHeight(36)
@@ -444,9 +516,19 @@ class CharacterUIManagerDialog(QDialog):
         QWidget.setTabOrder(self.apply_selected_button, self.apply_all_button)
         QWidget.setTabOrder(self.apply_all_button, self.source_combo)
         QWidget.setTabOrder(self.source_combo, self.target_list)
+        QWidget.setTabOrder(self.source_combo, self.target_search)
+        QWidget.setTabOrder(self.target_search, self.target_list)
         QWidget.setTabOrder(self.target_list, self.select_all_button)
         QWidget.setTabOrder(self.select_all_button, self.clear_targets_button)
-        QWidget.setTabOrder(self.clear_targets_button, self.copy_layout_button)
+        QWidget.setTabOrder(self.clear_targets_button, self.clear_all_targets_button)
+        QWidget.setTabOrder(self.clear_all_targets_button, self.copy_refresh_button)
+        QWidget.setTabOrder(self.copy_refresh_button, self.copy_scope)
+        QWidget.setTabOrder(self.copy_scope, self.section_search)
+        QWidget.setTabOrder(self.section_search, self.section_list)
+        QWidget.setTabOrder(self.section_list, self.select_sections_button)
+        QWidget.setTabOrder(self.select_sections_button, self.clear_sections_button)
+        QWidget.setTabOrder(self.clear_sections_button, self.copy_skin)
+        QWidget.setTabOrder(self.copy_skin, self.copy_layout_button)
         QWidget.setTabOrder(self.copy_layout_button, self.backup_combo)
         QWidget.setTabOrder(self.backup_combo, self.restore_button)
         QWidget.setTabOrder(
@@ -470,6 +552,8 @@ class CharacterUIManagerDialog(QDialog):
 
     def refresh(self, *, announce=False):
         previous_source = str(self.source_combo.currentData() or "")
+        if not previous_source:
+            previous_source = str(config.data.get("vantage_ui", {}).get("layout_source", ""))
         load_error = False
         available = ""
         try:
@@ -511,15 +595,28 @@ class CharacterUIManagerDialog(QDialog):
         self.available_value.setAccessibleName(available_text)
         self.available_value.setAccessibleDescription(available_text)
         self._populate_audit_table()
+        if self.source_combo.count() == 0:
+            self.copy_skin.setChecked(bool(skin))
+        self.copy_skin.setEnabled(bool(skin))
         self.source_combo.blockSignals(True)
         self.source_combo.clear()
         for profile in self._profiles:
             self.source_combo.addItem(
-                f"{profile.label} · {profile.skin or 'no skin'}", profile.filename)
+                profile.label, profile.filename)
+            self.source_combo.setItemData(
+                self.source_combo.count() - 1, profile.filename,
+                Qt.ItemDataRole.ToolTipRole)
         index = self.source_combo.findData(previous_source)
+        if index < 0:
+            character = str(getattr(self.panel, "_active_character", "") or "").casefold()
+            server = str(getattr(self.panel, "_active_server", "") or "").casefold()
+            index = next((i for i, profile in enumerate(self._profiles)
+                          if profile.character.casefold() == character and
+                          profile.server.casefold() == server), -1)
         self.source_combo.setCurrentIndex(max(0, index))
         self.source_combo.blockSignals(False)
         self._rebuild_targets()
+        self._rebuild_sections()
         self.backup_combo.clear()
         for backup in backups:
             try:
@@ -745,19 +842,88 @@ class CharacterUIManagerDialog(QDialog):
                 item.setData(
                     Qt.ItemDataRole.AccessibleDescriptionRole, description)
             self.target_list.addItem(item)
+        self._filter_targets()
         self._update_action_states()
 
     def _source_changed(self, _index):
         self._rebuild_targets()
+        self._rebuild_sections()
+        profile = self._source_profile()
+        if profile is not None:
+            config.data.setdefault("vantage_ui", {})["layout_source"] = profile.filename
+            config.save()
+
+    def _source_profile(self):
+        index = self.source_combo.currentIndex()
+        if index < 0 or self.source_combo.currentText() != self.source_combo.itemText(index):
+            return None
+        source = str(self.source_combo.currentData() or "")
+        return next((profile for profile in self._profiles
+                     if profile.filename == source), None)
+
+    def _filter_targets(self, *_args):
+        words = self.target_search.text().casefold().split()
+        for index in range(self.target_list.count()):
+            item = self.target_list.item(index)
+            item.setHidden(not all(word in item.text().casefold() for word in words))
+        self._update_action_states()
+
+    def _clear_shown_targets(self):
+        for index in range(self.target_list.count()):
+            item = self.target_list.item(index)
+            if not item.isHidden():
+                item.setCheckState(Qt.CheckState.Unchecked)
+
+    def _rebuild_sections(self):
+        checked = set(self._checked_sections())
+        self.section_list.blockSignals(True)
+        self.section_list.clear()
+        try:
+            source = str(self.source_combo.currentData() or "")
+            names = layout_sections(normalize_eq_root(self.panel.path_edit.text()), source) if source else ()
+            for name in names:
+                item = QListWidgetItem(name)
+                item.setData(Qt.ItemDataRole.UserRole, name)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(Qt.CheckState.Checked if name in checked else Qt.CheckState.Unchecked)
+                item.setToolTip(f"Copy this UI section, including positions and sizes for saved resolutions: [{name}]")
+                self.section_list.addItem(item)
+        except (OSError, UIProfileError) as error:
+            self.section_list.setToolTip(str(error))
+        self.section_list.blockSignals(False)
+        self._filter_sections()
+
+    def _checked_sections(self):
+        return [str(self.section_list.item(index).data(Qt.ItemDataRole.UserRole))
+                for index in range(self.section_list.count())
+                if self.section_list.item(index).checkState() == Qt.CheckState.Checked]
+
+    def _filter_sections(self, *_args):
+        words = self.section_search.text().casefold().split()
+        for index in range(self.section_list.count()):
+            item = self.section_list.item(index)
+            item.setHidden(not all(word in item.text().casefold() for word in words))
+
+    def _select_shown_sections(self):
+        for index in range(self.section_list.count()):
+            item = self.section_list.item(index)
+            if not item.isHidden():
+                item.setCheckState(Qt.CheckState.Checked)
+
+    def _clear_sections(self):
+        for index in range(self.section_list.count()):
+            self.section_list.item(index).setCheckState(Qt.CheckState.Unchecked)
+
+    def _scope_changed(self, index):
+        self.section_picker.setVisible(index == 1)
+        self._update_action_states()
 
     def _select_all_targets(self):
         source = str(self.source_combo.currentData() or "")
         for index in range(self.target_list.count()):
             item = self.target_list.item(index)
-            item.setCheckState(
-                Qt.CheckState.Unchecked
-                if item.data(Qt.ItemDataRole.UserRole) == source else
-                Qt.CheckState.Checked)
+            if not item.isHidden() and item.data(Qt.ItemDataRole.UserRole) != source:
+                item.setCheckState(Qt.CheckState.Checked)
         self._update_action_states()
 
     def _clear_targets(self):
@@ -794,21 +960,30 @@ class CharacterUIManagerDialog(QDialog):
         targets = self._checked_targets()
         self.apply_selected_button.setEnabled(
             interactive and ready and audit_count > 0)
+        source_profile = self._source_profile()
+        sections = self._checked_sections()
+        scope_valid = self.copy_scope.currentIndex() == 0 or bool(sections)
         self.copy_layout_button.setEnabled(
-            interactive and ready and len(self._profiles) > 1 and bool(targets))
-        source = str(self.source_combo.currentData() or "")
-        source_profile = next((
-            profile for profile in self._profiles
-            if profile.filename == source), None)
+            interactive and source_profile is not None and bool(targets) and scope_valid and
+            (not self.copy_skin.isChecked() or bool(self._skin)))
+        self.copy_layout_button.setText(
+            f"Copy to {len(targets)} character{'s' if len(targets) != 1 else ''}…"
+            if targets else "Copy layout…")
         source_label = source_profile.label if source_profile else "No source"
-        skin = self._skin or "no verified installed VantageUI"
+        skin = self._skin if self.copy_skin.isChecked() else "each target's existing skin"
         target_text = (
             f"{len(targets)} target{'s' if len(targets) != 1 else ''}: "
             f"{self._target_labels(targets)}" if targets else
             "no targets selected")
+        hidden_count = sum(1 for index in range(self.target_list.count())
+                           if self.target_list.item(index).isHidden() and
+                           self.target_list.item(index).checkState() == Qt.CheckState.Checked)
+        scope = ("all window/chat settings" if self.copy_scope.currentIndex() == 0 else
+                 f"{len(sections)} selected windows/settings: {', '.join(sections[:5])}")
         preview = (
             f"Source stays unchanged: {source_label} · {target_text} · "
-            f"copy uses {skin}; only changed targets are backed up")
+            f"{scope} · copy uses {skin}; only changed targets are backed up" +
+            (f" · {hidden_count} selected character(s) hidden by search" if hidden_count else ""))
         self.layout_preview.setText(preview)
         self.layout_preview.setAccessibleName(f"Layout copy preview: {preview}")
 
@@ -871,32 +1046,42 @@ class CharacterUIManagerDialog(QDialog):
     def apply_layout(self):
         root = normalize_eq_root(self.panel.path_edit.text())
         try:
-            skin = ui_skin_updater.installed_folder(root)
+            skin = ui_skin_updater.installed_folder(root) if self.copy_skin.isChecked() else ""
         except (OSError, ui_skin_updater.SkinUpdateError) as error:
             self._set_status(f"Cannot verify VantageUI · {error}", error=True)
             return False
         source = str(self.source_combo.currentData() or "")
         targets = self._checked_targets()
-        if not skin or not source or not targets:
+        sections = self._checked_sections() if self.copy_scope.currentIndex() == 1 else None
+        if (self._source_profile() is None or not source or not targets or
+                (self.copy_skin.isChecked() and not skin) or sections == []):
             self._set_status("Choose a source and at least one target character", error=True)
             return False
         source_profile = next((
             profile for profile in self._profiles
             if profile.filename == source), None)
         source_label = source_profile.label if source_profile else source
+        scope_text = ("complete window and chat layout" if sections is None else
+                      f"selected UI sections ({', '.join(sections)})")
+        skin_text = (f"The copy uses verified installed selection {skin}. " if skin else
+                     "Each target keeps its existing skin. ")
         if not self._confirm(
                 "Copy character UI layout",
-                f"Copy {source_label}'s complete window and chat layout to "
+                f"Copy {source_label}'s {scope_text} to "
                 f"{len(targets)} selected characters?\n\n"
                 f"Targets: {self._target_labels(targets)}\n\nThe source stays unchanged. "
-                f"The copy uses verified installed selection {skin}. Each changed "
+                f"{skin_text}Each changed "
                 "target is backed up first; identical targets are skipped. Target "
                 "filenames and character identities are preserved. "
                 "Macros, socials, friends, hotkeys, and inventory settings are "
                 "never copied."):
             return False
-        return self._run_or_queue("layout", {
-            "skin_folder": skin, "source": source, "targets": targets})
+        options = {"skin_folder": skin, "source": source, "targets": targets}
+        if sections is not None:
+            options["sections"] = sections
+        if not self.copy_skin.isChecked():
+            options["update_skin"] = False
+        return self._run_or_queue("layout", options)
 
     def restore_selected(self):
         backup_id = str(self.backup_combo.currentData() or "")
@@ -923,6 +1108,9 @@ class CharacterUIManagerDialog(QDialog):
         if running:
             self._queued_action = (action, dict(options))
             self._set_busy(True)
+            self.progress.show()
+            self.progress.setRange(0, 0)
+            self.progress.setFormat("Waiting for EverQuest to close…")
             QTimer.singleShot(0, self._record_operation_fallback)
             self._game_timer.start()
             self._set_status(
@@ -955,6 +1143,7 @@ class CharacterUIManagerDialog(QDialog):
         if self._operation_focus_control is None:
             self._begin_operation_focus()
         self._set_busy(True)
+        self.progress.show()
         QTimer.singleShot(0, self._record_operation_fallback)
         self.progress.setRange(0, 0)
         self.progress.setFormat("Working…")
@@ -973,7 +1162,9 @@ class CharacterUIManagerDialog(QDialog):
             elif action == "layout":
                 result = copy_layout(
                     root, options["skin_folder"], options["source"],
-                    options["targets"], self.state_directory)
+                    options["targets"], self.state_directory,
+                    sections=options.get("sections"),
+                    update_skin=options.get("update_skin", True))
             else:
                 result = restore_backup(
                     root, self.state_directory, options["backup_id"])
@@ -1081,7 +1272,10 @@ class CharacterUIManagerDialog(QDialog):
                 self.clear_targets_button, self.audit_refresh_button,
                 self.audit_table, self.select_outdated_button,
                 self.clear_audit_button, self.audit_sort_combo,
-                self.audit_sort_button):
+                self.audit_sort_button, self.target_search, self.copy_scope,
+                self.section_search, self.section_list, self.select_sections_button,
+                self.clear_sections_button, self.clear_all_targets_button,
+                self.copy_refresh_button):
             control.setEnabled(not busy)
         ready = bool(self._skin and self._profiles)
         self.apply_all_button.setEnabled(not busy and ready)
@@ -1090,6 +1284,7 @@ class CharacterUIManagerDialog(QDialog):
             not busy and ready and len(self._profiles) > 1)
         self.restore_button.setEnabled(
             not busy and self.backup_combo.count() > 0)
+        self.copy_skin.setEnabled(not busy and bool(self._skin))
         if not busy:
             self._update_action_states()
 
@@ -1275,7 +1470,7 @@ class VantageUI(ParserWindow):
         self.copy_command_button.setToolTip(
             "Copy the exact /loadskin command for the selected verified folder")
         self.copy_command_button.clicked.connect(self.copy_loadskin_command)
-        self.character_ui_button = QPushButton("Character UI & layouts…")
+        self.character_ui_button = QPushButton("Copy character UI…")
         self.character_ui_button.setIcon(game_icon("ph-stack"))
         self.character_ui_button.setAccessibleName(
             "Manage character VantageUI settings and layouts")
@@ -1283,6 +1478,7 @@ class VantageUI(ParserWindow):
             "Back up and update every character's selected VantageUI, copy "
             "one character's window layout to others, or restore a backup")
         self.character_ui_button.clicked.connect(self.show_profile_manager)
+        actions.addWidget(self.character_ui_button)
         layout.addWidget(actions)
 
         safety_note = QLabel(
@@ -1405,7 +1601,6 @@ class VantageUI(ParserWindow):
         options_layout.addWidget(self.target_value)
         secondary_actions = ResponsiveActionBar(min_cell_width=150)
         secondary_actions.addWidget(self.restore_button)
-        secondary_actions.addWidget(self.character_ui_button)
         options_layout.addWidget(secondary_actions)
         options_layout.addWidget(self.auto_apply_profiles)
         self.log.setMinimumHeight(100)
@@ -1438,10 +1633,10 @@ class VantageUI(ParserWindow):
 
         controls = (
             self.path_edit, self.browse_button, self.update_button,
-            self.check_button, self.auto_update, self.elevation_button,
+            self.check_button, self.character_ui_button, self.auto_update, self.elevation_button,
             self.profile_elevation_button, self.copy_command_button,
             self.options_button, self.target_value, self.restore_button,
-            self.character_ui_button, self.auto_apply_profiles, self.log)
+            self.auto_apply_profiles, self.log)
         for before, after in zip(controls, controls[1:]):
             QWidget.setTabOrder(before, after)
 

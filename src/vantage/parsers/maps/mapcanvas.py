@@ -56,7 +56,7 @@ class MapLocationOverlay(QFrame):
         if source == 'who' and player_count is not None:
             suffix = f'WHO · {player_count}'
         elif source != 'who':
-            suffix = 'ZONE'
+            suffix = 'PREVIEW' if source == 'preview' else 'ZONE'
         self._zone_label.setText(
             f'{self._zone or "Unknown zone"} · {suffix}')
         self._refresh_geometry()
@@ -106,6 +106,7 @@ class MapCanvas(QGraphicsView):
 
     manual_pan = Signal()
     poi_activated = Signal(object)
+    browse_requested = Signal()
 
     def __init__(self):
 
@@ -128,7 +129,7 @@ class MapCanvas(QGraphicsView):
         self.setToolTip(
             'Drag with the left button to pan · wheel to zoom · '
             'Ctrl+wheel to change the Z layer')
-        self._scene = QGraphicsScene()
+        self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
         self._scale = config.data['maps']['scale']
         self._mouse_location = MouseLocation()
@@ -140,6 +141,7 @@ class MapCanvas(QGraphicsView):
         self._pan_announced = False
         self._manual_view = False
         self._focused_poi = None
+        self._remember_view = True
         # Parent the HUD to the view, not its scrolling viewport. Otherwise
         # centering or zooming the map would scroll the HUD off-screen too.
         self.location_overlay = MapLocationOverlay(self)
@@ -162,7 +164,7 @@ class MapCanvas(QGraphicsView):
     def clear_location_hud_position(self):
         self.location_overlay.clear_location()
 
-    def load_map(self, map_name, keep_loc=False):
+    def load_map(self, map_name, keep_loc=False, *, remember=True):
         old_player_data = None
         try:
             try:
@@ -177,6 +179,7 @@ class MapCanvas(QGraphicsView):
 
         else:
             self._data = map_data
+            self._remember_view = bool(remember)
             self._manual_view = False
             self._focused_poi = None
             self._scene.clear()
@@ -192,8 +195,9 @@ class MapCanvas(QGraphicsView):
             QTimer.singleShot(0, self._fit_overview_if_automatic)
             self._mouse_location = MouseLocation()
             self._scene.addItem(self._mouse_location)
-            config.data['maps']['last_zone'] = self._data.zone
-            config.save()
+            if self._remember_view:
+                config.data['maps']['last_zone'] = self._data.zone
+                config.save()
             if keep_loc and old_player_data:
                 self.add_player(
                     '__you__', old_player_data.timestamp,
@@ -221,7 +225,8 @@ class MapCanvas(QGraphicsView):
         # scene
         self.setTransform(QTransform())  # reset transform object
         self._scale = to_range(ratio, 0.0006, 5.0)
-        config.data['maps']['scale'] = self._scale
+        if self._remember_view:
+            config.data['maps']['scale'] = self._scale
         self.scale(self._scale, self._scale)
 
         # lines and points of interest
@@ -758,7 +763,7 @@ class MapCanvas(QGraphicsView):
             pathing_menu.addSeparator()
             pathing_menu.addAction(pathing_rename_recording)
             pathing_menu.addAction(pathing_stop_recording)
-        load_map = menu.addAction('Load Map')
+        load_map = menu.addAction('Browse maps…')
         fit_map = menu.addAction('Fit Entire Map (Home)')
 
         # execute
@@ -837,14 +842,7 @@ class MapCanvas(QGraphicsView):
             self.stop_path_recording()
 
         if action == load_map:
-            dialog = QInputDialog(self)
-            dialog.setWindowTitle('Load Map')
-            dialog.setLabelText('Select map to load:')
-            dialog.setComboBoxItems(
-                sorted([map.title() for map in MapData.get_zone_dict()]))
-            if dialog.exec():
-                self.load_map(dialog.textValue().lower())
-            dialog.deleteLater()
+            self.browse_requested.emit()
 
         if action == fit_map:
             self.fit_overview()
