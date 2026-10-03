@@ -1,6 +1,56 @@
 <?xml version="1.0" encoding="us-ascii"?>
 <XML ID="EQInterfaceDefinitionLanguage">
   <Schema xmlns="EverQuestData" xmlns:dt="EverQuestDataTypes" />
+  <Ui2DAnimation item="A_VantageBankFooterNormal">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageCompactControls.tga</Texture>
+      <Location><X>130</X><Y>2</Y></Location>
+      <Size><CX>61</CX><CY>20</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageBankFooterFlyby">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageCompactControls.tga</Texture>
+      <Location><X>130</X><Y>25</Y></Location>
+      <Size><CX>61</CX><CY>20</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageBankFooterPressed">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageCompactControls.tga</Texture>
+      <Location><X>130</X><Y>48</Y></Location>
+      <Size><CX>61</CX><CY>20</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageBankFooterPressedFlyby">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageCompactControls.tga</Texture>
+      <Location><X>130</X><Y>71</Y></Location>
+      <Size><CX>61</CX><CY>20</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageBankFooterDisabled">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageCompactControls.tga</Texture>
+      <Location><X>130</X><Y>94</Y></Location>
+      <Size><CX>61</CX><CY>20</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
   <Label item="BW_BankerName">
     <ScreenID>BW_BankerName</ScreenID>
     <Font>2</Font>
@@ -360,11 +410,11 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageBankFooterNormal</Normal>
+      <Pressed>A_VantageBankFooterPressed</Pressed>
+      <Flyby>A_VantageBankFooterFlyby</Flyby>
+      <Disabled>A_VantageBankFooterDisabled</Disabled>
+      <PressedFlyby>A_VantageBankFooterPressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <Button item="BW_DoneButton">
@@ -387,11 +437,11 @@
       <B>247</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageBankFooterNormal</Normal>
+      <Pressed>A_VantageBankFooterPressed</Pressed>
+      <Flyby>A_VantageBankFooterFlyby</Flyby>
+      <Disabled>A_VantageBankFooterDisabled</Disabled>
+      <PressedFlyby>A_VantageBankFooterPressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <Button item="BW_AltStorageButton">

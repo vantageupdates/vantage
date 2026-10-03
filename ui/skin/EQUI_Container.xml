@@ -1,8 +1,109 @@
 <?xml version="1.0" encoding="us-ascii"?>
 <XML ID="EQInterfaceDefinitionLanguage">
 	<Schema xmlns="EverQuestData" xmlns:dt="EverQuestDataTypes" />
+  <Ui2DAnimation item="A_VantageContainerCombineNormal">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageCompactControls.tga</Texture>
+      <Location><X>2</X><Y>128</Y></Location>
+      <Size><CX>60</CX><CY>20</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageContainerCombineFlyby">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageCompactControls.tga</Texture>
+      <Location><X>2</X><Y>151</Y></Location>
+      <Size><CX>60</CX><CY>20</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageContainerCombinePressed">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageCompactControls.tga</Texture>
+      <Location><X>2</X><Y>174</Y></Location>
+      <Size><CX>60</CX><CY>20</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageContainerCombinePressedFlyby">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageCompactControls.tga</Texture>
+      <Location><X>2</X><Y>197</Y></Location>
+      <Size><CX>60</CX><CY>20</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageContainerCombineDisabled">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageCompactControls.tga</Texture>
+      <Location><X>2</X><Y>220</Y></Location>
+      <Size><CX>60</CX><CY>20</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageContainerDoneNormal">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageCompactControls.tga</Texture>
+      <Location><X>67</X><Y>128</Y></Location>
+      <Size><CX>50</CX><CY>20</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageContainerDoneFlyby">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageCompactControls.tga</Texture>
+      <Location><X>67</X><Y>151</Y></Location>
+      <Size><CX>50</CX><CY>20</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageContainerDonePressed">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageCompactControls.tga</Texture>
+      <Location><X>67</X><Y>174</Y></Location>
+      <Size><CX>50</CX><CY>20</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageContainerDonePressedFlyby">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageCompactControls.tga</Texture>
+      <Location><X>67</X><Y>197</Y></Location>
+      <Size><CX>50</CX><CY>20</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageContainerDoneDisabled">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageCompactControls.tga</Texture>
+      <Location><X>67</X><Y>220</Y></Location>
+      <Size><CX>50</CX><CY>20</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
   <Label item="Container_Label">
     <ScreenID>Container_Label</ScreenID>
+    <Font>3</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>2</X>
@@ -278,11 +379,11 @@
       <B>222</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_SmallBtnNormal</Normal>
-      <Pressed>A_SmallBtnPressed</Pressed>
-      <Flyby>A_SmallBtnFlyby</Flyby>
-      <Disabled>A_SmallBtnDisabled</Disabled>
-      <PressedFlyby>A_SmallBtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageContainerCombineNormal</Normal>
+      <Pressed>A_VantageContainerCombinePressed</Pressed>
+      <Flyby>A_VantageContainerCombineFlyby</Flyby>
+      <Disabled>A_VantageContainerCombineDisabled</Disabled>
+      <PressedFlyby>A_VantageContainerCombinePressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <Button item="Container_CloseButton">
@@ -305,11 +406,11 @@
       <B>222</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>A_VantageContainerDoneNormal</Normal>
+      <Pressed>A_VantageContainerDonePressed</Pressed>
+      <Flyby>A_VantageContainerDoneFlyby</Flyby>
+      <Disabled>A_VantageContainerDoneDisabled</Disabled>
+      <PressedFlyby>A_VantageContainerDonePressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <Label item="Augment_Label">
@@ -454,7 +555,7 @@
   </Button>
 	<Screen item="ContainerWindow">
 		<!--<ScreenID/>-->
-		<!--<Font/>-->
+		<Font>2</Font>
 		<RelativePosition>false</RelativePosition>
 		<Location>
 			<X>350</X>
@@ -464,11 +565,11 @@
 			<CX>88</CX>
 			<CY>334</CY>
 		</Size>
-		<Text>Container</Text>
+		<Text>Bag</Text>
 		<Style_VScroll>false</Style_VScroll>
 		<Style_HScroll>false</Style_HScroll>
 		<Style_Transparent>false</Style_Transparent>
-		<TooltipReference>Container</TooltipReference>
+		<TooltipReference>Bag contents. Drag the title bar to move; minimize to collapse.</TooltipReference>
 		<DrawTemplate>WDT_Rounded</DrawTemplate>
 		<Style_Titlebar>true</Style_Titlebar>
 		<Style_Closebox>true</Style_Closebox>

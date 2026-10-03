@@ -112,8 +112,8 @@ def test_spell_gems_have_room_for_names_inset_icons_and_row_gaps(index):
     gem = item(xml, 'SpellGem', f'CSPW_Spell{index}')
     label = item(xml, 'Label', f'CSPW_Spell{index}_Name')
     window = item(xml, 'Screen', 'CastSpellWnd')
-    assert rect(gem) == (1, 18 + 30 * index, 120, 28)
-    assert rect(label) == (31, 21 + 30 * index, 88, 26)
+    assert rect(gem) == (1, 18 + 30 * index, 136, 28)
+    assert rect(label) == (31, 21 + 30 * index, 104, 26)
     assert_two_line_spell_name_room(gem, label)
     assert label.findtext('Font') == '1'
     assert label.findtext('NoWrap') == 'false'
@@ -141,8 +141,8 @@ def test_spell_gems_have_room_for_names_inset_icons_and_row_gaps(index):
         assert rect(following)[1] - (gy + gh) == 2
         assert ly + lh <= rect(following)[1]
     header = item(xml, 'Button', 'CSPW_SpellBook')
-    assert rect(header) == (1, 1, 120, 14)
-    assert window.findtext('Size/CX') == '130'
+    assert rect(header) == (1, 1, 136, 14)
+    assert window.findtext('Size/CX') == '146'
     assert window.findtext('Size/CY') == '286'
 
 
@@ -193,24 +193,24 @@ def test_spell_outline_is_a_fine_grey_rounded_ring_with_no_center_paint():
     assert animation.findtext('Cycle') == 'false'
     assert len(animation.findall('Frames')) == 1
     frame = animation.find('Frames')
-    assert rect(frame) == (2, 34, 120, 28)
-    assert frame.findtext('Texture') == 'VantageControlEdges.tga'
-    data = (SKIN / 'VantageControlEdges.tga').read_bytes()
+    assert rect(frame) == (0, 144, 136, 28)
+    assert frame.findtext('Texture') == 'v3_controls.tga'
+    data = (SKIN / 'v3_controls.tga').read_bytes()
     def pixel(x, y):
-        offset = 18 + 4 * ((y + 34) * 512 + x + 2)
+        offset = 18 + 4 * ((y + 144) * 256 + x)
         return tuple(data[offset:offset + 4])
-    visible = [pixel(x, y) for y in range(28) for x in range(120) if pixel(x, y)[3]]
+    visible = [pixel(x, y) for y in range(28) for x in range(136) if pixel(x, y)[3]]
     assert visible and all(b == g == r for b, g, r, a in visible)
     assert 80 <= max(c[3] for c in visible) <= 170
     assert len({c[3] for c in visible}) > 8, 'Antialiased coverage, not hard square edges'
-    for x, y in ((0, 0), (119, 0), (0, 27), (119, 27)):
+    for x, y in ((0, 0), (135, 0), (0, 27), (135, 27)):
         assert pixel(x, y)[3] == 0
-    assert all(pixel(x, y)[3] == 0 for y in range(4, 24) for x in range(5, 115))
+    assert all(pixel(x, y)[3] == 0 for y in range(4, 24) for x in range(5, 131))
     # Both horizontal and vertical edges exist; not just a disconnected line.
     assert any(pixel(60, y)[3] > 70 for y in range(3))
     assert any(pixel(60, y)[3] > 70 for y in range(25, 28))
     assert any(pixel(x, 16)[3] > 70 for x in range(3))
-    assert any(pixel(x, 16)[3] > 70 for x in range(117, 120))
+    assert any(pixel(x, 16)[3] > 70 for x in range(133, 136))
 
 
 @pytest.mark.parametrize('name,top,height', [
@@ -221,7 +221,7 @@ def test_spell_outline_is_a_fine_grey_rounded_ring_with_no_center_paint():
 ])
 def test_spell_native_art_has_no_opaque_backing_outside_rounded_corners(name, top, height):
     animation = item(root('EQUI_Animations.xml'), 'Ui2DAnimation', name)
-    assert rect(animation.find('Frames')) == (0, top, 120, height)
+    assert rect(animation.find('Frames')) == (0, top, 136, height)
     assert animation.findtext('Frames/Texture') == 'v3_controls.tga'
     data = (SKIN / 'v3_controls.tga').read_bytes()
     assert data[:3] == bytes((0, 0, 2))
@@ -229,13 +229,13 @@ def test_spell_native_art_has_no_opaque_backing_outside_rounded_corners(name, to
     def pixel(x, y):
         i = 18 + ((top + y) * 256 + x) * 4
         return tuple(data[i:i + 4])
-    for x in (0, 1, 118, 119):
+    for x in (0, 1, 134, 135):
         for y in (0, height - 1):
             assert pixel(x, y) == (0, 0, 0, 0), 'No baked black corner plate'
     for y in (0, 1, height - 2, height - 1):
-        assert pixel(0, y) == pixel(119, y) == (0, 0, 0, 0)
+        assert pixel(0, y) == pixel(135, y) == (0, 0, 0, 0)
     if name == 'V3_CastHighlight':
-        assert all(pixel(x, y) == (0, 0, 0, 0) for x in range(120) for y in range(height))
+        assert all(pixel(x, y) == (0, 0, 0, 0) for x in range(136) for y in range(height))
     else:
         assert pixel(60, height // 2)[3] == 255
         assert len({pixel(x, y)[3] for x in range(7) for y in range(7)}) >= 6

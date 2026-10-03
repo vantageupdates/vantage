@@ -24,6 +24,17 @@ def test_ui_build_script_never_builds_or_starts_companion():
     assert not re.search(r"(?i)\b(?:Stop-Process|taskkill|gh\s+release|git\s+push)\b", source)
 
 
+def test_ui_updater_windows_version_matches_independent_release():
+    root = SCRIPT.parents[1]
+    version = json.loads((root / "ui/release.json").read_text(encoding="utf-8"))["version"]
+    source = (root / "data/ui/ui_updater_version_info.txt").read_text(encoding="utf-8")
+    numbers = tuple(int(part) for part in version.split(".")) + (0,)
+    assert f"filevers={numbers}" in source
+    assert f"prodvers={numbers}" in source
+    assert f"StringStruct('FileVersion', '{version}')" in source
+    assert f"StringStruct('ProductVersion', '{version}')" in source
+
+
 def _run_mocked(tmp_path, mode="pass", release_changes=None):
     """Execute only the script's orchestration in a disposable fake checkout."""
     if not POWERSHELL:

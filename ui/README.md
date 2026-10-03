@@ -24,15 +24,26 @@ directory. Neither packaging nor updating changes character INIs or another
 skin. The matching Titanium/Project 1999 client default skin is still required
 for inherited resources; this is not a modern Live-client UI.
 
-The current polished live source was exported byte for byte into `ui/skin`:
-176 flat XML/image assets, with private updater state, cursors, and historical
-notes excluded. The export does not modify the live source. Its reviewed changes
+The base live skin was exported byte for byte into `ui/skin`, excluding private
+updater state, cursors and historical notes. The current release snapshot has
+186 flat XML/image assets. Export and packaging do not modify the live source.
+Its reviewed changes
 include darker opaque surfaces, consistent fine gold slot/control borders,
 softly raised spell gems and buttons, native40px equipment/bag columns in a
 306x302 HotButton panel, separated Camp/Sit/Walk buttons, segmented LED-green
 health bars with yellow/orange/red thresholds, and restored native containers.
 Keep future exports explicit and review
 their asset diffs before packaging or publication.
+
+The 1.44.100 conservative premium pass widens the spell-name lane by 16px
+without shrinking text or changing spell icons/colors. Inventory bag hit boxes
+no longer overlap, footer actions fit the inner frame, and Bank/bag/Social
+buttons use exact-size rounded faces. Pet controls/health and the primary
+hotbar default height now account for native window chrome. The original
+1080p report does not establish a Windows DPI cause; no display settings or
+saved character layouts are changed. These are offline-checked source changes,
+not a native rendering certification; see the current changelog and manually
+verify the new skin in P99.
 
 The 1.44.88 Pet Info pass shifts the complete command block two pixels left for
 better optical alignment in the compact 136-pixel window. Attack and all native
@@ -102,7 +113,7 @@ repository folder rejects unexpected files rather than silently publishing them.
 
 Review the resulting Git diff and asset changes before publishing. Increment the
 independent UI patch version in `ui/release.json`; update the canonical
-`EQUI_HotButtonWnd.xml` label `HB_VantageVersionLabel` to exactly
+`EQUI_GroupWindow.xml` label `GW_VantageVersionLabel` to exactly
 `v<version>` before exporting. The approved Vantage UI logo is a separate texture;
 the version remains editable text inside its own rounded frame. Packaging rejects an absent, duplicate,
 or mismatched visible version tab. Never reuse a published UI
@@ -110,7 +121,7 @@ version or tag. A UI-only release does not increment Companion and does not buil
 or publish `Vantage.exe`. After focused and complete tests, coordinate publication
 of the updater and both transport assets on a reviewed
 `vantage-ui-v<major.minor.patch>` tag in `vantageupdates/vantage`. For this
-candidate the tag is `vantage-ui-v1.44.88`. Verify public asset sizes and
+candidate the tag is `vantage-ui-v1.44.100`. Verify public asset sizes and
 SHA-256 digests against the tested artifacts. An arbitrary source push must not
 automatically publish an unreviewed UI update. The repository
 [release policy](../AGENTS.md) records the separation between Companion and UI

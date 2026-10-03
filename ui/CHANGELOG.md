@@ -1,5 +1,38 @@
 # VantageUI releases
 
+## 1.44.100
+
+Install folder: `VantageUI-v1.44.100`.
+
+- Conservative premium polish prompted by the laptop/1080p report. Spell
+  names gain 16px of width without smaller text, taller rows, changed icons,
+  palette changes or different casting/countdown bindings. Gem, header,
+  outline and casting-footer artwork now matches the wider controls.
+- Removed the inventory bag grid's one-pixel hit-box overlap. Three equal
+  footer actions now fit the actual inner frame, with matching rounded faces,
+  equal margins/gutters and a three-pixel gap below the bags.
+- Added exact-size Bank, container and Social button faces without changing
+  native actions or item slots. The shorter Bag title leaves the native close
+  and minimize controls clearer; full bag names retain their existing font.
+- Centered Pet health/commands within the inner frame; the health percentage
+  sits on the name row instead of outside the left edge. The Titanium gauge
+  still has a fixed name offset, not dynamic centering for arbitrary names.
+- Corrected the primary hotbar's default outer height to fit its native
+  titlebar and full inventory grid. Dragging, horizontal collapse, auxiliary
+  hotbars, Group roster/resists and existing health/mana behavior are retained.
+- The skin and updater Windows metadata both identify 1.44.100. Companion is
+  released separately; this update does not replace Vantage.exe or reset
+  character layouts, game resolution or Windows display settings.
+
+Offline checks cover native IDs, child order, geometry, texture boundaries,
+spell countdown layers and deterministic packaging. This is not a native
+font/DPI or in-game interaction certification. Verify long spell names, pet
+health/commands, the hotbar's last row, bag transfers, Bank actions and Social
+buttons after manually loading the version. Saved window sizes can differ
+from XML defaults.
+
+Load with `/loadskin VantageUI-v1.44.100 1`.
+
 ## 1.44.97
 
 Install folder: `VantageUI-v1.44.97`.

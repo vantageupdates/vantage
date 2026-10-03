@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="us-ascii"?>
 <XML ID="EQInterfaceDefinitionLanguage">
   <Schema xmlns="EverQuestData" xmlns:dt="EverQuestDataTypes" />
+  <TextureInfo item="VantageCompactControls.tga">
+    <Size><CX>256</CX><CY>256</CY></Size>
+  </TextureInfo>
   <TextureInfo item="VantageControlEdges.tga">
     <Size>
       <CX>512</CX>
@@ -24,13 +27,13 @@
   <Ui2DAnimation item="A_VantageSpellGemOutline">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>2</X>
-        <Y>34</Y>
+        <X>0</X>
+        <Y>144</Y>
       </Location>
       <Size>
-        <CX>120</CX>
+        <CX>136</CX>
         <CY>28</CY>
       </Size>
       <Hotspot>
@@ -433,7 +436,7 @@
         <Y>126</Y>
       </Location>
       <Size>
-        <CX>120</CX>
+        <CX>136</CX>
         <CY>14</CY>
       </Size>
       <Hotspot>
@@ -452,7 +455,7 @@
         <Y>112</Y>
       </Location>
       <Size>
-        <CX>120</CX>
+        <CX>136</CX>
         <CY>14</CY>
       </Size>
       <Hotspot>
@@ -471,7 +474,7 @@
         <Y>98</Y>
       </Location>
       <Size>
-        <CX>120</CX>
+        <CX>136</CX>
         <CY>14</CY>
       </Size>
       <Hotspot>
@@ -490,7 +493,7 @@
         <Y>84</Y>
       </Location>
       <Size>
-        <CX>120</CX>
+        <CX>136</CX>
         <CY>14</CY>
       </Size>
       <Hotspot>
@@ -509,7 +512,7 @@
         <Y>56</Y>
       </Location>
       <Size>
-        <CX>120</CX>
+        <CX>136</CX>
         <CY>28</CY>
       </Size>
       <Hotspot>
@@ -528,7 +531,7 @@
         <Y>28</Y>
       </Location>
       <Size>
-        <CX>120</CX>
+        <CX>136</CX>
         <CY>28</CY>
       </Size>
       <Hotspot>
@@ -547,7 +550,7 @@
         <Y>0</Y>
       </Location>
       <Size>
-        <CX>120</CX>
+        <CX>136</CX>
         <CY>28</CY>
       </Size>
       <Hotspot>

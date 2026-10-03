@@ -123,12 +123,12 @@ def test_money_faces_have_clear_round_corners_and_separated_states(i, state):
     assert r == g == b and a == 255  # Neutral, never tinted panel faces.
 
 
-def test_inventory_height_and_bag_positions_remain_fixed_without_fake_capacity_gauges():
+def test_inventory_bag_hit_boxes_have_native_pitch_without_fake_capacity_gauges():
     root = ET.parse(SKIN / 'EQUI_Inventory.xml').getroot()
-    assert rect(node('Screen', 'InventoryWindow')) == (100, 50, 389, 355)
+    assert rect(node('Screen', 'InventoryWindow')) == (100, 50, 389, 358)
     for i in range(8):
         slot = node('InvSlot', f'InvSlot{i + 22}')
-        assert rect(slot) == (156 + 39 * (i // 4), 165 + 39 * (i % 4), 40, 40)
+        assert rect(slot) == (156 + 40 * (i // 4), 165 + 40 * (i % 4), 40, 40)
         assert slot.findtext('EQType') == str(i + 22)
     assert node('Gauge', 'IW_ExpGauge').findtext('EQType') == '4'
     assert not any('bag' in (n.get('item') or '').lower() for n in root.findall('Gauge'))
@@ -140,30 +140,31 @@ def test_inventory_height_and_bag_positions_remain_fixed_without_fake_capacity_g
 def test_inventory_footer_actions_share_the_full_width_without_changing_bindings_or_order():
     inventory_root = ET.parse(SKIN / 'EQUI_Inventory.xml').getroot()
     screen = node('Screen', 'InventoryWindow')
-    assert rect(screen) == (100, 50, 389, 355)
+    assert rect(screen) == (100, 50, 389, 358)
 
     visual_order = ('IW_DoneButton', 'IW_Skills', 'IW_Destroy')
-    expected_x = (4, 132, 260)
+    expected_x = (3, 129, 255)
     expected_screen_ids = ('DoneButton', 'IW_Skills', 'IW_Destroy')
     expected_labels = ('Done', 'Skills', 'Destroy')
     states = ('Normal', 'Pressed', 'Flyby', 'Disabled', 'PressedFlyby')
 
     buttons = [node('Button', name) for name in visual_order]
     assert tuple(rect(button) for button in buttons) == tuple(
-        (x, 325, 125, 20) for x in expected_x
+        (x, 328, 123, 20) for x in expected_x
     )
     assert tuple(button.findtext('ScreenID') for button in buttons) == expected_screen_ids
     assert tuple(button.findtext('Text') for button in buttons) == expected_labels
     for button in buttons:
         assert tuple(button.findtext(f'ButtonDrawTemplate/{state}') for state in states) == tuple(
-            f'A_Btn{state}' for state in states
+            f'A_VantageInventoryFooter{state}' for state in states
         )
 
-    # Three equal actions span the footer with symmetric 4px outer margins and
-    # consistent 3px gutters, without changing the remaining native focus order.
-    assert expected_x[0] == 4
-    assert 389 - (expected_x[-1] + 125) == 4
-    assert tuple(expected_x[i + 1] - (expected_x[i] + 125) for i in range(2)) == (3, 3)
+    # Positions are native CLIENT coordinates: subtract both 4px frame edges
+    # before distributing three equal actions with 3px margins and gutters.
+    client_width = 389 - 2 * 4
+    assert expected_x[0] == 3
+    assert client_width - (expected_x[-1] + 123) == 3
+    assert tuple(expected_x[i + 1] - (expected_x[i] + 123) for i in range(2)) == (3, 3)
     # Native initialization still requires this child, but it is not a footer action.
     face = inventory_root.find("Button[@item='IW_FacePick']")
     assert face is not None and face.findtext('ScreenID') == 'IW_FacePick'

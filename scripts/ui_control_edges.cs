@@ -7,6 +7,94 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 
 public static class VantageControlEdgesRenderer {
+    public const int SpellWidth=136, SpellFillWidth=SpellWidth-4;
+    public const int SpellOutlineTop=144, SpellFooterTop=176, SpellFillTop=196;
+    // Spell-only cells live in unused space of the existing spell atlas. The
+    // shared control atlas remains unchanged beside Pet/Actions/HP artwork.
+    public static void RenderSpellWindowArt(string destination) {
+        if(Path.GetFileName(destination)!="v3_controls.tga")
+            throw new ArgumentException("Only the spell control atlas is supported.");
+        byte[] data=File.ReadAllBytes(destination);
+        if(data.Length!=18+256*256*4 || data[0]!=0 || data[1]!=0 || data[2]!=2
+            || data[12]!=0 || data[13]!=1 || data[14]!=0 || data[15]!=1
+            || data[16]!=32 || data[17]!=40)
+            throw new ArgumentException("Expected the reviewed top-origin 256x256 BGRA atlas.");
+        using(var atlas=new Bitmap(256,256,PixelFormat.Format32bppArgb)) {
+            using(var high=new Bitmap(SpellWidth*4,112,PixelFormat.Format32bppArgb))
+            using(var edge=new Bitmap(SpellWidth,28,PixelFormat.Format32bppArgb)) {
+                using(var g=Graphics.FromImage(high))
+                using(var path=Round(3,3,SpellWidth*4-6,106,22))
+                using(var pen=new Pen(Color.FromArgb(155,148,148,148),4)) {
+                    g.SmoothingMode=SmoothingMode.AntiAlias;
+                    g.DrawPath(pen,path);
+                }
+                using(var g=Graphics.FromImage(edge)) {
+                    g.InterpolationMode=InterpolationMode.HighQualityBicubic;
+                    g.PixelOffsetMode=PixelOffsetMode.HighQuality;
+                    g.DrawImage(high,new Rectangle(0,0,SpellWidth,28),
+                        0,0,SpellWidth*4,112,GraphicsUnit.Pixel);
+                }
+                for(int y=0;y<28;y++) for(int x=0;x<SpellWidth;x++)
+                    atlas.SetPixel(x,SpellOutlineTop+y,edge.GetPixel(x,y));
+            }
+            using(var high=new Bitmap(SpellWidth*4,60,PixelFormat.Format32bppArgb))
+            using(var footer=new Bitmap(SpellWidth,15,PixelFormat.Format32bppArgb)) {
+                using(var g=Graphics.FromImage(high))
+                using(var path=Round(1.6f,1.6f,SpellWidth*4-3.2f,56.8f,16))
+                using(var fill=new LinearGradientBrush(new Rectangle(0,0,SpellWidth*4,60),
+                    Color.FromArgb(24,25,27),Color.FromArgb(11,12,14),90f))
+                using(var rim=new Pen(Color.FromArgb(90,158,131,75),2f)) {
+                    g.SmoothingMode=SmoothingMode.AntiAlias;
+                    g.FillPath(fill,path);
+                    g.DrawPath(rim,path);
+                }
+                using(var g=Graphics.FromImage(footer)) {
+                    g.InterpolationMode=InterpolationMode.HighQualityBicubic;
+                    g.PixelOffsetMode=PixelOffsetMode.HighQuality;
+                    g.DrawImage(high,new Rectangle(0,0,SpellWidth,15),
+                        0,0,SpellWidth*4,60,GraphicsUnit.Pixel);
+                }
+                for(int y=0;y<15;y++) for(int x=0;x<SpellWidth;x++)
+                    atlas.SetPixel(x,SpellFooterTop+y,footer.GetPixel(x,y));
+            }
+            string barSource=Path.Combine(Path.GetDirectoryName(destination),"dzbars.png");
+            using(var source=new Bitmap(barSource))
+            using(var cell=source.Clone(new Rectangle(0,200,240,11),PixelFormat.Format32bppArgb))
+            using(var fill=new Bitmap(SpellFillWidth,9,PixelFormat.Format32bppArgb))
+            using(var attributes=new ImageAttributes()) {
+                attributes.SetWrapMode(WrapMode.TileFlipXY);
+                using(var g=Graphics.FromImage(fill)) {
+                    g.InterpolationMode=InterpolationMode.HighQualityBicubic;
+                    g.PixelOffsetMode=PixelOffsetMode.HighQuality;
+                    g.DrawImage(cell,new Rectangle(0,0,SpellFillWidth,9),0,0,240,11,
+                        GraphicsUnit.Pixel,attributes);
+                }
+                for(int y=0;y<9;y++) for(int x=0;x<SpellFillWidth;x++) {
+                    int covered=0;
+                    for(int sy=0;sy<4;sy++) for(int sx=0;sx<4;sx++) {
+                        float px=x+(sx+0.5f)/4, py=y+(sy+0.5f)/4;
+                        float right=SpellFillWidth-4.5f;
+                        float dx=px<4.5f ? px-4.5f : px>right ? px-right : 0;
+                        float dy=py-4.5f;
+                        if(dx*dx+dy*dy<=20.25f) covered++;
+                    }
+                    Color c=fill.GetPixel(x,y);
+                    int alpha=(c.A*covered+8)/16;
+                    atlas.SetPixel(x,SpellFillTop+y,alpha==0 ? Color.Transparent :
+                        Color.FromArgb(alpha,c.R,c.G,c.B));
+                }
+            }
+            int[,] cells={{SpellOutlineTop,SpellWidth,28},{SpellFooterTop,SpellWidth,15},
+                {SpellFillTop,SpellFillWidth,9}};
+            for(int n=0;n<cells.GetLength(0);n++)
+                for(int y=0;y<cells[n,2];y++) for(int x=0;x<cells[n,1];x++) {
+                    Color c=atlas.GetPixel(x,cells[n,0]+y);
+                    int i=18+((cells[n,0]+y)*256+x)*4;
+                    data[i]=c.B; data[i+1]=c.G; data[i+2]=c.R; data[i+3]=c.A;
+                }
+        }
+        File.WriteAllBytes(destination,data);
+    }
     // Native attack drawing owns visibility/red tint. Outline the full client
     // area, not the name row; retain a transparent interior and a subpixel rim.
     public static void RenderAttack(string destination) {
@@ -78,9 +166,9 @@ public static class VantageControlEdgesRenderer {
         for(int n=0;n<cells.GetLength(0);n++) {
             int top=cells[n,0], height=cells[n,1];
             double radius=height==28 ? 6 : 5;
-            for(int y=0;y<height;y++) for(int x=0;x<120;x++) {
+            for(int y=0;y<height;y++) for(int x=0;x<SpellWidth;x++) {
                 int i=18+((top+y)*256+x)*4;
-                int coverage=RoundedAlpha(x,y,120,height,radius,0.25);
+                int coverage=RoundedAlpha(x,y,SpellWidth,height,radius,0.25);
                 data[i+3]=(byte)Math.Min(data[i+3],coverage);
                 if(data[i+3]==0) data[i]=data[i+1]=data[i+2]=0;
             }

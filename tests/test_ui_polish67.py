@@ -61,14 +61,27 @@ def test_chat_input_keeps_height_and_clearance_when_resized(width,height):
 
 def test_pet_health_and_commands_are_centered_in_compact_window():
     xml=root('EQUI_PetInfoWindow.xml')
-    expected={'Attack':(2,42,128,18),'Follow':(2,64,62,18),'Taunt':(68,64,62,18),
-              'Guard':(2,86,62,18),'Sit':(68,86,62,18),'Stand':(68,86,62,18),
-              'Back':(2,108,62,18),'Lost':(68,108,62,18)}
+    expected={'Attack':(0,42,128,18),'Follow':(0,64,62,18),'Taunt':(66,64,62,18),
+              'Guard':(0,86,62,18),'Sit':(66,86,62,18),'Stand':(66,86,62,18),
+              'Back':(0,108,62,18),'Lost':(66,108,62,18)}
     tooltips={'Attack':'Pet Attack','Follow':'Pet Follow Me','Taunt':'Pet Taunt',
               'Guard':'Pet Guard Here','Sit':'Pet Sit Down','Stand':'Pet Stand Up',
               'Back':'Pet Back Off','Lost':'Pet Get Lost'}
     parent=xml.find("Screen[@item='PetInfoWindow']")
     assert rect(parent)==(50,160,136,135)
+    assert parent.findtext('DrawTemplate') == 'WDT_RoundedNoTitle'
+    assert parent.findtext('Style_Titlebar') == 'false'
+    templates=root('EQUI_Templates.xml')
+    rounded=templates.find("WindowDrawTemplate[@item='WDT_RoundedNoTitle']")
+    animations=root('EQUI_Animations.xml')
+    insets={}
+    for side,dimension in (('Left',2),('Right',2),('Top',3),('Bottom',3)):
+        name=rounded.findtext('Border/'+side)
+        insets[side]=rect(animations.find(f"Ui2DAnimation[@item='{name}']/Frames"))[dimension]
+    assert insets == {'Left':4,'Right':4,'Top':4,'Bottom':4}
+    client_width=rect(parent)[2]-insets['Left']-insets['Right']
+    client_height=rect(parent)[3]-insets['Top']-insets['Bottom']
+    assert (client_width,client_height) == (128,127)
     pieces=[n.text for n in parent.findall('Pieces')]
     assert pieces[:9] == ['PIW_BuffWindow','PIW_AttackButton','PIW_LostButton',
                           'PIW_BackButton','PIW_GuardButton','PIW_FollowButton',
@@ -78,14 +91,16 @@ def test_pet_health_and_commands_are_centered_in_compact_window():
         assert rect(button)==box
         assert button.findtext('ScreenID') == name+'Button'
         assert button.findtext('TooltipReference') == tooltips[name]
+        assert button.find('Font') is None
         assert button.findtext('Style_Transparent')=='true' and button.findtext('Style_Border')=='false'
         assert pieces.count('PIW_'+name+'Button')==1
-        assert box[0]>=2 and box[0]+box[2]<=130 and box[1]+box[3]<=126
+        assert box[0]>=0 and box[1]>=0
+        assert box[0]+box[2]<=client_width and box[1]+box[3]<=client_height
         for state in ('Normal','Pressed','Flyby','Disabled','PressedFlyby'):
             prefix='A_VantageActions' if name=='Attack' else 'A_VantagePet'
             assert button.findtext('ButtonDrawTemplate/'+state) == prefix+state
     health=xml.find("Gauge[@item='Pet_HP_BG']")
-    assert rect(health)==(16,5,104,34)
+    assert rect(health)==(12,5,104,34)
     assert health.findtext('Font')=='2'
     assert health.findtext('EQType')=='16'
     assert health.findtext('Text')=='No Pet'
@@ -93,27 +108,35 @@ def test_pet_health_and_commands_are_centered_in_compact_window():
     assert health.find('AlignCenter') is None  # Unsupported on Titanium Gauge text.
     assert (health.findtext('GaugeOffsetX'),health.findtext('GaugeOffsetY'))==('0','14')
     assert health.findtext('GaugeDrawTemplate/Background')=='A_dzBackground'
-    assert rect(health)[0] == rect(parent)[2]-(rect(health)[0]+rect(health)[2]) == 16
+    assert rect(health)[0] == client_width-(rect(health)[0]+rect(health)[2]) == 12
     # TextOffset is necessarily fixed; it centers the six-character fallback
     # and common-case pet name at native Font-2's five-pixel glyph width.
     text_left=rect(health)[0]+int(health.findtext('TextOffsetX'))
-    assert text_left + len(health.findtext('Text'))*5/2 == rect(parent)[2]/2
+    assert text_left == 49
+    assert text_left + len(health.findtext('Text'))*5/2 == client_width/2 == 64
     gauge_offset=int(health.findtext('GaugeOffsetX'))
     background= root('EQUI_Animations.xml').find("Ui2DAnimation[@item='A_dzBackground']/Frames")
     background_left=rect(health)[0]+gauge_offset
     background_width=rect(background)[2]
-    assert (background_left,background_width)==(16,104)
-    assert background_left == rect(parent)[2]-(background_left+background_width) == 16
+    assert (background_left,background_width)==(12,104)
+    assert background_left == client_width-(background_left+background_width) == 12
     bar_left,_,bar_width,_=rect(xml.find("Gauge[@item='Pet_HP_0']"))
-    assert (bar_left,bar_width)==(18,100)
-    assert bar_left == rect(parent)[2]-(bar_left+bar_width) == 18
+    assert (bar_left,bar_width)==(14,100)
+    assert bar_left == client_width-(bar_left+bar_width) == 14
+    assert bar_left+bar_width/2 == client_width/2 == 64
     assert bar_left-background_left == (background_left+background_width)-(bar_left+bar_width) == 2
     hp_label=xml.find("Label[@item='PIW_Pet_HPLabel']")
-    assert rect(hp_label)==(-2,25,18,12)
+    assert rect(hp_label)==(0,5,18,12)
+    assert hp_label.findtext('Font')=='1'
     assert hp_label.findtext('EQType')=='69'
     assert hp_label.findtext('AlignCenter')=='false'
     assert hp_label.findtext('AlignRight')=='true'
-    assert rect(hp_label)[0]+rect(hp_label)[2] == background_left
+    percent_left,percent_top,percent_width,percent_height=rect(hp_label)
+    assert percent_left>=0 and percent_top>=0
+    assert percent_left+percent_width <= text_left
+    assert percent_top+percent_height <= 19
+    hidden_percent=xml.find("Label[@item='PIW_Pet_HPPercLabel']")
+    assert rect(hidden_percent)==(109,3,1,1)
     for item in ('Pet_HP_0','Pet_HealthDetail','Pet_HP_VantageTicks'):
         assert rect(xml.find(f"*[@item='{item}']")) == (bar_left,19,bar_width,20)
     # Every threshold clip and complementary fill shares the same centered
@@ -134,13 +157,13 @@ def test_pet_health_and_commands_are_centered_in_compact_window():
         assert rect(complement)[0] == bar_left+clip_box[2]
         assert rect(complement)[0]+rect(complement)[2] == bar_left+bar_width
     attack=rect(xml.find("Button[@item='PIW_AttackButton']"))
-    assert attack[0]==2 and rect(parent)[2]-(attack[0]+attack[2])==6
-    assert (attack[0]+attack[2]/2)-rect(parent)[2]/2 == -2
+    assert attack[0]==0 and client_width-(attack[0]+attack[2])==0
+    assert attack[0]+attack[2]/2 == client_width/2 == 64
     follow=rect(xml.find("Button[@item='PIW_FollowButton']"))
     taunt=rect(xml.find("Button[@item='PIW_TauntButton']"))
-    assert follow[0]==attack[0]==2
+    assert follow[0]==attack[0]==0
     assert taunt[0]-(follow[0]+follow[2])==4
-    assert rect(parent)[2]-(taunt[0]+taunt[2])==6
+    assert client_width-(taunt[0]+taunt[2])==0
     assert rect(xml.find("Button[@item='PIW_SitButton']")) == \
            rect(xml.find("Button[@item='PIW_StandButton']"))
     hidden=xml.find("Screen[@item='PIW_BuffWindow']")

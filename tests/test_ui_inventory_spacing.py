@@ -81,7 +81,7 @@ def test_attribute_and_resist_values_allow_1000_at_the_same_right_edge(stat):
 
 def test_heading_xp_and_window_match_the_expanded_right_hand_area():
     xml = root()
-    assert rect(item(xml, 'Screen', 'InventoryWindow')) == (100, 50, 389, 355)
+    assert rect(item(xml, 'Screen', 'InventoryWindow')) == (100, 50, 389, 358)
     assert rect(item(xml, 'Gauge', 'IW_ExpGauge')) == (254, 129, 118, 8)
     for name in ('IW_Name', 'IW_Deity', 'IW_Class'):
         x, _, w, _ = rect(item(xml, 'Label', name))

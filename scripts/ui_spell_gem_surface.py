@@ -17,8 +17,11 @@ ATLAS_WIDTH = 256
 ATLAS_HEIGHT = 256
 BACKGROUND_LEFT = 0
 BACKGROUND_TOP = 28
-BACKGROUND_WIDTH = 120
+LEGACY_CONTROL_WIDTH = 120
+CONTROL_WIDTH = 136
+BACKGROUND_WIDTH = CONTROL_WIDTH
 BACKGROUND_HEIGHT = 28
+CONTROL_CELLS = ((0, 28), (28, 28), (56, 28), (84, 14), (98, 14), (112, 14), (126, 14))
 
 # Neutral ramp with the original relief and a second uniform ~7% linear-luminance
 # cut.  This is roughly a 13.5%-14% total cut from the original source ramp.
@@ -31,8 +34,7 @@ BACKGROUND_SHADES = (
 )
 
 
-def brighten_spell_gem_background(data: bytes) -> bytes:
-    """Return the atlas with only V3_CastBackground set to its neutral ramp."""
+def validate_atlas(data: bytes) -> None:
     if len(data) != 18 + ATLAS_WIDTH * ATLAS_HEIGHT * 4:
         raise ValueError("Expected a 256x256 uncompressed 32-bit TGA")
     if data[:3] != bytes((0, 0, 2)):
@@ -41,6 +43,37 @@ def brighten_spell_gem_background(data: bytes) -> bytes:
     if (width, height, data[16], data[17]) != (ATLAS_WIDTH, ATLAS_HEIGHT, 32, 40):
         raise ValueError("Expected top-left 256x256 BGRA atlas geometry")
 
+
+
+def widen_spell_gem_controls(data: bytes) -> bytes:
+    """Insert 16 existing center pixels, preserving native endcaps without scaling.
+
+    Only the seven native gem/header cells are touched. The width check makes
+    regeneration safe to repeat after the legacy right cap has moved outward.
+    """
+    validate_atlas(data)
+    probes = [18 + ((top + height // 2) * ATLAS_WIDTH + 128) * 4 + 3
+              for top, height in CONTROL_CELLS if top != 56]
+    if all(data[offset] == 255 for offset in probes):
+        return data
+    if any(data[offset] for offset in probes):
+        raise ValueError("Unexpected spell control geometry")
+    output = bytearray(data)
+    insertion = LEGACY_CONTROL_WIDTH // 2
+    extra = CONTROL_WIDTH - LEGACY_CONTROL_WIDTH
+    for top, height in CONTROL_CELLS:
+        for y in range(top, top + height):
+            start = 18 + y * ATLAS_WIDTH * 4
+            row = data[start:start + LEGACY_CONTROL_WIDTH * 4]
+            output[start:start + CONTROL_WIDTH * 4] = (
+                row[:insertion * 4] + row[insertion * 4:(insertion + 1) * 4] * extra
+                + row[insertion * 4:])
+    return bytes(output)
+
+
+def brighten_spell_gem_background(data: bytes) -> bytes:
+    """Return the atlas with only V3_CastBackground set to its neutral ramp."""
+    validate_atlas(data)
     output = bytearray(data)
     for local_y, shade in enumerate(BACKGROUND_SHADES):
         y = BACKGROUND_TOP + local_y
@@ -62,7 +95,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     original = args.path.read_bytes()
-    refined = brighten_spell_gem_background(original)
+    refined = brighten_spell_gem_background(widen_spell_gem_controls(original))
     args.path.write_bytes(refined)
 
 

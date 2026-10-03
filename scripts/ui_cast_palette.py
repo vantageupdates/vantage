@@ -24,6 +24,12 @@ LAYERS = tuple((100 - SAMPLES[i][0], SAMPLES[i-1][1])
 PREFIX = 'VantageCast_R'
 FOOTER_PREFIX = 'CSPW_Cast_R'
 FOOTER_BASE = 'CSPW_CastingProgress'
+SPELL_WIDTH = 136
+SPELL_FILL_WIDTH = SPELL_WIDTH - 4
+SPELL_TEXTURE = 'v3_controls.tga'
+SPELL_OUTLINE_ORIGIN = (0, 144)
+SPELL_FOOTER_ORIGIN = (0, 176)
+SPELL_FILL_ORIGIN = (0, 196)
 
 
 def item(root, kind, name):
@@ -132,7 +138,7 @@ def add_spell_footer(text):
     if any(n.get('item', '').startswith(('CSPW_Cast', 'A_CSPW_Cast')) for n in root):
         raise ValueError('Spell footer already exists; inspect instead of stacking it')
     parent = deepcopy(item(root, 'Screen', 'CastSpellWnd'))
-    if (parent.findtext('Size/CX'), parent.findtext('Size/CY')) != ('130', '280'):
+    if (parent.findtext('Size/CX'), parent.findtext('Size/CY')) != (str(SPELL_WIDTH + 10), '280'):
         raise ValueError('Unexpected spell window layout')
     definitions = ET.fromstring("""<XML>
   <Ui2DAnimation item="A_CSPW_CastFooter">
@@ -182,6 +188,17 @@ def add_spell_footer(text):
   </Gauge>
 </XML>""")
     last = item(root, 'SpellGem', 'CSPW_Spell7')
+    for name, origin, width in (
+        ('A_CSPW_CastFooter', SPELL_FOOTER_ORIGIN, SPELL_WIDTH),
+        ('A_CSPW_CastFill', SPELL_FILL_ORIGIN, SPELL_FILL_WIDTH),
+    ):
+        frame = item(definitions, 'Ui2DAnimation', name).find('Frames')
+        set_value(frame, 'Texture', SPELL_TEXTURE)
+        set_value(frame, 'Location/X', origin[0])
+        set_value(frame, 'Location/Y', origin[1])
+        set_value(frame, 'Size/CX', width)
+    set_value(item(definitions, 'StaticAnimation', 'CSPW_CastFooter'), 'Size/CX', SPELL_WIDTH)
+    set_value(item(definitions, 'Gauge', FOOTER_BASE), 'Size/CX', SPELL_FILL_WIDTH)
     footer_y = int(last.findtext('Location/Y')) + int(last.findtext('Size/CY')) + 4
     set_value(item(definitions, 'StaticAnimation', 'CSPW_CastFooter'), 'Location/Y', footer_y)
     set_value(item(definitions, 'Gauge', FOOTER_BASE), 'Location/Y', footer_y + 3)
@@ -194,8 +211,83 @@ def add_spell_footer(text):
                   prefix=FOOTER_PREFIX)
 
 
+def widen_spell_window(text, animation_text):
+    """Rebuild only spell widths and source rectangles; preserve native bindings.
+
+    The wider cells use free space in the existing spell-only atlas. Shared
+    control art has no room for these widths beside the native Pet buttons.
+    The paired remaining-time gauges retain their established 10000px model.
+    """
+    text = text.replace('\r\n', '\n')
+    animation_text = animation_text.replace('\r\n', '\n')
+    root, animations = ET.fromstring(text), ET.fromstring(animation_text)
+    for node in root:
+        name = node.get('item', '')
+        if name == 'CastSpellWnd':
+            set_value(node, 'Size/CX', SPELL_WIDTH + 10)
+        elif name == 'CSPW_SpellBook' or re.fullmatch(r'CSPW_Spell[0-7](?:_Outline)?', name):
+            set_value(node, 'Size/CX', SPELL_WIDTH)
+        elif re.fullmatch(r'CSPW_Spell[0-7]_Name', name):
+            set_value(node, 'Size/CX', SPELL_WIDTH - 32)
+        elif name == 'CSPW_CastFooter':
+            set_value(node, 'Size/CX', SPELL_WIDTH)
+        elif name == FOOTER_BASE:
+            set_value(node, 'Size/CX', SPELL_FILL_WIDTH)
+        elif name in ('A_CSPW_CastFooter', 'A_CSPW_CastFill'):
+            origin = SPELL_FOOTER_ORIGIN if name.endswith('Footer') else SPELL_FILL_ORIGIN
+            set_value(node, 'Frames/Texture', SPELL_TEXTURE)
+            set_value(node, 'Frames/Location/X', origin[0])
+            set_value(node, 'Frames/Location/Y', origin[1])
+            set_value(node, 'Frames/Size/CX', SPELL_WIDTH if name.endswith('Footer') else SPELL_FILL_WIDTH)
+        elif name.startswith(FOOTER_PREFIX):
+            threshold = int(name[len(FOOTER_PREFIX):len(FOOTER_PREFIX) + 2])
+            cut = SPELL_FILL_WIDTH * threshold // 100
+            if name.endswith('Fill'):
+                set_value(node, 'Frames/Texture', SPELL_TEXTURE)
+                set_value(node, 'Frames/Location/X', SPELL_FILL_ORIGIN[0] - 100 * threshold)
+                set_value(node, 'Frames/Location/Y', SPELL_FILL_ORIGIN[1])
+            elif name.endswith('B'):
+                set_value(node, 'Location/X', 3 + cut)
+                set_value(node, 'Size/CX', SPELL_FILL_WIDTH - cut)
+                set_value(node, 'GaugeOffsetX', -cut)
+            elif name.endswith('A_X'):
+                set_value(node, 'Size/CX', cut)
+            else:
+                continue
+        else:
+            continue
+        text = replace_block(text, node.tag, name, serialize(node))
+    for node in animations:
+        name = node.get('item', '')
+        if name == 'A_VantageSpellGemOutline':
+            set_value(node, 'Frames/Texture', SPELL_TEXTURE)
+            set_value(node, 'Frames/Location/X', SPELL_OUTLINE_ORIGIN[0])
+            set_value(node, 'Frames/Location/Y', SPELL_OUTLINE_ORIGIN[1])
+            set_value(node, 'Frames/Size/CX', SPELL_WIDTH)
+        elif name.startswith('V3_Cast'):
+            set_value(node, 'Frames/Size/CX', SPELL_WIDTH)
+        else:
+            continue
+        animation_text = replace_block(animation_text, node.tag, name, serialize(node))
+    return text, animation_text
+
+
 if __name__ == '__main__':
     folder = Path(sys.argv[1])
+    if '--widen-spells' in sys.argv[2:]:
+        paths = [folder / name for name in ('EQUI_CastSpellWnd.xml', 'EQUI_Animations.xml')]
+        originals = [path.read_text(encoding='ascii') for path in paths]
+        revisions = widen_spell_window(*originals)
+        print('*** Begin Patch')
+        for path, original, revised in zip(paths, originals, revisions):
+            lines = list(difflib.unified_diff(original.splitlines(), revised.splitlines(), n=3, lineterm=''))
+            if not lines:
+                continue
+            print('*** Update File: ' + str(path))
+            for line in lines[2:]:
+                print('@@' if line.startswith('@@') else line)
+        print('*** End Patch')
+        sys.exit(0)
     footer = '--spell-footer' in sys.argv[2:]
     path = folder / ('EQUI_CastSpellWnd.xml' if footer else 'EQUI_TargetWindow.xml')
     original = path.read_text(encoding='ascii')

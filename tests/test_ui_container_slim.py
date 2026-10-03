@@ -65,3 +65,16 @@ def test_slot_grid_has_equal_margins_and_tight_footer():
     right=width-(rect('ContainerSlot2')[0]+rect('ContainerSlot2')[2])
     assert left == right == 4
     assert rect('ContainerWindow')[3]-(rect('Container_CloseButton')[1]+20) == 10
+
+
+def test_short_native_title_leaves_room_for_close_and_minimize_without_shrinking_bag_names():
+    window = node('ContainerWindow')
+    assert window.findtext('Text') == 'Bag'
+    assert window.findtext('Font') == '2'
+    assert window.findtext('Style_Titlebar') == 'true'
+    assert window.findtext('Style_Closebox') == 'true'
+    assert window.findtext('Style_Minimizebox') == 'true'
+    assert 'Drag the title bar' in window.findtext('TooltipReference')
+    assert node('Container_Label').findtext('Font') == '3'
+    assert node('Container_Label').findtext('AlignCenter') == 'true'
+    assert node('Container_Label').findtext('NoWrap') == 'false'

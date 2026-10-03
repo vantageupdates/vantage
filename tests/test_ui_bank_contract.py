@@ -152,7 +152,7 @@ def test_compact_bank_footer_keeps_equal_native_actions_and_bottom_clearance():
     assert 152 - (127 + 20) == 5
     for button in (change, done):
         for state in ("Normal", "Pressed", "Flyby", "Disabled", "PressedFlyby"):
-            assert button.findtext(f"ButtonDrawTemplate/{state}") == f"A_Btn{state}"
+            assert button.findtext(f"ButtonDrawTemplate/{state}") == f"A_VantageBankFooter{state}"
         assert button.findtext("Style_Checkbox") == "false"
 
 

@@ -36,7 +36,7 @@
       <Y>1</Y>
     </Location>
     <Size>
-      <CX>120</CX>
+      <CX>136</CX>
       <CY>14</CY>
     </Size>
     <Style_Transparent>true</Style_Transparent>
@@ -65,7 +65,7 @@
       <Y>18</Y>
     </Location>
     <Size>
-      <CX>120</CX>
+      <CX>136</CX>
       <CY>28</CY>
     </Size>
     <SpellGemDrawTemplate>
@@ -85,7 +85,7 @@
       <Y>21</Y>
     </Location>
     <Size>
-      <CX>88</CX>
+      <CX>104</CX>
       <CY>26</CY>
     </Size>
     <EQType>60</EQType>
@@ -108,7 +108,7 @@
       <Y>48</Y>
     </Location>
     <Size>
-      <CX>120</CX>
+      <CX>136</CX>
       <CY>28</CY>
     </Size>
     <SpellGemDrawTemplate>
@@ -128,7 +128,7 @@
       <Y>51</Y>
     </Location>
     <Size>
-      <CX>88</CX>
+      <CX>104</CX>
       <CY>26</CY>
     </Size>
     <EQType>61</EQType>
@@ -151,7 +151,7 @@
       <Y>78</Y>
     </Location>
     <Size>
-      <CX>120</CX>
+      <CX>136</CX>
       <CY>28</CY>
     </Size>
     <SpellGemDrawTemplate>
@@ -171,7 +171,7 @@
       <Y>81</Y>
     </Location>
     <Size>
-      <CX>88</CX>
+      <CX>104</CX>
       <CY>26</CY>
     </Size>
     <EQType>62</EQType>
@@ -194,7 +194,7 @@
       <Y>108</Y>
     </Location>
     <Size>
-      <CX>120</CX>
+      <CX>136</CX>
       <CY>28</CY>
     </Size>
     <SpellGemDrawTemplate>
@@ -214,7 +214,7 @@
       <Y>111</Y>
     </Location>
     <Size>
-      <CX>88</CX>
+      <CX>104</CX>
       <CY>26</CY>
     </Size>
     <EQType>63</EQType>
@@ -237,7 +237,7 @@
       <Y>138</Y>
     </Location>
     <Size>
-      <CX>120</CX>
+      <CX>136</CX>
       <CY>28</CY>
     </Size>
     <SpellGemDrawTemplate>
@@ -257,7 +257,7 @@
       <Y>141</Y>
     </Location>
     <Size>
-      <CX>88</CX>
+      <CX>104</CX>
       <CY>26</CY>
     </Size>
     <EQType>64</EQType>
@@ -280,7 +280,7 @@
       <Y>168</Y>
     </Location>
     <Size>
-      <CX>120</CX>
+      <CX>136</CX>
       <CY>28</CY>
     </Size>
     <SpellGemDrawTemplate>
@@ -300,7 +300,7 @@
       <Y>171</Y>
     </Location>
     <Size>
-      <CX>88</CX>
+      <CX>104</CX>
       <CY>26</CY>
     </Size>
     <EQType>65</EQType>
@@ -323,7 +323,7 @@
       <Y>198</Y>
     </Location>
     <Size>
-      <CX>120</CX>
+      <CX>136</CX>
       <CY>28</CY>
     </Size>
     <SpellGemDrawTemplate>
@@ -343,7 +343,7 @@
       <Y>201</Y>
     </Location>
     <Size>
-      <CX>88</CX>
+      <CX>104</CX>
       <CY>26</CY>
     </Size>
     <EQType>66</EQType>
@@ -366,7 +366,7 @@
       <Y>228</Y>
     </Location>
     <Size>
-      <CX>120</CX>
+      <CX>136</CX>
       <CY>28</CY>
     </Size>
     <SpellGemDrawTemplate>
@@ -386,7 +386,7 @@
       <Y>231</Y>
     </Location>
     <Size>
-      <CX>88</CX>
+      <CX>104</CX>
       <CY>26</CY>
     </Size>
     <EQType>67</EQType>
@@ -414,7 +414,7 @@
     <ScreenID>CSPW_Spell0_Outline</ScreenID>
     <Animation>A_VantageSpellGemOutline</Animation>
     <Size>
-      <CX>120</CX>
+      <CX>136</CX>
       <CY>28</CY>
     </Size>
     <Location>
@@ -428,7 +428,7 @@
     <ScreenID>CSPW_Spell1_Outline</ScreenID>
     <Animation>A_VantageSpellGemOutline</Animation>
     <Size>
-      <CX>120</CX>
+      <CX>136</CX>
       <CY>28</CY>
     </Size>
     <Location>
@@ -442,7 +442,7 @@
     <ScreenID>CSPW_Spell2_Outline</ScreenID>
     <Animation>A_VantageSpellGemOutline</Animation>
     <Size>
-      <CX>120</CX>
+      <CX>136</CX>
       <CY>28</CY>
     </Size>
     <Location>
@@ -456,7 +456,7 @@
     <ScreenID>CSPW_Spell3_Outline</ScreenID>
     <Animation>A_VantageSpellGemOutline</Animation>
     <Size>
-      <CX>120</CX>
+      <CX>136</CX>
       <CY>28</CY>
     </Size>
     <Location>
@@ -470,7 +470,7 @@
     <ScreenID>CSPW_Spell4_Outline</ScreenID>
     <Animation>A_VantageSpellGemOutline</Animation>
     <Size>
-      <CX>120</CX>
+      <CX>136</CX>
       <CY>28</CY>
     </Size>
     <Location>
@@ -484,7 +484,7 @@
     <ScreenID>CSPW_Spell5_Outline</ScreenID>
     <Animation>A_VantageSpellGemOutline</Animation>
     <Size>
-      <CX>120</CX>
+      <CX>136</CX>
       <CY>28</CY>
     </Size>
     <Location>
@@ -498,7 +498,7 @@
     <ScreenID>CSPW_Spell6_Outline</ScreenID>
     <Animation>A_VantageSpellGemOutline</Animation>
     <Size>
-      <CX>120</CX>
+      <CX>136</CX>
       <CY>28</CY>
     </Size>
     <Location>
@@ -512,7 +512,7 @@
     <ScreenID>CSPW_Spell7_Outline</ScreenID>
     <Animation>A_VantageSpellGemOutline</Animation>
     <Size>
-      <CX>120</CX>
+      <CX>136</CX>
       <CY>28</CY>
     </Size>
     <Location>
@@ -525,13 +525,13 @@
   <Ui2DAnimation item="A_CSPW_CastFooter">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>2</X>
-        <Y>96</Y>
+        <X>0</X>
+        <Y>176</Y>
       </Location>
       <Size>
-        <CX>120</CX>
+        <CX>136</CX>
         <CY>15</CY>
       </Size>
       <Hotspot>
@@ -544,13 +544,13 @@
   <Ui2DAnimation item="A_CSPW_CastFill">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>128</X>
-        <Y>96</Y>
+        <X>0</X>
+        <Y>196</Y>
       </Location>
       <Size>
-        <CX>116</CX>
+        <CX>132</CX>
         <CY>9</CY>
       </Size>
       <Hotspot>
@@ -568,7 +568,7 @@
       <Y>260</Y>
     </Location>
     <Size>
-      <CX>120</CX>
+      <CX>136</CX>
       <CY>15</CY>
     </Size>
     <Animation>A_CSPW_CastFooter</Animation>
@@ -581,7 +581,7 @@
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>116</CX>
+      <CX>132</CX>
       <CY>9</CY>
     </Size>
     <GaugeOffsetX>0</GaugeOffsetX>
@@ -607,10 +607,10 @@
   <Ui2DAnimation item="CSPW_Cast_R20Fill">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>-1872</X>
-        <Y>96</Y>
+        <X>-2000</X>
+        <Y>196</Y>
       </Location>
       <Size>
         <CX>10000</CX>
@@ -656,14 +656,14 @@
   <Gauge item="CSPW_Cast_R20B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>26</X>
+      <X>29</X>
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>93</CX>
+      <CX>106</CX>
       <CY>9</CY>
     </Size>
-    <GaugeOffsetX>-23</GaugeOffsetX>
+    <GaugeOffsetX>-26</GaugeOffsetX>
     <GaugeOffsetY>0</GaugeOffsetY>
     <Text />
     <TextOffsetX>8000</TextOffsetX>
@@ -691,7 +691,7 @@
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>23</CX>
+      <CX>26</CX>
       <CY>9</CY>
     </Size>
     <Pieces>CSPW_Cast_R20A</Pieces>
@@ -699,10 +699,10 @@
   <Ui2DAnimation item="CSPW_Cast_R22Fill">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>-2072</X>
-        <Y>96</Y>
+        <X>-2200</X>
+        <Y>196</Y>
       </Location>
       <Size>
         <CX>10000</CX>
@@ -748,14 +748,14 @@
   <Gauge item="CSPW_Cast_R22B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>28</X>
+      <X>32</X>
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>91</CX>
+      <CX>103</CX>
       <CY>9</CY>
     </Size>
-    <GaugeOffsetX>-25</GaugeOffsetX>
+    <GaugeOffsetX>-29</GaugeOffsetX>
     <GaugeOffsetY>0</GaugeOffsetY>
     <Text />
     <TextOffsetX>8000</TextOffsetX>
@@ -783,7 +783,7 @@
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>25</CX>
+      <CX>29</CX>
       <CY>9</CY>
     </Size>
     <Pieces>CSPW_Cast_R22A</Pieces>
@@ -791,10 +791,10 @@
   <Ui2DAnimation item="CSPW_Cast_R24Fill">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>-2272</X>
-        <Y>96</Y>
+        <X>-2400</X>
+        <Y>196</Y>
       </Location>
       <Size>
         <CX>10000</CX>
@@ -840,14 +840,14 @@
   <Gauge item="CSPW_Cast_R24B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
+      <X>34</X>
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>89</CX>
+      <CX>101</CX>
       <CY>9</CY>
     </Size>
-    <GaugeOffsetX>-27</GaugeOffsetX>
+    <GaugeOffsetX>-31</GaugeOffsetX>
     <GaugeOffsetY>0</GaugeOffsetY>
     <Text />
     <TextOffsetX>8000</TextOffsetX>
@@ -875,7 +875,7 @@
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>27</CX>
+      <CX>31</CX>
       <CY>9</CY>
     </Size>
     <Pieces>CSPW_Cast_R24A</Pieces>
@@ -883,10 +883,10 @@
   <Ui2DAnimation item="CSPW_Cast_R26Fill">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>-2472</X>
-        <Y>96</Y>
+        <X>-2600</X>
+        <Y>196</Y>
       </Location>
       <Size>
         <CX>10000</CX>
@@ -932,14 +932,14 @@
   <Gauge item="CSPW_Cast_R26B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>33</X>
+      <X>37</X>
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>86</CX>
+      <CX>98</CX>
       <CY>9</CY>
     </Size>
-    <GaugeOffsetX>-30</GaugeOffsetX>
+    <GaugeOffsetX>-34</GaugeOffsetX>
     <GaugeOffsetY>0</GaugeOffsetY>
     <Text />
     <TextOffsetX>8000</TextOffsetX>
@@ -967,7 +967,7 @@
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>30</CX>
+      <CX>34</CX>
       <CY>9</CY>
     </Size>
     <Pieces>CSPW_Cast_R26A</Pieces>
@@ -975,10 +975,10 @@
   <Ui2DAnimation item="CSPW_Cast_R28Fill">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>-2672</X>
-        <Y>96</Y>
+        <X>-2800</X>
+        <Y>196</Y>
       </Location>
       <Size>
         <CX>10000</CX>
@@ -1024,14 +1024,14 @@
   <Gauge item="CSPW_Cast_R28B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>35</X>
+      <X>39</X>
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>84</CX>
+      <CX>96</CX>
       <CY>9</CY>
     </Size>
-    <GaugeOffsetX>-32</GaugeOffsetX>
+    <GaugeOffsetX>-36</GaugeOffsetX>
     <GaugeOffsetY>0</GaugeOffsetY>
     <Text />
     <TextOffsetX>8000</TextOffsetX>
@@ -1059,7 +1059,7 @@
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>32</CX>
+      <CX>36</CX>
       <CY>9</CY>
     </Size>
     <Pieces>CSPW_Cast_R28A</Pieces>
@@ -1067,10 +1067,10 @@
   <Ui2DAnimation item="CSPW_Cast_R30Fill">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>-2872</X>
-        <Y>96</Y>
+        <X>-3000</X>
+        <Y>196</Y>
       </Location>
       <Size>
         <CX>10000</CX>
@@ -1116,14 +1116,14 @@
   <Gauge item="CSPW_Cast_R30B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>37</X>
+      <X>42</X>
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>82</CX>
+      <CX>93</CX>
       <CY>9</CY>
     </Size>
-    <GaugeOffsetX>-34</GaugeOffsetX>
+    <GaugeOffsetX>-39</GaugeOffsetX>
     <GaugeOffsetY>0</GaugeOffsetY>
     <Text />
     <TextOffsetX>8000</TextOffsetX>
@@ -1151,7 +1151,7 @@
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>34</CX>
+      <CX>39</CX>
       <CY>9</CY>
     </Size>
     <Pieces>CSPW_Cast_R30A</Pieces>
@@ -1159,10 +1159,10 @@
   <Ui2DAnimation item="CSPW_Cast_R32Fill">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>-3072</X>
-        <Y>96</Y>
+        <X>-3200</X>
+        <Y>196</Y>
       </Location>
       <Size>
         <CX>10000</CX>
@@ -1208,14 +1208,14 @@
   <Gauge item="CSPW_Cast_R32B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>40</X>
+      <X>45</X>
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>79</CX>
+      <CX>90</CX>
       <CY>9</CY>
     </Size>
-    <GaugeOffsetX>-37</GaugeOffsetX>
+    <GaugeOffsetX>-42</GaugeOffsetX>
     <GaugeOffsetY>0</GaugeOffsetY>
     <Text />
     <TextOffsetX>8000</TextOffsetX>
@@ -1243,7 +1243,7 @@
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>37</CX>
+      <CX>42</CX>
       <CY>9</CY>
     </Size>
     <Pieces>CSPW_Cast_R32A</Pieces>
@@ -1251,10 +1251,10 @@
   <Ui2DAnimation item="CSPW_Cast_R34Fill">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>-3272</X>
-        <Y>96</Y>
+        <X>-3400</X>
+        <Y>196</Y>
       </Location>
       <Size>
         <CX>10000</CX>
@@ -1300,14 +1300,14 @@
   <Gauge item="CSPW_Cast_R34B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>42</X>
+      <X>47</X>
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>77</CX>
+      <CX>88</CX>
       <CY>9</CY>
     </Size>
-    <GaugeOffsetX>-39</GaugeOffsetX>
+    <GaugeOffsetX>-44</GaugeOffsetX>
     <GaugeOffsetY>0</GaugeOffsetY>
     <Text />
     <TextOffsetX>8000</TextOffsetX>
@@ -1335,7 +1335,7 @@
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>39</CX>
+      <CX>44</CX>
       <CY>9</CY>
     </Size>
     <Pieces>CSPW_Cast_R34A</Pieces>
@@ -1343,10 +1343,10 @@
   <Ui2DAnimation item="CSPW_Cast_R36Fill">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>-3472</X>
-        <Y>96</Y>
+        <X>-3600</X>
+        <Y>196</Y>
       </Location>
       <Size>
         <CX>10000</CX>
@@ -1392,14 +1392,14 @@
   <Gauge item="CSPW_Cast_R36B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>44</X>
+      <X>50</X>
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>75</CX>
+      <CX>85</CX>
       <CY>9</CY>
     </Size>
-    <GaugeOffsetX>-41</GaugeOffsetX>
+    <GaugeOffsetX>-47</GaugeOffsetX>
     <GaugeOffsetY>0</GaugeOffsetY>
     <Text />
     <TextOffsetX>8000</TextOffsetX>
@@ -1427,7 +1427,7 @@
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>41</CX>
+      <CX>47</CX>
       <CY>9</CY>
     </Size>
     <Pieces>CSPW_Cast_R36A</Pieces>
@@ -1435,10 +1435,10 @@
   <Ui2DAnimation item="CSPW_Cast_R38Fill">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>-3672</X>
-        <Y>96</Y>
+        <X>-3800</X>
+        <Y>196</Y>
       </Location>
       <Size>
         <CX>10000</CX>
@@ -1484,14 +1484,14 @@
   <Gauge item="CSPW_Cast_R38B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>47</X>
+      <X>53</X>
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>72</CX>
+      <CX>82</CX>
       <CY>9</CY>
     </Size>
-    <GaugeOffsetX>-44</GaugeOffsetX>
+    <GaugeOffsetX>-50</GaugeOffsetX>
     <GaugeOffsetY>0</GaugeOffsetY>
     <Text />
     <TextOffsetX>8000</TextOffsetX>
@@ -1519,7 +1519,7 @@
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>44</CX>
+      <CX>50</CX>
       <CY>9</CY>
     </Size>
     <Pieces>CSPW_Cast_R38A</Pieces>
@@ -1527,10 +1527,10 @@
   <Ui2DAnimation item="CSPW_Cast_R40Fill">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>-3872</X>
-        <Y>96</Y>
+        <X>-4000</X>
+        <Y>196</Y>
       </Location>
       <Size>
         <CX>10000</CX>
@@ -1576,14 +1576,14 @@
   <Gauge item="CSPW_Cast_R40B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>49</X>
+      <X>55</X>
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>70</CX>
+      <CX>80</CX>
       <CY>9</CY>
     </Size>
-    <GaugeOffsetX>-46</GaugeOffsetX>
+    <GaugeOffsetX>-52</GaugeOffsetX>
     <GaugeOffsetY>0</GaugeOffsetY>
     <Text />
     <TextOffsetX>8000</TextOffsetX>
@@ -1611,7 +1611,7 @@
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>46</CX>
+      <CX>52</CX>
       <CY>9</CY>
     </Size>
     <Pieces>CSPW_Cast_R40A</Pieces>
@@ -1619,10 +1619,10 @@
   <Ui2DAnimation item="CSPW_Cast_R45Fill">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>-4372</X>
-        <Y>96</Y>
+        <X>-4500</X>
+        <Y>196</Y>
       </Location>
       <Size>
         <CX>10000</CX>
@@ -1668,14 +1668,14 @@
   <Gauge item="CSPW_Cast_R45B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>55</X>
+      <X>62</X>
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>64</CX>
+      <CX>73</CX>
       <CY>9</CY>
     </Size>
-    <GaugeOffsetX>-52</GaugeOffsetX>
+    <GaugeOffsetX>-59</GaugeOffsetX>
     <GaugeOffsetY>0</GaugeOffsetY>
     <Text />
     <TextOffsetX>8000</TextOffsetX>
@@ -1703,7 +1703,7 @@
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>52</CX>
+      <CX>59</CX>
       <CY>9</CY>
     </Size>
     <Pieces>CSPW_Cast_R45A</Pieces>
@@ -1711,10 +1711,10 @@
   <Ui2DAnimation item="CSPW_Cast_R50Fill">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>-4872</X>
-        <Y>96</Y>
+        <X>-5000</X>
+        <Y>196</Y>
       </Location>
       <Size>
         <CX>10000</CX>
@@ -1760,14 +1760,14 @@
   <Gauge item="CSPW_Cast_R50B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>61</X>
+      <X>69</X>
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>58</CX>
+      <CX>66</CX>
       <CY>9</CY>
     </Size>
-    <GaugeOffsetX>-58</GaugeOffsetX>
+    <GaugeOffsetX>-66</GaugeOffsetX>
     <GaugeOffsetY>0</GaugeOffsetY>
     <Text />
     <TextOffsetX>8000</TextOffsetX>
@@ -1795,7 +1795,7 @@
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>58</CX>
+      <CX>66</CX>
       <CY>9</CY>
     </Size>
     <Pieces>CSPW_Cast_R50A</Pieces>
@@ -1803,10 +1803,10 @@
   <Ui2DAnimation item="CSPW_Cast_R55Fill">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>-5372</X>
-        <Y>96</Y>
+        <X>-5500</X>
+        <Y>196</Y>
       </Location>
       <Size>
         <CX>10000</CX>
@@ -1852,14 +1852,14 @@
   <Gauge item="CSPW_Cast_R55B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>66</X>
+      <X>75</X>
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>53</CX>
+      <CX>60</CX>
       <CY>9</CY>
     </Size>
-    <GaugeOffsetX>-63</GaugeOffsetX>
+    <GaugeOffsetX>-72</GaugeOffsetX>
     <GaugeOffsetY>0</GaugeOffsetY>
     <Text />
     <TextOffsetX>8000</TextOffsetX>
@@ -1887,7 +1887,7 @@
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>63</CX>
+      <CX>72</CX>
       <CY>9</CY>
     </Size>
     <Pieces>CSPW_Cast_R55A</Pieces>
@@ -1895,10 +1895,10 @@
   <Ui2DAnimation item="CSPW_Cast_R60Fill">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>-5872</X>
-        <Y>96</Y>
+        <X>-6000</X>
+        <Y>196</Y>
       </Location>
       <Size>
         <CX>10000</CX>
@@ -1944,14 +1944,14 @@
   <Gauge item="CSPW_Cast_R60B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>72</X>
+      <X>82</X>
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>47</CX>
+      <CX>53</CX>
       <CY>9</CY>
     </Size>
-    <GaugeOffsetX>-69</GaugeOffsetX>
+    <GaugeOffsetX>-79</GaugeOffsetX>
     <GaugeOffsetY>0</GaugeOffsetY>
     <Text />
     <TextOffsetX>8000</TextOffsetX>
@@ -1979,7 +1979,7 @@
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>69</CX>
+      <CX>79</CX>
       <CY>9</CY>
     </Size>
     <Pieces>CSPW_Cast_R60A</Pieces>
@@ -1987,10 +1987,10 @@
   <Ui2DAnimation item="CSPW_Cast_R65Fill">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>-6372</X>
-        <Y>96</Y>
+        <X>-6500</X>
+        <Y>196</Y>
       </Location>
       <Size>
         <CX>10000</CX>
@@ -2036,14 +2036,14 @@
   <Gauge item="CSPW_Cast_R65B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>78</X>
+      <X>88</X>
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>41</CX>
+      <CX>47</CX>
       <CY>9</CY>
     </Size>
-    <GaugeOffsetX>-75</GaugeOffsetX>
+    <GaugeOffsetX>-85</GaugeOffsetX>
     <GaugeOffsetY>0</GaugeOffsetY>
     <Text />
     <TextOffsetX>8000</TextOffsetX>
@@ -2071,7 +2071,7 @@
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>75</CX>
+      <CX>85</CX>
       <CY>9</CY>
     </Size>
     <Pieces>CSPW_Cast_R65A</Pieces>
@@ -2079,10 +2079,10 @@
   <Ui2DAnimation item="CSPW_Cast_R70Fill">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>-6872</X>
-        <Y>96</Y>
+        <X>-7000</X>
+        <Y>196</Y>
       </Location>
       <Size>
         <CX>10000</CX>
@@ -2128,14 +2128,14 @@
   <Gauge item="CSPW_Cast_R70B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>84</X>
+      <X>95</X>
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>35</CX>
+      <CX>40</CX>
       <CY>9</CY>
     </Size>
-    <GaugeOffsetX>-81</GaugeOffsetX>
+    <GaugeOffsetX>-92</GaugeOffsetX>
     <GaugeOffsetY>0</GaugeOffsetY>
     <Text />
     <TextOffsetX>8000</TextOffsetX>
@@ -2163,7 +2163,7 @@
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>81</CX>
+      <CX>92</CX>
       <CY>9</CY>
     </Size>
     <Pieces>CSPW_Cast_R70A</Pieces>
@@ -2171,10 +2171,10 @@
   <Ui2DAnimation item="CSPW_Cast_R75Fill">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>-7372</X>
-        <Y>96</Y>
+        <X>-7500</X>
+        <Y>196</Y>
       </Location>
       <Size>
         <CX>10000</CX>
@@ -2220,14 +2220,14 @@
   <Gauge item="CSPW_Cast_R75B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>90</X>
+      <X>102</X>
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>29</CX>
+      <CX>33</CX>
       <CY>9</CY>
     </Size>
-    <GaugeOffsetX>-87</GaugeOffsetX>
+    <GaugeOffsetX>-99</GaugeOffsetX>
     <GaugeOffsetY>0</GaugeOffsetY>
     <Text />
     <TextOffsetX>8000</TextOffsetX>
@@ -2255,7 +2255,7 @@
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>87</CX>
+      <CX>99</CX>
       <CY>9</CY>
     </Size>
     <Pieces>CSPW_Cast_R75A</Pieces>
@@ -2263,10 +2263,10 @@
   <Ui2DAnimation item="CSPW_Cast_R80Fill">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>-7872</X>
-        <Y>96</Y>
+        <X>-8000</X>
+        <Y>196</Y>
       </Location>
       <Size>
         <CX>10000</CX>
@@ -2312,14 +2312,14 @@
   <Gauge item="CSPW_Cast_R80B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>95</X>
+      <X>108</X>
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>24</CX>
+      <CX>27</CX>
       <CY>9</CY>
     </Size>
-    <GaugeOffsetX>-92</GaugeOffsetX>
+    <GaugeOffsetX>-105</GaugeOffsetX>
     <GaugeOffsetY>0</GaugeOffsetY>
     <Text />
     <TextOffsetX>8000</TextOffsetX>
@@ -2347,7 +2347,7 @@
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>92</CX>
+      <CX>105</CX>
       <CY>9</CY>
     </Size>
     <Pieces>CSPW_Cast_R80A</Pieces>
@@ -2355,10 +2355,10 @@
   <Ui2DAnimation item="CSPW_Cast_R85Fill">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>-8372</X>
-        <Y>96</Y>
+        <X>-8500</X>
+        <Y>196</Y>
       </Location>
       <Size>
         <CX>10000</CX>
@@ -2404,14 +2404,14 @@
   <Gauge item="CSPW_Cast_R85B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>101</X>
+      <X>115</X>
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>18</CX>
+      <CX>20</CX>
       <CY>9</CY>
     </Size>
-    <GaugeOffsetX>-98</GaugeOffsetX>
+    <GaugeOffsetX>-112</GaugeOffsetX>
     <GaugeOffsetY>0</GaugeOffsetY>
     <Text />
     <TextOffsetX>8000</TextOffsetX>
@@ -2439,7 +2439,7 @@
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>98</CX>
+      <CX>112</CX>
       <CY>9</CY>
     </Size>
     <Pieces>CSPW_Cast_R85A</Pieces>
@@ -2447,10 +2447,10 @@
   <Ui2DAnimation item="CSPW_Cast_R90Fill">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>-8872</X>
-        <Y>96</Y>
+        <X>-9000</X>
+        <Y>196</Y>
       </Location>
       <Size>
         <CX>10000</CX>
@@ -2496,14 +2496,14 @@
   <Gauge item="CSPW_Cast_R90B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>107</X>
+      <X>121</X>
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>12</CX>
+      <CX>14</CX>
       <CY>9</CY>
     </Size>
-    <GaugeOffsetX>-104</GaugeOffsetX>
+    <GaugeOffsetX>-118</GaugeOffsetX>
     <GaugeOffsetY>0</GaugeOffsetY>
     <Text />
     <TextOffsetX>8000</TextOffsetX>
@@ -2531,7 +2531,7 @@
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>104</CX>
+      <CX>118</CX>
       <CY>9</CY>
     </Size>
     <Pieces>CSPW_Cast_R90A</Pieces>
@@ -2539,10 +2539,10 @@
   <Ui2DAnimation item="CSPW_Cast_R95Fill">
     <Cycle>false</Cycle>
     <Frames>
-      <Texture>VantageControlEdges.tga</Texture>
+      <Texture>v3_controls.tga</Texture>
       <Location>
-        <X>-9372</X>
-        <Y>96</Y>
+        <X>-9500</X>
+        <Y>196</Y>
       </Location>
       <Size>
         <CX>10000</CX>
@@ -2588,14 +2588,14 @@
   <Gauge item="CSPW_Cast_R95B">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>113</X>
+      <X>128</X>
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>6</CX>
+      <CX>7</CX>
       <CY>9</CY>
     </Size>
-    <GaugeOffsetX>-110</GaugeOffsetX>
+    <GaugeOffsetX>-125</GaugeOffsetX>
     <GaugeOffsetY>0</GaugeOffsetY>
     <Text />
     <TextOffsetX>8000</TextOffsetX>
@@ -2623,7 +2623,7 @@
       <Y>263</Y>
     </Location>
     <Size>
-      <CX>110</CX>
+      <CX>125</CX>
       <CY>9</CY>
     </Size>
     <Pieces>CSPW_Cast_R95A</Pieces>
@@ -2635,7 +2635,7 @@
       <Y>25</Y>
     </Location>
     <Size>
-      <CX>130</CX>
+      <CX>146</CX>
       <CY>286</CY>
     </Size>
     <Text>Spells</Text>

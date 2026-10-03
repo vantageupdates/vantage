@@ -72,7 +72,7 @@ def test_brand_and_control_atlases_have_reviewed_hashes():
         'VantageSlotHints.tga': '0e214c71cc332db388c12ddf10db55896e7fcf761549f75d0d41313fd0c3fadf',
         'classic_pieces01.tga': 'b8fc8eebe8e463e88e60538efc21ff51e416177336309ab8d54a5535bbec2e56',
         'quickbar_frames.tga': 'efdc8c0053136d4c1827b1840bdf00a850d62897ea80c1b7c915eaf9ced6f477',
-        'v3_controls.tga': 'e2fcc8d6a2b50c7c08f6107106059892bcc46004b533568067a7e6dc433eb1f1',
+        'v3_controls.tga': '7c082eb8d4ef849f51446a21ddf972c49c41791887d215038bedae6afbdb516b',
     }
     for name, digest in expected.items():
         assert hashlib.sha256((SKIN / name).read_bytes()).hexdigest() == digest

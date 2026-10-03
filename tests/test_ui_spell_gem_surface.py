@@ -28,7 +28,7 @@ def test_spell_gems_use_the_neutral_tintable_background():
     background = animations.find("Ui2DAnimation[@item='V3_CastBackground']/Frames")
     assert background.findtext("Texture") == "v3_controls.tga"
     assert tuple(int(background.findtext(f"Location/{axis}")) for axis in ("X", "Y")) == (0, 28)
-    assert tuple(int(background.findtext(f"Size/{axis}")) for axis in ("CX", "CY")) == (120, 28)
+    assert tuple(int(background.findtext(f"Size/{axis}")) for axis in ("CX", "CY")) == (136, 28)
     for index in range(8):
         template = root.find(f"SpellGem[@item='CSPW_Spell{index}']/SpellGemDrawTemplate")
         assert template.findtext("Background") == "V3_CastBackground"
@@ -148,9 +148,78 @@ def test_original_cream_names_keep_native_bindings_without_new_drawables():
         assert tuple(int(label.findtext('TextColor/' + c)) for c in 'RGB') == (231, 228, 222)
         assert label.findtext('NoWrap') == 'false'
         assert label.findtext('AlignCenter') == 'true'
+        assert label.findtext('Size/CX') == '104'
+        assert label.findtext('Size/CY') == '26'
+        assert label.findtext('Font') == '1'
+        assert label.find('TextOffsetY') is None
+        assert label.find('TextOffsetX') is None
+        assert label.find('AlignVCenter') is None
         outline = root.find(f"StaticAnimation[@item='{name}_Outline']")
         assert outline.findtext('AutoDraw') == 'true'
         assert outline.findtext('Animation') == 'A_VantageSpellGemOutline'
         assert outline.find('Tint') is None
         assert pieces.index(name) < pieces.index(name + '_Outline') < pieces.index(name + '_Name')
         assert root.find(f"SpellGem[@item='{name}']/SpellGemDrawTemplate/Holder").text == 'V3_CastHolder'
+
+
+def test_native_width_extension_preserves_endcaps_and_all_other_atlas_pixels():
+    data = (SKIN / 'v3_controls.tga').read_bytes()
+    assert surface.widen_spell_gem_controls(data) == data
+    legacy = bytearray(data)
+    allowed = set()
+    for top, height in surface.CONTROL_CELLS:
+        for y in range(top, top + height):
+            start = 18 + y * surface.ATLAS_WIDTH * 4
+            row = data[start:start + 136 * 4]
+            legacy[start:start + 136 * 4] = row[:60 * 4] + row[76 * 4:] + bytes(16 * 4)
+            allowed.update(range(start, start + 136 * 4))
+    widened = surface.widen_spell_gem_controls(bytes(legacy))
+    assert widened == data
+    assert all(a == b for i, (a, b) in enumerate(zip(legacy, widened)) if i not in allowed)
+    for top, height in surface.CONTROL_CELLS:
+        for y in range(top, top + height):
+            assert all(pixel(widened, x, y) == pixel(legacy, x, y) for x in range(60))
+            assert all(pixel(widened, x + 16, y) == pixel(legacy, x, y) for x in range(60, 120))
+
+
+def test_spell_atlas_frames_fit_exactly_without_overlapping_other_controls():
+    roots = [ET.parse(SKIN / name).getroot()
+             for name in ('EQUI_Animations.xml', 'EQUI_CastSpellWnd.xml')]
+    expected = {
+        'V3_CastHolder': (0, 0, 136, 28),
+        'V3_CastBackground': (0, 28, 136, 28),
+        'V3_CastHighlight': (0, 56, 136, 28),
+        'V3_CastHeaderNormal': (0, 84, 136, 14),
+        'V3_CastHeaderPressed': (0, 98, 136, 14),
+        'V3_CastHeaderFlyby': (0, 112, 136, 14),
+        'V3_CastHeaderPressedFlyby': (0, 126, 136, 14),
+        'A_VantageSpellGemOutline': (0, 144, 136, 28),
+        'A_CSPW_CastFooter': (0, 176, 136, 15),
+        'A_CSPW_CastFill': (0, 196, 132, 9),
+    }
+    frames = {}
+    for root in roots:
+        for animation in root.findall('Ui2DAnimation'):
+            name = animation.get('item')
+            frame = animation.find('Frames')
+            if frame.findtext('Texture') != 'v3_controls.tga' or name.startswith('CSPW_Cast_R'):
+                continue
+            frames[name] = tuple(int(frame.findtext(path))
+                                 for path in ('Location/X', 'Location/Y', 'Size/CX', 'Size/CY'))
+    assert frames == expected
+    for x, y, w, h in frames.values():
+        assert x >= 0 and y >= 0 and x + w <= 256 and y + h <= 256
+    rectangles = list(frames.values())
+    for i, (x, y, w, h) in enumerate(rectangles):
+        for xx, yy, ww, hh in rectangles[i + 1:]:
+            assert x + w <= xx or xx + ww <= x or y + h <= yy or yy + hh <= y
+    data = (SKIN / 'v3_controls.tga').read_bytes()
+    # Exact right caps, with no ghost cap at the old 120px boundary.
+    for top, height in surface.CONTROL_CELLS:
+        if top == 56:
+            continue
+        assert pixel(data, 119, top + height // 2)[3] == 255
+        assert pixel(data, 134, top + height // 2)[3] == 255
+        assert pixel(data, 135, top)[3] == 0
+        assert all(pixel(data, x, y)[3] == 0
+                   for x in range(136, 256) for y in range(top, top + height))

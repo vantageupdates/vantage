@@ -76,7 +76,7 @@ def test_inventory_native_equipment_slots_are_bound_and_nonoverlapping():
     root = _root("EQUI_Inventory.xml")
     window = _item(root, "Screen", "InventoryWindow")
     window_size = _pair(window, "Size", "CX", "CY")
-    assert window_size == (389, 355)
+    assert window_size == (389, 358)
     pieces = [piece.text.strip() for piece in window.findall("Pieces")]
 
     # Preserve the existing minimal InvSlot0 definition rather than inventing a
@@ -183,11 +183,53 @@ def test_inventory_hint_frames_fit_the_declared_atlas_without_remapping_others()
     _assert_nonoverlapping(rectangles)
 
 
+def _hotbutton_client_sizes(window, outer_size=None):
+    templates = _root("EQUI_Templates.xml")
+    animations = _root("EQUI_Animations.xml")
+    rounded = _item(templates, "WindowDrawTemplate", window.findtext("DrawTemplate"))
+    titled_insets = {
+        side: _rect(_only_frame(_item(
+            animations, "Ui2DAnimation", rounded.findtext(f"Border/{side}")
+        )))[dimension]
+        for side, dimension in (("Left", 2), ("Right", 2), ("Top", 3), ("Bottom", 3))
+    }
+    assert titled_insets == {"Left": 4, "Right": 4, "Top": 2, "Bottom": 4}
+    # The titled top artwork is 2px, but reserve the full shared rounded
+    # frame's 4px inset for conservative native client-area containment.
+    no_title = _item(templates, "WindowDrawTemplate", "WDT_RoundedNoTitle")
+    conservative_insets = {
+        side: max(titled_insets[side], _rect(_only_frame(_item(
+            animations, "Ui2DAnimation", no_title.findtext(f"Border/{side}")
+        )))[dimension])
+        for side, dimension in (("Left", 2), ("Right", 2), ("Top", 3), ("Bottom", 3))
+    }
+    assert conservative_insets == {"Left": 4, "Right": 4, "Top": 4, "Bottom": 4}
+    title_heights = {
+        _rect(_only_frame(_item(
+            animations, "Ui2DAnimation", rounded.findtext(f"Titlebar/{side}")
+        )))[3]
+        for side in ("Left", "Middle", "Right")
+    }
+    assert window.findtext("Style_Titlebar") == "true"
+    assert title_heights == {16}
+    width, height = outer_size or _pair(window, "Size", "CX", "CY")
+    title_height = next(iter(title_heights))
+    # These are models from the declared assets, not an in-game render proof.
+    return {
+        model: (width - insets["Left"] - insets["Right"],
+                height - insets["Top"] - insets["Bottom"] - title_height)
+        for model, insets in (("declared", titled_insets), ("conservative", conservative_insets))
+    }
+
+
 def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds():
     root = _root("EQUI_HotButtonWnd.xml")
     window = _item(root, "Screen", "HotButtonWnd")
     window_size = _pair(window, "Size", "CX", "CY")
-    assert window_size == (215, 215)
+    assert window_size == (215, 239)
+    client_sizes = _hotbutton_client_sizes(window)
+    assert client_sizes == {"declared": (207, 217), "conservative": (207, 215)}
+    client_size = client_sizes["conservative"]
     # The native titlebar owns the move rail outside the client content. Keep
     # only the one-pixel grid inset instead of reserving the removed 22px logo
     # header a second time.
@@ -217,7 +259,7 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
         rect = _rect(button)
         assert button.findtext("ScreenID") == name
         assert rect == (*expected_location, 40, 40)
-        _assert_in_bounds(rect, window_size)
+        _assert_in_bounds(rect, client_size)
         assert rect[0] + rect[2] <= 84
         assert pieces.count(name) == 1
         hotbuttons[name] = rect
@@ -284,7 +326,7 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
         assert rect[0] >= 86
         gx, gy = gear_locations[name]
         assert rect == (gx, gy, 29, 29)
-        _assert_in_bounds(rect, window_size)
+        _assert_in_bounds(rect, client_size)
         assert pieces.count(name) == 1
         inventory[name] = rect
 
@@ -299,7 +341,7 @@ def test_primary_hotbutton_grid_and_inventory_panel_stay_separate_and_in_bounds(
         assert rect[0] >= 86
         expected_location = (178, (1, 26, 52, 77, 103, 128, 154, 179)[index - 1])
         assert rect == (*expected_location, 25, 25)
-        _assert_in_bounds(rect, window_size)
+        _assert_in_bounds(rect, client_size)
         assert pieces.count(name) == 1
         inventory[name] = rect
 
@@ -374,8 +416,8 @@ def test_hotbar_inventory_has_a_visible_native_resize_grip_without_a_fake_button
     frame = _only_frame(animation)
     assert _rect(frame) == (40, 220, 22, 22)
     assert frame.findtext("Texture") == "window_pieces01.tga"
-    # The right-anchored grip remains visible both fully open and at the
-    # 84px hotbar-only width. Keep it clear of the native 12px closebox;
+    # The right-anchored grip uses client coordinates. A 92px outer window
+    # retains the 84px hotbar-only client width. Keep it clear of the 12px closebox;
     # the 4px gap prevents the resize affordance from competing with Close.
     # The native titlebar is the move target, so client content can begin at
     # y=1 without reserving the removed 22px logo header again.
@@ -383,14 +425,20 @@ def test_hotbar_inventory_has_a_visible_native_resize_grip_without_a_fake_button
     native_titlebar_height = 16
     margin = 4
     window_height = _rect(window)[3]
-    assert window_height == 215
+    assert window_height == 239
+    client_sizes = _hotbutton_client_sizes(window)
+    assert client_sizes == {"declared": (207, 217), "conservative": (207, 215)}
     assert min(_rect(_item(root, "Button", f"HB_Button{index}"))[1]
                for index in range(1, 11)) == 1
     assert min(_rect(_item(root, "InvSlot", name))[1]
                for name in ("Prim", "Sec", "Ammo")) == 1
     assert native_titlebar_height + 1 == 17
-    for width in (84, 215):
+    for outer_width, width in ((92, 84), (215, 207)):
+        assert _hotbutton_client_sizes(window, (outer_width, window_height)) == {
+            "declared": (width, 217), "conservative": (width, 215)
+        }
         grip_bounds = (width - 38, width - 16)
+        assert grip_bounds == ((46, 68) if outer_width == 92 else (169, 191))
         closebox_bounds = (width - native_closebox_width, width)
         move_bounds = (0, width - 38)
         assert 0 <= grip_bounds[0] < grip_bounds[1] <= width
@@ -400,10 +448,11 @@ def test_hotbar_inventory_has_a_visible_native_resize_grip_without_a_fake_button
 
     # Move the visual resize hint into the existing bottom clearance. The
     # fixed item and hotbutton grids end at y=205, so it cannot cover a slot.
-    grip_vertical_bounds = (
-        window_height - int(grip.findtext("TopAnchorOffset")),
-        window_height - int(grip.findtext("BottomAnchorOffset")),
-    )
+    grip_vertical_bounds = {
+        model: (client_height - int(grip.findtext("TopAnchorOffset")),
+                client_height - int(grip.findtext("BottomAnchorOffset")))
+        for model, (_, client_height) in client_sizes.items()
+    }
     primary_content = []
     for piece in pieces:
         node = next((candidate for candidate in root
@@ -413,11 +462,13 @@ def test_hotbar_inventory_has_a_visible_native_resize_grip_without_a_fake_button
         rect = _rect(node)
         if rect[0] < 0 or rect[1] < 0:  # hidden native page controls
             continue
-        _assert_in_bounds(rect, _rect(window)[2:])
+        for client_size in client_sizes.values():
+            _assert_in_bounds(rect, client_size)
         primary_content.append(rect)
     assert max(y + height for _, y, _, height in primary_content) == 205
-    assert grip_vertical_bounds == (206, 214)
-    assert max(y + height for _, y, _, height in primary_content) < grip_vertical_bounds[0]
+    assert grip_vertical_bounds == {"declared": (208, 216), "conservative": (206, 214)}
+    assert all(max(y + height for _, y, _, height in primary_content) < top
+               for top, _ in grip_vertical_bounds.values())
 
     # This compaction is primary-window-only; the three auxiliary hotbars keep
     # their exact frame and first-button geometry.
@@ -622,7 +673,6 @@ def test_gold_slot_edge_and_health_tick_resources_are_complete_and_in_bounds():
         },
         "A_VantageHP240Lines": (240, 20),
         "A_VantageHP100Lines": (100, 20),
-        "A_VantageSpellGemOutline": (120, 28),
     }
     mapped = {}
     for animation in root.findall("./Ui2DAnimation"):
@@ -630,7 +680,7 @@ def test_gold_slot_edge_and_health_tick_resources_are_complete_and_in_bounds():
         if len(frames) == 1 and (frames[0].findtext("Texture") or "").strip() == texture_name:
             mapped[animation.attrib["item"]] = animation
     assert set(mapped) == set(expected_sizes)
-    assert len(mapped) == 15
+    assert len(mapped) == 14
 
     for name, expected_size in expected_sizes.items():
         animation = mapped[name]

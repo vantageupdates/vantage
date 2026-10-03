@@ -1,6 +1,56 @@
 <?xml version = "1.0"?>
 <XML ID = "EQInterfaceDefinitionLanguage">
 	<Schema xmlns = "EverQuestData" xmlns:dt = "EverQuestDataTypes"/>
+  <Ui2DAnimation item="A_VantageInventoryFooterNormal">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageCompactControls.tga</Texture>
+      <Location><X>2</X><Y>2</Y></Location>
+      <Size><CX>123</CX><CY>20</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageInventoryFooterFlyby">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageCompactControls.tga</Texture>
+      <Location><X>2</X><Y>25</Y></Location>
+      <Size><CX>123</CX><CY>20</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageInventoryFooterPressed">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageCompactControls.tga</Texture>
+      <Location><X>2</X><Y>48</Y></Location>
+      <Size><CX>123</CX><CY>20</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageInventoryFooterPressedFlyby">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageCompactControls.tga</Texture>
+      <Location><X>2</X><Y>71</Y></Location>
+      <Size><CX>123</CX><CY>20</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="A_VantageInventoryFooterDisabled">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>VantageCompactControls.tga</Texture>
+      <Location><X>2</X><Y>94</Y></Location>
+      <Size><CX>123</CX><CY>20</CY></Size>
+      <Hotspot><X>0</X><Y>0</Y></Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
 
   <TextureInfo item="VantageInventoryExp.tga">
     <Size><CX>128</CX><CY>64</CY></Size>
@@ -1093,7 +1143,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>156</X>
-      <Y>204</Y>
+      <Y>205</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1112,7 +1162,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>156</X>
-      <Y>243</Y>
+      <Y>245</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1131,7 +1181,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>156</X>
-      <Y>282</Y>
+      <Y>285</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1149,7 +1199,7 @@
     <ScreenID>InvSlot26</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>195</X>
+      <X>196</X>
       <Y>165</Y>
     </Location>
     <Size>
@@ -1168,8 +1218,8 @@
     <ScreenID>InvSlot27</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>195</X>
-      <Y>204</Y>
+      <X>196</X>
+      <Y>205</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1187,8 +1237,8 @@
     <ScreenID>InvSlot28</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>195</X>
-      <Y>243</Y>
+      <X>196</X>
+      <Y>245</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -1206,8 +1256,8 @@
     <ScreenID>InvSlot29</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>195</X>
-      <Y>282</Y>
+      <X>196</X>
+      <Y>285</Y>
     </Location>
     <Size>
       <CX>40</CX>
@@ -2459,11 +2509,11 @@
 		<!--<Font>3</Font>-->
 		<RelativePosition>true</RelativePosition>
 		<Location>
-			<X>132</X>
-			<Y>325</Y>
+			<X>129</X>
+			<Y>328</Y>
 		</Location>
 		<Size>
-			<CX>125</CX>
+			<CX>123</CX>
 			<CY>20</CY>
 		</Size>
 		<Style_Transparent>false</Style_Transparent>
@@ -2477,11 +2527,11 @@
 				<B>247</B>
 		</TextColor>
 		<ButtonDrawTemplate>
-			<Normal>A_BtnNormal</Normal>
-			<Pressed>A_BtnPressed</Pressed>
-			<Flyby>A_BtnFlyby</Flyby>
-			<Disabled>A_BtnDisabled</Disabled>
-			<PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+			<Normal>A_VantageInventoryFooterNormal</Normal>
+			<Pressed>A_VantageInventoryFooterPressed</Pressed>
+			<Flyby>A_VantageInventoryFooterFlyby</Flyby>
+			<Disabled>A_VantageInventoryFooterDisabled</Disabled>
+			<PressedFlyby>A_VantageInventoryFooterPressedFlyby</PressedFlyby>
 		</ButtonDrawTemplate>
 	</Button>
 	<Button item = "IW_Destroy">
@@ -2489,11 +2539,11 @@
 		<!--<Font>3</Font>-->
 		<RelativePosition>true</RelativePosition>
 		<Location>
-			<X>260</X>
-			<Y>325</Y>
+			<X>255</X>
+			<Y>328</Y>
 		</Location>
 		<Size>
-			<CX>125</CX>
+			<CX>123</CX>
 			<CY>20</CY>
 		</Size>
 		<Style_Transparent>false</Style_Transparent>
@@ -2507,11 +2557,11 @@
 				<B>247</B>
 		</TextColor>
 		<ButtonDrawTemplate>
-			<Normal>A_BtnNormal</Normal>
-			<Pressed>A_BtnPressed</Pressed>
-			<Flyby>A_BtnFlyby</Flyby>
-			<Disabled>A_BtnDisabled</Disabled>
-			<PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+			<Normal>A_VantageInventoryFooterNormal</Normal>
+			<Pressed>A_VantageInventoryFooterPressed</Pressed>
+			<Flyby>A_VantageInventoryFooterFlyby</Flyby>
+			<Disabled>A_VantageInventoryFooterDisabled</Disabled>
+			<PressedFlyby>A_VantageInventoryFooterPressedFlyby</PressedFlyby>
 		</ButtonDrawTemplate>
 	</Button>
 	<StaticAnimation item= "ClassAnim">
@@ -2566,11 +2616,11 @@
 		<!--<Font>3</Font>-->
 		<RelativePosition>true</RelativePosition>
 		<Location>
-			<X>4</X>
-			<Y>325</Y>
+			<X>3</X>
+			<Y>328</Y>
 		</Location>
 		<Size>
-			<CX>125</CX>
+			<CX>123</CX>
 			<CY>20</CY>
 		</Size>
 		<Style_Transparent>false</Style_Transparent>
@@ -2584,11 +2634,11 @@
 				<B>247</B>
 		</TextColor>
 		<ButtonDrawTemplate>
-			<Normal>A_BtnNormal</Normal>
-			<Pressed>A_BtnPressed</Pressed>
-			<Flyby>A_BtnFlyby</Flyby>
-			<Disabled>A_BtnDisabled</Disabled>
-			<PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+			<Normal>A_VantageInventoryFooterNormal</Normal>
+			<Pressed>A_VantageInventoryFooterPressed</Pressed>
+			<Flyby>A_VantageInventoryFooterFlyby</Flyby>
+			<Disabled>A_VantageInventoryFooterDisabled</Disabled>
+			<PressedFlyby>A_VantageInventoryFooterPressedFlyby</PressedFlyby>
 		</ButtonDrawTemplate>
 	</Button>
 
@@ -2958,7 +3008,7 @@
     </Location>
     <Size>
       <CX>389</CX>
-      <CY>355</CY>
+      <CY>358</CY>
     </Size>
     <Text>Inventory</Text>
     <Style_VScroll>false</Style_VScroll>

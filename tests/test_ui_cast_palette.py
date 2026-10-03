@@ -96,7 +96,7 @@ def model_pixels(remaining, width=240):
 
 
 @pytest.mark.parametrize('remaining', range(101))
-@pytest.mark.parametrize('width', (240, 116))
+@pytest.mark.parametrize('width', (240, 132))
 def test_countdown_never_paints_past_live_fill_or_leaves_idle_color(remaining, width):
     pixels = model_pixels(remaining, width)
     end = width * remaining // 100
@@ -153,9 +153,9 @@ def test_spell_footer_is_a_native_countdown_below_unchanged_gems():
     parent = cast.item(root, 'Screen', 'CastSpellWnd')
     footer = cast.item(root, 'StaticAnimation', 'CSPW_CastFooter')
     base = cast.item(root, 'Gauge', cast.FOOTER_BASE)
-    assert rect(parent)[2:] == (130, 286)
-    assert rect(footer) == (1, 260, 120, 15)
-    assert rect(base) == (3, 263, 116, 9)
+    assert rect(parent)[2:] == (146, 286)
+    assert rect(footer) == (1, 260, 136, 15)
+    assert rect(base) == (3, 263, 132, 9)
     assert base.findtext('EQType') == '7'
     assert base.find('ScreenID') is None
     assert base.findtext('TextOffsetX') == '8000'
@@ -166,29 +166,29 @@ def test_spell_footer_is_a_native_countdown_below_unchanged_gems():
     assert footer.findtext('Animation') == 'A_CSPW_CastFooter'
     for i in range(8):
         gem = cast.item(root, 'SpellGem', f'CSPW_Spell{i}')
-        assert rect(gem) == (1, 18 + i * 30, 120, 28)
+        assert rect(gem) == (1, 18 + i * 30, 136, 28)
         label = cast.item(root, 'Label', f'CSPW_Spell{i}_Name')
-        assert rect(label) == (31, 21 + i * 30, 88, 26)
+        assert rect(label) == (31, 21 + i * 30, 104, 26)
         assert rect(label)[1] + rect(label)[3] <= rect(footer)[1] - 2
     pieces = [p.text for p in parent.findall('Pieces')]
     order = {n.get('item'): i for i, n in enumerate(root)}
     sequence = ['CSPW_CastFooter', cast.FOOTER_BASE]
     for threshold, color in cast.LAYERS:
         name = f'{cast.FOOTER_PREFIX}{threshold:02}'
-        cut = 116 * threshold // 100
+        cut = 132 * threshold // 100
         a, b = (cast.item(root, 'Gauge', name + s) for s in ('A', 'B'))
         clip = cast.item(root, 'Screen', name + 'A_X')
         animation = cast.item(root, 'Ui2DAnimation', name + 'Fill')
         assert rect(a) == (0, 0, 10000 - 100 * threshold, 9)
-        assert rect(b) == (3 + cut, 263, 116 - cut, 9)
+        assert rect(b) == (3 + cut, 263, 132 - cut, 9)
         assert rect(clip) == (3, 263, cut, 9)
         assert a.findtext('GaugeOffsetX') == str(-100 * threshold)
         assert b.findtext('GaugeOffsetX') == str(-cut)
         assert clip.findtext('Pieces') == name + 'A'
         assert clip.findtext('Style_Transparent') == 'true'
-        assert animation.findtext('Frames/Texture') == 'VantageControlEdges.tga'
-        assert animation.findtext('Frames/Location/X') == str(128 - 100 * threshold)
-        assert animation.findtext('Frames/Location/Y') == '96'
+        assert animation.findtext('Frames/Texture') == 'v3_controls.tga'
+        assert animation.findtext('Frames/Location/X') == str(-100 * threshold)
+        assert animation.findtext('Frames/Location/Y') == '196'
         assert animation.findtext('Frames/Size/CY') == '9'
         for gauge in (a, b):
             assert gauge.findtext('EQType') == '7'
@@ -204,13 +204,13 @@ def test_spell_footer_is_a_native_countdown_below_unchanged_gems():
 
 def test_spell_footer_cells_have_rounded_corners_and_clear_atlas_gutters():
     root = ET.parse(SKIN / 'EQUI_CastSpellWnd.xml').getroot()
-    atlas = (SKIN / 'VantageControlEdges.tga').read_bytes()
-    assert atlas[12:18] == bytes((0, 2, 128, 0, 32, 40))
+    atlas = (SKIN / 'v3_controls.tga').read_bytes()
+    assert atlas[12:18] == bytes((0, 1, 0, 1, 32, 40))
     def alpha(x, y):
-        return atlas[18 + (y * 512 + x) * 4 + 3]
+        return 0 if x < 0 else atlas[18 + (y * 256 + x) * 4 + 3]
     for name, expected in (
-        ('A_CSPW_CastFooter', (2, 96, 120, 15)),
-        ('A_CSPW_CastFill', (128, 96, 116, 9)),
+        ('A_CSPW_CastFooter', (0, 176, 136, 15)),
+        ('A_CSPW_CastFill', (0, 196, 132, 9)),
     ):
         frame = cast.item(root, 'Ui2DAnimation', name).find('Frames')
         assert rect(frame) == expected
@@ -245,3 +245,61 @@ def test_footer_generator_preserves_existing_spell_nodes_and_rejects_duplicate()
         ET.indent(left)
         ET.indent(right)
         assert ET.tostring(left) == ET.tostring(right), name
+
+
+def test_wider_spell_generator_is_idempotent_and_preserves_native_contract():
+    texts = [(SKIN / name).read_text(encoding='ascii')
+             for name in ('EQUI_CastSpellWnd.xml', 'EQUI_Animations.xml')]
+    assert cast.widen_spell_window(*texts) == tuple(texts)
+    root = ET.fromstring(texts[0])
+    legacy = deepcopy(root)
+    # Reconstruct the narrow spell layout while preserving every native field.
+    for i in range(8):
+        cast.set_value(cast.item(legacy, 'SpellGem', f'CSPW_Spell{i}'), 'Size/CX', 120)
+        cast.set_value(cast.item(legacy, 'StaticAnimation', f'CSPW_Spell{i}_Outline'), 'Size/CX', 120)
+        cast.set_value(cast.item(legacy, 'Label', f'CSPW_Spell{i}_Name'), 'Size/CX', 88)
+    cast.set_value(cast.item(legacy, 'Button', 'CSPW_SpellBook'), 'Size/CX', 120)
+    cast.set_value(cast.item(legacy, 'Screen', 'CastSpellWnd'), 'Size/CX', 130)
+    cast.set_value(cast.item(legacy, 'StaticAnimation', 'CSPW_CastFooter'), 'Size/CX', 120)
+    cast.set_value(cast.item(legacy, 'Gauge', cast.FOOTER_BASE), 'Size/CX', 116)
+    for name, origin, width in (
+        ('A_CSPW_CastFooter', 2, 120), ('A_CSPW_CastFill', 128, 116),
+    ):
+        frame = cast.item(legacy, 'Ui2DAnimation', name).find('Frames')
+        cast.set_value(frame, 'Texture', 'VantageControlEdges.tga')
+        cast.set_value(frame, 'Location/X', origin)
+        cast.set_value(frame, 'Location/Y', 96)
+        cast.set_value(frame, 'Size/CX', width)
+    for threshold, _ in cast.LAYERS:
+        name, cut = f'{cast.FOOTER_PREFIX}{threshold:02}', 116 * threshold // 100
+        frame = cast.item(legacy, 'Ui2DAnimation', name + 'Fill').find('Frames')
+        cast.set_value(frame, 'Texture', 'VantageControlEdges.tga')
+        cast.set_value(frame, 'Location/X', 128 - 100 * threshold)
+        cast.set_value(frame, 'Location/Y', 96)
+        b = cast.item(legacy, 'Gauge', name + 'B')
+        cast.set_value(b, 'Location/X', 3 + cut)
+        cast.set_value(b, 'Size/CX', 116 - cut)
+        cast.set_value(b, 'GaugeOffsetX', -cut)
+        cast.set_value(cast.item(legacy, 'Screen', name + 'A_X'), 'Size/CX', cut)
+    rebuilt = ET.fromstring(cast.widen_spell_window(ET.tostring(legacy, encoding='unicode'), texts[1])[0])
+    assert [n.get('item') for n in rebuilt] == [n.get('item') for n in root]
+    for before, after in zip(root, rebuilt):
+        before.tail = after.tail = None
+        ET.indent(before)
+        ET.indent(after)
+        assert ET.tostring(before) == ET.tostring(after), before.get('item')
+
+
+@pytest.mark.parametrize('remaining', (0.01, 0.19, 19.99, 20.01, 21.99, 22.01, 39.99, 40.01, 94.99, 95.01, 99.99))
+def test_wider_footer_thresholds_keep_each_paired_native_layer_inside_live_fill(remaining):
+    # Native clipping floors its pixel bounds; check the fractions immediately
+    # surrounding threshold reveals as well as the integer countdown above.
+    width = 132
+    end = int(width * remaining / 100)
+    for threshold, _ in cast.LAYERS:
+        cut = width * threshold // 100
+        left_end = int(max(0, min(cut, 100 * remaining - 100 * threshold)))
+        assert 0 <= left_end <= end
+        if end >= cut:
+            assert 0 <= cut <= end <= width
+        assert cut + (width - cut) == width
