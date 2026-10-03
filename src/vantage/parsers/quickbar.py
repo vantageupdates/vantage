@@ -53,6 +53,9 @@ class QuickBarNotificationRail(QFrame):
 
     history_requested = Signal()
     _MAX_PENDING = 4
+    _CONTENT_INSET = 1
+    _MESSAGE_GAP = 4
+    _MINIMUM_CHANNEL_WIDTH = 82
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -74,7 +77,12 @@ class QuickBarNotificationRail(QFrame):
         self._channel.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._channel.hide()
-        self._label = QLabel(self)
+        # Clip the moving text to its own lane, including around the rounded
+        # channel and History button corners in the proxy-hosted render.
+        self._message_viewport = QWidget(self)
+        self._message_viewport.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._label = QLabel(self._message_viewport)
         self._label.setObjectName("QuickBarNotificationText")
         self._label.setAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
@@ -98,6 +106,7 @@ class QuickBarNotificationRail(QFrame):
         self.history_button.clicked.connect(self.history_requested)
         self.history_button.raise_()
         self._notice_id = 0
+        self._current_text = ""
         # Do not silently evict written counterparts while this child is
         # temporarily hidden by layout, roll-up, or top-level visibility.
         self._pending = deque()
@@ -189,13 +198,12 @@ class QuickBarNotificationRail(QFrame):
         self._overflow_count = 0
         self._scroll_timer.stop()
         self._clear_timer.stop()
+        self._current_text = clean
         self._label.setText(clean)
         self._channel.setText(channel)
-        self._channel.setGeometry(1, 1, 82, self.height() - 2)
+        self._layout_contents()
         self._channel.show()
         self._channel.raise_()
-        self._label.adjustSize()
-        self._label.setFixedHeight(self.height() - 2)
         self._label.show()
         self._channel.raise_()
         self.history_button.raise_()
@@ -224,11 +232,7 @@ class QuickBarNotificationRail(QFrame):
             # Preserve the meaningful type + source without moving or
             # squeezing a potentially unbounded message into this compact
             # surface. The complete notice remains in the accessible name.
-            summary = " · ".join(clean.split(" · ")[:2])
-            self._label.setText(summary)
-            self._label.setFixedWidth(max(1, self.width() - 112))
-            self._label.setGeometry(87, 1, self._label.width(), self.height() - 2)
-            self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._update_static_text()
             if channel != "COMBAT":
                 self._clear_timer.setInterval(5000)
                 self._clear_timer.start()
@@ -236,11 +240,42 @@ class QuickBarNotificationRail(QFrame):
             self._moving = True
             self._label.setAlignment(
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            self._label.adjustSize()
-            self._label.setFixedHeight(self.height() - 2)
-            self._label.move(self.width() - 5, 1)
+            # A previous reduced-motion notice may have fixed the label to a
+            # narrow lane. Restore its full natural width for a complete pass.
+            self._label.setFixedSize(
+                max(1, self._label.sizeHint().width()),
+                self._message_viewport.height())
+            self._label.move(self._message_viewport.width(), 0)
             if self.isVisible():
                 self._scroll_timer.start()
+
+    def _layout_contents(self):
+        inset = self._CONTENT_INSET
+        height = max(1, self.height() - 2 * inset)
+        channel_width = max(
+            self._MINIMUM_CHANNEL_WIDTH,
+            self._channel.fontMetrics().horizontalAdvance(
+                self._channel.text()) + 2 * self._MESSAGE_GAP)
+        self._channel.setFixedWidth(channel_width)
+        self._channel.setGeometry(inset, inset, channel_width, height)
+        self.history_button.move(
+            max(0, self.width() - self.history_button.width() - inset), inset)
+        message_left = inset + channel_width + self._MESSAGE_GAP
+        message_width = max(
+            0, self.history_button.x() - self._MESSAGE_GAP - message_left)
+        self._message_viewport.setGeometry(
+            message_left, inset, message_width, height)
+        self._label.setFixedHeight(height)
+        self.history_button.raise_()
+
+    def _update_static_text(self):
+        summary = " · ".join(self._current_text.split(" · ")[:2])
+        width = self._message_viewport.width()
+        self._label.setText(self._label.fontMetrics().elidedText(
+            summary, Qt.TextElideMode.ElideRight, width))
+        self._label.setFixedWidth(width)
+        self._label.move(0, 0)
+        self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
     def _announce_accessibly(self, text):
         """Announce a newly accepted, visible event exactly once."""
@@ -256,11 +291,8 @@ class QuickBarNotificationRail(QFrame):
         if reduce_motion:
             self._scroll_timer.stop()
             self._moving = False
-            clean = self._label.text()
-            self._label.setText(" · ".join(clean.split(" · ")[:2]))
-            self._label.setFixedWidth(max(1, self.width() - 112))
-            self._label.setGeometry(87, 1, self._label.width(), self.height() - 2)
-            self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._layout_contents()
+            self._update_static_text()
             self._fade_on_expire = False
             self._clear_timer.setInterval(5000)
             self._clear_timer.start()
@@ -273,8 +305,8 @@ class QuickBarNotificationRail(QFrame):
         if not self.isVisible() or not self._label.isVisible():
             self._scroll_timer.stop()
             return
-        self._label.move(self._label.x() - 2, 1)
-        if self._label.x() + self._label.width() < 87:
+        self._label.move(self._label.x() - 2, 0)
+        if self._label.x() + self._label.width() < 0:
             self._clear()
 
     def _clear(self):
@@ -287,6 +319,7 @@ class QuickBarNotificationRail(QFrame):
         self._clear_timer.stop()
         self._fade_on_expire = False
         self._moving = False
+        self._current_text = ""
         self._label.clear()
         self._label.hide()
         self._channel.hide()
@@ -298,6 +331,9 @@ class QuickBarNotificationRail(QFrame):
 
     def showEvent(self, event):
         super().showEvent(event)
+        self._layout_contents()
+        if self._label.isVisible() and not self._moving:
+            self._update_static_text()
         if not self._label.isVisible() and self._pending:
             self._show_next()
             return
@@ -310,9 +346,9 @@ class QuickBarNotificationRail(QFrame):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self.history_button.move(
-            max(0, self.width() - self.history_button.width() - 1), 1)
-        self.history_button.raise_()
+        self._layout_contents()
+        if self._label.isVisible() and not self._moving:
+            self._update_static_text()
 
     def discard_all(self):
         """Forget active and queued notices when the rail is intentionally off."""

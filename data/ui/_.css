@@ -109,6 +109,28 @@ QDialog, QMessageBox, QMenu, QToolTip {
     border-radius: 3px;
 }
 
+/* Text/menu tools use the same quiet chrome as icon actions. Do not impose
+   an icon-only maximum width: POI and other labels must keep their text. */
+#ParserWindowMenu QToolButton {
+    color: #D8D4CC;
+    background-color: transparent;
+    border: 1px solid #343A41;
+    border-radius: 4px;
+    padding: 0;
+}
+#ParserWindowMenu QToolButton:hover {
+    background-color: #20242A;
+    border-color: #4A5159;
+}
+#ParserWindowMenu QToolButton:focus {
+    background-color: #1B1E22;
+    border-color: #A88B57;
+}
+#ParserWindowMenu QToolButton:pressed {
+    background-color: #0A0B0D;
+    border-color: #A88B57;
+}
+
 #QuickBarActions {
     background-color: #0E1115;
     border-top: 1px solid #242A30;
@@ -276,7 +298,7 @@ QToolButton#QuickBarTickCountdown:hover {
     background-color: transparent;
     border: none;
     padding: 0;
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 600;
 }
 

@@ -237,6 +237,43 @@ class ParserResizeHandle(QWidget):
         super().mouseReleaseEvent(event)
 
 
+class ScreenGeometryWatcher(QObject):
+    """Queue one recovery after screen changes without watching window moves."""
+
+    def __init__(self, parent, recover):
+        super().__init__(parent)
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(recover)
+        parent.installEventFilter(self)
+        application = QApplication.instance()
+        application.screenAdded.connect(self._screen_added)
+        application.screenRemoved.connect(self.schedule)
+        for screen in application.screens():
+            self._watch_screen(screen)
+
+    def _watch_screen(self, screen):
+        screen.availableGeometryChanged.connect(self.schedule)
+        screen.geometryChanged.connect(self.schedule)
+
+    def _screen_added(self, screen):
+        self._watch_screen(screen)
+        self.schedule()
+
+    def schedule(self, *_args):
+        self._timer.start(0)
+
+    def defer(self, milliseconds=50):
+        self._timer.start(milliseconds)
+
+    def eventFilter(self, watched, event):
+        if event.type() in (
+                QEvent.Type.DevicePixelRatioChange,
+                QEvent.Type.ScreenChangeInternal):
+            self.schedule()
+        return False
+
+
 class ParserWindow(QWidget):
     content = None
     menu_area = None
@@ -482,6 +519,9 @@ class ParserWindow(QWidget):
         self._header_overflowed = []
         self._header_focus_restore = None
         self._packing_header = False
+
+        self._screen_geometry_watcher = ScreenGeometryWatcher(
+            self, self._recover_screen_geometry)
 
         self._set_flags()
 
@@ -979,6 +1019,7 @@ class ParserWindow(QWidget):
         self.setWindowOpacity(self._window_opacity / 100)
         self.setGeometry(*self._geometry)
         self._fit_to_available_screen()
+        fitted_geometry = self.geometry()
         self._set_header_revealed(
             self._collapsed or not self._auto_hide_menu)
         self._update_uniform_scale()
@@ -986,9 +1027,10 @@ class ParserWindow(QWidget):
         if self._toggled:
             self.show()
             # Windows may apply invisible tool-window frame margins while the
-            # native handle is recreated. Reassert the configured client rect
-            # after show so live and durable geometry agree.
-            self.setGeometry(*self._geometry)
+            # native handle is recreated. Reassert the fitted client rect, not
+            # an obsolete position from a larger or disconnected monitor.
+            self.setGeometry(fitted_geometry)
+            self._fit_to_available_screen()
             self._update_uniform_scale()
         else:
             self.hide()
@@ -1696,20 +1738,52 @@ class ParserWindow(QWidget):
 
     def _fit_to_available_screen(self):
         """Keep restored geometry usable after monitor or DPI changes."""
-        screen = QApplication.screenAt(self.frameGeometry().center()) \
-            or QApplication.primaryScreen()
+        client = self.geometry()
+        frame = self.frameGeometry()
+        screen = QApplication.screenAt(frame.center())
+        if screen is None:
+            # A saved frame can still overlap a secondary monitor even when
+            # its center falls in a gap between displays.
+            overlapping = []
+            for candidate in QApplication.screens():
+                overlap = frame.intersected(candidate.availableGeometry())
+                if not overlap.isEmpty():
+                    overlapping.append((
+                        overlap.width() * overlap.height(), candidate))
+            screen = max(overlapping, key=lambda item: item[0])[1] \
+                if overlapping else QApplication.primaryScreen()
         if not screen:
             return
         area = screen.availableGeometry()
+        if area.contains(frame):
+            return
+        chrome_width = max(0, frame.width() - client.width())
+        chrome_height = max(0, frame.height() - client.height())
+        available_width = max(1, area.width() - chrome_width)
+        available_height = max(1, area.height() - chrome_height)
         if self._collapsed:
-            width = min(max(96, self.width()), area.width())
-            height = min(max(22, self.height()), area.height())
+            width = min(max(96, client.width()), available_width)
+            height = min(max(22, client.height()), available_height)
         else:
-            width = min(max(self.minimumWidth(), self.width()), area.width())
-            height = min(max(self.minimumHeight(), self.height()), area.height())
-        left = min(max(area.left(), self.x()), area.right() - width + 1)
-        top = min(max(area.top(), self.y()), area.bottom() - height + 1)
-        self.setGeometry(left, top, width, height)
+            width = min(max(self.minimumWidth(), client.width()), available_width)
+            height = min(max(self.minimumHeight(), client.height()), available_height)
+        left = min(max(area.left(), frame.left()), max(
+            area.left(), area.right() - width - chrome_width + 1))
+        top = min(max(area.top(), frame.top()), max(
+            area.top(), area.bottom() - height - chrome_height + 1))
+        self.setGeometry(
+            left + client.left() - frame.left(),
+            top + client.top() - frame.top(), width, height)
+
+    def _recover_screen_geometry(self):
+        # Screen events may arrive during Windows' native move/resize loop.
+        # Wait until that interaction ends instead of pulling against a drag.
+        if self._native_resize_session or self._panel_resize_state is not None:
+            self._screen_geometry_watcher.defer()
+            return
+        self._fit_to_available_screen()
+        self._update_uniform_scale()
+        self._schedule_header_pack()
 
     def nativeEvent(self, event_type, message):
         """Constrain Windows' live drag rectangle before Qt lays it out."""
