@@ -83,5 +83,16 @@ real character INIs, game binaries or installed executable were replaced.
 
 ## Release verification
 
-The final complete suite and portable candidate are verified above. Public
-release metadata is pending; publication confirmation will be recorded here.
+- [Public stable release v1.44.123](https://github.com/vantageupdates/vantage/releases/tag/v1.44.123)
+  published **2026-10-03 08:07:45 UTC**, release ID **402402864**, executable
+  asset ID **607422184**. The annotated tag resolves to the tested source
+  **b75ea9188eff404c2a4471abeb93330cb3cd0dd5**.
+- GitHub confirms a public repository, non-draft/non-prerelease release and
+  Companion **Latest** at **1.44.123**. The official executable download origin
+  is `github.com/vantageupdates/vantage/releases/download/v1.44.123/Vantage.exe`.
+- Public asset state is **uploaded**, size **75,879,674 bytes**, digest
+  **sha256:44f8ab17adf192fd6043251de67372754cdae150f4614452579108dfc8759b93**.
+  Both size and GitHub digest match the locally self-tested final candidate.
+  Verification uses public metadata; a fresh public download was not executed.
+- The installed application was not replaced. Install this release through
+  Companion's Quick Bar updater. VantageUI remains independently versioned.
