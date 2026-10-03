@@ -81,7 +81,17 @@ selected sections and skin option are forwarded through that path.
   there; Companion 1.44.122 has one publisher and does not modify UI assets.
 - Complete final suite: **1,746 passed, 2 skipped**, exit **0**, **943.95 s**.
   No tests were deselected; the two platform/optional skips remain explicit in
-  the JUnit report. Public-release verification will be recorded after upload.
+  the JUnit report.
+- [Public stable release v1.44.122](https://github.com/vantageupdates/vantage/releases/tag/v1.44.122)
+  published **2026-10-03 06:41:47 UTC**, release ID **402371183**, executable
+  asset ID **607305583**. Tag points to tested source
+  `82b80da04c5c6985be1e6253782b461dfff958f1`. GitHub confirms a public repository,
+  non-draft/non-prerelease release and Companion **Latest** at 1.44.122.
+- The exact official `Vantage.exe` download origin, uploaded state, public asset
+  size and GitHub SHA-256 digest were checked and match the candidate above.
+  Verification is against public release metadata and the locally self-tested
+  candidate; a fresh public download was not executed. The user's installed
+  executable was not replaced.
 
 All writes during tests/captures use synthetic EverQuest installs and isolated
 profiles. The user's installed executable and real character INIs are not
