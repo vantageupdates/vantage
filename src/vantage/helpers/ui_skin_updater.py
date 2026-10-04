@@ -28,6 +28,9 @@ SKIN_FOLDER = "VantageUI"
 MANIFEST_ASSET = "VantageUI-manifest.json"
 PAYLOAD_ASSET = "VantageUI-payload.zip"
 RELEASES_API = f"https://api.github.com/repos/{REPOSITORY}/releases"
+# These immutable releases are the two native hotkey targets. Only verified,
+# registered installations qualify for retention; unknown folders are not adopted.
+BUFF_LAYOUT_VERSIONS = {"vertical": "1.44.102", "horizontal": "1.44.103"}
 MAX_FILES = 2000
 MAX_FILE_BYTES = 32 * 1024 * 1024
 MAX_TOTAL_BYTES = 256 * 1024 * 1024
@@ -304,6 +307,20 @@ def check_release(progress=None):
         result = select_release_history(_json(history_path.read_bytes()))
         _emit_progress(progress, "Release verified", 100)
         return result
+
+
+def check_release_version(version):
+    """Fetch an exact stable UI tag, not an arbitrary URL or a fallback release."""
+    _require(isinstance(version, str) and bool(_VERSION.fullmatch(version)),
+             "Invalid UI preset version.")
+    tag = "vantage-ui-v" + version
+    with tempfile.TemporaryDirectory(prefix="vantage-ui-preset-check-") as directory:
+        path = Path(directory) / "release.json"
+        _download(f"{RELEASES_API}/tags/{tag}", path, 4 * 1024 * 1024)
+        release = parse_release_payload(_json(path.read_bytes()))
+        _require(release.tag == tag and release.version == version,
+                 "The UI preset response does not match its requested tag.")
+        return release
 
 
 def _validate_release(release):
@@ -966,15 +983,18 @@ def _delete_empty_directory(path, expected_id, before_delete):
 
 
 def _retained_folders(registry):
-    """Keep exactly the selected release and its one rollback target.
+    """Keep the selection, rollback target and prepared native buff presets.
 
     Only names already present in the verified shared registry qualify. The
     filesystem is never enumerated here, so unmanaged skins and personal UI
     folders cannot be mistaken for an obsolete managed version.
     """
-    return {
+    keep = {
         name for name in (registry["active"], registry["previous"])
         if name}
+    keep.update(folder_name(version) for version in BUFF_LAYOUT_VERSIONS.values()
+                if folder_name(version) in registry["managed"])
+    return keep
 
 
 def _prune(target, registry, snapshot, log):
@@ -1082,9 +1102,14 @@ def _create_publish_stage(path, *, platform_name=None):
 
 
 def install_release(release, eq_dir, state_dir, log=print,
-                    allow_game_running=False, progress=None):
+                    allow_game_running=False, progress=None,
+                    prepare_buff_preset=False):
     progress = _monotonic_progress(progress)
     _validate_release(release)
+    _require(type(prepare_buff_preset) is bool, "Invalid buff preset preparation policy.")
+    if prepare_buff_preset:
+        _require(release.version in BUFF_LAYOUT_VERSIONS.values(),
+                 "Only the fixed native buff presets may be prepared.")
     _require_install_policy(allow_game_running)
     _emit_progress(progress, "Preparing verified update", 0)
     game, target = _target(eq_dir)
@@ -1124,7 +1149,16 @@ def install_release(release, eq_dir, state_dir, log=print,
                 target, registry, snapshot, log, allow_game_running, progress)
             current = _selected_trusted(target, registry)
             selection_warnings = _selection_warnings(target, registry, current, log)
-            _require(not current or tuple(map(int, release.version.split("."))) >=
+            if prepare_buff_preset:
+                _require(not current or tuple(map(int, _folder_version(current).split("."))) <=
+                         tuple(map(int, BUFF_LAYOUT_VERSIONS["horizontal"].split("."))),
+                         "A newer UI is selected. Use its current updater to prepare buff layouts.")
+            preset_downgrade = (prepare_buff_preset and
+                                release.version == BUFF_LAYOUT_VERSIONS["vertical"] and
+                                current == folder_name(BUFF_LAYOUT_VERSIONS["horizontal"]))
+            if preset_downgrade:
+                _verified_tree(_exact_child(target, current), current, registry["managed"][current])
+            _require(preset_downgrade or not current or tuple(map(int, release.version.split("."))) >=
                      tuple(map(int, _folder_version(current).split("."))),
                      "An older release cannot replace a newer selected UI. Use Restore previous UI instead.")
             destination = _exact_child(target, name)
@@ -1199,3 +1233,47 @@ def rollback_last(eq_dir, state_dir, log=print, progress=None):
         log(f"Selected {previous}. In EverQuest, use /loadskin {previous} 1.")
         _emit_progress(progress, "Restore complete", 100)
         return InstallResult(_folder_version(previous), 0, "restored", previous)
+
+
+def prepare_buff_layouts(eq_dir, state_dir, log=print, allow_game_running=False,
+                         progress=None):
+    """Explicitly prepare two verified skins; never write socials or UI INIs.
+
+    This is two normal immutable installs, not an atomic pair. If the second
+    fails, the first remains usable and no hotkey-ready result is returned.
+    """
+    progress = _monotonic_progress(progress)
+    _require_install_policy(allow_game_running)
+    current = installed_version(eq_dir)
+    _require(not current or tuple(map(int, current.split("."))) <=
+             tuple(map(int, BUFF_LAYOUT_VERSIONS["horizontal"].split("."))),
+             "A newer UI is selected. Use its current updater to prepare buff layouts.")
+    releases = [check_release_version(version) for version in BUFF_LAYOUT_VERSIONS.values()]
+    warnings = []
+    result = None
+    for index, release in enumerate(releases):
+        mapped = None if progress is None else lambda stage, percent, received, total, i=index: (
+            _emit_progress(progress, stage, i * 50 + percent // 2, received, total))
+        result = install_release(release, eq_dir, state_dir, log=log,
+                                 allow_game_running=allow_game_running,
+                                 progress=mapped, prepare_buff_preset=True)
+        warnings.extend(result.warnings)
+    _, target = _target(eq_dir)
+    with _directory_guard(target), _target_lock(target):
+        registry, snapshot = _registry(target)
+        _require(registry["pending"] is None and
+                 registry["active"] == folder_name(BUFF_LAYOUT_VERSIONS["horizontal"]),
+                 "The buff layout selection changed; check the installation and retry.")
+        for release in releases:
+            name = folder_name(release.version)
+            record = registry["managed"].get(name)
+            _require(record is not None and not record["quarantine"],
+                     "A prepared buff layout is missing; retry preparation.")
+            marker, _ = _verified_tree(_exact_child(target, name), name, record)
+            _require(marker["release_id"] == release.release_id and
+                     marker["manifest_sha256"] == release.manifest_sha256 and
+                     marker["payload_sha256"] == release.payload_sha256,
+                     "Prepared buff layout bytes do not match the selected release.")
+        _registry_unchanged(target, snapshot)
+    return InstallResult(result.version, result.changed_files, "buff-layouts-ready",
+                         result.folder, tuple(warnings))

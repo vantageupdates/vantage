@@ -86,6 +86,7 @@ class SkinWindow:
         self.known_eq = ""
         self.operation_eq = ""
         self.release = None
+        self.buff_dialog = None
         self.pending = False
         self.allow_game_running = bool(allow_game_running)
         self.busy = False
@@ -157,7 +158,9 @@ class SkinWindow:
         self.install_button = ttk.Button(actions, text="Update UI", style="Primary.TButton", command=self.install)
         self.install_button.pack(side="left", padx=(0, 8))
         self.restore_button = ttk.Button(actions, text="Restore previous", command=self.restore)
-        self.restore_button.pack(side="left")
+        self.restore_button.pack(side="left", padx=(0, 8))
+        self.buff_button = ttk.Button(actions, text="Buff hotkeys…", command=self.prepare_buffs)
+        self.buff_button.pack(side="left")
         auto = ttk.Frame(outer)
         auto.grid(row=8, column=0, sticky="ew", pady=(18, 12))
         self.auto_button = ttk.Checkbutton(auto, text="Update automatically while this window is open",
@@ -207,16 +210,17 @@ class SkinWindow:
     def _controls(self):
         controls = (self.browse_button, self.check_button, self.install_button,
                     self.restore_button, self.path_entry, self.auto_button,
-                    self.copy_button)
+                    self.copy_button, self.buff_button)
         if (self.busy or self.confirming) and self.root.focus_get() in controls:
             self.logbox.focus_set()
-        for widget in (self.browse_button, self.check_button, self.restore_button, self.path_entry, self.auto_button):
+        for widget in (self.browse_button, self.check_button, self.restore_button, self.path_entry, self.auto_button, self.buff_button):
             widget.configure(state="disabled" if self.busy or self.confirming else "normal")
         self.install_button.configure(state="normal" if self.release and not self.busy and not self.confirming else "disabled")
         self.copy_button.configure(state="normal" if self.folder and self.known_eq == self.eq.get().strip()
                                    and not self.busy and not self.confirming else "disabled")
 
     def _path_changed(self, *args):
+        self.close_buff_hotkeys()
         self.installed = self.folder = self.known_eq = ""
         self.release = None
         self.pending = False
@@ -293,6 +297,7 @@ class SkinWindow:
     def _work(self, action, callback):
         if self.busy:
             return
+        self.close_buff_hotkeys()
         self.busy = True
         self.operation_eq = self.eq.get().strip()
         self.progress_value.set(0)
@@ -372,6 +377,9 @@ class SkinWindow:
                             self._log(warning)
                         if result.warnings:
                             self.status.set(f"Selected installation: {self.folder}. Some folders are protected or cleanup is pending; review the log.")
+                        if action == "buff-layouts":
+                            self.status.set("Both buff layouts are ready. Create the two hotkeys in EverQuest.")
+                            self.show_buff_hotkeys()
                     if action in ("install", "restore"):
                         self.pending = False
                     self.progress_value.set(100)
@@ -438,7 +446,7 @@ class SkinWindow:
                 "Do not reload the UI during the operation; after it succeeds, use "
                 f"/loadskin {next_folder} 1. Cleanup of older versions will wait until the game closes."
                 if self.allow_game_running else "EverQuest must be closed.")
-            if not self._confirm("Update VantageUI", f"uifiles\\{next_folder} will be installed.\nThe selected version and two previous fallback versions will be kept.\nModified, unmanaged, and legacy VantageUI folders will not be deleted.\n\n" + live_copy):
+            if not self._confirm("Update VantageUI", f"uifiles\\{next_folder} will be installed.\nThe selected version, its previous backup and prepared buff presets will be kept.\nModified, unmanaged, and legacy VantageUI folders will not be deleted.\n\n" + live_copy):
                 self.automatic.set(False)
                 self.pending = False
                 self._save()
@@ -467,6 +475,72 @@ class SkinWindow:
         self._work("restore", lambda: updater.rollback_last(
             eq, self.backups, log=self.worker_log,
             progress=self.worker_progress))
+
+    def prepare_buffs(self):
+        if self.busy or self.confirming:
+            return
+        live_copy = ("Do not reload the UI until preparation succeeds."
+                     if self.allow_game_running else "Close EverQuest before preparation.")
+        if not self._confirm(
+                "Prepare buff hotkeys",
+                "Install and verify the published vertical 1.44.102 and horizontal 1.44.103 skins.\n"
+                "Existing skin files, character INIs and hotkeys will not be overwritten.\n"
+                "The updater will select 1.44.103; the game changes only when you load a skin.\n"
+                "If interrupted, a completed skin remains installed; retry to finish the pair.\n\n" + live_copy):
+            return
+        self.automatic.set(False)
+        self.pending = False
+        self._save()
+        eq = self.eq.get().strip()
+        self.status.set("Preparing both layouts — do not reload the UI yet.")
+        self._work("buff-layouts", lambda: updater.prepare_buff_layouts(
+            eq, self.backups, log=self.worker_log,
+            allow_game_running=self.allow_game_running, progress=self.worker_progress))
+
+    def show_buff_hotkeys(self):
+        """Show native social commands only after both verified installs succeed."""
+        self.close_buff_hotkeys()
+        dialog = tk.Toplevel(self.root)
+        self.buff_dialog = dialog
+        prepared_eq = self.eq.get().strip()
+        dialog.title("Buffs · vertical / horizontal")
+        dialog.configure(bg=BG)
+        dialog.transient(self.root)
+        dialog.resizable(False, False)
+        frame = ttk.Frame(dialog, padding=20)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text="Create two social hotkeys in EverQuest",
+                  font=("Segoe UI Semibold", 12)).grid(row=0, column=0, columnspan=2, sticky="w")
+        ttk.Label(frame, text="Put one command on the first line of each social, then drag it to your hotbar.\n"
+                  "Switching reloads the whole skin with settings preserved; it is not instant rotation.",
+                  wraplength=570).grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 12))
+        for row, (orientation, version) in enumerate(updater.BUFF_LAYOUT_VERSIONS.items(), 2):
+            command = f"/loadskin {updater.folder_name(version)} 1"
+            ttk.Label(frame, text=f"Buffs {orientation}\n{command}", style="Gold.TLabel").grid(
+                row=row, column=0, sticky="w", pady=8)
+            def copy(value=command):
+                if self.busy or self.confirming or self.eq.get().strip() != prepared_eq:
+                    return
+                self.root.clipboard_clear()
+                self.root.clipboard_append(value)
+                self.status.set("Buff command copied. Paste it into the matching EverQuest social.")
+            ttk.Button(frame, text="Copy command", command=copy).grid(row=row, column=1, padx=(20, 0))
+        ttk.Label(frame, text="Move the horizontal strip using its titlebar. If it is clipped after switching, send a screenshot.\n"
+                  "Saved geometry and fixed-size reload behavior still need confirmation in P99.",
+                  wraplength=570, style="Muted.TLabel").grid(
+            row=4, column=0, columnspan=2, sticky="w", pady=(12, 6))
+        close = ttk.Button(frame, text="Close", command=dialog.destroy)
+        close.grid(row=5, column=1, sticky="e", pady=(8, 0))
+        close.focus_set()
+        dialog.bind("<Escape>", lambda event: dialog.destroy())
+
+    def close_buff_hotkeys(self):
+        if self.buff_dialog is not None:
+            try:
+                self.buff_dialog.destroy()
+            except tk.TclError:
+                pass
+            self.buff_dialog = None
 
     def toggle_auto(self):
         self._save()
@@ -500,6 +574,7 @@ def self_test():
         assert str(app.install_button["state"]) == "disabled"
         assert not app.automatic.get()
         assert str(app.copy_button["state"]) == "disabled"
+        assert str(app.buff_button["state"]) == "normal"
         app.installed = app_version()
         app.folder = updater.folder_name(app.installed)
         app.known_eq = app.eq.get().strip()
@@ -511,6 +586,7 @@ def self_test():
         app._controls()
         assert str(app.restore_button["state"]) == "disabled"
         assert str(app.copy_button["state"]) == "disabled"
+        assert str(app.buff_button["state"]) == "disabled"
         root.destroy()
     return {"status": "PASS", "version": app_version(), "network": False, "live_skin_writes": False}
 

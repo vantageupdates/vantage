@@ -1,5 +1,34 @@
 # VantageUI releases
 
+## 1.44.103
+
+Optional horizontal buffs preset: `VantageUI-v1.44.103`.
+The already-published `VantageUI-v1.44.102` remains the vertical preset.
+
+- One compact horizontal row retains all 25 native button definitions, 24x24
+  click areas and untouched 20x20 spell icon decals. P99 controls how many buff
+  slots are actually usable; this does not increase its capacity.
+- The existing graphite window frame and native titlebar provide a drag area.
+  Static vertical name/number/decorative lanes are collapsed in this preset;
+  native icon tooltips remain the way to inspect effect names. No new command
+  handlers or duplicate buff controls are introduced.
+- The standalone updater adds **Buff hotkeys…**. After explicit confirmation,
+  it verifies and prepares both immutable published skins, then presents two
+  copyable native social commands. It never writes social/hotkey or UI INIs.
+- Switching uses `/loadskin VantageUI-v1.44.102 1` for vertical and
+  `/loadskin VantageUI-v1.44.103 1` for horizontal. This is a full skin reload
+  with settings preserved, not instantaneous window rotation. Move the strip
+  using its titlebar; saved-size handling still needs native confirmation.
+- Prepared 102/103 skins are retained by this updater in addition to the normal
+  active/previous pair. Older updater builds do not know these preset pins.
+  Preparation refuses to replace a newer selected UI, modified presets,
+  unmanaged folder collisions or changed release bytes.
+
+All other skin assets are unchanged except the visible 103 version badge.
+Binding, geometry, integrity and temporary-install tests are offline checks;
+native layout, dragging, tooltips and right-click cancellation require a reload
+and confirmation in P99. No live game installation is performed by the build.
+
 ## 1.44.102
 
 Install folder: `VantageUI-v1.44.102`.

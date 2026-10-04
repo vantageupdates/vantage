@@ -50,6 +50,43 @@ unchanged. Geometry checks are not proof of native font/scroll rendering.
 This is native-size source polish, not an
 engine-level resolution upgrade or a claim of in-game verification.
 
+## Buffs: vertical and horizontal hotkeys
+
+The 1.44.103 source snapshot is the optional horizontal buff strip. Vertical
+remains available as the immutable published 1.44.102 skin; neither preset
+replaces the other. The horizontal strip uses the existing dark frame/titlebar,
+native icon art and button bindings. Names are inspected through native tooltips
+instead of a permanently displayed vertical name lane. This is fixed geometry,
+not an automatic orientation or resizing system.
+
+In the standalone **VantageUI-Updater 1.44.103**, choose **Buff hotkeys…** and
+confirm preparation. Both releases are fetched by exact stable tags and their
+assets/files verified before they are presented as ready. Existing edited or
+unmanaged folders are preserved and refused, not repaired or silently adopted.
+If the second installation fails, a completed first skin remains available;
+retry preparation instead of loading a partially prepared folder.
+
+Create two social hotkeys in P99, with one command on their first line:
+
+| Social name | First-line command |
+| --- | --- |
+| Buffs vertical | `/loadskin VantageUI-v1.44.102 1` |
+| Buffs horizontal | `/loadskin VantageUI-v1.44.103 1` |
+
+Drag both socials to your existing hotbar. Each switches the entire skin with
+settings preserved; it is not an instant toggle inside BuffWindow. The updater
+does not create/overwrite any socials, change character INIs or load the skin
+for you. Move the horizontal strip using its titlebar. Both presets are fixed-size;
+saved-size handling after reload still needs native confirmation. If it is clipped,
+report a screenshot rather than using a settings-resetting reload to fix one window.
+Check actual icon placement, tooltips, dragging and right-click cancellation
+inside P99. Source bounds and tests are not native rendering verification.
+
+This updater retains registered 102/103 preset folders. Older Companion/updater
+builds use their own active/previous-only cleanup policy; they may retire older
+presets after future UI releases. Use the current updater to prepare a matching
+pair; this 103 updater refuses pair preparation when a newer UI is selected.
+
 The 1.44.101 definition pass gives all buff buttons explicit positions in the
 numbered icon column and removes opaque inactive backplates, targeting the
 reported square in the text area. Native buff icons, names and cancellation
@@ -144,7 +181,7 @@ version or tag. A UI-only release does not increment Companion and does not buil
 or publish `Vantage.exe`. After focused and complete tests, coordinate publication
 of the updater and both transport assets on a reviewed
 `vantage-ui-v<major.minor.patch>` tag in `vantageupdates/vantage`. For this
-candidate the tag is `vantage-ui-v1.44.102`. Verify public asset sizes and
+candidate the tag is `vantage-ui-v1.44.103`. Verify public asset sizes and
 SHA-256 digests against the tested artifacts. An arbitrary source push must not
 automatically publish an unreviewed UI update. The repository
 [release policy](../AGENTS.md) records the separation between Companion and UI
@@ -202,13 +239,10 @@ them in `uifiles\.vantage-ui-registry.json`, with the namespace lock
 `uifiles\.vantage-ui-update.lock`. The legacy `uifiles\VantageUI` folder remains
 untouched.
 
-The updater retains the active managed version and two earlier fallback versions
-(three folders in normal upgrade order). The shared registry still records the
-active and immediate previous selection; both are retained even when edited.
-The second older fallback is chosen from registered, non-retired versions in
-numeric version order, never from a scan of arbitrary skin folders. Following a
-rollback, a newer previous selection is additionally protected, as are other
-newer registered versions. “Active”
+The updater retains the active managed version and its immediate previous
+selection; both are retained even when edited. This updater additionally retains
+registered native buff presets 1.44.102 and 1.44.103, never by scanning or adopting
+arbitrary skin folders. Older updater builds do not have these preset pins. “Active”
 means the updater's selection; it does not mean EverQuest has loaded that folder.
 Only older registered cleanup candidates whose complete contents still match
 their recorded release may be deleted. A modified registered candidate is

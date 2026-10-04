@@ -15,6 +15,55 @@ def test_automatic_updates_are_opt_in(tmp_path):
     assert load_settings(tmp_path/'none.json')['automatic'] is False
 
 
+def test_buff_hotkeys_require_explicit_confirmation_and_stop_auto(window, monkeypatch):
+    window.automatic.set(True)
+    prompts, calls = [], []
+    monkeypatch.setattr(window, '_confirm', lambda title, text: prompts.append(text) or False)
+    monkeypatch.setattr(window, '_work', lambda *args: calls.append(args))
+    window.prepare_buffs()
+    assert not calls and window.automatic.get()
+    assert 'hotkeys will not be overwritten' in prompts[0]
+    monkeypatch.setattr(window, '_confirm', lambda *_: True)
+    monkeypatch.setattr(gui.updater, 'prepare_buff_layouts', lambda *args, **kwargs: calls.append((args, kwargs)))
+    monkeypatch.setattr(window, '_work', lambda action, callback: callback())
+    window.prepare_buffs()
+    assert not window.automatic.get() and calls[0][1]['allow_game_running'] is False
+    window.busy = True
+    window._controls()
+    assert str(window.buff_button['state']) == 'disabled'
+
+
+def test_successful_pair_opens_copyable_native_hotkeys_and_path_change_closes_dialog(window):
+    window.events.put(('done', 'buff-layouts', gui.updater.InstallResult(
+        '1.44.103', 0, 'buff-layouts-ready', 'VantageUI-v1.44.103')))
+    window._pump()
+    assert 'Both buff layouts are ready' in window.status.get()
+    dialog = window.buff_dialog
+    assert dialog is not None
+    frame = dialog.winfo_children()[0]
+    labels = [widget.cget('text') for widget in frame.winfo_children()
+              if isinstance(widget, gui.ttk.Label)]
+    assert any('/loadskin VantageUI-v1.44.102 1' in text for text in labels)
+    assert any('/loadskin VantageUI-v1.44.103 1' in text for text in labels)
+    buttons = [widget for widget in frame.winfo_children() if isinstance(widget, gui.ttk.Button)
+               and widget.cget('text') == 'Copy command']
+    buttons[0].invoke()
+    assert window.root.clipboard_get() == '/loadskin VantageUI-v1.44.102 1'
+    buttons[1].invoke()
+    assert window.root.clipboard_get() == '/loadskin VantageUI-v1.44.103 1'
+    window.eq.set(window.eq.get() + '-different')
+    assert window.buff_dialog is None
+    assert not dialog.winfo_exists()
+
+
+def test_failed_pair_never_shows_hotkey_ready_dialog(window):
+    window.busy = True
+    window.events.put(('error', 'buff-layouts', gui.updater.SkinUpdateError('Fixture failure')))
+    window._pump()
+    assert window.buff_dialog is None
+    assert 'did not complete' in window.status.get()
+
+
 def test_settings_validate_types(tmp_path):
     path=tmp_path/'settings.json'
     path.write_text(json.dumps({'eq_dir':42,'automatic':'true'}))
@@ -334,6 +383,9 @@ def test_minimum_window_keeps_versions_wrapped_status_and_log_visible(tk_master,
         assert destination_label.winfo_ismapped()
         assert status_label.winfo_ismapped() and status_label.winfo_height() > 24
         assert log_index and app.logbox.dlineinfo(log_index) is not None
+        for button in (app.check_button, app.install_button, app.restore_button, app.buff_button):
+            assert button.winfo_ismapped()
+            assert button.winfo_rootx() + button.winfo_width() <= root.winfo_rootx() + root.winfo_width() - 24
     finally:
         root.destroy()
 
