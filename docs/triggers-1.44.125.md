@@ -3,7 +3,7 @@
 Triggers is an independent Quick Bar tool for the existing custom trigger
 library. It uses the same parser, saved rules and timer engine as before;
 automatic buff and spell tracking remains separate. This guide describes the
-candidate implementation. Final release verification is pending below.
+released 1.44.125 implementation. Final verification evidence is recorded below.
 
 ## Open and edit a trigger
 
@@ -243,7 +243,20 @@ blocked by the agent thread limit. Author inspection and captures do not
 replace that gate. No live EverQuest, physical audio or screen-reader
 certification is claimed.
 
-**Pending at this documentation handoff:** stable release publication and
-public asset/digest verification. The release owner will append final public
-evidence; the completed local candidate and full suite do not by themselves
-mark 1.44.125 published.
+**Public release verified on 2026-10-04:**
+[Vantage Companion 1.44.125](https://github.com/vantageupdates/vantage/releases/tag/v1.44.125)
+is stable, non-draft and GitHub Latest, published at 20:39:32 UTC. The tag
+resolves to tested source commit `08993d4a64054f170366ac755fc1349d1196873c`.
+The uploaded `Vantage.exe` is exactly 75,935,843 bytes; GitHub's SHA-256 digest
+matches the tested local candidate's `d4eeea76f3dcd22e90f3f33b0b8dc4f8030804e607b45169970af31d9da064aa`.
+
+The [public share page](https://vantageupdates.github.io/vantage/companion/share.html)
+returned HTTP 200 with the reviewed paste instructions and no-account message.
+Its deployed Git blob `d5cee0d45fadb90fa014b19de245cf0ebf28ab02` matches the
+release source. The existing
+[Companion publisher run](https://github.com/vantageupdates/vantage/actions/runs/37232922605)
+completed successfully. These public checks did not send a private share code.
+
+The running app and user's installed executable were not replaced. Install
+the published update manually through Vantage. VantageUI's independent release
+channel and skin files were not changed by this Companion release.
