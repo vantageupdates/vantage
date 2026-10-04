@@ -35,6 +35,17 @@ health bars with yellow/orange/red thresholds, and restored native containers.
 Keep future exports explicit and review
 their asset diffs before packaging or publication.
 
+The 1.44.102 native-fit pass avoids stretching wide button artwork into square
+hotbar spell cells, and gives the spellbook Done action dedicated 80x22 faces.
+Native click areas, icons, control order and bindings stay unchanged. English
+help text clarifies tracking colors, applying a font and dismissing a pet;
+raid/guild tooltip typos are corrected. A follow-up buff correction clears
+hover/pressed backplates too: the user's new screenshot confirmed that the
+1.44.101 interactive outline still painted a square in the text area. Native
+icons, cancellation bindings and defined numbered holders remain intact.
+This is native-size source polish, not an
+engine-level resolution upgrade or a claim of in-game verification.
+
 The 1.44.101 definition pass gives all buff buttons explicit positions in the
 numbered icon column and removes opaque inactive backplates, targeting the
 reported square in the text area. Native buff icons, names and cancellation
@@ -129,7 +140,7 @@ version or tag. A UI-only release does not increment Companion and does not buil
 or publish `Vantage.exe`. After focused and complete tests, coordinate publication
 of the updater and both transport assets on a reviewed
 `vantage-ui-v<major.minor.patch>` tag in `vantageupdates/vantage`. For this
-candidate the tag is `vantage-ui-v1.44.101`. Verify public asset sizes and
+candidate the tag is `vantage-ui-v1.44.102`. Verify public asset sizes and
 SHA-256 digests against the tested artifacts. An arbitrary source push must not
 automatically publish an unreviewed UI update. The repository
 [release policy](../AGENTS.md) records the separation between Companion and UI

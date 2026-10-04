@@ -446,7 +446,7 @@
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
-    <TooltipReference>Pet Get Lost</TooltipReference>
+    <TooltipReference>Dismiss your pet.</TooltipReference>
     <Style_Checkbox>false</Style_Checkbox>
     <!--<RadioGroup/>-->
     <Text>Go Away</Text>

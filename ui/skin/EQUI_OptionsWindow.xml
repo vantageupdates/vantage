@@ -708,7 +708,8 @@
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <Style_Checkbox>false</Style_Checkbox>
-    <Text>Accept</Text>
+    <TooltipReference>Apply the selected font.</TooltipReference>
+    <Text>Apply</Text>
     <TextColor>
       <R>240</R>
       <G>243</G>

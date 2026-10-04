@@ -66,7 +66,7 @@ def test_pet_health_and_commands_are_centered_in_compact_window():
               'Back':(0,108,62,18),'Lost':(66,108,62,18)}
     tooltips={'Attack':'Pet Attack','Follow':'Pet Follow Me','Taunt':'Pet Taunt',
               'Guard':'Pet Guard Here','Sit':'Pet Sit Down','Stand':'Pet Stand Up',
-              'Back':'Pet Back Off','Lost':'Pet Get Lost'}
+              'Back':'Pet Back Off','Lost':'Dismiss your pet.'}
     parent=xml.find("Screen[@item='PetInfoWindow']")
     assert rect(parent)==(50,160,136,135)
     assert parent.findtext('DrawTemplate') == 'WDT_RoundedNoTitle'

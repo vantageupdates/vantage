@@ -257,7 +257,7 @@
     <RightAnchorToLeft>true</RightAnchorToLeft>
     <Style_Transparent>false</Style_Transparent>
     <Style_Checkbox>false</Style_Checkbox>
-    <TooltipReference>Promote the selected player to Officer (GuildLeader only), player must be targetted.</TooltipReference>
+    <TooltipReference>Promote the selected player to Officer (GuildLeader only), player must be targeted.</TooltipReference>
     <Text>Promote</Text>
     <TextColor>
       <R>240</R>

@@ -130,4 +130,7 @@ def native_contract(xml):
 
 
 def test_options_all_other_native_bindings_and_settings_are_unchanged():
-    assert native_contract(ET.parse(SKIN / 'EQUI_OptionsWindow.xml').getroot()) == '0aee10eda2a9f879b2bd4ac9db5abe62e289a4e47e8185e02875d584d5984372'
+    # 1.44.102 reviews only OGP_ChangeFont's Apply caption/help. The whole
+    # nonvisual tree stays pinned; test_ui_copy102 also checks the prior tree
+    # after excluding exactly those two reviewed copy fields.
+    assert native_contract(ET.parse(SKIN / 'EQUI_OptionsWindow.xml').getroot()) == 'fbbd7bee7d9b1296510d51c2b7dc5a2822977a996b564da25356c8fea570d385'

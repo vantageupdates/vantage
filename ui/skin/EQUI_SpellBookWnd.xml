@@ -121,6 +121,101 @@
       <Duration>1000</Duration>
     </Frames>
   </Ui2DAnimation>
+  <Ui2DAnimation item="SBW_A_DoneNormal">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>spellbook_modern.png</Texture>
+      <Location>
+        <X>380</X>
+        <Y>24</Y>
+      </Location>
+      <Size>
+        <CX>80</CX>
+        <CY>22</CY>
+      </Size>
+      <Hotspot>
+        <X>0</X>
+        <Y>0</Y>
+      </Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="SBW_A_DoneFlyby">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>spellbook_modern.png</Texture>
+      <Location>
+        <X>380</X>
+        <Y>48</Y>
+      </Location>
+      <Size>
+        <CX>80</CX>
+        <CY>22</CY>
+      </Size>
+      <Hotspot>
+        <X>0</X>
+        <Y>0</Y>
+      </Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="SBW_A_DonePressed">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>spellbook_modern.png</Texture>
+      <Location>
+        <X>380</X>
+        <Y>72</Y>
+      </Location>
+      <Size>
+        <CX>80</CX>
+        <CY>22</CY>
+      </Size>
+      <Hotspot>
+        <X>0</X>
+        <Y>0</Y>
+      </Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="SBW_A_DonePressedFlyby">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>spellbook_modern.png</Texture>
+      <Location>
+        <X>380</X>
+        <Y>96</Y>
+      </Location>
+      <Size>
+        <CX>80</CX>
+        <CY>22</CY>
+      </Size>
+      <Hotspot>
+        <X>0</X>
+        <Y>0</Y>
+      </Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
+  <Ui2DAnimation item="SBW_A_DoneDisabled">
+    <Cycle>false</Cycle>
+    <Frames>
+      <Texture>spellbook_modern.png</Texture>
+      <Location>
+        <X>380</X>
+        <Y>120</Y>
+      </Location>
+      <Size>
+        <CX>80</CX>
+        <CY>22</CY>
+      </Size>
+      <Hotspot>
+        <X>0</X>
+        <Y>0</Y>
+      </Hotspot>
+      <Duration>1000</Duration>
+    </Frames>
+  </Ui2DAnimation>
   <StaticAnimation item="SBW_ModernBackground">
     <ScreenID>ModernBackground</ScreenID>
     <RelativePosition>true</RelativePosition>
@@ -1378,11 +1473,11 @@
       <B>222</B>
     </TextColor>
     <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+      <Normal>SBW_A_DoneNormal</Normal>
+      <Pressed>SBW_A_DonePressed</Pressed>
+      <Flyby>SBW_A_DoneFlyby</Flyby>
+      <Disabled>SBW_A_DoneDisabled</Disabled>
+      <PressedFlyby>SBW_A_DonePressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
   <Button item="SBW_MeditateButton">

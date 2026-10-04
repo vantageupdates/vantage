@@ -1,5 +1,35 @@
 # VantageUI releases
 
+## 1.44.102
+
+Install folder: `VantageUI-v1.44.102`.
+
+- The spellbook Done action has five dedicated 80x22 native-size faces with
+  clean fine contours, transparent corners and separate hover/pressed/disabled
+  states. The previous shared 120x24 faces no longer need rescaling. Every
+  existing spellbook pixel outside the five new atlas cells is retained.
+- All 40 spell cells across the four hotbars use the existing matching 40x40
+  background instead of stretching a 120x24 face. Icons, holders, offsets,
+  native identifiers, positions, sizes and child order are unchanged.
+- English tracking-color tooltips, a clearer font Apply action and explicit
+  pet-dismissal help improve control clarity without changing their behavior.
+  Two raid/guild tooltip typos are corrected.
+- Corrects the remaining buff hover square reported after 1.44.101: all five
+  buff-button chrome states are now fully transparent, including hover and
+  pressed states. Native icon decals, named effects, cancellation bindings,
+  locations and crisp numbered holders are unchanged. The earlier clear
+  Normal/Disabled faces did not remove the interactive-state outline.
+- Preserves item/spell icons, gauges, saved layouts and DPI settings.
+
+Source geometry, native bindings, atlas containment, state artwork and pixel
+preservation are verified offline. The user confirmed the residual artifact
+appears on hover. Load the new skin to verify actual rendering, cancellation
+and native clicks; this release does not claim a live-renderer certification.
+Per-character skin selection can remain on an older installed version. No
+game files or character INIs are changed by this release build.
+
+Load with `/loadskin VantageUI-v1.44.102 1`.
+
 ## 1.44.101
 
 Install folder: `VantageUI-v1.44.101`.

@@ -852,7 +852,7 @@
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
     <Style_Transparent>false</Style_Transparent>
-    <TooltipReference>Refuse an invtitation to raid</TooltipReference>
+    <TooltipReference>Refuse an invitation to raid</TooltipReference>
     <Style_Checkbox>false</Style_Checkbox>
     <ButtonDrawTemplate>
       <Normal>A_SmallBtnNormal</Normal>

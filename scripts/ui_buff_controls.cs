@@ -42,16 +42,11 @@ public static class VantageBuffControls {
             int b=(int)Math.Round(face*(1-edge)+75*edge);
             Pixel(data,1+x,1+y,r,g,b,(int)Math.Round(a*255));
         }
-        // Normal and disabled must never paint an empty standalone square.
-        // Active buff icons still come from the untouched BuffIcons decal.
+        // The client can paint hover chrome in the name lane independently of
+        // the icon decal. Keep ALL states clear, not just Normal/Disabled;
+        // native BuffIcons, tooltips and cancellation bindings are untouched.
         for(int state=0;state<5;state++)for(int y=0;y<24;y++)for(int x=0;x<24;x++) {
-            int alpha=0,r=0,g=0,b=0;
-            if(state!=0 && state!=3) {
-                double ring=Math.Max(0,Coverage(x,y,.25)-Coverage(x,y,1.25));
-                alpha=(int)Math.Round(ring*(state==1?170:state==2?210:235));
-                r=state==1?177:220;g=state==1?156:198;b=state==1?111:152;
-            }
-            Pixel(data,32+x,24*state+y,r,g,b,alpha);
+            Pixel(data,32+x,24*state+y,0,0,0,0);
         }
         File.WriteAllBytes(destination,data);
     }

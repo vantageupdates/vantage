@@ -667,7 +667,7 @@
     </TextColor>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -691,7 +691,7 @@
     </TextColor>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -715,7 +715,7 @@
     </TextColor>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -739,7 +739,7 @@
     </TextColor>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -763,7 +763,7 @@
     </TextColor>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -787,7 +787,7 @@
     </TextColor>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -811,7 +811,7 @@
     </TextColor>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -835,7 +835,7 @@
     </TextColor>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -859,7 +859,7 @@
     </TextColor>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -883,7 +883,7 @@
     </TextColor>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -2207,7 +2207,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -2225,7 +2225,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -2243,7 +2243,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -2261,7 +2261,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -2279,7 +2279,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -2297,7 +2297,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -2315,7 +2315,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -2333,7 +2333,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -2351,7 +2351,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -2369,7 +2369,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -3036,7 +3036,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -3054,7 +3054,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -3072,7 +3072,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -3090,7 +3090,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -3108,7 +3108,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -3126,7 +3126,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -3144,7 +3144,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -3162,7 +3162,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -3180,7 +3180,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -3198,7 +3198,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -3865,7 +3865,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -3883,7 +3883,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -3901,7 +3901,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -3919,7 +3919,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -3937,7 +3937,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -3955,7 +3955,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -3973,7 +3973,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -3991,7 +3991,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -4009,7 +4009,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>
@@ -4027,7 +4027,7 @@
     </Size>
     <SpellGemDrawTemplate>
       <Holder>HB_SpellGemHolder</Holder>
-      <Background>A_BtnFlyby</Background>
+      <Background>A_SquareBtnFlyby</Background>
     </SpellGemDrawTemplate>
     <SpellIconOffsetX>7</SpellIconOffsetX>
     <SpellIconOffsetY>7</SpellIconOffsetY>

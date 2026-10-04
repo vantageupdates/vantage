@@ -33,7 +33,7 @@
       <CX>20</CX>
       <CY>20</CY>
     </Size>
-    <!--<TooltipReference/>-->
+    <TooltipReference>Red targets</TooltipReference>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>R</Text>
     <TextColor>
@@ -64,7 +64,7 @@
       <CX>20</CX>
       <CY>20</CY>
     </Size>
-    <!--<TooltipReference/>-->
+    <TooltipReference>Yellow targets</TooltipReference>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>Y</Text>
     <TextColor>
@@ -95,7 +95,7 @@
       <CX>20</CX>
       <CY>20</CY>
     </Size>
-    <!--<TooltipReference/>-->
+    <TooltipReference>White targets</TooltipReference>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>W</Text>
     <TextColor>
@@ -126,7 +126,7 @@
       <CX>20</CX>
       <CY>20</CY>
     </Size>
-    <!--<TooltipReference/>-->
+    <TooltipReference>Blue targets</TooltipReference>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>B</Text>
     <TextColor>
@@ -157,7 +157,7 @@
       <CX>20</CX>
       <CY>20</CY>
     </Size>
-    <!--<TooltipReference/>-->
+    <TooltipReference>Light-blue targets</TooltipReference>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>L</Text>
     <TextColor>
@@ -188,7 +188,7 @@
       <CX>20</CX>
       <CY>20</CY>
     </Size>
-    <!--<TooltipReference/>-->
+    <TooltipReference>Green targets</TooltipReference>
     <Style_Checkbox>true</Style_Checkbox>
     <Text>G</Text>
     <TextColor>

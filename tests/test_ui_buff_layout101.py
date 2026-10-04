@@ -60,7 +60,7 @@ def test_buff_buttons_have_explicit_icon_column_locations_and_native_bindings(fi
     assert screen.findtext('Style_Border') == 'false'
 
 
-def test_inactive_buff_chrome_is_fully_transparent_and_interactive_states_are_only_rims():
+def test_all_buff_chrome_states_are_fully_transparent_including_hover():
     root = xml('EQUI_BuffWindow.xml')
     data = (SKIN / 'Buff_Background.tga').read_bytes()
     assert data[:3] == bytes((0, 0, 2))
@@ -72,13 +72,7 @@ def test_inactive_buff_chrome_is_fully_transparent_and_interactive_states_are_on
         assert tuple(int(frame.findtext(p)) for p in
                      ('Location/X', 'Location/Y', 'Size/CX', 'Size/CY')) == (32, 24 * state_index, 24, 24)
         cell = [pixel(data, 32 + x, 24 * state_index + y) for y in range(24) for x in range(24)]
-        if state in ('Normal', 'Disabled'):
-            assert set(cell) == {(0, 0, 0, 0)}
-        else:
-            assert any(c[3] for c in cell)
-            assert all(pixel(data, 32 + x, 24 * state_index + y)[3] == 0
-                       for x in range(3, 21) for y in range(3, 21))
-            assert pixel(data, 32, 24 * state_index)[3] == 0
+        assert set(cell) == {(0, 0, 0, 0)}, state
 
 
 def test_numbered_holders_have_separate_crisp_native_contours():
