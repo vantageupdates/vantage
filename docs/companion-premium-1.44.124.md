@@ -33,7 +33,7 @@ Tracked regression files:
 
 Mobile: the shipped page was rendered using Qt's Chromium runtime at 319×700, 390×844 and 768×900. Eight tabs at each size, person search, linked guild loot, named-zone records, item detail and cached guild data after a synthetic offline failure were checked. All 33 recorded states retained one selected tab/visible panel and no page-level horizontal overflow. The server bound only to loopback and returned fake data; no real credentials, guild requests, phone pairing or EQ stream were exercised. No mobile production layout changes were needed for this pass.
 
-Validation status: the complete suite and final portable self-test passed. Public release verification is recorded below separately.
+Validation status: the complete suite and final portable self-test passed. The stable public release, tag, asset size and GitHub SHA-256 also matched the tested candidate.
 
 ## Rendering and motion decisions
 
@@ -66,4 +66,7 @@ Live EverQuest behavior, real audio quality/background playback, actual OCR cali
 - Final single-file portable candidate: `Vantage.exe`, file/product version **1.44.124**, **75,889,212 bytes**.
 - SHA-256: `92016ded08d1882c75a9f0a01c836ced82ee4b733dc50af5a92ed51b24864ac7`.
 - Portable self-test: exit **0**, version marker **1.44.124**, isolated profile; no installed executable was replaced.
-- Publication/public asset verification: pending. The tested candidate and source are frozen; independent fresh-eyes visual review and live validation remain subject to the limits above.
+- Published stable Latest: [Vantage 1.44.124](https://github.com/vantageupdates/vantage/releases/tag/v1.44.124), **2026-10-04 06:12:23 UTC**, neither draft nor prerelease.
+- The public annotated `v1.44.124` tag resolves to tested source commit `6f79af809bf0a3bf23af9e6668c54400384f8a91`.
+- Public `Vantage.exe` is uploaded. GitHub's public asset metadata reports **75,889,212 bytes** and the exact SHA-256 above, matching the local tested candidate. Verification used GitHub metadata; no fresh public asset download was performed.
+- No running installed app was replaced. Independent fresh-eyes visual review and live validation remain subject to the limits above; Companion publication does not publish VantageUI.
