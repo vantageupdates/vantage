@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections import deque
 import time
 
-from PySide6.QtCore import QEvent, QPointF, QSize, Qt, QTimer, Signal
+from shiboken6 import isValid
+
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QAccessible, QAccessibleAnnouncementEvent, QColor, QPainter, QPen)
 from PySide6.QtWidgets import (
@@ -638,6 +640,7 @@ class QuickBar(ParserWindow):
     _allow_clickthrough = False
     _LOG_ONLINE_DEBOUNCE_MS = 2000
     _DIALOG_ACTIONS = {
+        "triggers": ("_triggers_dialog_instance", "show_triggers"),
         "spell_library": ("_spell_library_dialog", "show_spell_library"),
         "mobile": ("_mobile_dialog_instance", "show_mobile_share"),
         "device_sync": ("_device_sync_dialog_instance", "show_device_sync"),
@@ -660,6 +663,8 @@ class QuickBar(ParserWindow):
         self._header_visible = True
         self._tick_snapshot = None
         self._snapping_height = False
+        self._column_footer_height = 0
+        self._column_layout_busy = False
         self._last_orientation_toggle = 0.0
         self._log_online = False
         self._log_pulse_on = False
@@ -683,6 +688,7 @@ class QuickBar(ParserWindow):
         self._title_icon.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._setup_actions()
+        self._setup_column_viewport()
         self._set_header_tab_order()
         # The logical buttons remain 27 px, while the inherited graphics view
         # scales their complete replica. Do not let QGraphicsView's scene size
@@ -854,6 +860,111 @@ class QuickBar(ParserWindow):
         self.content.addWidget(
             self.notification_rail, 0,
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+
+    def _setup_column_viewport(self):
+        """Expose a shorter saved column without shrinking its 24 px actions."""
+        button = QToolButton(self._scale_view)
+        button.setObjectName("QuickBarColumnScrollButton")
+        button.setFixedSize(24, 24)
+        button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        button.setStyleSheet("""
+            QToolButton#QuickBarColumnScrollButton {
+                color: #E7C979; background: #12151A;
+                border: 1px solid #4A4230; border-radius: 3px;
+                padding: 0; font-size: 12px;
+            }
+            QToolButton#QuickBarColumnScrollButton:hover {
+                background: #23211A; border-color: #9D8750;
+            }
+            QToolButton#QuickBarColumnScrollButton:focus {
+                border: 2px solid #E7C979;
+            }
+            QToolButton#QuickBarColumnScrollButton:pressed {
+                background: #353022;
+            }
+        """)
+        button.clicked.connect(lambda _checked=False: self._page_column_actions())
+        button.hide()
+        self._column_scroll_button = button
+        self._scale_view.verticalScrollBar().valueChanged.connect(
+            self._sync_column_scroll_hint)
+        # Register all authored children before first show; visibility is
+        # evaluated only when navigating, not while the proxy is initializing.
+        for widget in [self.orientation_button, *self._buttons.values(),
+                       self.tick_countdown, button]:
+            widget.installEventFilter(self)
+        self._scale_view.viewport().installEventFilter(self)
+        self._title.setToolTip(
+            "Drag the Quick Bar. In a shorter column, use the mouse wheel, "
+            "Page Up/Down, or the arrow below. Right-click or Shift+F10 "
+            "opens All Quick Bar actions.")
+
+    def _column_focus_actions(self):
+        widgets = [getattr(self, "orientation_button", None)]
+        for key, button in self._buttons.items():
+            widgets.append(button)
+            if key == "tick":
+                widgets.append(getattr(self, "tick_countdown", None))
+        return [widget for widget in widgets if widget is not None and
+                isValid(widget) and
+                widget.isEnabled() and widget.isVisibleTo(self._surface)]
+
+    def _layout_column_scroll_hint(self):
+        button = getattr(self, "_column_scroll_button", None)
+        if button is None or self._column_layout_busy:
+            return
+        self._column_layout_busy = True
+        try:
+            clipped = (self._orientation == "vertical" and
+                       not self._collapsed and
+                       self._design_size.height() > self._scale_view.height())
+            footer_height = 24 if clipped else 0
+            if footer_height != self._column_footer_height:
+                self._column_footer_height = footer_height
+                self._scale_view.setViewportMargins(0, 0, 0, footer_height)
+            button.setVisible(clipped)
+            if clipped:
+                button.move(max(0, (self._scale_view.width() - 24) // 2),
+                            max(0, self._scale_view.height() - 24))
+                button.raise_()
+        finally:
+            self._column_layout_busy = False
+
+    def _sync_column_scroll_hint(self, _value=None):
+        button = getattr(self, "_column_scroll_button", None)
+        if button is None:
+            return
+        scroll = self._scale_view.verticalScrollBar()
+        below = scroll.value() < scroll.maximum()
+        label = "More Quick Bar actions below" if below else \
+            "Return to Quick Bar actions above"
+        button.setText("▼" if below else "▲")
+        button.setAccessibleName(label)
+        button.setAccessibleDescription(
+            "Scroll without resizing. Mouse wheel and Page Up/Down also "
+            "scroll; Tab reveals each action. Right-click or Shift+F10 "
+            "opens All Quick Bar actions.")
+        button.setToolTip(label + " · Wheel / Page Up/Down · "
+                          "Right-click: All Quick Bar actions")
+
+    def _page_column_actions(self, direction=None):
+        if self._orientation != "vertical" or self._collapsed:
+            return
+        scroll = self._scale_view.verticalScrollBar()
+        if direction is None:
+            direction = 1 if scroll.value() < scroll.maximum() else -1
+        step = max(24, self._scale_view.viewport().height() - 24)
+        scroll.setValue(scroll.value() + int(direction) * step)
+
+    def _reveal_column_action(self, widget):
+        if (self._orientation != "vertical" or self._collapsed or
+                widget not in self._column_focus_actions()):
+            return
+        corner = widget.mapTo(self._surface, QPoint(0, 0))
+        rect = self._scale_proxy.mapRectToScene(QRectF(
+            corner.x(), corner.y(), widget.width(), widget.height()))
+        self._scale_view.ensureVisible(rect, 0, 3)
+        self._sync_column_scroll_hint()
 
     def _setup_volume_rocker(self):
         """Add compact, branded master-audio controls to the header."""
@@ -1322,6 +1433,8 @@ class QuickBar(ParserWindow):
         # A one-row command strip can remain recoverable at 18 px high; using
         # the generic panel's 48 px floor would prevent a compact top bar.
         if self._orientation == "vertical":
+            if getattr(self, "_column_native_sizing", False):
+                return self.minimumHeight() / max(1, self._design_size.height())
             # The vertical bar becomes narrow by removing its empty lane, not
             # by shrinking the interactive controls below their authored size.
             return 1.0
@@ -1350,6 +1463,18 @@ class QuickBar(ParserWindow):
 
     def _update_uniform_scale(self):
         """Keep a command strip tight instead of creating an empty viewport."""
+        if self._orientation == "vertical" and not self._collapsed:
+            # The authored canvas grows with the catalog, not the saved
+            # physical rectangle. The shared view supplies native wheel
+            # scrolling, but its refresh normally pins hidden bars to zero.
+            scroll = self._scale_view.verticalScrollBar()
+            offset = scroll.value()
+            self._layout_column_scroll_hint()
+            super()._update_uniform_scale()
+            scroll.setValue(max(scroll.minimum(), min(scroll.maximum(), offset)))
+            self._sync_column_scroll_hint()
+            return
+        self._layout_column_scroll_hint()
         if getattr(self, "_preserving_saved_geometry", False):
             return super()._update_uniform_scale()
         saved = getattr(self, "_saved_presentation_geometry", None)
@@ -1375,10 +1500,61 @@ class QuickBar(ParserWindow):
                 self._snapping_height = False
         super()._update_uniform_scale()
 
+    def _minimum_logical_surface_height(self):
+        if self._orientation == "vertical" and not self._collapsed:
+            return self._design_size.height()
+        return super()._minimum_logical_surface_height()
+
+    def _set_scaled_minimum_size(self):
+        if self._orientation == "vertical" and not self._collapsed:
+            # Enough room for one authored target and a discoverable scroll
+            # control; the full catalog remains in the logical canvas.
+            self.setMinimumSize(self._design_size.width(), 54)
+            return
+        super()._set_scaled_minimum_size()
+
     def parse(self, _timestamp, _text):
         """The Quick Bar contains commands and does not parse log lines."""
 
     def eventFilter(self, watched, event):
+        footer = getattr(self, "_column_scroll_button", None)
+        if (self._orientation == "vertical" and not self._collapsed and
+                event.type() in (QEvent.Type.FocusIn, QEvent.Type.KeyPress)):
+            column_actions = self._column_focus_actions()
+            if watched in column_actions and event.type() == QEvent.Type.FocusIn:
+                QTimer.singleShot(0, lambda target=watched:
+                                  self._reveal_column_action(target))
+            if ((watched in column_actions or watched is footer or
+                 watched is self._scale_view.viewport()) and
+                    event.type() == QEvent.Type.KeyPress):
+                key = event.key()
+                if (key == Qt.Key.Key_Menu or
+                        (key == Qt.Key.Key_F10 and event.modifiers() &
+                         Qt.KeyboardModifier.ShiftModifier)):
+                    self._show_window_context_menu(watched.mapToGlobal(
+                        watched.rect().center()))
+                    return True
+                if key in (Qt.Key.Key_PageDown, Qt.Key.Key_PageUp):
+                    self._page_column_actions(
+                        1 if key == Qt.Key.Key_PageDown else -1)
+                    return True
+                if (footer is not None and footer.isVisible() and
+                        key in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab)):
+                    reverse = (key == Qt.Key.Key_Backtab or bool(
+                        event.modifiers() & Qt.KeyboardModifier.ShiftModifier))
+                    reason = (Qt.FocusReason.BacktabFocusReason if reverse
+                              else Qt.FocusReason.TabFocusReason)
+                    if watched is footer:
+                        target = column_actions[-1 if reverse else 0]
+                        self._scale_view.setFocus(reason)
+                        self._scale_scene.setFocusItem(self._scale_proxy, reason)
+                        target.setFocus(reason)
+                        self._reveal_column_action(target)
+                        return True
+                    if column_actions and watched is column_actions[
+                            0 if reverse else -1]:
+                        footer.setFocus(reason)
+                        return True
         overflow_controls = (
             getattr(self, "_overflow_master_mute_button", None),
             getattr(self, "_overflow_volume_slider", None),
@@ -1444,6 +1620,23 @@ class QuickBar(ParserWindow):
                 event.type() in (QEvent.Type.Show, QEvent.Type.Hide)):
             QTimer.singleShot(0, self.refresh_state)
         return super().eventFilter(watched, event)
+
+    def nativeEvent(self, event_type, message):
+        # Windows' live resize constraint must bound the physical viewport,
+        # not force the full action canvas back into the saved rectangle.
+        # The flag is scoped to the native call only: rendering and presets
+        # retain scale 1 and the authored 24 px column targets.
+        if self._orientation != "vertical" or self._collapsed:
+            return super().nativeEvent(event_type, message)
+        prior_floor = self._minimum_readable_width
+        self._column_native_sizing = True
+        self._minimum_readable_width = max(
+            prior_floor, self._design_size.width())
+        try:
+            return super().nativeEvent(event_type, message)
+        finally:
+            self._minimum_readable_width = prior_floor
+            self._column_native_sizing = False
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -1550,6 +1743,24 @@ class QuickBar(ParserWindow):
 
     def _build_window_context_menu(self):
         menu, actions = super()._build_window_context_menu()
+        first_action = menu.actions()[0] if menu.actions() else None
+        all_actions = menu.addMenu("All Quick Bar actions")
+        menu.removeAction(all_actions.menuAction())
+        menu.insertMenu(first_action, all_actions)
+        all_actions.setToolTipsVisible(True)
+        for key, button in self._buttons.items():
+            if button.isHidden():
+                continue
+            action = all_actions.addAction(
+                button.icon(), str(button.property("BaseLabel") or
+                                   button.accessibleName()))
+            action.setEnabled(button.isEnabled())
+            action.setCheckable(button.isCheckable())
+            action.setChecked(button.isChecked())
+            action.setToolTip(button.toolTip())
+            action.triggered.connect(
+                lambda _checked=False, target=button: target.click())
+        actions["quickbar_actions"] = all_actions.menuAction()
         menu.addSeparator()
         show_header = menu.addAction("Show Quick Bar Header")
         show_header.setCheckable(True)
@@ -1636,6 +1847,7 @@ class QuickBar(ParserWindow):
             self._buttons["updates"].property("UpdateProducts") or ""
         ).split(",")))
         self._set_update_button_presentation(product_names)
+        self._set_triggers_button_presentation()
 
         visible_widgets = [self.orientation_button]
         for key, button in self._buttons.items():
@@ -1725,7 +1937,7 @@ class QuickBar(ParserWindow):
         # smaller of width/height and accumulating a rounding shrink each time.
         self._set_design_size(design_size, preserve_scale=False)
         if preserve_scale and not self._collapsed:
-            if prior_orientation == self._orientation and not vertical:
+            if prior_orientation == self._orientation:
                 # Status/catalog changes must not rewrite the user's exact
                 # physical rectangle. The existing viewport handles narrow
                 # saved bars while every authored target remains 24 px.
@@ -1760,6 +1972,24 @@ class QuickBar(ParserWindow):
         self._update_uniform_scale()
         self._fit_to_available_screen()
         self._sync_vertical_notification_rail()
+
+    def _set_triggers_button_presentation(self):
+        """Keep the independent editor discoverable without widening a column."""
+        button = self._buttons['triggers']
+        # Resolve inherited QSS typography before the first size calculation.
+        # Otherwise the first settings refresh can change the logical width.
+        button.ensurePolished()
+        vertical = self._orientation == 'vertical'
+        text = '' if vertical else 'Triggers'
+        button.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonIconOnly if vertical else
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        button.setText(text)
+        width = 24 if vertical else max(
+            58, button.fontMetrics().horizontalAdvance(text) + 31)
+        button.setFixedSize(width, 24)
+        self._enabled_dots['triggers'].move(
+            16 if vertical else 2, 2 if vertical else 16)
 
     def _set_update_button_presentation(self, product_names=()):
         """Identify pending update products without relying on color alone."""
@@ -1945,8 +2175,19 @@ class QuickBar(ParserWindow):
                 label = str(button.property("BaseLabel") or
                             button.accessibleName())
                 state = "open" if visible else "hidden"
-                button.setToolTip(f"{label} is {state} · click to toggle")
-                button.setAccessibleDescription(f"Currently {state}")
+                if key == "triggers":
+                    monitoring = ("on" if config.data['spells'].get(
+                        'use_custom_triggers', False) else "off")
+                    button.setToolTip(
+                        f"Triggers editor is {state} · custom monitoring is "
+                        f"{monitoring} · click to toggle the editor")
+                    button.setAccessibleDescription(
+                        f"Trigger editor is {state}. Custom trigger monitoring "
+                        f"is {monitoring}. Opening the editor does not change "
+                        "which triggers are enabled.")
+                else:
+                    button.setToolTip(f"{label} is {state} · click to toggle")
+                    button.setAccessibleDescription(f"Currently {state}")
 
         muted = audio_muted()
         mute_button = self._buttons["mute"]
@@ -2347,6 +2588,8 @@ class QuickBar(ParserWindow):
         opener = getattr(self._application, opener_name)
         if key == "settings":
             opener("Quick Bar")
+        elif key == "triggers":
+            opener(owner=self)
         else:
             opener()
         dialog = getattr(self._application, attribute, None)

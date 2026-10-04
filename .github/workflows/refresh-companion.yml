@@ -44,6 +44,7 @@ jobs:
           mkdir -p site/companion
           find site/companion -mindepth 1 -maxdepth 1 -exec rm -rf {} +
           cp source/companion-web/index.html site/companion/
+          cp source/companion-web/share.html site/companion/
           cp source/companion-web/app.css site/companion/
           cp source/companion-web/app.js site/companion/
           cp source/companion-web/sw.js site/companion/

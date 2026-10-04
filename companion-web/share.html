@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#091015">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="description" content="Copy a shared Vantage trigger code and review its contents in Vantage before importing.">
+  <title>Shared Triggers - Vantage Companion</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #091015;
+      --surface: #111b21;
+      --field-bg: #0c151a;
+      --button-bg: #18242a;
+      --button-hover: #202e34;
+      --primary-bg: #4a4122;
+      --primary-text: #fff5c7;
+      --text: #eef3f1;
+      --muted: #a8b7b7;
+      --gold: #d3b85f;
+      --focus: #9ed9ff;
+      --line: #809392;
+      --font-body: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+      --font-code: Consolas, "SFMono-Regular", monospace;
+      --body-size: 1rem;
+      --heading-size: clamp(1.8rem, 5vw, 2.8rem);
+      --subheading-size: 1.25rem;
+      --space-small: .5rem;
+      --space: 1rem;
+      --section-space: 2rem;
+      --page-inset: clamp(1rem, 4vw, 2rem);
+      --content-width: 46rem;
+      --control-radius: .5rem;
+      --panel-radius: .75rem;
+      --target-size: 44px;
+      --focus-width: 3px;
+      font-family: var(--font-body);
+      font-size: 16px;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-size: var(--body-size); line-height: 1.6; }
+    header, main, footer { width: min(100%, var(--content-width)); margin-inline: auto; padding-inline: var(--page-inset); overflow-wrap: anywhere; }
+    header { padding-block: var(--space); color: var(--gold); font-weight: 700; }
+    main { padding-block: var(--space) var(--section-space); }
+    footer { padding-bottom: max(var(--section-space), env(safe-area-inset-bottom)); color: var(--muted); }
+    h1 { margin: 0 0 var(--space); font-size: var(--heading-size); line-height: 1.2; }
+    h2 { margin: 0 0 var(--space-small); font-size: var(--subheading-size); line-height: 1.4; }
+    p { margin: 0 0 var(--space); }
+    section + section { margin-top: var(--section-space); }
+    .intro, .help { color: var(--muted); }
+    .code-panel { padding: var(--space); border: 1px solid var(--line); border-radius: var(--panel-radius); background: var(--surface); }
+    label { display: block; margin-bottom: var(--space-small); font-weight: 700; }
+    textarea { display: block; width: 100%; min-width: 0; min-height: 12rem; resize: vertical; padding: var(--space); border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--field-bg); color: var(--text); font: inherit; font-family: var(--font-code); line-height: 1.5; overflow-wrap: anywhere; }
+    textarea:disabled { color: var(--muted); }
+    .actions { display: flex; flex-wrap: wrap; gap: var(--space-small); margin-top: var(--space); }
+    button { flex: 1 1 12rem; min-width: var(--target-size); min-height: var(--target-size); padding: var(--space-small) var(--space); border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--button-bg); color: var(--text); font: inherit; font-weight: 650; cursor: pointer; }
+    button:not(:disabled):hover { background: var(--button-hover); }
+    .primary { background: var(--primary-bg); color: var(--primary-text); border-color: var(--gold); }
+    .primary:not(:disabled):hover { background: var(--button-hover); }
+    button:disabled { color: var(--muted); background: var(--surface); cursor: not-allowed; }
+    :focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: var(--focus-width); }
+    .skip { position: absolute; top: var(--space-small); left: var(--space-small); z-index: 1; min-height: var(--target-size); padding: var(--space-small) var(--space); background: var(--surface); color: var(--text); transform: translateY(-200%); text-decoration: underline; }
+    .skip:focus { transform: none; }
+    .status { margin-top: var(--space); padding-left: var(--space); border-left: var(--focus-width) solid var(--gold); }
+    .fallback { margin-top: var(--space); }
+    .fallback textarea { min-height: 6rem; }
+    ol { margin: var(--space-small) 0 var(--space); padding-left: 1.5rem; }
+    li + li { margin-top: var(--space-small); }
+    [hidden] { display: none; }
+    @media (prefers-contrast: more) { :root { --muted: var(--text); --line: var(--text); } }
+    @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+    @media (forced-colors: active) {
+      body, .code-panel, .skip { background: Canvas; color: CanvasText; }
+      textarea { background: Field; color: FieldText; border-color: FieldText; }
+      button, .primary { background: ButtonFace; color: ButtonText; border-color: ButtonText; }
+      button:disabled, textarea:disabled { color: GrayText; }
+      :focus-visible { outline-color: Highlight; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to main content</a>
+  <header>Vantage Companion</header>
+  <main id="main" tabindex="-1">
+    <h1>Shared triggers</h1>
+    <p class="intro">Copy the code, then review the pack in Vantage. This page recognizes the code format; Vantage validates its contents during import review.</p>
+    <section class="code-panel">
+      <h2>Copy the share code</h2>
+      <label for="share-code">Trigger share code</label>
+      <p id="code-help" class="help">The code is read-only. You can select it and copy it manually if clipboard access is unavailable.</p>
+      <textarea id="share-code" rows="6" readonly disabled spellcheck="false" wrap="soft" aria-describedby="code-help share-status"></textarea>
+      <div class="actions">
+        <button id="copy-code" class="primary" type="button" disabled>Copy code</button>
+        <button id="copy-link" type="button" disabled>Copy link</button>
+      </div>
+      <p id="share-status" class="status" role="status" aria-live="polite" aria-atomic="true">Checking share code…</p>
+      <div id="link-fallback" class="fallback" hidden>
+        <label for="share-link">Share link</label>
+        <p id="link-help" class="help">Select this link and copy it manually.</p>
+        <textarea id="share-link" rows="3" readonly spellcheck="false" wrap="soft" aria-describedby="link-help"></textarea>
+      </div>
+      <noscript><p>JavaScript is needed to read this link. Copy the complete link from your browser address bar and paste it into Vantage to review it.</p></noscript>
+    </section>
+    <section>
+      <h2>Review in Vantage</h2>
+      <ol>
+        <li>Open Vantage on your PC and choose <strong>Quick Bar → Triggers</strong>.</li>
+        <li>Choose <strong>Paste code or link…</strong> and paste the code or complete share link.</li>
+        <li>Review the preview, check the triggers and audio, then choose <strong>Import selected</strong>.</li>
+      </ol>
+      <p>Imported copies remain Off. Enable only the triggers you want after review.</p>
+    </section>
+  </main>
+  <footer>Nothing is uploaded. Anyone with the link can import its selected rules and audio in Vantage. No account is needed.</footer>
+  <script>
+    (() => {
+      'use strict';
+      const MAX_CODE_CHARS = 49152;
+      const SHARE_PAGE_URL = 'https://vantageupdates.github.io/vantage/companion/share.html';
+      const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+      const codeField = document.getElementById('share-code');
+      const copyCode = document.getElementById('copy-code');
+      const copyLink = document.getElementById('copy-link');
+      const status = document.getElementById('share-status');
+      const linkFallback = document.getElementById('link-fallback');
+      const linkField = document.getElementById('share-link');
+      let shareCode = '';
+
+      function hasCodeFormat(code) {
+        if (code.length > MAX_CODE_CHARS || !code.startsWith('VT1:')) return false;
+        const body = code.slice(4);
+        if (!body || /[^A-Za-z0-9_-]/.test(body)) return false;
+        const remainder = body.length % 4;
+        const tail = ALPHABET.indexOf(body[body.length - 1]);
+        return remainder !== 1 && (remainder !== 2 || (tail & 15) === 0) &&
+          (remainder !== 3 || (tail & 3) === 0);
+      }
+
+      function readFragment() {
+        const candidate = window.location.hash.slice(1);
+        shareCode = hasCodeFormat(candidate) ? candidate : '';
+        codeField.value = shareCode;
+        codeField.disabled = !shareCode;
+        copyCode.disabled = !shareCode;
+        copyLink.disabled = !shareCode;
+        linkFallback.hidden = true;
+        linkField.value = '';
+        status.textContent = shareCode
+          ? 'Share code format recognized. Review it in Vantage.'
+          : !candidate
+            ? 'This link has no share code. Ask the sender for a complete Vantage share link.'
+            : candidate.length > MAX_CODE_CHARS
+              ? 'This share code is too long. Ask the sender for an exported pack file instead.'
+              : 'This share code format is incomplete or malformed. Ask the sender for a new link.';
+      }
+
+      async function copy(kind) {
+        const code = shareCode;
+        if (!code) return;
+        const value = kind === 'code' ? code : SHARE_PAGE_URL + '#' + code;
+        try {
+          if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error('Clipboard unavailable');
+          await navigator.clipboard.writeText(value);
+          if (shareCode !== code) return;
+          status.textContent = kind === 'code'
+            ? 'Code copied. Open Quick Bar → Triggers → Paste code or link… in Vantage.'
+            : 'Link copied. Share it with the person who will review the pack.';
+        } catch {
+          if (shareCode !== code) return;
+          if (kind === 'link') {
+            linkField.value = value;
+            linkFallback.hidden = false;
+          }
+          status.textContent = kind === 'code'
+            ? 'Clipboard access is unavailable. Select the share code above and copy it manually.'
+            : 'Clipboard access is unavailable. Select the share link below and copy it manually.';
+        }
+      }
+
+      copyCode.addEventListener('click', () => copy('code'));
+      copyLink.addEventListener('click', () => copy('link'));
+      window.addEventListener('hashchange', readFragment);
+      readFragment();
+    })();
+  </script>
+</body>
+</html>

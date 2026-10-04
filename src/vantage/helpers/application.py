@@ -63,7 +63,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=124,
+    patch=125,
     build=""
 )
 
@@ -206,6 +206,7 @@ class VantageApp(QApplication):
         self._settings_instance = None
         self._notification_history_dialog = None
         self._feature_settings_instances = {}
+        self._triggers_dialog_instance = None
         self._update_dialog_instance = None
         self._log_monitor_dialog_instance = None
         self._update_controller = UpdateController(CURRENT_VERSION, self)
@@ -966,6 +967,7 @@ class VantageApp(QApplication):
                 "_settings_instance", "_update_dialog_instance",
                 "_log_monitor_dialog_instance", "_mobile_dialog_instance",
                 "_spell_library_dialog", "_about_dialog_instance",
+                "_triggers_dialog_instance",
                 "_notification_history_dialog", "_update_toast"):
             surface = getattr(self, attribute, None)
             if surface is not None and surface not in surfaces:
@@ -1947,6 +1949,84 @@ class VantageApp(QApplication):
         self._about_dialog_instance.show()
         self._about_dialog_instance.raise_()
         self._about_dialog_instance.activateWindow()
+
+    def show_triggers(self, parent=None, owner=None):
+        """Open the existing editor, independently of the Buffs window.
+
+        The Spells parser remains the sole trigger runtime. Showing/reopening
+        this cached nonmodal editor never enables monitoring or resets rows.
+        """
+        owner = owner or parent or self._parsers_dict.get("quickbar")
+        dialog = self._triggers_dialog_instance
+        if dialog is None:
+            from vantage.helpers.settings import CustomTriggerSettings
+            dialog = CustomTriggerSettings(parent=owner)
+            dialog.setModal(False)
+            dialog.setWindowModality(Qt.WindowModality.NonModal)
+            dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+            dialog.finished.connect(
+                lambda _result, current=dialog:
+                self._restore_triggers_focus(current))
+            dialog.destroyed.connect(
+                lambda _object=None, current=dialog:
+                self._forget_triggers_dialog(current))
+            self._triggers_dialog_instance = dialog
+        else:
+            was_visible = dialog.isVisible()
+            if owner is not None and dialog.parentWidget() is not owner:
+                dialog.setParent(owner, dialog.windowFlags())
+            # Reflect settings edited elsewhere only after this window was
+            # closed. Raising an already open editor must not erase a draft.
+            if not was_visible:
+                dialog._load_from_config()
+        dialog._triggers_owner = owner
+        surface = getattr(owner, "scaled_surface", getattr(owner, "_surface", owner))
+        dialog._triggers_focus_target = (
+            surface.focusWidget() if surface is not None else None)
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+        self._refresh_quickbar()
+        return dialog
+
+    def _forget_triggers_dialog(self, dialog):
+        if self._triggers_dialog_instance is dialog:
+            self._triggers_dialog_instance = None
+            bar = self._parsers_dict.get("quickbar")
+            if bar is not None:
+                bar._dialog_targets.pop(dialog, None)
+            QTimer.singleShot(0, self._refresh_quickbar)
+
+    def _restore_triggers_focus(self, dialog):
+        """Return to the exact launcher without spawning another dialog."""
+        self._refresh_quickbar()
+        owner = getattr(dialog, "_triggers_owner", None)
+        if owner is None:
+            return
+        restore_action = getattr(owner, "restore_action_focus", None)
+        if callable(restore_action):
+            restore_action("triggers")
+            return
+        target = getattr(dialog, "_triggers_focus_target", None)
+
+        def restore_launcher():
+            try:
+                if not owner.isVisible():
+                    return
+                owner.raise_()
+                owner.activateWindow()
+                QApplication.setActiveWindow(owner)
+                scene = getattr(owner, "_dialog_scene", None)
+                proxy = getattr(owner, "_dialog_proxy", None)
+                if scene is not None and proxy is not None:
+                    scene.setFocusItem(proxy)
+                if target is not None and target.isEnabled():
+                    target.setFocus(Qt.FocusReason.OtherFocusReason)
+            except RuntimeError:
+                # The owning window may have been destroyed during shutdown.
+                return
+
+        QTimer.singleShot(0, restore_launcher)
 
     def show_spell_library(self):
         """Open the lazy P99 spell and class-skill catalog."""

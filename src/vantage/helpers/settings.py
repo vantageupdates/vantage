@@ -1,15 +1,16 @@
 import csv
 import functools
 import re
+from pathlib import Path
 
 from PySide6.QtCore import (
     QEvent, Qt, QObject, QSize, QTimer, Signal, QStringListModel)
 from PySide6.QtGui import QColor, QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QFormLayout, QFrame,
                              QHeaderView, QHBoxLayout, QLabel, QListWidget,
-                             QListWidgetItem, QInputDialog,
+                             QListWidgetItem, QInputDialog, QMenu,
                              QDoubleSpinBox, QSlider, QSpinBox, QStackedWidget,
-                             QPushButton,
+                             QPushButton, QPlainTextEdit,
                              QSplitter, QTableWidget, QTableWidgetItem,
                              QTabBar, QTabWidget, QToolButton, QTreeWidget,
                              QTreeWidgetItem,
@@ -31,7 +32,9 @@ from vantage.helpers.notification_routes import (
     apply_starting_delivery, normalized_route_settings)
 from vantage.helpers.icons import game_icon
 from vantage.helpers.friends_manager import FriendsManagerDialog
-from vantage.helpers.gina_import import GinaImportError, import_gina_package
+from vantage.helpers.gina_import import (
+    GinaImportError, import_gina_package, import_vantage_package_bytes,
+    serialize_gina_package, serialize_vantage_package)
 from vantage.helpers.portable import store_portable_file
 from vantage.helpers.quickbar_items import QUICKBAR_ITEMS
 from vantage.helpers.responsive import (
@@ -42,7 +45,9 @@ from vantage.helpers.trigger_groups import (
     group_ancestors, group_state, group_style, normalize_group_path,
     normalize_trigger_color, normalize_trigger_groups, set_group_enabled,
     set_group_style)
-from vantage.parsers.spells import CustomTrigger
+from vantage.parsers.spells import (
+    CustomTrigger, compile_trigger_pattern, dynamic_timer_seconds,
+    render_trigger_text, trigger_match_allowed)
 
 class SettingsSignals(QObject):
     config_updated = Signal()
@@ -150,18 +155,42 @@ class GinaImportPreviewDialog(UniformScaleDialog):
             'Cancel leaves no imported audio behind. External file paths are '
             'replaced with safe gallery sounds.')
         root.addWidget(intro)
-        self.table = QTableWidget(0, 5)
+        compatibility = QLabel(
+            f"{getattr(triggers, 'format_name', 'Trigger pack')} · "
+            "data-only import, not complete GINA service compatibility. "
+            "Vantage uses one Sound or Voice route per phase, not both together.")
+        compatibility.setObjectName('TriggerTokenLegend')
+        compatibility.setTextFormat(Qt.TextFormat.PlainText)
+        compatibility.setWordWrap(True)
+        root.addWidget(compatibility)
+        warnings = getattr(triggers, 'warnings', [])
+        self.compatibility_warnings = QLabel('\n'.join(
+            f"{entry.get('trigger') or 'Pack'} · {entry.get('message', '')}"
+            for entry in warnings))
+        self.compatibility_warnings.setObjectName('CombatDataNotice')
+        self.compatibility_warnings.setTextFormat(Qt.TextFormat.PlainText)
+        self.compatibility_warnings.setWordWrap(True)
+        self.compatibility_warnings.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.compatibility_warnings.setAccessibleName('Trigger pack compatibility warnings')
+        self._warning_scroll = scrollable(
+            self.compatibility_warnings, 'TriggerImportWarnings')
+        self._warning_scroll.setMaximumHeight(140)
+        self._warning_scroll.setVisible(bool(warnings))
+        root.addWidget(self._warning_scroll)
+        self.table = QTableWidget(0, 6)
         self.table.setObjectName('TriggerImportReviewTable')
         self.table.setAccessibleName('Imported trigger review')
         self.table.setAccessibleDescription(
             'Review imported triggers and choose which rows to include.')
         self.table.setHorizontalHeaderLabels(
-            ('Import', 'Name', 'Search text', 'Timer', 'Actions'))
+            ('Import', 'Name', 'Search text', 'Timer', 'Actions', 'Review notes'))
         header_tips = (
             'Include or exclude this trigger from the import',
             'Imported trigger name', 'Log text or regular expression to match',
             'Imported countdown or stopwatch duration',
-            'Safe actions retained from the imported trigger')
+            'Safe actions retained from the imported trigger',
+            'Unsupported settings, invalid patterns, or substituted audio to review')
         for column, tooltip in enumerate(header_tips):
             self.table.horizontalHeaderItem(column).setToolTip(tooltip)
         self.table.verticalHeader().setVisible(False)
@@ -179,6 +208,8 @@ class GinaImportPreviewDialog(UniformScaleDialog):
             3, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(
             4, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(
+            5, QHeaderView.ResizeMode.Stretch)
         for trigger in triggers:
             row = self.table.rowCount()
             self.table.insertRow(row)
@@ -195,22 +226,29 @@ class GinaImportPreviewDialog(UniformScaleDialog):
             actions = []
             if trigger.alert_text:
                 actions.append('Text')
-            delivery = trigger.audio_delivery('basic')
+            delivery = (triggers.preview_audio_delivery(trigger, 'basic')
+                        if hasattr(triggers, 'preview_audio_delivery') else trigger.audio_delivery('basic'))
             if delivery == 'tts' and trigger.tts_text:
                 actions.append('TTS')
             if delivery == 'sound' and trigger.sound_path:
                 actions.append(
                     'Pack WAV' if (
                         hasattr(triggers, 'has_embedded_audio') and
-                        triggers.has_embedded_audio(trigger))
+                        triggers.has_embedded_audio(trigger, 'sound_path'))
                     else 'Gallery sound')
+            elif (delivery == 'sound' and hasattr(triggers, 'has_embedded_audio')
+                  and triggers.has_embedded_audio(trigger, 'sound_path')):
+                actions.append('Pack WAV')
             if trigger.end_patterns:
                 actions.append('Ender')
             if trigger.text_color:
                 actions.append(trigger.text_color)
+            notes = (triggers.warnings_for(trigger)
+                     if hasattr(triggers, 'warnings_for') else [])
             for column, value in enumerate((
                     trigger.name, trigger.text, timer,
-                    ' · '.join(actions) or 'Match only'), 1):
+                    ' · '.join(actions) or 'Match only',
+                    '\n'.join(entry['message'] for entry in notes) or 'No conversion warnings'), 1):
                 item = QTableWidgetItem(str(value))
                 item.setToolTip(str(value))
                 self.table.setItem(row, column, item)
@@ -1716,8 +1754,13 @@ class SettingsWindow(UniformScaleDialog):
             dialog.setCurrentColor(QColor(intcolor))
 
     def _get_custom_timers(self):
-        dialog = CustomTriggerSettings()
-        dialog.exec()
+        app = QApplication.instance()
+        opener = getattr(app, 'show_triggers', None)
+        if callable(opener):
+            opener(owner=self)
+        else:
+            # Lightweight test/legacy hosts can still use the editor.
+            CustomTriggerSettings(parent=self).exec()
 
     def _choose_fade_sound(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -2136,22 +2179,49 @@ class TriggerLibraryTree(QTreeWidget):
 
 class CustomTriggerSettings(UniformScaleDialog):
 
-    def __init__(self):
+    def __init__(self, parent=None):
         super().__init__(
-            QSize(680, 650), minimum_size=QSize(204, 195),
-            initial_size=QSize(544, 520))
+            QSize(960, 760), parent, minimum_size=QSize(288, 228),
+            initial_size=QSize(768, 608))
 
         self._custom_triggers = {}
         self._current_trigger = ''
         self._tree_loading = False
 
-        self.setWindowTitle("Vantage · Triggers and Timers")
+        self.setWindowTitle("Vantage · Triggers")
         self._setup_ui()
         self._load_from_config()
+        self._monitor_status_timer = QTimer(self)
+        self._monitor_status_timer.setInterval(1000)
+        self._monitor_status_timer.timeout.connect(self._refresh_monitor_status)
+        self._refresh_monitor_status()
 
     def _setup_ui(self):
 
         layout = QVBoxLayout()
+
+        self._monitor_enabled = QCheckBox('Monitoring On')
+        self._monitor_enabled.setAccessibleName('Custom trigger monitoring On or Off')
+        self._monitor_enabled.setToolTip(
+            'Pause custom matches and alerts without changing saved triggers or '
+            'automatic spell tracking. Existing timers retain their deadlines.')
+        self._monitor_enabled.toggled.connect(self._monitor_changed)
+        layout.addWidget(self._monitor_enabled)
+        self._monitor_status = QLabel()
+        self._monitor_status.setObjectName('InlineStatus')
+        self._monitor_status.setTextFormat(Qt.TextFormat.PlainText)
+        self._monitor_status.setWordWrap(True)
+        self._monitor_status.setAccessibleName('Trigger monitoring, profile and log status')
+        layout.addWidget(self._monitor_status)
+        self._library_search = QLineEdit()
+        self._library_search.setPlaceholderText('Find a trigger, group, log pattern or source…')
+        self._library_search.setClearButtonEnabled(True)
+        self._library_search.setAccessibleName('Search trigger library')
+        self._library_search.setToolTip(
+            'Filter the library without changing groups, order, saved rules or the current draft. '
+            'Clear search before moving rows.')
+        self._library_search.textChanged.connect(self._apply_library_filter)
+        layout.addWidget(self._library_search)
 
         self._triggers = TriggerLibraryTree()
         self._triggers.setObjectName('TriggerLibraryTree')
@@ -2178,7 +2248,7 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._triggers.setDefaultDropAction(Qt.DropAction.MoveAction)
         self._triggers.setDropIndicatorShown(True)
         self._triggers.setMinimumHeight(92)
-        self._triggers.setMaximumHeight(190)
+        self._triggers.setMaximumHeight(140)
         self._triggers.itemSelectionChanged.connect(self._activated)
         self._triggers.itemChanged.connect(self._tree_item_changed)
         self._triggers.structure_changed.connect(
@@ -2187,7 +2257,7 @@ class CustomTriggerSettings(UniformScaleDialog):
 
         action_bar = ResponsiveActionBar(86)
         self._add_trigger_button = QPushButton()
-        self._add_trigger_button.setText('Add')
+        self._add_trigger_button.setText('New trigger')
         self._add_trigger_button.setIcon(game_icon('add'))
         self._add_trigger_button.setToolTip(
             'Create a trigger inside the selected group')
@@ -2233,6 +2303,20 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._import_gina_button.setIcon(game_icon('refresh'))
         self._import_gina_button.clicked.connect(self._import_gina)
         action_bar.addWidget(self._import_gina_button)
+        self._export_pack_button = QPushButton('Share…')
+        self._export_pack_button.setIcon(game_icon('export'))
+        self._export_pack_button.setToolTip(
+            'Share the saved selected trigger/group, or explicitly choose all saved triggers. '
+            'Review scope, included WAVs and compatibility before sharing.')
+        share_menu = QMenu(self._export_pack_button)
+        for label, callback in (
+                ('Save native JSON pack…', self._export_native_pack),
+                ('Save GINA .gtp compatibility pack…', self._export_gina_pack),
+                ('Copy Vantage share code…', lambda: self._copy_share(False)),
+                ('Copy Vantage share link…', lambda: self._copy_share(True))):
+            share_menu.addAction(label, callback)
+        self._export_pack_button.setMenu(share_menu)
+        action_bar.addWidget(self._export_pack_button)
 
         history_button = QPushButton('Match Log')
         history_button.setIcon(game_icon('combat'))
@@ -2243,8 +2327,76 @@ class CustomTriggerSettings(UniformScaleDialog):
 
         layout.addWidget(action_bar)
 
+        sharing_row = QHBoxLayout()
+        sharing_row.addWidget(QLabel('Share scope'))
+        self._share_scope = QComboBox()
+        self._share_scope.addItem('Saved selection only', 'selection')
+        self._share_scope.addItem('All saved triggers', 'all')
+        self._share_scope.setAccessibleName('Explicit trigger sharing scope')
+        self._share_scope.setToolTip('Selection means one saved trigger or its selected group. Unsaved edits are not shared.')
+        sharing_row.addWidget(self._share_scope, 1)
+        self._paste_share_button = QPushButton('Paste code or link…')
+        self._paste_share_button.setToolTip('Review a self-contained Vantage share as disabled copies; no network request or GimaLink service.')
+        self._paste_share_button.clicked.connect(self._paste_share)
+        sharing_row.addWidget(self._paste_share_button)
+        layout.addLayout(sharing_row)
+
+        self._advanced_toggle = QCheckBox('Advanced options')
+        self._advanced_toggle.setAccessibleName('Show advanced trigger options')
+        self._advanced_toggle.setToolTip(
+            'Show profile/zone rules, regular expressions, group overrides and timer stages. '
+            'Hiding them never clears saved values; configured advanced options open automatically.')
+        self._advanced_toggle.toggled.connect(self._set_advanced_visible)
+        disclosure_row = QHBoxLayout()
+        disclosure_row.addWidget(self._advanced_toggle)
+        disclosure_row.addStretch(1)
+        self._sample_toggle = QPushButton('Show match check')
+        self._sample_toggle.setCheckable(True)
+        self._sample_toggle.setAccessibleName('Show or hide safe sample match check')
+        self._sample_toggle.setToolTip('Expand a no-actions draft match check; collapsing keeps the result.')
+        disclosure_row.addWidget(self._sample_toggle)
+        layout.addLayout(disclosure_row)
+
+        self._sample_host = QWidget()
+        sample_layout = QVBoxLayout(self._sample_host)
+        sample_layout.setContentsMargins(0, 0, 0, 0)
+        sample_layout.setSpacing(4)
+        self._sample_host.setVisible(False)
+        self._sample_toggle.toggled.connect(self._sample_host.setVisible)
+        self._sample_toggle.toggled.connect(lambda checked: self._sample_toggle.setText(
+            'Hide match check' if checked else 'Show match check'))
+
+        sample_row = QHBoxLayout()
+        self._sample_line = QLineEdit()
+        self._sample_line.setMaxLength(2048)
+        self._sample_line.setPlaceholderText('Paste one sample EQ log line to check this draft…')
+        self._sample_line.setAccessibleName('Sample log line for safe trigger matching')
+        self._sample_line.setToolTip(
+            'Check the current unsaved rule and expand captures without audio, '
+            'timers, clipboard changes or overlays.')
+        self._sample_line.returnPressed.connect(self._match_sample_line)
+        sample_row.addWidget(self._sample_line, 1)
+        self._sample_match_button = QPushButton('Check match')
+        self._sample_match_button.setAccessibleName('Dry-run current trigger against sample line')
+        self._sample_match_button.clicked.connect(self._match_sample_line)
+        sample_row.addWidget(self._sample_match_button)
+        sample_layout.addLayout(sample_row)
+        self._sample_result = QPlainTextEdit('Match check · no actions are played or started')
+        self._sample_result.setObjectName('InlineStatus')
+        self._sample_result.setReadOnly(True)
+        self._sample_result.setMaximumHeight(90)
+        self._sample_result.setAccessibleName('Sample match result and expanded output')
+        self._sample_result.setToolTip(
+            'Read-only dry-run result: captures and expanded output from the '
+            'current unsaved trigger and sample log line. No audio, timers, '
+            'clipboard changes or overlays are run.')
+        self._sample_result.setVisible(False)
+        sample_layout.addWidget(self._sample_result)
+        layout.addWidget(self._sample_host)
+
         trigger_layout = polish_form(QFormLayout())
-        trigger_layout.setSpacing(10)
+        self._trigger_form = trigger_layout
+        trigger_layout.setSpacing(6)
 
         trigger_layout.addRow(SettingsHeader('TRIGGER'))
 
@@ -2259,10 +2411,7 @@ class CustomTriggerSettings(UniformScaleDialog):
             'Exact EQ log text to match; type { to see supported tokens')
         trigger_layout.addRow('Log text', self._trigger_text)
 
-        token_legend = QLabel(
-            "TOKENS · type { to autocomplete\n"
-            "* any text · {c} your character · {target}/{mob}/{spell}/{damage} "
-            "capture text · {ts} dynamic D:H:M:S timer · {COUNTER} activation count")
+        token_legend = self._token_legend = QLabel('Tokens: type { for suggestions · * matches any text')
         token_legend.setObjectName('TriggerTokenLegend')
         token_legend.setWordWrap(True)
         token_legend.setMaximumHeight(88)
@@ -2274,7 +2423,8 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_time = QLineEdit()
         self._trigger_time.setText("hh:mm:ss")
         self._trigger_time.setToolTip(
-            'Timer duration; 3 means 3 minutes, and 3:50 or 1:03:50 are also accepted')
+            'Timer duration in H:MM:SS; for example 00:03:00 is three minutes. '
+            'Use {ts} in match text for a captured duration.')
 
         self._trigger_enabled = QCheckBox('Trigger On')
         self._trigger_enabled.setChecked(True)
@@ -2311,6 +2461,7 @@ class CustomTriggerSettings(UniformScaleDialog):
             'Test this trigger\'s current Quick Bar, overlay, and audio route')
         self._test_trigger_button.clicked.connect(self._test_trigger_action)
         self._trigger_test_status = QLabel('Test status · ready')
+        self._trigger_test_status.setTextFormat(Qt.TextFormat.PlainText)
         self._trigger_test_status.setWordWrap(True)
         self._trigger_test_status.setAccessibleName(
             'Trigger test status: ready')
@@ -2339,6 +2490,7 @@ class CustomTriggerSettings(UniformScaleDialog):
         trigger_layout.addRow('Repeat guard', self._trigger_match_cooldown)
 
         self._trigger_source = QLabel('Vantage')
+        self._trigger_source.setTextFormat(Qt.TextFormat.PlainText)
         self._trigger_source.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse)
         trigger_layout.addRow('Source', self._trigger_source)
@@ -2739,6 +2891,7 @@ class CustomTriggerSettings(UniformScaleDialog):
 
         basic_page = QWidget()
         basic_layout = polish_form(QFormLayout(basic_page))
+        self._basic_form = basic_layout
         basic_layout.addRow('Display text', self._trigger_alert)
         basic_layout.addRow('Text color', self._trigger_color)
         basic_layout.addRow('Overlay route', self._trigger_overlay)
@@ -2755,6 +2908,7 @@ class CustomTriggerSettings(UniformScaleDialog):
 
         timer_page = QWidget()
         timer_layout = polish_form(QFormLayout(timer_page))
+        self._timer_form = timer_layout
         timer_layout.addRow('Timer type', self._trigger_timer_type)
         timer_layout.addRow('Timer name', self._trigger_timer_name)
         timer_layout.addRow('Duration', self._trigger_time)
@@ -2848,6 +3002,329 @@ class CustomTriggerSettings(UniformScaleDialog):
         layout.addItem(button_layout)
 
         self.scaled_surface.setLayout(layout)
+        self._advanced_core_fields = (
+            self._trigger_regex, self._trigger_match_cooldown, self._trigger_source,
+            self._category_enabled, self._category_scope, self._category_color,
+            self._trigger_profile, self._trigger_zone, self._trigger_comments,
+        )
+        self._advanced_basic_fields = (self._trigger_color, self._trigger_clipboard)
+        self._advanced_timer_fields = (
+            self._trigger_visible_seconds, self._trigger_restart,
+            self._trigger_restart_name, ender_host, self._trigger_counter_reset,
+        )
+        self._set_advanced_visible(False)
+
+    def _monitor_changed(self, enabled):
+        config.data['spells']['use_custom_triggers'] = bool(enabled)
+        config.save()
+        parser = getattr(QApplication.instance(), '_parsers_dict', {}).get('spells')
+        toggle = getattr(parser, '_custom_timer_toggle', None)
+        if toggle is not None:
+            toggle.setChecked(bool(enabled))
+        self._refresh_monitor_status()
+
+    def _refresh_monitor_status(self):
+        app = QApplication.instance()
+        parser = getattr(app, '_parsers_dict', {}).get('spells')
+        enabled = bool(config.data['spells'].get('use_custom_triggers', True))
+        self._monitor_enabled.blockSignals(True)
+        self._monitor_enabled.setChecked(enabled)
+        self._monitor_enabled.setText(f"Monitoring {'On' if enabled else 'Off'}")
+        self._monitor_enabled.blockSignals(False)
+        profile = str(getattr(parser, '_active_character', '') or
+                      config.data.get('sharing', {}).get('player_name', '')).strip()
+        if profile in ('', 'ConfigureMe'):
+            profile = 'not detected'
+        log_status = str(getattr(app, '_log_status', '') or 'status unavailable')
+        detail = ('Custom matches and alerts enabled' if enabled else
+                  'Custom matches and alerts paused; timer deadlines retained')
+        self._monitor_status.setText(f'{detail} · Profile: {profile} · Logs: {log_status}')
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if hasattr(self, '_monitor_status_timer'):
+            self._refresh_monitor_status()
+            self._monitor_status_timer.start()
+
+    def hideEvent(self, event):
+        if hasattr(self, '_monitor_status_timer'):
+            self._monitor_status_timer.stop()
+        super().hideEvent(event)
+
+    def _apply_library_filter(self, *_):
+        query = self._library_search.text().strip().casefold()
+        items = []
+        iterator = QTreeWidgetItemIterator(self._triggers)
+        while iterator.value():
+            items.append(iterator.value())
+            iterator += 1
+        visible = set()
+        for item in items:
+            name = str(item.data(0, TRIGGER_ITEM_ID) or '')
+            trigger = self._custom_triggers.get(name)
+            fields = (name, trigger.text, trigger.category, trigger.source,
+                      trigger.profile, trigger.comments) if trigger else (name,)
+            ancestor = item.parent()
+            group_match = False
+            while ancestor is not None:
+                group_match = group_match or query in str(
+                    ancestor.data(0, TRIGGER_ITEM_ID) or '').casefold()
+                ancestor = ancestor.parent()
+            if not query or group_match or query in ' '.join(fields).casefold():
+                visible.add(item)
+                ancestor = item.parent()
+                while ancestor is not None:
+                    visible.add(ancestor)
+                    ancestor = ancestor.parent()
+        for item in items:
+            item.setHidden(item not in visible)
+        self._triggers.setDragDropMode(
+            QAbstractItemView.DragDropMode.NoDragDrop if query else
+            QAbstractItemView.DragDropMode.InternalMove)
+
+    def _set_advanced_visible(self, visible):
+        if not hasattr(self, '_advanced_core_fields'):
+            return
+        self._token_legend.setText(
+            'TOKENS · type { to autocomplete\n* any text · {c} your character · '
+            '{target}/{mob}/{spell}/{damage} captures · {ts} D:H:M:S timer · {COUNTER} activation count'
+            if visible else 'Tokens: type { for suggestions · * matches any text')
+        for form, fields in (
+                (self._trigger_form, self._advanced_core_fields),
+                (self._basic_form, self._advanced_basic_fields),
+                (self._timer_form, self._advanced_timer_fields)):
+            for widget in fields:
+                form.setRowVisible(widget, visible)
+        for index in (2, 3):
+            self._action_tabs.setTabVisible(index, visible)
+        if not visible and self._action_tabs.currentIndex() > 1:
+            self._action_tabs.setCurrentIndex(0)
+
+    def _reveal_configured_advanced(self, trigger):
+        configured = bool(
+            trigger.regex or trigger.profile or trigger.zone or trigger.comments or
+            trigger.text_color or trigger.clipboard_text or trigger.match_filter or
+            trigger.match_cooldown_seconds != 0.75 or trigger.end_patterns or
+            trigger.timer_type in ('stopwatch', 'repeating') or
+            trigger.timer_visible_seconds or trigger.counter_reset_seconds or
+            trigger.restart_behavior != 'restart' or trigger.restart_based_on_timer_name or
+            trigger.timer_ending_seconds or trigger.timer_ending_alert or
+            trigger.timer_ending_sound or trigger.timer_ending_tts or
+            trigger.timer_ended_alert or trigger.timer_ended_sound or trigger.timer_ended_tts)
+        if configured:
+            self._advanced_toggle.setChecked(True)
+
+    def _draft_trigger(self):
+        existing = self._custom_triggers.get(self._current_trigger)
+        trigger = CustomTrigger(*existing.to_list()) if existing else CustomTrigger()
+        trigger.name = self._trigger_name.text().strip() or 'Draft trigger'
+        trigger.text = self._trigger_text.text()
+        trigger.time = self._trigger_time.text().strip()
+        self._apply_extra_fields(trigger, update_groups=False)
+        return trigger
+
+    def _match_sample_line(self):
+        """Evaluate a detached draft only; do not invoke parser delivery APIs."""
+        self._sample_toggle.setChecked(True)
+        self._sample_result.setVisible(True)
+        original = self._sample_line.text().strip()
+        if not original:
+            self._sample_result.setPlainText('Paste one EQ log line before checking a match.')
+            self._sample_line.setFocus()
+            return False
+        line = original.split('] ', 1)[1] if original.startswith('[') and '] ' in original else original
+        trigger = self._draft_trigger()
+        app = QApplication.instance()
+        parser = getattr(app, '_parsers_dict', {}).get('spells')
+        profile = str(getattr(parser, '_active_character', '') or
+                      config.data.get('sharing', {}).get('player_name', ''))
+        trigger.runtime_character = '' if profile == 'ConfigureMe' else profile
+        trigger.counter = 1  # Detached preview counter; never mutate live runs.
+        try:
+            pattern = compile_trigger_pattern(trigger.text, character=trigger.runtime_character,
+                                              raw_regex=trigger.regex)
+            match = pattern.match(line)
+            early_match = next((candidate for entry in trigger.end_patterns
+                                if (candidate := compile_trigger_pattern(
+                                    entry['text'], character=trigger.runtime_character,
+                                    raw_regex=entry.get('regex', False)).match(line))), None)
+        except (re.error, ValueError) as error:
+            self._sample_result.setPlainText(f'Invalid pattern · {error}\nNo actions were run.')
+            return False
+        if not match and not early_match:
+            self._sample_result.setPlainText('No pattern match. No actions were run.')
+            return False
+        if not early_match and not trigger_match_allowed(trigger, match, line, profile):
+            self._sample_result.setPlainText('Pattern matches, but its safety filter rejects this actor. No actions were run.')
+            return False
+        selected = early_match or match
+        output = ['Early-ending pattern matched' if early_match else 'Match found · detached draft preview']
+        if selected.groupdict():
+            output.append('Captures: ' + ' · '.join(
+                f'{key}={value}' for key, value in selected.groupdict().items()))
+        if selected.groups():
+            output.append('Numbered captures: ' + ' · '.join(
+                f'${index}={value}' for index, value in enumerate(selected.groups(), 1)))
+        if not early_match:
+            for label, template in (
+                    ('Timer name', trigger.timer_name or trigger.name),
+                    ('Display', trigger.alert_text), ('Speech', trigger.tts_text),
+                    ('Clipboard', trigger.clipboard_text),
+                    ('Timer ending display', trigger.timer_ending_alert),
+                    ('Timer ended display', trigger.timer_ended_alert)):
+                if template:
+                    output.append(f'{label}: {render_trigger_text(template, match, trigger)}')
+            if trigger.timer_type in ('countdown', 'repeating'):
+                duration = (dynamic_timer_seconds(match) if '{ts}' in trigger.text.casefold()
+                            else text_time_to_seconds(trigger.time))
+                output.append(f'Timer preview: {duration:g} seconds · {trigger.timer_type}')
+            if trigger.profile and trigger.profile.casefold() != profile.casefold():
+                output.append('Live scope: different or undetected character profile.')
+            if trigger.zone and trigger.zone.casefold() != str(getattr(parser, '_current_zone', '')).casefold():
+                output.append('Live scope: different or undetected zone.')
+            if not trigger.enabled or not self._monitor_enabled.isChecked() or not self._category_enabled.isChecked():
+                output.append('Live scope: monitoring, this trigger or its group is Off.')
+        output.append('No audio, timer, clipboard or overlay action was run; counter preview = 1.')
+        message = '\n'.join(output)
+        self._sample_result.setPlainText(message)
+        self._sample_result.setAccessibleDescription(message)
+        return True
+
+    def _selected_pack_triggers(self):
+        if self._share_scope.currentData() == 'all':
+            return list(self._custom_triggers.values())
+        item = self._selected_tree_item()
+        if item is None:
+            return []
+        name = self._selected_trigger_name()
+        if name and name in self._custom_triggers:
+            return [self._custom_triggers[name]]
+        group = self._selected_group_path()
+        return [trigger for trigger in self._custom_triggers.values()
+                if trigger.category == group or trigger.category.startswith(group + '/')]
+
+    def _export_native_pack(self):
+        prepared = self._prepare_share()
+        if prepared is None:
+            return
+        selected, content, warnings = prepared
+        if not self._confirm_share(selected, content, warnings):
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, 'Share Vantage Native Pack', 'Vantage-Triggers.json',
+            'Vantage native trigger pack (*.json)')
+        if not path:
+            return
+        if not path.casefold().endswith('.json'):
+            path += '.json'
+        try:
+            Path(path).write_bytes(content)
+        except (GinaImportError, OSError) as error:
+            QMessageBox.warning(self, 'Share Failed', str(error))
+            return
+        QMessageBox.information(self, 'Native pack saved',
+            f'{len(selected)} saved trigger(s) exported as native JSON. '
+            'Imports are reviewed disabled copies, not GimaLink shares.')
+
+    def _prepare_share(self, *, gina=False):
+        selected = self._selected_pack_triggers()
+        if not selected:
+            QMessageBox.information(self, 'Share trigger pack',
+                                    'Select a saved trigger or group first, or explicitly choose All saved triggers.')
+            return None
+        try:
+            # Normalize a detached registry: preparing/cancelling a share must
+            # not rewrite group metadata or commit an unsaved editor draft.
+            groups = config.data['spells'].get('trigger_groups', {})
+            serializer = serialize_gina_package if gina else serialize_vantage_package
+            content, warnings = serializer(selected, groups)
+        except (GinaImportError, OSError) as error:
+            QMessageBox.warning(self, 'Share Failed', str(error))
+            return None
+        return selected, content, warnings
+
+    def _confirm_share(self, selected, content, warnings, *, gina=False):
+        scope = ('All saved triggers' if self._share_scope.currentData() == 'all'
+                 else f'Saved selection · {self._selected_trigger_name() or self._selected_group_path()}')
+        note = ('GINA .gtp compatibility subset. Review the losses below. Native JSON '
+                'preserves Vantage-only settings; this is not complete GINA service parity.'
+                if gina else 'Native Vantage definitions, selected group settings and available portable WAVs. '
+                'Anyone with the file, code or link can import it. No upload or account is used; not GimaLink.')
+        box = QMessageBox(self)
+        box.setTextFormat(Qt.TextFormat.PlainText)
+        box.setWindowTitle('Review sharing scope and compatibility')
+        box.setIcon(QMessageBox.Icon.Warning if warnings else QMessageBox.Icon.Information)
+        box.setText(f'{scope}\n{len(selected)} saved trigger(s) · {len(content):,} bytes\n\n{note}')
+        if warnings:
+            box.setInformativeText('Some settings or audio cannot be shared. Expand Details and review before continuing.')
+            box.setDetailedText('\n'.join(f"{entry['trigger'] or 'Pack'} · {entry['message']}" for entry in warnings))
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        return box.exec() == QMessageBox.StandardButton.Yes
+
+    def _export_gina_pack(self):
+        prepared = self._prepare_share(gina=True)
+        if prepared is None:
+            return
+        selected, content, warnings = prepared
+        if not self._confirm_share(selected, content, warnings, gina=True):
+            return
+        path, _ = QFileDialog.getSaveFileName(self, 'Save GINA Compatibility Pack',
+                                            'Vantage-Triggers.gtp', 'GINA trigger pack (*.gtp)')
+        if not path:
+            return
+        if not path.casefold().endswith('.gtp'):
+            path += '.gtp'
+        try:
+            Path(path).write_bytes(content)
+        except OSError as error:
+            QMessageBox.warning(self, 'Share Failed', str(error))
+            return
+        QMessageBox.information(self, 'GINA compatibility pack saved',
+                                'Review this .gtp in GINA before enabling it. A native JSON pack preserves Vantage-only settings.')
+
+    def _copy_share(self, as_link=False):
+        from vantage.helpers.trigger_sharing import create_trigger_share_code, trigger_share_url
+        prepared = self._prepare_share()
+        if prepared is None:
+            return
+        selected, content, warnings = prepared
+        try:
+            code = create_trigger_share_code(content)
+        except ValueError as error:
+            QMessageBox.warning(self, 'Use a pack file',
+                                f'{error}\nSave a native JSON or GINA .gtp file for larger packs or WAVs. No audio was removed to shrink this share.')
+            return
+        if not self._confirm_share(selected, content, warnings):
+            return
+        share = trigger_share_url(code) if as_link else code
+        if len(share) > 240:
+            destination_note = ('It may also exceed a Discord message; use a pack file.'
+                                if len(share) > 1800 else
+                                'Discord or a pack file is more suitable for this length.')
+            choice = QMessageBox.question(self, 'Long share',
+                f'This self-contained share is {len(share):,} characters and may not fit an EverQuest /tell. '
+                f'{destination_note} No text or audio is truncated. Copy the complete share anyway?',
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel)
+            if choice != QMessageBox.StandardButton.Yes:
+                return
+        QApplication.clipboard().setText(share)
+        QMessageBox.information(self, 'Vantage share copied',
+                                'The complete share is on the clipboard. Anyone with it can import reviewed disabled copies; nothing was uploaded.')
+
+    def _paste_share(self):
+        from vantage.helpers.trigger_sharing import decode_trigger_share_code
+        text, accepted = QInputDialog.getMultiLineText(self, 'Paste Vantage share',
+            'Paste a VT1 code or Vantage share link. No network request is made; review disabled copies before importing.')
+        if not accepted or not text.strip():
+            return
+        try:
+            batch = import_vantage_package_bytes(decode_trigger_share_code(text))
+        except ValueError as error:
+            QMessageBox.warning(self, 'Share Import Failed', str(error))
+            return
+        self._review_import_batch(batch)
 
     @staticmethod
     def _trigger_delivery_changed(delivery, sound_panel, speech_panel):
@@ -3196,6 +3673,7 @@ class CustomTriggerSettings(UniformScaleDialog):
             self._current_trigger = None
             self._clear()
             self._save_trigger_button.setEnabled(False)
+        self._apply_library_filter()
 
     def _save_to_config(self):
         spells = config.data['spells']
@@ -3454,6 +3932,7 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_ended_volume.setValue(trigger.timer_ended_volume)
         self._trigger_ended_pitch.setValue(trigger.timer_ended_pitch)
         self._refresh_trigger_delivery_panels()
+        self._reveal_configured_advanced(trigger)
 
     def _add_trigger(self):
         category = self._selected_group_path()
@@ -3652,7 +4131,7 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_ended_pitch.setValue(0)
         self._refresh_trigger_delivery_panels()
 
-    def _apply_extra_fields(self, trigger):
+    def _apply_extra_fields(self, trigger, *, update_groups=True):
         trigger.enabled = self._trigger_enabled.isChecked()
         trigger.regex = self._trigger_regex.isChecked()
         trigger.match_cooldown_seconds = (
@@ -3711,6 +4190,8 @@ class CustomTriggerSettings(UniformScaleDialog):
             self._trigger_ended_voice.currentData() or '')
         trigger.timer_ended_volume = self._trigger_ended_volume.value()
         trigger.timer_ended_pitch = self._trigger_ended_pitch.value()
+        if not update_groups:
+            return
         set_group_enabled(
             config.data['spells'], trigger.category,
             self._category_enabled.isChecked(),
@@ -3745,7 +4226,7 @@ class CustomTriggerSettings(UniformScaleDialog):
     def _import_gina(self):
         path, _ = QFileDialog.getOpenFileName(
             self, 'Import Trigger Pack', '',
-            'Trigger packs (*.gtp *.xml *.gtt);;All Files (*)')
+            'Trigger packs (*.gtp *.xml *.gtt *.json);;All Files (*)')
         if not path:
             return
         try:
@@ -3753,6 +4234,9 @@ class CustomTriggerSettings(UniformScaleDialog):
         except GinaImportError as error:
             QMessageBox.warning(self, 'Import Failed', str(error))
             return
+        self._review_import_batch(batch)
+
+    def _review_import_batch(self, batch):
         preview = GinaImportPreviewDialog(batch, self)
         if preview.exec() != QDialog.DialogCode.Accepted:
             return
@@ -3760,9 +4244,20 @@ class CustomTriggerSettings(UniformScaleDialog):
         if not imported:
             return
         if hasattr(batch, 'materialize_selected'):
-            imported = batch.materialize_selected(imported)
+            try:
+                imported = batch.materialize_selected(imported)
+            except OSError as error:
+                QMessageBox.warning(self, 'Import Failed', f'Selected WAVs could not be saved: {error}')
+                return
+        groups = normalize_trigger_groups(config.data['spells'])
+        selected_paths = {path for trigger in imported for path in group_ancestors(trigger.category)}
+        for path, definition in getattr(batch, 'groups', {}).items():
+            if path in selected_paths:
+                groups.setdefault(path, definition)
+        config.data['spells']['trigger_groups'] = groups
         added = 0
         for trigger in imported:
+            trigger.enabled = False
             base = trigger.name
             name = base
             suffix = 2

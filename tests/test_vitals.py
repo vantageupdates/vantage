@@ -1091,7 +1091,11 @@ def test_quickbar_catalog_exposes_independent_vitals_action_with_unique_icon():
     matches = [item for item in QUICKBAR_ITEMS if item[0] == "vitals"]
     assert matches == [("vitals", "Vitals Monitor", "ph-vitals", "windows")]
     keys = [item[0] for item in QUICKBAR_ITEMS]
-    assert keys.index("timers") == keys.index("spells") + 1
+    start = keys.index("spells")
+    adjacent = QUICKBAR_ITEMS[start:start + 4]
+    assert [item[0] for item in adjacent] == [
+        "spells", "triggers", "timers", "vitals"]
+    assert len({item[2] for item in adjacent}) == 4
 
 
 def test_numeric_and_keyboard_calibration_are_equivalent_and_bounded(monkeypatch):

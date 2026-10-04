@@ -829,6 +829,8 @@ class Spells(ParserWindow):
 
     def _line_has_custom_audio(self, text):
         """Avoid playing both a row-fade sound and a matching trigger sound."""
+        if not config.data.get('spells', {}).get('use_custom_triggers', True):
+            return False
         active_character = (
             self._active_character or
             config.data.get('sharing', {}).get('player_name', ''))
@@ -1326,11 +1328,34 @@ class Spells(ParserWindow):
         if config.data['spells']['use_custom_triggers']:
             for rx, end_rxs, ct in self._custom_timers:
                 evaluation_started = time.perf_counter_ns()
-                if any(end_rx.match(text) for end_rx in end_rxs):
+                active_character = (
+                    self._active_character or
+                    config.data['sharing'].get('player_name', ''))
+                end_matches = [
+                    match for end_rx in end_rxs
+                    if (match := end_rx.match(text)) is not None]
+                if end_matches:
                     match_us = (
                         time.perf_counter_ns() - evaluation_started) / 1000.0
                     removed = False
                     for run_key in self._trigger_run_keys(ct):
+                        run = self._trigger_runs[run_key]
+                        character = str(run.get('character') or '').strip()
+                        if (not Spells._trigger_delivery_enabled(
+                                    run['trigger'], character) or
+                                (character and active_character and
+                                 character.casefold() !=
+                                 active_character.casefold()) or
+                                (ct.zone and ct.zone.casefold() !=
+                                 self._current_zone.casefold())):
+                            continue
+                        if not any(
+                                not end_match.groupdict().get('c') or
+                                not character or
+                                end_match.groupdict()['c'].casefold() ==
+                                character.casefold()
+                                for end_match in end_matches):
+                            continue
                         removed = self._end_trigger_run(run_key) or removed
                     if removed:
                         self._record_trigger_match(
@@ -1340,9 +1365,6 @@ class Spells(ParserWindow):
                 match = rx.match(text)
                 match_us = (
                     time.perf_counter_ns() - evaluation_started) / 1000.0
-                active_character = (
-                    self._active_character or
-                    config.data['sharing'].get('player_name', ''))
                 captured_character = (
                     match.groupdict().get('c') if match else '')
                 if (match and trigger_match_allowed(
@@ -1800,7 +1822,9 @@ class Spells(ParserWindow):
         """Return every live internal run owned by one trigger definition."""
         return [
             key for key, run in self._trigger_runs.items()
-            if run.get('trigger') is trigger]
+            if run.get('trigger') is trigger or (
+                trigger.name and
+                getattr(run.get('trigger'), 'name', '') == trigger.name)]
 
     def _matching_trigger_runs(self, trigger, display_name):
         """Apply GINA's optional cross-trigger TimerName restart scope."""
@@ -1863,6 +1887,18 @@ class Spells(ParserWindow):
         }
 
     @staticmethod
+    def _trigger_delivery_enabled(trigger, character=''):
+        """Apply current monitoring settings to the original run character."""
+        settings = config.data.get('spells', {})
+        character = str(character or '').strip()
+        return bool(
+            settings.get('use_custom_triggers', True) and
+            trigger.enabled and
+            group_enabled(settings, trigger.category, character) and
+            (not trigger.profile or
+             trigger.profile.casefold() == character.casefold()))
+
+    @staticmethod
     def _trigger_text_color(trigger, character=''):
         style = effective_trigger_style(
             config.data['spells'], trigger.category,
@@ -1871,7 +1907,9 @@ class Spells(ParserWindow):
 
     def _show_trigger_run_overlay(self, run, remaining=None):
         trigger = run['trigger']
-        if trigger.overlay_id == 'none':
+        if (trigger.overlay_id == 'none' or
+                not Spells._trigger_delivery_enabled(
+                    trigger, run.get('character', ''))):
             return
         duration = run['duration'] if remaining is None else max(
             1, int(math.ceil(remaining)))
@@ -1899,6 +1937,8 @@ class Spells(ParserWindow):
             self, trigger, stage, sound, speech, interrupt, source,
             character='', server='', visual_registered=False):
         """Deliver exactly one explicitly selected audio action."""
+        if not Spells._trigger_delivery_enabled(trigger, character):
+            return ''
         mode = trigger.audio_delivery(stage)
         if mode == 'sound' and str(sound or '').strip():
             play_alert(
@@ -1927,6 +1967,9 @@ class Spells(ParserWindow):
 
     def _fire_trigger_stage(self, run, stage):
         trigger = run['trigger']
+        if not Spells._trigger_delivery_enabled(
+                trigger, run.get('character', '')):
+            return
         if stage == 'ending':
             text = run['ending_text']
             sound = trigger.timer_ending_sound
@@ -2481,8 +2524,10 @@ class Spells(ParserWindow):
         self._custom_timers = []
         previous_errors = dict(self._trigger_compile_errors)
         compile_errors = {}
+        definitions = {}
         for item in config.data['spells']['custom_timers']:
             ct = CustomTrigger(*item)
+            definitions[ct.name] = ct
             try:
                 rx = compile_trigger_pattern(
                     ct.text, '', ct.regex)
@@ -2503,12 +2548,14 @@ class Spells(ParserWindow):
             self._custom_timers.append((rx, end_rxs, ct))
         self._trigger_compile_errors = compile_errors
         # Running timers retain their deadlines and rendered target text, but
-        # audio edits must apply now, not only after the next trigger match.
-        current = {trigger.name: trigger for _, _, trigger in self._custom_timers}
+        # monitoring and audio edits apply before the next timed delivery.
         for run in self._trigger_runs.values():
-            saved = current.get(run['trigger'].name)
+            running = run['trigger']
+            saved = definitions.get(running.name)
             if saved is not None:
-                running = run['trigger']
+                running.enabled = saved.enabled
+                running.category = saved.category
+                running.profile = saved.profile
                 running.audio_muted = saved.audio_muted
                 for stage in ('basic', 'ending', 'ended'):
                     fields = (
@@ -2518,6 +2565,8 @@ class Spells(ParserWindow):
                               ('delivery', 'sound', 'voice', 'volume', 'pitch')))
                     for field in fields:
                         setattr(running, field, getattr(saved, field))
+            else:
+                running.enabled = False
 
     def _record_trigger_match(
             self, timestamp, trigger, line, output, status="Matched",
@@ -2665,7 +2714,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.124')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.125')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -4289,13 +4338,24 @@ class SpellWidget(QFrame):
             runtime_key = str(getattr(self.spell, 'runtime_key', '') or '')
             run = getattr(parser, '_trigger_runs', {}).get(runtime_key)
             if run is not None:
-                trigger_muted = run['trigger'].audio_muted
+                trigger_owner = run['trigger']
+                trigger_character = run.get('character', self.runtime_character)
             else:
                 # Plain named timers can survive a reload without an active
                 # trigger run. Never match another trigger by a partial name.
                 row = next((item for item in settings.get('custom_timers', [])
                             if item and item[0] == runtime_key), None)
-                trigger_muted = bool(row and CustomTrigger(*row).audio_muted)
+                trigger_owner = CustomTrigger(*row) if row else None
+                trigger_character = self.runtime_character
+            # A retained custom row keeps its visuals while monitoring is Off.
+            # Explicit user tests remain available; ordinary buffs use their
+            # usual notification route regardless of custom monitoring state.
+            if not force and (
+                    trigger_owner is None or
+                    not Spells._trigger_delivery_enabled(
+                        trigger_owner, trigger_character)):
+                return False
+            trigger_muted = bool(trigger_owner and trigger_owner.audio_muted)
 
         def dispatch(**kwargs):
             if callable(notify):

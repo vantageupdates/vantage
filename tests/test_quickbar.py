@@ -681,6 +681,9 @@ bar = app._parsers_dict['quickbar']
 bar.show()
 app.processEvents()
 
+# The taller catalog fits the offscreen 800 px screen from this origin. Test
+# anchor preservation without invoking the separate screen-edge recovery.
+bar.move(10, 0)
 position_before = [bar.x(), bar.y()]
 config.data['quickbar']['orientation'] = 'vertical'
 config.data['quickbar']['show_header'] = True
@@ -979,7 +982,9 @@ def test_quickbar_uses_one_distinct_icon_per_action():
     icons = [icon for _key, _label, icon, _group in QUICKBAR_ITEMS]
     catalog = {key: icon for key, _label, icon, _group in QUICKBAR_ITEMS}
     assert len(icons) == len(set(icons))
-    assert all(icon.startswith("ph-") for icon in icons)
+    assert all(icon.startswith("ph-") or icon == "bolt" for icon in icons)
+    assert catalog["triggers"] == "bolt"
+    assert (ROOT / "data" / "ui" / "icons" / "bolt.svg").is_file()
     assert catalog["mute"] == "ph-speaker"
     assert (ROOT / "data" / "ui" / "icons" / "ph-speaker.svg").is_file()
     assert QUICKBAR_ITEMS[-1][0] == "support"
@@ -987,7 +992,8 @@ def test_quickbar_uses_one_distinct_icon_per_action():
 
 def test_quickbar_keeps_timers_beside_spells_and_recovery_beside_quit():
     keys = [key for key, _label, _icon, _group in QUICKBAR_ITEMS]
-    assert keys.index("timers") == keys.index("spells") + 1
+    assert keys[keys.index("spells"):keys.index("spells") + 3] == [
+        "spells", "triggers", "timers"]
     assert keys.index("device_sync") == keys.index("mobile") + 1
     assert keys[keys.index("quit") - 4:keys.index("quit")] == [
         "log_status", "reload_ui", "updates", "settings"]

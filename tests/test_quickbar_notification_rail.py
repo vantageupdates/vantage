@@ -298,9 +298,10 @@ QTest.keyClick(
     bar.notification_rail.history_button, Qt.Key.Key_Space)
 app.processEvents()
 history_dialog = app._notification_history_dialog
-# Native/offscreen top-level activation is asynchronous; wait for the actual
-# launch to settle before testing Tab order, rather than racing its focus event.
-QTest.qWait(20)
+# Native/offscreen top-level activation is asynchronous. Assert actual
+# readiness, not a fixed 20ms scheduling assumption, before testing Tab order.
+# A launcher that never activates still fails, as do all six traversal checks.
+assert QTest.qWaitForWindowActive(history_dialog, 1000)
 app.processEvents()
 history_dialog.table.selectRow(1)
 history_dialog.search.setFocus()
