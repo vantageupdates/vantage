@@ -43,6 +43,10 @@ raid/guild tooltip typos are corrected. A follow-up buff correction clears
 hover/pressed backplates too: the user's new screenshot confirmed that the
 1.44.101 interactive outline still painted a square in the text area. Native
 icons, cancellation bindings and defined numbered holders remain intact.
+Chat output now keeps six pixels below the native titlebar/at its right edge
+and above the input instead of cramped one-/three-pixel clearances. Input
+height, native chat bindings, user fonts, resizing and saved layouts stay
+unchanged. Geometry checks are not proof of native font/scroll rendering.
 This is native-size source polish, not an
 engine-level resolution upgrade or a claim of in-game verification.
 

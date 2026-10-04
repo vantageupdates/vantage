@@ -54,7 +54,7 @@ def test_chat_input_keeps_height_and_clearance_when_resized(width,height):
     top=height-int(entry.findtext('TopAnchorOffset')); bottom=height-int(entry.findtext('BottomAnchorOffset'))
     assert left == width-right == 6 and right > left
     assert bottom-top == 21 and height-bottom == 6
-    assert top-(height-int(output.findtext('BottomAnchorOffset'))) == 3
+    assert top-(height-int(output.findtext('BottomAnchorOffset'))) == 6
     parent=xml.find("Screen[@item='ChatWindow']")
     assert rect(parent) == (95,280,421,200)
     assert parent.findtext('Style_Sizable') == 'true'

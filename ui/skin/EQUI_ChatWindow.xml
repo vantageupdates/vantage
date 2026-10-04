@@ -23,9 +23,11 @@
     <Style_VScroll>true</Style_VScroll>
     <AutoStretch>true</AutoStretch>
     <LeftAnchorOffset>10</LeftAnchorOffset>
-    <TopAnchorOffset>1</TopAnchorOffset>
-    <RightAnchorOffset>1</RightAnchorOffset>
-    <BottomAnchorOffset>30</BottomAnchorOffset>
+    <!-- Six-pixel breathing room inside the native client/titlebar area;
+         bottom 33 keeps a six-pixel gap before the unchanged input at 27. -->
+    <TopAnchorOffset>6</TopAnchorOffset>
+    <RightAnchorOffset>6</RightAnchorOffset>
+    <BottomAnchorOffset>33</BottomAnchorOffset>
     <RightAnchorToLeft>false</RightAnchorToLeft>
     <BottomAnchorToTop>false</BottomAnchorToTop>
     <Style_Border>false</Style_Border>

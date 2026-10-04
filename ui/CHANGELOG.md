@@ -14,6 +14,11 @@ Install folder: `VantageUI-v1.44.102`.
 - English tracking-color tooltips, a clearer font Apply action and explicit
   pet-dismissal help improve control clarity without changing their behavior.
   Two raid/guild tooltip typos are corrected.
+- Chat output has six pixels of clearance below the native titlebar and at
+  the right edge, plus a six-pixel gap above the unchanged 21-pixel input.
+  The previous one-pixel top/right offsets and three-pixel footer gap were
+  cramped. Resizing, native chat links/scrolling and input bindings remain
+  intact. No font, font size, saved layout, window defaults or DPI is changed.
 - Corrects the remaining buff hover square reported after 1.44.101: all five
   buff-button chrome states are now fully transparent, including hover and
   pressed states. Native icon decals, named effects, cancellation bindings,
@@ -25,6 +30,9 @@ Source geometry, native bindings, atlas containment, state artwork and pixel
 preservation are verified offline. The user confirmed the residual artifact
 appears on hover. Load the new skin to verify actual rendering, cancellation
 and native clicks; this release does not claim a live-renderer certification.
+The chat padding is geometry-checked at compact and larger sizes using a
+static frame/titlebar inset model; native font rendering and scrolled-line clipping
+still require a reload and visual check in the game.
 Per-character skin selection can remain on an older installed version. No
 game files or character INIs are changed by this release build.
 
