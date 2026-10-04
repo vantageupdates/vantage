@@ -11,7 +11,9 @@ La bandeja muestra **WAITING** cuando la carpeta está vinculada pero todavía n
 
 Las ventanas son independientes. En la barra superior puedes fijarlas encima, cambiar opacidad, activar click-through en los overlays, enrollarlas, minimizarlas a la bandeja o redimensionarlas desde la esquina. Mercado siempre conserva mouse y teclado para que puedas escribir en la búsqueda. Cada ventana recuerda su posición y tamaño. Por defecto Vantage arranca con las ventanas enrolladas; en **Ajustes → General → Al iniciar Vantage** puedes elegir **Enrolladas**, **Minimizadas a la bandeja** o **Normales / desplegadas**. Al enrollarse, la cabecera se encoge al ancho exacto de sus controles. El título y los controles esenciales siempre conservan su espacio; si la cabecera queda estrecha, las acciones secundarias pasan a **More window actions** antes de solaparse. Todos los paneles se redibujan como controles Qt nativos para conservar líneas, texto y entrada nítidos en cualquier tamaño. La navegación lateral de Ajustes usa filas compactas, foco visible y una marca dorada discreta en la sección actual. En Quick Bar, el café y el rayo verde de una conexión `ONLINE` estable alternan icono, superficie y un destello pequeño usando timers precisos aun con EverQuest o WinEQ al frente; **Reduce motion and flashes** los deja estáticos. Smart Timers queda junto a Buffs & Triggers y las acciones de estado/recuperación quedan junto a Quit. En Buffs & Triggers, el nivel muestra `Lv` completo y los rockers arriba/abajo viven dentro del mismo campo. Deja el puntero sobre cualquier control para ver su función.
 
-Haz clic derecho sobre el fondo o la cabecera de cualquier panel para moverlo a nueve posiciones de la pantalla, traerlo al frente, dejarlo en capa normal, enviarlo detrás, cambiar su opacidad, enrollarlo, cambiar el marco, restaurar su tamaño o enviarlo a la bandeja. Los campos de texto conservan su menú de copiar/pegar; buffs y mapa conservan sus acciones especiales.
+Haz clic derecho sobre el fondo o la cabecera de cualquier panel para moverlo a nueve posiciones de la pantalla, traerlo al frente, dejarlo en capa normal, enviarlo detrás, cambiar su opacidad, enrollarlo, cambiar el marco, restaurar su tamaño o enviarlo a la bandeja. **Panel Size** aplica de verdad las réplicas Tiny 25 %, Mini 35 %, Compact 50 %, Comfortable 75 % y Original 100 %; la opción activa queda marcada. Al enrollar, minimizar a la bandeja o volver a abrir, se conserva exactamente el último tamaño escogido. Los campos de una o varias líneas muestran el menú normal de Windows/Qt con deshacer, cortar, copiar, pegar, borrar y seleccionar todo; buffs y mapa conservan sus acciones especiales.
+
+En cualquier tabla puedes arrastrar los separadores del encabezado o hacer doble clic sobre uno para ajustar esa columna al contenido. Desde una celda, `Shift+F10` abre opciones para ensanchar, estrechar, autoajustar o restaurar la tabla. Los anchos se guardan automáticamente y **Reset UI Layout** los devuelve al diseño original.
 
 ## Smart Timers
 
@@ -65,6 +67,15 @@ PigParse es la fuente de verdad para precios. El selector Green/Blue tiene nombr
 Market usa controles Qt nativos sin una superficie gráfica escalada: un clic real en **Buscar item o vendedor…** entrega el foco directamente al campo. En tamaños estrechos, búsqueda, filtros y botones se apilan y sólo aparece scroll vertical.
 
 Pulsa el nombre dorado de un item para abrir su ficha clásica dentro de Vantage. La ficha muestra icono, estadísticas, **Lo dropea** y **Dónde**. Pulsa el NPC o la zona para abrir otra ficha interna con sus datos; no necesitas salir al navegador.
+
+En **WTS / WTB Builder**, añade items y escoge venta o compra. **Copy Discord WTS/WTB** crea un bloque vertical con un item por línea y un enlace P99 Wiki clicable; precio y cantidad se conservan. Pégalo en el canal que quieras. Vantage no inicia sesión en Discord ni envía el mensaje por ti.
+
+## Items & Notes
+
+1. En EverQuest ejecuta `/outputfile inventory Nombre-Inventory.txt`. En P99 ese archivo ya incluye inventario y banco.
+2. Abre **Items & Notes** en Quick Bar y pulsa **Import dump**. Cada personaje conserva su propio snapshot; un nuevo import reemplaza sólo ese personaje y deja hasta cinco versiones restaurables.
+3. Busca o filtra por Equipped, Inventory, Bags, Bank o Shared Bank. Doble clic abre la ficha interna del item. **Set quantity**, **Remove**, **Undo** y **Restore prior** cambian únicamente la copia local de Vantage.
+4. En **Notes**, pulsa **New note** y escribe `@`. Escoge Item, Quest o Zone; **Preview links** convierte la referencia en un enlace interno clicable. Las notas se guardan automáticamente y también aceptan `Ctrl+S` y `Ctrl+N`.
 
 ## Mapas
 

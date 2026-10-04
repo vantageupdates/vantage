@@ -34,9 +34,12 @@ class LogReader(QFileSystemWatcher):
         self._stats = {}
         for path in self._files:
             try:
-                self._stats[path] = {'last_read': os.path.getsize(path)}
+                stat = os.stat(path)
+                self._stats[path] = {
+                    'last_read': stat.st_size,
+                    'identity': (stat.st_dev, stat.st_ino)}
             except OSError:
-                self._stats[path] = {'last_read': 0}
+                self._stats[path] = {'last_read': 0, 'identity': None}
 
     @staticmethod
     def _identity(path):
@@ -82,7 +85,13 @@ class LogReader(QFileSystemWatcher):
             updated_files = set(new_files) - set(self._files)
             self._watcher.addPaths(updated_files)
             for path in updated_files:
-                self._stats[path] = {'last_read': 0}
+                try:
+                    stat = os.stat(path)
+                    identity = (stat.st_dev, stat.st_ino)
+                except OSError:
+                    identity = None
+                self._stats[path] = {
+                    'last_read': 0, 'identity': identity}
             for path in files_to_remove:
                 self._stats.pop(path, None)
             self._files = new_files
@@ -103,15 +112,33 @@ class LogReader(QFileSystemWatcher):
             self.character_name = char_name
             app._signals["logreader"].character_updated.emit(char_name)
 
-        state = self._stats.setdefault(changed_file, {'last_read': 0})
+        state = self._stats.setdefault(
+            changed_file, {'last_read': 0, 'identity': None})
+        stat = os.stat(changed_file)
+        identity = (stat.st_dev, stat.st_ino)
+        if state.get('identity') not in (None, identity):
+            # EQ or a log archiver replaced this pathname with a new file.
+            # A replacement can be larger than the old cursor, so size alone
+            # is not enough to detect it.
+            state['last_read'] = 0
+        state['identity'] = identity
         with open(changed_file, 'rb') as log:
             log.seek(0, os.SEEK_END)
             end = log.tell()
             if end < state['last_read']:
                 state['last_read'] = 0
             log.seek(state['last_read'], os.SEEK_SET)
-            lines = log.readlines()
-            state['last_read'] = log.tell()
+            payload = log.read()
+        # QFileSystemWatcher can fire between the timestamp/text writes and
+        # the trailing CRLF. Do not consume an incomplete EQ line: the next
+        # event rereads it from the same byte cursor as one intact message.
+        completed_at = payload.rfind(b'\n')
+        if completed_at < 0:
+            lines = []
+        else:
+            completed = payload[:completed_at + 1]
+            lines = completed.splitlines()
+            state['last_read'] += len(completed)
         for raw_line in lines:
             line = raw_line.decode('utf-8', errors='replace').rstrip('\r\n')
             try:

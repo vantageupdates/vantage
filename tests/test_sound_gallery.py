@@ -3,7 +3,7 @@ import wave
 from vantage.helpers import config
 from vantage.helpers.audio import (
     DEFAULT_SOUND, audio_muted, notification_sound, play_alert, resolve_sound,
-    set_audio_muted, sound_choices)
+    set_audio_muted, sound_choices, sound_unavailable_reason)
 
 
 def test_built_in_sound_gallery_is_unique_and_complete():
@@ -15,6 +15,7 @@ def test_built_in_sound_gallery_is_unique_and_complete():
     assert DEFAULT_SOUND in uris
     assert all(resolve_sound(uri).is_file() for uri in uris)
     assert all(resolve_sound(uri).suffix.casefold() == ".wav" for uri in uris)
+    assert all(not sound_unavailable_reason(uri) for uri in uris)
     assert len({resolve_sound(uri).read_bytes() for uri in uris}) == 20
 
 
@@ -54,3 +55,21 @@ def test_global_notification_routes_use_saved_gallery_choice():
 
 def test_no_sound_route_is_silent_instead_of_falling_back():
     assert play_alert('', source='Silent route') is False
+
+
+def test_missing_portable_wav_is_unavailable_not_default_sound(tmp_path,
+                                                               monkeypatch):
+    monkeypatch.setenv('VANTAGE_DATA_DIR', str(tmp_path))
+    missing = resolve_sound('portable:sounds/missing.wav')
+
+    assert missing == tmp_path / 'sounds' / 'missing.wav'
+    assert missing.is_file() is False
+    assert missing != resolve_sound(DEFAULT_SOUND)
+    assert sound_unavailable_reason('portable:sounds/missing.wav') == (
+        'sound file unavailable')
+
+    invalid = tmp_path / 'sounds' / 'invalid.wav'
+    invalid.parent.mkdir(parents=True, exist_ok=True)
+    invalid.write_bytes(b'not a wave file')
+    assert sound_unavailable_reason('portable:sounds/invalid.wav') == (
+        'sound file is invalid')

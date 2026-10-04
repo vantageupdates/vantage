@@ -12,17 +12,22 @@ import time
 import zlib
 
 from vantage.helpers.spawn_timer import (
+    MAX_DEATH_MOB_NAME_LENGTH,
+    MAX_DEATH_MOBS,
     PHASE_AVAILABLE,
     PHASE_COMBAT,
     PHASE_IDLE,
     PHASE_RESPAWN,
     SpawnTimerState,
+    normalize_death_mobs,
 )
 
 
 TIMER_SHARE_PREFIX = "VTS1:"
+TIMER_SHARE_V2_PREFIX = "VTS2:"
+TIMER_SHARE_PREFIXES = (TIMER_SHARE_PREFIX, TIMER_SHARE_V2_PREFIX)
 TIMER_SHARE_CODE_RE = re.compile(
-    rf"(?<![A-Za-z0-9_]){re.escape(TIMER_SHARE_PREFIX)}"
+    rf"(?<![A-Za-z0-9_])(?P<prefix>{'|'.join(map(re.escape, TIMER_SHARE_PREFIXES))})"
     r"(?P<token>[A-Za-z0-9_-]{16,2048})")
 MAX_TIMER_SHARE_CODE_CHARS = 232
 MAX_TIMER_SHARE_AGE_SECONDS = 24 * 60 * 60
@@ -57,6 +62,7 @@ class SharedTimerRecord:
     remaining_seconds: int | None
     cycles: int
     warning_sent: bool
+    death_mobs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -79,7 +85,7 @@ class TimerShareExport:
 def extract_timer_share_codes(text):
     """Return every complete Vantage timer code embedded in a log line."""
     return tuple(
-        f"{TIMER_SHARE_PREFIX}{match.group('token')}"
+        f"{match.group('prefix')}{match.group('token')}"
         for match in TIMER_SHARE_CODE_RE.finditer(str(text or "")))
 
 
@@ -104,7 +110,7 @@ def _compact_timer(timer, generated_at):
         | (4 if warning_sent else 0))
     remaining = timer.remaining(generated_at)
     remaining_value = -1 if remaining is None else max(0, math.ceil(remaining))
-    return [
+    record = [
         name,
         zone,
         max(1, int(getattr(timer, "respawn_seconds", 1))),
@@ -116,15 +122,26 @@ def _compact_timer(timer, generated_at):
         remaining_value,
         max(0, int(getattr(timer, "cycles", 0))),
     ]
+    death_mobs = normalize_death_mobs(
+        getattr(timer, "death_mobs", []))
+    # VTS1 remains the default for one name matching the timer label so older
+    # Vantage releases can still receive ordinary shared spawn timers. Only
+    # custom/multiple exact names require the extended VTS2 record.
+    if not death_mobs or (
+            len(death_mobs) == 1 and
+            death_mobs[0].casefold() == name.casefold()):
+        return 1, record
+    return 2, [*record, death_mobs]
 
 
-def _encode_packet(generated_at, packet_id, records):
+def _encode_packet(generated_at, packet_id, records, version=1):
     payload = [generated_at, packet_id, records]
     raw = json.dumps(
         payload, ensure_ascii=True, separators=(",", ":")).encode("ascii")
     compressed = zlib.compress(raw, level=9)
     token = base64.urlsafe_b64encode(compressed).rstrip(b"=").decode("ascii")
-    return f"{TIMER_SHARE_PREFIX}{token}"
+    prefix = TIMER_SHARE_V2_PREFIX if version == 2 else TIMER_SHARE_PREFIX
+    return f"{prefix}{token}"
 
 
 def build_timer_share_codes(
@@ -136,45 +153,57 @@ def build_timer_share_codes(
     included; the receiver can therefore account for transit delay.
     """
     generated_at = int(time.time() if now is None else float(now))
-    records = [_compact_timer(timer, generated_at) for timer in timers]
-    if not records:
+    packed_records = [_compact_timer(timer, generated_at) for timer in timers]
+    if not packed_records:
         raise TimerShareError("There are no timers in the current zone view")
-    if len(records) > MAX_TIMER_SHARE_RECORDS:
+    if len(packed_records) > MAX_TIMER_SHARE_RECORDS:
         raise TimerShareError(
             f"Share at most {MAX_TIMER_SHARE_RECORDS} timers at once")
     maximum = max(96, min(512, int(max_code_chars)))
     codes = []
     packet_ids = []
     current_records = []
+    current_version = None
     current_id = secrets.token_urlsafe(6)
-    for record in records:
+    for record_version, record in packed_records:
+        if current_records and record_version != current_version:
+            codes.append(_encode_packet(
+                generated_at, current_id, current_records,
+                version=current_version))
+            packet_ids.append(current_id)
+            current_records = []
+            current_id = secrets.token_urlsafe(6)
+        current_version = record_version
         candidate = [*current_records, record]
         candidate_code = _encode_packet(
-            generated_at, current_id, candidate)
+            generated_at, current_id, candidate, version=current_version)
         if len(candidate_code) <= maximum:
             current_records = candidate
             continue
         if not current_records:
             raise TimerShareError(
-                f"{record[0]} and its zone are too long for an EQ chat code")
+                f"{record[0]} has too much detail for an EQ chat code")
         codes.append(_encode_packet(
-            generated_at, current_id, current_records))
+            generated_at, current_id, current_records,
+            version=current_version))
         packet_ids.append(current_id)
         current_id = secrets.token_urlsafe(6)
         current_records = [record]
         if len(_encode_packet(
-                generated_at, current_id, current_records)) > maximum:
+                generated_at, current_id, current_records,
+                version=current_version)) > maximum:
             raise TimerShareError(
-                f"{record[0]} and its zone are too long for an EQ chat code")
+                f"{record[0]} has too much detail for an EQ chat code")
     if current_records:
         codes.append(_encode_packet(
-            generated_at, current_id, current_records))
+            generated_at, current_id, current_records,
+            version=current_version))
         packet_ids.append(current_id)
     return TimerShareExport(
         generated_at=generated_at,
         codes=tuple(codes),
         packet_ids=tuple(packet_ids),
-        timer_count=len(records),
+        timer_count=len(packed_records),
     )
 
 
@@ -218,9 +247,13 @@ def _decompress_token(token):
 def decode_timer_share_code(code, received_at=None):
     """Validate one code and return its timer records plus transit age."""
     text = str(code or "").strip()
-    if not text.startswith(TIMER_SHARE_PREFIX):
+    prefix = next((
+        candidate for candidate in TIMER_SHARE_PREFIXES
+        if text.startswith(candidate)), None)
+    if prefix is None:
         raise TimerShareError("Unsupported timer share code")
-    payload = _decompress_token(text[len(TIMER_SHARE_PREFIX):])
+    version = 2 if prefix == TIMER_SHARE_V2_PREFIX else 1
+    payload = _decompress_token(text[len(prefix):])
     if not isinstance(payload, list) or len(payload) != 3:
         raise TimerShareError("Unsupported timer share code")
     generated_at = _bounded_int(
@@ -241,7 +274,8 @@ def decode_timer_share_code(code, received_at=None):
     future_skew = max(0, -raw_age)
     records = []
     for row in rows:
-        if not isinstance(row, list) or len(row) != 10:
+        expected_fields = 11 if version == 2 else 10
+        if not isinstance(row, list) or len(row) != expected_fields:
             raise TimerShareError("Invalid timer record")
         name = _safe_text(row[0], 64)
         zone = _safe_text(row[1], 64)
@@ -259,6 +293,21 @@ def decode_timer_share_code(code, received_at=None):
         remaining_value = _bounded_int(
             row[8], "remaining time", -1, 7 * 24 * 60 * 60)
         cycles = _bounded_int(row[9], "timer cycles", 0, 1_000_000)
+        if version == 2:
+            raw_death_mobs = row[10]
+            if (not isinstance(raw_death_mobs, list) or
+                    not raw_death_mobs or
+                    len(raw_death_mobs) > MAX_DEATH_MOBS or
+                    any(not isinstance(value, str) or
+                        not value.strip() or
+                        len(value) > MAX_DEATH_MOB_NAME_LENGTH
+                        for value in raw_death_mobs)):
+                raise TimerShareError("Invalid death detection list")
+            death_mobs = normalize_death_mobs(raw_death_mobs)
+            if len(death_mobs) != len(raw_death_mobs):
+                raise TimerShareError("Invalid death detection list")
+        else:
+            death_mobs = [name]
         running = bool(flags & 2)
         phase = _CODE_TO_PHASE[phase_code]
         remaining = None if remaining_value < 0 else remaining_value
@@ -279,6 +328,7 @@ def decode_timer_share_code(code, received_at=None):
             remaining_seconds=remaining,
             cycles=cycles,
             warning_sent=bool(flags & 4),
+            death_mobs=tuple(death_mobs),
         ))
     return TimerSharePacket(
         generated_at=generated_at,
@@ -300,7 +350,8 @@ def shared_record_to_state(record, packet, received_at, volume=85):
         color=record.color,
         smart=record.smart,
         zone=record.zone,
-        mob_pattern=rf"^{re.escape(record.name)}$",
+        mob_pattern="",
+        death_mobs=list(record.death_mobs) or [record.name],
         sound_path="builtin:spawn-horn",
         volume=volume,
         source="Shared timer",

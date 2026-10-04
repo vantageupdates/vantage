@@ -97,6 +97,41 @@ def test_large_share_splits_into_independent_chat_safe_codes():
     assert decoded == [timer.name for timer in timers]
 
 
+def test_multi_death_list_uses_v2_and_round_trips_exact_names():
+    source = SpawnTimerState(
+        "Quillmane cycle", 1_920, zone="South Karana",
+        death_mobs=["Quillmane", "an escaped splitpaw gnoll"])
+    source.mark_killed(1_000)
+
+    exported = build_timer_share_codes([source], now=1_010)
+
+    assert exported.codes[0].startswith("VTS2:")
+    assert extract_timer_share_codes(
+        f"Friend tells you, '{exported.codes[0]}'") == exported.codes
+    packet = decode_timer_share_code(exported.codes[0], received_at=1_020)
+    assert packet.timers[0].death_mobs == (
+        "Quillmane", "an escaped splitpaw gnoll")
+    restored = shared_record_to_state(
+        packet.timers[0], packet, received_at=1_020)
+    assert restored.death_mobs == [
+        "Quillmane", "an escaped splitpaw gnoll"]
+    assert restored.matches_kill("Quillmane", "South Karana")
+    assert restored.matches_kill(
+        "an escaped splitpaw gnoll", "South Karana")
+    assert not restored.matches_kill("Quillmane's pet", "South Karana")
+
+
+def test_single_default_death_name_keeps_v1_receiver_compatibility():
+    source = SpawnTimerState(
+        "Quillmane", 1_920, death_mobs=["Quillmane"])
+
+    exported = build_timer_share_codes([source], now=1_000)
+
+    assert exported.codes[0].startswith("VTS1:")
+    packet = decode_timer_share_code(exported.codes[0], received_at=1_001)
+    assert packet.timers[0].death_mobs == ("Quillmane",)
+
+
 def test_damaged_expired_and_future_codes_are_safe():
     timer = SpawnTimerState("Quillmane", 1_920, zone="South Karana")
     timer.start(10_000)
@@ -164,7 +199,8 @@ count_after_own_echo = len(panel._states)
 
 received_at = int(time.time())
 source = SpawnTimerState(
-    "A Frost Giant Scout", 120, kill_seconds=10, zone="Kael Drakkel")
+    "A Frost Giant Scout", 120, kill_seconds=10, zone="Kael Drakkel",
+    death_mobs=["A Frost Giant Scout", "a frost giant placeholder"])
 source.mark_killed(received_at - 50)
 external = build_timer_share_codes([source], now=received_at - 20)
 line = f"Campfriend tells you, '{external.codes[0]}'"
@@ -187,9 +223,14 @@ count_after_duplicate = len(panel._states)
 shared.color = "#123456"
 shared.sound_path = "builtin:quiet-chime"
 shared.volume = 17
+shared.delivery = "tts"
+shared.tts_text = "{timer} {state}"
+shared.tts_voice = "Narrator"
+shared.tts_pitch = 3
 newer = SpawnTimerState(
     "A Frost Giant Scout", 120, kill_seconds=15, zone="Kael Drakkel",
-    color="#ABCDEF")
+    color="#ABCDEF",
+    death_mobs=["A Frost Giant Scout", "an ice giant placeholder"])
 newer.mark_killed(received_at - 10)
 fresh = build_timer_share_codes([newer], now=received_at)
 panel.parse(
@@ -226,7 +267,9 @@ print(json.dumps({
     "fresh_share_merged": count_after_fresh == count_after_import,
     "merged_remaining": merged.remaining(received_at + 5),
     "local_alerts_preserved": [
-        merged.color, merged.sound_path, merged.volume],
+        merged.color, merged.sound_path, merged.volume, merged.delivery,
+        merged.tts_text, merged.tts_voice, merged.tts_pitch],
+    "merged_death_mobs": merged.death_mobs,
     "invalid_rejected": invalid_rejected,
 }))
 app.quit()
@@ -274,5 +317,8 @@ def test_timer_panel_share_button_and_automatic_log_import(tmp_path):
     assert result["fresh_share_merged"] is True
     assert result["merged_remaining"] == 105
     assert result["local_alerts_preserved"] == [
-        "#123456", "builtin:quiet-chime", 17]
+        "#123456", "builtin:quiet-chime", 17, "tts",
+        "{timer} {state}", "Narrator", 3]
+    assert result["merged_death_mobs"] == [
+        "A Frost Giant Scout", "an ice giant placeholder"]
     assert result["invalid_rejected"] is True

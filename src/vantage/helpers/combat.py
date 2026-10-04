@@ -18,7 +18,10 @@ MELEE = re.compile(
     r"^(?P<attacker>You|[A-Za-z][A-Za-z'` .-]*?) "
     r"(?P<verb>hit|hits|slash|slashes|crush|crushes|pierce|pierces|"
     r"kick|kicks|bash|bashes|backstab|backstabs|bite|bites|claw|claws|"
-    r"maul|mauls|punch|punches) (?P<target>.+?) for "
+    r"maul|mauls|punch|punches|frenzy|frenzies|gore|gores|slice|slices|"
+    r"smash|smashes|sting|stings|rend|rends|slam|slams|shoot|shoots|"
+    r"stab|stabs|burn|burns|strike|strikes|sweep|sweeps) "
+    r"(?P<target>.+?) for "
     r"(?P<damage>\d+) points? of damage\.$",
     re.IGNORECASE,
 )
@@ -30,7 +33,9 @@ DOT = re.compile(
     r"(?P<spell>.+?)\.$", re.IGNORECASE)
 MISS = re.compile(
     r"^(?P<attacker>You|[A-Za-z][A-Za-z'` .-]*?) "
-    r"(?:try|tries) to (?P<verb>hit|slash|crush|pierce|kick|bash|backstab) "
+    r"(?:try|tries) to (?P<verb>hit|slash|crush|pierce|kick|bash|backstab|"
+    r"bite|claw|maul|punch|frenzy|gore|slice|smash|sting|rend|slam|"
+    r"shoot|stab|burn|strike|sweep) "
     r"(?P<target>.+?), but miss(?:es)?!$", re.IGNORECASE)
 SIMPLE_MISS = re.compile(
     r"^(?P<attacker>You|[A-Za-z][A-Za-z'` .-]*?) miss(?:es)? "
@@ -1205,7 +1210,14 @@ class CombatTracker:
             diagnostic_matched = True
             changed = True
         if text.startswith("You have entered "):
-            self.current_zone = text[17:].rstrip(".")
+            next_zone = text[17:].rstrip(".")
+            if self.active:
+                # A zone line is an authoritative fight boundary. Without it,
+                # a same-named mob in the destination zone can be merged into
+                # the previous zone's record and later archived under the
+                # wrong encounter.
+                self.finalize_active(timestamp)
+            self.current_zone = next_zone
         pet_leader = PET_LEADER.match(text)
         if pet_leader:
             values = pet_leader.groupdict()
@@ -1703,6 +1715,21 @@ class CombatTracker:
         self.completed.appendleft(encounter)
         self._completion_events.append(encounter)
         return encounter
+
+    def finalize_active(self, timestamp=None):
+        """Finish every active mob at one explicit log/session boundary."""
+        if not self.active:
+            return []
+        self._completed_undo.clear()
+        finished = sorted(
+            self.active.values(), key=lambda encounter: encounter.last_at)
+        self.active.clear()
+        for encounter in finished:
+            if timestamp is not None:
+                encounter.last_at = max(encounter.last_at, timestamp)
+            self.completed.appendleft(encounter)
+            self._completion_events.append(encounter)
+        return finished
 
     def expire(self, now):
         stale = [

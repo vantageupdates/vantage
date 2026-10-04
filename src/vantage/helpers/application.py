@@ -1,4 +1,5 @@
 import copy
+from collections import deque
 import math
 import os
 import time
@@ -8,13 +9,15 @@ from PySide6.QtGui import (
     QColor, QCursor, QFont, QFontDatabase, QIcon, QPainter, QPalette,
     QPen, QPixmap)
 from PySide6.QtWidgets import (
-    QApplication, QFileDialog, QMenu, QMessageBox, QSystemTrayIcon)
+    QApplication, QDialog, QMenu, QMessageBox, QSystemTrayIcon)
 import semver
 
 from vantage.helpers import config, logreader, resource_path
 from vantage.helpers.audio import (
-    audio_muted, master_volume, playback_block_reason, play_alert,
-    set_audio_muted, sound_display_name, speak_text)
+    audio_muted, audio_preflight, master_volume, playback_block_reason,
+    play_alert,
+    prewarm_speech_engine, set_audio_muted, set_master_volume,
+    sound_display_name, speak_text)
 from vantage.helpers.camp_session import CampSessionController
 from vantage.helpers.character_context import CharacterContextTracker
 from vantage.helpers.icons import WINDOW_ICONS, game_icon
@@ -26,9 +29,13 @@ from vantage.helpers.notification_routes import (
     NOTIFICATION_ROUTES, NotificationDeliveryResult, TellAudioCooldown,
     classify_chat_notification, normalized_route_settings)
 from vantage.helpers.portable import data_dir
+from vantage.helpers.responsive import TableColumnManager
 from vantage.helpers.splash import StartupSplash
+from vantage.helpers.terms import ensure_terms_accepted
 from vantage.helpers.updater import UpdateController
 from vantage.helpers.update_toast import QuickUpdateToast
+from vantage.helpers.update_handoff import (
+    consume_spell_handoff, read_spell_handoff, write_spell_handoff)
 from vantage.parsers.combat import Combat
 from vantage.parsers.heals import HealChain
 from vantage.parsers.maps import Maps
@@ -37,11 +44,16 @@ from vantage.parsers.market import GEAR_COLUMN_DEFAULT_WIDTHS, GreenMarket
 from vantage.parsers.opendkp import OpenDKP
 from vantage.parsers.zones import Zones
 from vantage.parsers.quests import Quests
+from vantage.parsers.random_parser import RandomParser
+from vantage.parsers.items_notes import ItemsNotes
+from vantage.parsers.log_searcher import LogSearcher
 from vantage.parsers.vantage_ui import VantageUI, version_is_newer
-from vantage.parsers.quickbar import QuickBar
+from vantage.parsers.quickbar import (
+    QuickBar, QuickBarNotificationHistoryDialog, QuickBarNotificationRail)
 from vantage.parsers.spells import Spells
 from vantage.parsers.tick import ServerTick
 from vantage.parsers.timers import SpawnTimers
+from vantage.parsers.vitals import Vitals
 
 _config_dir = data_dir()
 config.load(str(_config_dir / 'vantage.config.json'))
@@ -51,7 +63,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=68,
+    patch=125,
     build=""
 )
 
@@ -73,13 +85,14 @@ class LocationSharingSignals(QObject):
 class VantageApp(QApplication):
     """Application Control."""
 
-    def __init__(self, *args):
+    def __init__(self, *args, enforce_terms=False):
         super().__init__(*args)
         # Keep the tray application alive even when every parser is hidden.
         self.setQuitOnLastWindowClosed(False)
 
         self._button_polish = ButtonPolishFilter(self)
         self.installEventFilter(self._button_polish)
+        self._column_widths = TableColumnManager(self)
 
         # Theme and bundled fonts must exist before any parser window is built.
         QFontDatabase.addApplicationFont(resource_path('data/fonts/NotoSans-Regular.ttf'))
@@ -95,6 +108,10 @@ class VantageApp(QApplication):
         self.setPalette(palette)
         self._apply_theme()
         self.setWindowIcon(QIcon(resource_path('data/ui/icon.png')))
+        self._startup_aborted = False
+        if enforce_terms and not ensure_terms_accepted():
+            self._startup_aborted = True
+            return
         self._splash = StartupSplash()
         self._splash.show_centered()
         self._splash.step("Loading preferences and profiles…", 12)
@@ -104,15 +121,34 @@ class VantageApp(QApplication):
         self._log_reader = None
         self._log_status = "NO LOGS"
         self._last_log_activity = None
+        self._latest_log_activity = None
         self._last_audio = "None yet"
         self._last_audio_event = None
+        self._last_audio_replay = None
         self._last_audio_blocked = "None yet"
         self._quickbar_notice_id = 0
         self._quickbar_notice = ""
+        self._quickbar_notice_channel = "system"
         self._quickbar_notice_at = 0.0
+        # Exact, bounded session evidence is separate from the transient rail
+        # scheduler. A burst may be summarized visually without losing the
+        # time, category, or semantic message that explains an alert.
+        self._quickbar_notice_history = deque(maxlen=250)
+        # Keep accepted notices until the Quick Bar has actually taken them.
+        # A single "latest notice" slot lost bursts whenever several parser
+        # events arrived before Qt completed one refresh/layout cycle.
+        # Keep written counterparts until the Quick Bar actually presents
+        # them.  This queue is session-only and intentionally has no silent
+        # maxlen eviction: a hidden/collapsed bar must not lose the event that
+        # explains an audible alert.
+        self._quickbar_notice_queue = deque()
         self._last_update_success = ""
         self._tell_audio_cooldown = TellAudioCooldown()
         set_audio_muted(config.data['general'].get('audio_muted', False))
+        # QTextToSpeech/SAPI has a noticeable one-time startup cost. Prepare it
+        # silently once the Qt event loop starts so the first live alert is not
+        # delayed and no background thread touches Qt-owned objects.
+        prewarm_speech_engine()
 
         # Load Signals
         self._signals = {}
@@ -120,6 +156,11 @@ class VantageApp(QApplication):
         self._signals["settings"] = SettingsSignals()
         self._signals["maps"] = MapsSignals()
         self._signals["locationsharing"] = LocationSharingSignals()
+        # Config can also be replaced by Device Sync or another feature-owned
+        # settings surface. Keep Master Mute authoritative for those paths as
+        # well, including audio that is already queued or playing.
+        self._signals["settings"].config_updated.connect(
+            self._sync_audio_settings)
 
         # Exact local-log character, group and pet context.  The bounded
         # profiles persist only compact derived state, never duplicate logs.
@@ -142,14 +183,37 @@ class VantageApp(QApplication):
             self._ensure_location_sharing()
 
         # Load Parsers
+        updated_from = os.environ.get("VANTAGE_UPDATED_FROM", "")
+        try:
+            config_mtime = os.path.getmtime(config._filename)
+        except (OSError, TypeError, ValueError):
+            config_mtime = 0.0
+        self._update_spell_handoff = read_spell_handoff(
+            updated_from=updated_from,
+            newer_than=config_mtime if not updated_from else None)
+        if self._update_spell_handoff is not None:
+            config.data.setdefault('spells', {})['active_timer_state'] = \
+                copy.deepcopy(self._update_spell_handoff)
+            # Make the recovered copy durable before any parser or sync
+            # controller can observe it. The sidecar remains if this fails.
+            try:
+                config.save()
+            except (OSError, TypeError, ValueError):
+                pass
         self._load_parsers()
+        self._finish_update_spell_handoff_restore()
         self._splash.step("Preparing lightweight on-demand tools…", 82)
         self._settings_instance = None
+        self._notification_history_dialog = None
+        self._feature_settings_instances = {}
+        self._triggers_dialog_instance = None
         self._update_dialog_instance = None
         self._log_monitor_dialog_instance = None
         self._update_controller = UpdateController(CURRENT_VERSION, self)
         self._update_auto_enabled = bool(
             config.data['general'].get('update_check', True))
+        self._update_install_auto_enabled = bool(
+            config.data['general'].get('auto_install_updates', False))
         self._update_check_state = (
             "idle" if self._update_auto_enabled else "disabled")
         self._update_check_error = ""
@@ -190,8 +254,14 @@ class VantageApp(QApplication):
                 vantage_ui.update_snapshot())
         self._mobile_share_instance = None
         self._mobile_dialog_instance = None
+        self._device_sync_instance = None
+        self._device_sync_dialog_instance = None
         self._spell_library_dialog = None
         self._about_dialog_instance = None
+        if config.data.get("device_sync", {}).get("enabled", False):
+            QTimer.singleShot(0, self._auto_start_device_sync)
+        if config.data.get("mobile", {}).get("auto_start", False):
+            QTimer.singleShot(0, self._auto_start_mobile_share)
         self._splash.step("Finishing tray and log monitoring…", 91)
 
         # Tray Icon
@@ -236,11 +306,22 @@ class VantageApp(QApplication):
             if open_ui_after_update:
                 QTimer.singleShot(0, self.open_vantage_ui)
         elif update_error:
+            update_error = " ".join(update_error.split())[:1000]
+            self._update_check_state = (
+                "retrying" if self._update_auto_enabled else "disabled")
+            self._update_check_error = update_error
             self.show_overlay_notification(
                 "Vantage update",
                 update_error, msecs=8500, overlay_id="alerts",
                 text_color="#E08372")
+            self._queue_quickbar_notice(
+                "Vantage update failed", update_error, channel="system")
         self._schedule_update_check(UPDATE_INITIAL_DELAY_MS)
+
+    @property
+    def startup_aborted(self):
+        """Whether the required notice was declined before startup began."""
+        return self._startup_aborted
 
     def _log_archive_completed(self, report):
         if report.moved:
@@ -263,6 +344,7 @@ class VantageApp(QApplication):
         maps = Maps()
         self._splash.step("Indexing buffs, icons, and triggers…", 42)
         spells = Spells()
+        vitals = Vitals()
         self._splash.step("Restoring Smart Timers and Server Tick…", 58)
         tick = ServerTick()
         spells.spell_faded.connect(tick.spell_faded)
@@ -270,23 +352,32 @@ class VantageApp(QApplication):
         self._splash.step(
             "Preparing combat, Market, guild data, Zones, Quests, and VantageUI…", 70)
         combat = Combat()
+        random_parser = RandomParser()
         heals = HealChain()
         market = GreenMarket()
         opendkp = OpenDKP()
         zones = Zones()
         quests = Quests()
+        items_notes = ItemsNotes(market, quests)
+        log_searcher = LogSearcher()
+        self._signals["settings"].config_updated.connect(
+            items_notes.refresh_synced_content)
         vantage_ui = VantageUI()
         self._parsers_dict = {
             "maps": maps,
             "spells": spells,
+            "vitals": vitals,
             "tick": tick,
             "timers": timers,
             "combat": combat,
+            "random_parser": random_parser,
             "heals": heals,
             "market": market,
             "opendkp": opendkp,
             "zones": zones,
             "quests": quests,
+            "items_notes": items_notes,
+            "log_searcher": log_searcher,
             "vantage_ui": vantage_ui,
         }
         quickbar = QuickBar(self, self._parsers_dict)
@@ -295,14 +386,18 @@ class VantageApp(QApplication):
             self._parsers_dict["quickbar"],
             self._parsers_dict["maps"],
             self._parsers_dict["spells"],
+            self._parsers_dict["vitals"],
             self._parsers_dict["tick"],
             self._parsers_dict["timers"],
             self._parsers_dict["combat"],
+            self._parsers_dict["random_parser"],
             self._parsers_dict["heals"],
             self._parsers_dict["market"],
             self._parsers_dict["opendkp"],
             self._parsers_dict["zones"],
             self._parsers_dict["quests"],
+            self._parsers_dict["items_notes"],
+            self._parsers_dict["log_searcher"],
             self._parsers_dict["vantage_ui"],
         ]
         # Launcher-first startup: build every parser once, but expose only the
@@ -310,6 +405,32 @@ class VantageApp(QApplication):
         # one click away with its saved geometry intact.
         for parser in self._parsers:
             parser.finish_startup(show_on_launch=parser is quickbar)
+
+    def _finish_update_spell_handoff_restore(self):
+        """Consume an update sidecar only after UI and disk agree on it."""
+        expected = getattr(self, '_update_spell_handoff', None)
+        if expected is None:
+            return False
+        spells = self._parsers_dict.get('spells')
+        timers = self._parsers_dict.get('timers')
+        if spells is None or timers is None:
+            return False
+        restored = spells._spell_container.snapshot_runtime_state()
+        spells.checkpoint_runtime_state()
+        spell_rows = copy.deepcopy(
+            config.data.get('spells', {}).get('active_timer_state', []))
+        timer_rows = copy.deepcopy(
+            config.data.get('timers', {}).get('items', []))
+        try:
+            config.save()
+        except (OSError, TypeError, ValueError):
+            return False
+        if not config.verify_update_checkpoint(spell_rows, timer_rows):
+            return False
+        consumed = consume_spell_handoff(expected, restored)
+        if consumed:
+            self._update_spell_handoff = None
+        return consumed
 
     @property
     def _settings(self):
@@ -337,10 +458,29 @@ class VantageApp(QApplication):
         self._mobile_share_instance = MobileShareController(
             self._mobile_snapshot,
             timer_action_handler=self._parsers_dict["timers"].mobile_action,
+            browse_action_handler=self._mobile_browse_action,
             parent=self)
         self._mobile_dialog_instance = MobileShareDialog(
             self._mobile_share_instance)
-        self.aboutToQuit.connect(self._mobile_share_instance.stop)
+        self.aboutToQuit.connect(self._mobile_share_instance.shutdown)
+
+    def _auto_start_mobile_share(self):
+        self._ensure_mobile_share()
+        self._mobile_share_instance.start()
+
+    def _ensure_device_sync(self):
+        if self._device_sync_instance is not None:
+            return
+        from vantage.helpers.device_sync import (
+            DeviceSyncController, DeviceSyncDialog)
+        self._device_sync_instance = DeviceSyncController(self)
+        self._device_sync_dialog_instance = DeviceSyncDialog(
+            self._device_sync_instance)
+        self.aboutToQuit.connect(self._device_sync_instance.stop)
+
+    def _auto_start_device_sync(self):
+        self._ensure_device_sync()
+        self._device_sync_instance.start()
 
     def _ensure_location_sharing(self):
         if self._services.get("locationsharing") is not None:
@@ -457,7 +597,7 @@ class VantageApp(QApplication):
             self, title, message, msecs=None, position=None,
             overlay_id="alerts", countdown_seconds=0, timer_key=None,
             character="", color="", timer_mode="countdown",
-            text_color="", register=True):
+            text_color="", register=True, quickbar_channel="system"):
         """Show an independent, click-through notice over the active screen."""
         shown = self._notification_overlay.notify(
             title, message, msecs=msecs, position=position,
@@ -468,7 +608,27 @@ class VantageApp(QApplication):
         # Show the actionable message and omit window/module titles such as
         # “Vantage · Market” that do not tell the player what happened.
         if register:
-            self._queue_quickbar_notice(message or title)
+            if str(quickbar_channel).casefold() == "system":
+                context = f"{title} {timer_key or ''}".casefold()
+                if any(word in context for word in ("spell", "buff")):
+                    quickbar_channel = "spells"
+                elif any(word in context for word in ("market", "sale")):
+                    quickbar_channel = "market"
+                elif any(word in context for word in ("guild", "dkp")):
+                    quickbar_channel = "opendkp"
+                elif any(word in context for word in (
+                        "timer", "respawn", "raid")):
+                    quickbar_channel = "timers"
+                elif any(word in context for word in (
+                        "combat", "damage", "dps", "tanking")):
+                    quickbar_channel = "combat"
+                elif "heal" in context:
+                    quickbar_channel = "heals"
+                elif any(word in context for word in (
+                        "chat", "tell", "hail")):
+                    quickbar_channel = "chat"
+            self._queue_quickbar_notice(
+                message or title, channel=quickbar_channel)
         return shown
 
     def notify_event(
@@ -476,7 +636,8 @@ class VantageApp(QApplication):
             overlay=True, msecs=5000, overlay_id="alerts", color="",
             text_color="", sound_override=None, delivery_override=None,
             volume=80, repeat=1, character="", server="", channel="",
-            register=True, allow_hidden=False):
+            register=True, allow_hidden=False, visual_registered=None,
+            voice_dedupe_key=""):
         """Register and deliver one attributable semantic notification.
 
         The visual event is registered first. Exactly one configured audio
@@ -494,9 +655,11 @@ class VantageApp(QApplication):
             if overlay:
                 self.show_overlay_notification(
                     title, semantic_text, msecs=msecs, overlay_id=overlay_id,
-                    color=color, text_color=text_color)
+                    color=color, text_color=text_color,
+                    quickbar_channel=route.channel)
             else:
-                self._queue_quickbar_notice(semantic_text)
+                self._queue_quickbar_notice(
+                    semantic_text, channel=route.channel)
 
         sounds = config.data.get("sounds")
         route_settings = sounds.get("routes", {}) if isinstance(sounds, dict) else {}
@@ -509,10 +672,29 @@ class VantageApp(QApplication):
             delivery = "sound" if sound else "off"
         source = f"{route.label} · {semantic_text}"
         owner = str(channel or route.channel)
+        audio_notice_registered = (
+            bool(register) if visual_registered is None else
+            bool(visual_registered))
         if delivery == "sound":
+            check = audio_preflight(
+                "sound", sound=sound, volume=volume, character=character,
+                server=server, channel=owner, allow_hidden=allow_hidden)
+            if not check.ready:
+                reason = {
+                    "Master Mute": "muted",
+                    "Master Volume 0%": "master volume 0%",
+                    "Sound while window hidden is Off":
+                        "background audio off",
+                }.get(check.reason, check.reason)
+                blocker = getattr(self, "audio_blocked", None)
+                if callable(blocker):
+                    blocker(source, reason, owner)
+                return NotificationDeliveryResult(
+                    route.key, "sound", check.state, False, reason)
             played = play_alert(
                 sound, volume, repeat, source=source, character=character,
-                server=server, channel=owner, allow_hidden=allow_hidden)
+                server=server, channel=owner, allow_hidden=allow_hidden,
+                visual_registered=audio_notice_registered)
             reason = playback_block_reason(owner, allow_hidden)
             if not reason and master_volume() <= 0:
                 reason = "master volume 0%"
@@ -520,11 +702,29 @@ class VantageApp(QApplication):
             return NotificationDeliveryResult(
                 route.key, "sound", state, bool(played), reason)
         if delivery == "voice":
+            speech = str(voice_text or route.default_voice)
+            check = audio_preflight(
+                "voice", text=speech, volume=volume, character=character,
+                server=server, channel=owner, allow_hidden=allow_hidden)
+            if not check.ready:
+                reason = {
+                    "Master Mute": "muted",
+                    "Master Volume 0%": "master volume 0%",
+                    "Sound while window hidden is Off":
+                        "background audio off",
+                }.get(check.reason, check.reason)
+                blocker = getattr(self, "audio_blocked", None)
+                if callable(blocker):
+                    blocker(source, reason, owner)
+                return NotificationDeliveryResult(
+                    route.key, "voice", check.state, False, reason)
             played = speak_text(
-                str(voice_text or route.default_voice), volume,
+                speech, volume,
                 source=source, character=character, server=server,
                 channel=owner, voice_name=saved["voice"],
-                allow_hidden=allow_hidden)
+                allow_hidden=allow_hidden, replace_pending=True,
+                dedupe_key=str(voice_dedupe_key or ""),
+                visual_registered=audio_notice_registered)
             reason = playback_block_reason(owner, allow_hidden)
             if not reason and master_volume() <= 0:
                 reason = "master volume 0%"
@@ -553,13 +753,22 @@ class VantageApp(QApplication):
         return dialog.exec()
 
     def audio_playback_allowed(self, channel):
-        """Apply the owning panel's background-audio preference."""
+        """Apply only an explicit, user-visible background-audio opt-out.
+
+        Central Sounds routes are intended to alert while the user is playing
+        EverQuest, so hiding an unrelated owner window must not silence them.
+        Only tools that expose ``Sound while Window Is Hidden`` may gate their
+        own attributed runtime audio.
+        """
         channel = str(channel or "").strip().casefold()
+        background_audio_controls = {"spells", "timers", "vitals"}
+        if channel not in background_audio_controls:
+            return True
         parser = getattr(self, "_parsers_dict", {}).get(channel)
         if parser is None or (parser.isVisible() and not parser.isMinimized()):
             return True
         return bool(config.data.get(channel, {}).get(
-            "sounds_when_hidden", False))
+            "sounds_when_hidden", True))
 
     def audio_blocked(self, source, reason, channel=""):
         """Remember suppressed audio without creating another notification."""
@@ -569,23 +778,114 @@ class VantageApp(QApplication):
             f"{label} · {reason}" + (f" · {owner}" if owner else ""))
         self._refresh_quickbar()
 
-    def audio_started(self, source, sound_path, volume, channel=""):
-        """Remember the audible event for diagnostics without duplicating it."""
-        self._last_audio_event = (
-            str(source or "Vantage alert"), str(sound_path or ""),
-            max(0, min(100, int(volume))), str(channel or ""))
-        self._last_audio = (
-            f"{source} · {sound_display_name(sound_path)} · {volume}%")
+    def audio_started(
+            self, source, sound_path, volume, channel="",
+            visual_registered=False, *, replay_data=None):
+        """Remember audio and ensure it has one attributable written notice.
+
+        ``notify_event`` registers its visual notice before audio delivery and
+        marks that ownership explicitly.  Legacy/direct audio call sites have
+        no such guarantee, so their semantic source is mirrored to the Quick
+        Bar here.  The user sees the event that caused the sound, never an
+        opaque WAV filename or Python module name.
+        """
+        # Native speech starts asynchronously. A replay callback must not
+        # replace the original event after show_last_sound has returned.
+        if not getattr(replay_data, "is_replay", False):
+            self._last_audio_event = (
+                str(source or "Vantage alert"), str(sound_path or ""),
+                max(0, min(100, int(volume))), str(channel or ""))
+            self._last_audio_replay = replay_data
+            self._last_audio = (
+                f"{source} · {sound_display_name(sound_path)} · {volume}%")
+        if not visual_registered:
+            semantic_source = " ".join(
+                str(source or "Vantage alert").split())
+            speech_phrase = (
+                " ".join(str(sound_path)[4:].split())
+                if str(sound_path or "").casefold().startswith("tts:") else
+                "")
+            if semantic_source.casefold() in {
+                    "vantage alert", "vantage speech"}:
+                if speech_phrase:
+                    semantic_source = (
+                        f"Spoken alert · {speech_phrase}")
+                else:
+                    semantic_source = "Vantage sound alert"
+            elif (speech_phrase and
+                  speech_phrase.casefold() not in semantic_source.casefold()):
+                semantic_source = f"{semantic_source} · {speech_phrase}"
+            register_notice = getattr(self, "_queue_quickbar_notice", None)
+            if callable(register_notice):
+                register_notice(
+                    semantic_source, channel=str(channel or "system"))
+        dialog = getattr(self, "_notification_history_dialog", None)
+        if dialog is not None and dialog.isVisible():
+            dialog.refresh()
         self._refresh_quickbar()
 
-    def _queue_quickbar_notice(self, *parts):
+    def _queue_quickbar_notice(self, *parts, channel="system"):
         """Send one compact event description to the Quick Bar rail."""
         cleaned = [" ".join(str(part).split()) for part in parts if part]
+        message = " · ".join(cleaned)
+        if not message:
+            return
         self._quickbar_notice_id = int(getattr(
             self, "_quickbar_notice_id", 0)) + 1
-        self._quickbar_notice = " · ".join(cleaned)
+        self._quickbar_notice = message
+        self._quickbar_notice_channel = str(channel or "system")
         self._quickbar_notice_at = time.monotonic()
+        occurred_at = time.time()
+        self._quickbar_notice_history.append({
+            "occurred_at": occurred_at,
+            "display_time": time.strftime(
+                "%Y-%m-%d %H:%M:%S", time.localtime(occurred_at)),
+            "channel": self._quickbar_notice_channel,
+            "category": QuickBarNotificationRail._channel_label(
+                self._quickbar_notice_channel),
+            "message": message,
+        })
+        queue = getattr(self, "_quickbar_notice_queue", None)
+        if queue is None:
+            queue = self._quickbar_notice_queue = deque()
+        queue.append((
+            self._quickbar_notice_id, message,
+            self._quickbar_notice_channel, self._quickbar_notice_at))
         self._refresh_quickbar()
+        dialog = getattr(self, "_notification_history_dialog", None)
+        if dialog is not None and dialog.isVisible():
+            dialog.refresh()
+
+    def quickbar_notice_history(self):
+        """Return newest-first copies of bounded session notification data."""
+        return [dict(item) for item in reversed(
+            getattr(self, "_quickbar_notice_history", ()))]
+
+    def _take_quickbar_notices(self, *, discard=False, max_age=None):
+        """Drain Quick Bar notices in order, or intentionally discard.
+
+        A hidden widget during a Qt layout/reparent pass is not a user choice,
+        so callers decide whether the configured surface is intentionally off.
+        Notices do not expire merely because the bar was hidden.  They are the
+        written counterpart of audio and remain available until presentation
+        or the user's explicit ticker-Off choice.
+        """
+        queue = getattr(self, "_quickbar_notice_queue", None)
+        if not queue:
+            return []
+        now = time.monotonic()
+        notices = []
+        while queue:
+            notice = queue.popleft()
+            if discard:
+                continue
+            try:
+                created = float(notice[3])
+            except (IndexError, TypeError, ValueError):
+                created = now
+            if max_age is None or now - created <= max(1.0, float(max_age)):
+                notices.append(notice)
+        return notices
 
     def _refresh_quickbar(self):
         quickbar = getattr(self, "_parsers_dict", {}).get("quickbar")
@@ -628,6 +928,14 @@ class VantageApp(QApplication):
             }
             for parser in self._parsers:
                 parser._save_geometry()
+                prepare_refresh = getattr(
+                    parser, "prepare_presentation_refresh", None)
+                if callable(prepare_refresh):
+                    # This must happen before the theme/settings signal. The
+                    # Quick Bar derives a new logical height while handling
+                    # that signal and otherwise a queued scale pass can race
+                    # the physical-geometry restore below.
+                    prepare_refresh(window_geometry[parser])
             self._apply_theme()
             self._signals["settings"].config_updated.emit()
             for parser in self._parsers:
@@ -659,8 +967,12 @@ class VantageApp(QApplication):
                 "_settings_instance", "_update_dialog_instance",
                 "_log_monitor_dialog_instance", "_mobile_dialog_instance",
                 "_spell_library_dialog", "_about_dialog_instance",
-                "_update_toast"):
+                "_triggers_dialog_instance",
+                "_notification_history_dialog", "_update_toast"):
             surface = getattr(self, attribute, None)
+            if surface is not None and surface not in surfaces:
+                surfaces.append(surface)
+        for surface in self._feature_settings_instances.values():
             if surface is not None and surface not in surfaces:
                 surfaces.append(surface)
         return surfaces
@@ -669,7 +981,9 @@ class VantageApp(QApplication):
         return {surface: surface.isVisible()
                 for surface in self._secondary_ui_surfaces()}
 
-    def _apply_ui_presentation(self, values, secondary_visibility=None):
+    def _apply_ui_presentation(
+            self, values, secondary_visibility=None,
+            refresh_legacy_column_defaults=False):
         """Apply an allowlisted presentation snapshot to every live surface."""
         config.apply_ui_presentation(values)
         self._apply_theme()
@@ -705,6 +1019,13 @@ class VantageApp(QApplication):
                 table_key, zones.COLUMN_DEFAULTS[table_key])
             for column, width in enumerate(widths):
                 table.setColumnWidth(column, width)
+
+        if refresh_legacy_column_defaults:
+            legacy_tables = list(zones._zone_tables.values())
+            if hasattr(market, "gear_table"):
+                legacy_tables.append(market.gear_table)
+            self._column_widths.capture_current_as_defaults(legacy_tables)
+        self._column_widths.apply_saved()
 
         checklist_geometry = values.get(
             ("quests", "checklist", "geometry"), [80, 80, 380, 480])
@@ -753,10 +1074,10 @@ class VantageApp(QApplication):
                 "opacity, frame, always-on-top setting, and Quick Bar layout?\n\n"
                 "This hides every window except the Quick Bar, expands rolled "
                 "windows, turns off Smart Timers compact mode, and resets "
-                "Market and Zones column widths.\n\n"
+                "all table column widths.\n\n"
                 "Buffs, active spell and spawn timers, profiles, combat history, "
                 "Market watches and alerts, zone content, and quest checklist "
-                "progress will not be deleted.",
+                "progress will not be deleted. Items and notes are also preserved.",
                 QMessageBox.StandardButton.Yes |
                 QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No)
@@ -767,7 +1088,9 @@ class VantageApp(QApplication):
         snapshot = config.ui_presentation_snapshot()
         secondary_visibility = self._secondary_visibility()
         try:
-            self._apply_ui_presentation(config.UI_PRESENTATION_DEFAULTS)
+            self._apply_ui_presentation(
+                config.UI_PRESENTATION_DEFAULTS,
+                refresh_legacy_column_defaults=True)
             config.save()
             if not config.verify_saved_ui_presentation():
                 raise OSError("Vantage could not verify the saved default layout")
@@ -798,11 +1121,28 @@ class VantageApp(QApplication):
         self._return_focus_to_launcher(launcher)
         return True
 
-    def _log_activity(self, _line):
+    def _log_activity(self, line):
         self._last_log_activity = time.monotonic()
+        try:
+            character, server = line[2], line[3]
+        except (TypeError, IndexError, KeyError):
+            character = server = ""
+        character = " ".join(str(character or "").split())[:80]
+        server = " ".join(str(server or "").split())[:80]
+        self._latest_log_activity = {
+            "character": character,
+            "server": server,
+            "authority_at": time.time(),
+        }
         if self._toggled and self._log_status != "ONLINE":
             self._set_log_status(
                 "ONLINE", "Log activity detected.", notify=True)
+
+    def device_sync_log_activity(self):
+        """Return this session's latest real EQ log activity, if any."""
+        if not isinstance(self._latest_log_activity, dict):
+            return None
+        return dict(self._latest_log_activity)
 
     def _log_health_check(self):
         if not self._toggled or self._log_status != 'ONLINE':
@@ -822,8 +1162,9 @@ class VantageApp(QApplication):
         box.setText(
             "<b>1.</b> Type <code>/log on</code> in EverQuest.<br>"
             "<b>2.</b> Open Vantage from the system tray icon.<br>"
-            "<b>3.</b> Choose <b>Select Logs Folder</b>.<br>"
-            "<b>4.</b> Select <code>EverQuest\\Logs</code>.<br><br>"
+            "<b>3.</b> Choose <b>Connect Logs</b>.<br>"
+            "<b>4.</b> Use the newest folder Vantage detects in Program Files "
+            "or AppData, or choose <code>EverQuest\\Logs</code> manually.<br><br>"
             "The status changes to <b>ONLINE</b> when the folder is valid."
         )
         box.exec()
@@ -831,11 +1172,15 @@ class VantageApp(QApplication):
     def show_log_help(self):
         self._show_log_help()
 
-    def select_logs_folder(self):
-        dir_path = str(QFileDialog.getExistingDirectory(
-            None, 'Select Everquest Logs Directory'))
-        if not dir_path:
+    def select_logs_folder(self, parent=None):
+        from vantage.helpers.log_folder_setup import LogFolderDialog
+        dialog = LogFolderDialog(
+            config.data['general'].get('eq_log_dir', ''),
+            config.data.get('vantage_ui', {}).get('eq_dir', ''),
+            parent or self._parsers_dict.get('quickbar'))
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return False
+        dir_path = dialog.selected_path
         if self._toggled:
             self._toggle()
         config.data['general']['eq_log_dir'] = dir_path
@@ -867,39 +1212,67 @@ class VantageApp(QApplication):
         self._refresh_quickbar()
         return muted
 
+    def _sync_audio_settings(self):
+        """Apply persisted audio controls to every live playback backend."""
+        set_audio_muted(config.data['general'].get('audio_muted', False))
+        return set_master_volume(
+            config.data['general'].get('master_volume', 100))
+
     def show_last_sound(self):
         """Replay the last attributable sound instead of only naming it."""
+        def show_feedback(message, channel="system"):
+            notifier = getattr(self, "show_overlay_notification", None)
+            if callable(notifier):
+                notifier(
+                    "Vantage · last sound", message, msecs=5000,
+                    quickbar_channel=channel)
+
         event = self._last_audio_event
         if event is None:
-            self.show_overlay_notification(
-                "Vantage · last sound", "No Vantage sound has played yet.",
-                msecs=5000)
-            return False
-        if audio_muted():
-            self.show_overlay_notification(
-                "Vantage · last sound",
-                "Sounds are muted. Unmute Vantage to replay the last sound.",
-                msecs=5000)
+            show_feedback("No Vantage sound has played yet.")
             return False
         source, sound_path, volume, _channel = event
+        descriptor = getattr(self, "_last_audio_replay", None)
+        delivery = (descriptor.delivery if descriptor else
+                    "voice" if sound_path.startswith("tts:") else "sound")
+        content = (descriptor.content if descriptor else
+                   sound_path[4:] if delivery == "voice" else sound_path)
+        volume = descriptor.volume if descriptor else volume
+        profile = {
+            "character": descriptor.character if descriptor else "",
+            "server": descriptor.server if descriptor else "",
+        }
+        check = audio_preflight(
+            delivery, sound=content, text=content, volume=volume,
+            channel=_channel, allow_hidden=True, **profile)
+        if not check.ready:
+            show_feedback(
+                f"Replay unavailable · {check.reason}.", _channel)
+            return False
         previous_label = self._last_audio
-        if sound_path.startswith("tts:"):
+        if delivery == "voice":
             played = speak_text(
-                sound_path[4:], volume, source=f"Replay · {source}",
-                allow_hidden=True)
+                content, volume, source=f"Replay · {source}",
+                channel=_channel, allow_hidden=True,
+                voice_name=descriptor.voice_name if descriptor else "",
+                pitch=descriptor.pitch if descriptor else 0,
+                visual_registered=True, replay=True, **profile)
         else:
             played = play_alert(
-                sound_path, volume, source=f"Replay · {source}",
-                allow_hidden=True)
+                content, volume,
+                repeat=descriptor.repeat if descriptor else 1,
+                source=f"Replay · {source}",
+                channel=_channel, allow_hidden=True,
+                visual_registered=True, replay=True, **profile)
         # Playback attribution is useful on screen, but the replay itself must
         # not replace the original event or accumulate "Replay · Replay".
         self._last_audio_event = event
         self._last_audio = previous_label
         self._refresh_quickbar()
-        if not played:
-            self.show_overlay_notification(
-                "Vantage · last sound",
-                "The last sound could not be replayed.", msecs=5000)
+        message = (f"Replay queued · {source}." if played else
+                   f"Replay unavailable · Windows {'voice' if delivery == 'voice' else 'audio'} "
+                   "backend unavailable.")
+        show_feedback(message, _channel)
         return played
 
     def show_settings(self, section=None):
@@ -910,6 +1283,52 @@ class VantageApp(QApplication):
         self._settings.raise_()
         self._settings.activateWindow()
         return self._settings
+
+    def show_feature_settings(self, section, owner=None):
+        """Open one feature-owned settings surface, never the global list."""
+        section = str(section or "Appearance")
+        dialog = self._feature_settings_instances.get(section)
+        if dialog is None:
+            from vantage.helpers.settings import SettingsWindow
+            dialog = SettingsWindow(section=section, parent=owner)
+            dialog.finished.connect(
+                lambda _result, current=dialog:
+                self._restore_feature_settings_focus(current))
+            self._feature_settings_instances[section] = dialog
+        elif owner is not None and dialog.parentWidget() is not owner:
+            # Appearance is shared by more than one tool. Keep the cached
+            # dialog owned by the window that most recently opened it so Qt's
+            # window stack and our explicit focus return agree.
+            dialog.setParent(owner, dialog.windowFlags())
+        dialog._feature_settings_owner = owner
+        dialog._set_values()
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+        return dialog
+
+    def _restore_feature_settings_focus(self, dialog):
+        """Return keyboard focus to the launcher that opened this dialog."""
+        owner = getattr(dialog, "_feature_settings_owner", None)
+        if owner is None:
+            return
+        section = str(getattr(dialog, "_scoped_section", ""))
+        restore_action = getattr(owner, "restore_action_focus", None)
+        if section == "Sounds" and callable(restore_action):
+            restore_action("mute")
+            return
+        launcher = getattr(owner, "_settings_button", None)
+        if launcher is None or not launcher.isEnabled():
+            return
+
+        def restore_launcher():
+            QApplication.setActiveWindow(owner)
+            scale_view = getattr(owner, "_scale_view", None)
+            if scale_view is not None:
+                scale_view.setFocus(Qt.FocusReason.OtherFocusReason)
+            launcher.setFocus(Qt.FocusReason.OtherFocusReason)
+
+        QTimer.singleShot(0, restore_launcher)
 
     def quit_vantage(self, confirm=True, parent=None):
         """Close Vantage after a safe-by-default manual confirmation.
@@ -942,7 +1361,7 @@ class VantageApp(QApplication):
         """Persist and clear the exact player-scoped state EQTool clears."""
         spells = self._parsers_dict['spells']
         saved = spells.snapshot_you_spells(character, server)
-        _context, changed = self._character_context.store_you_spells_if_empty(
+        _context, changed = self._character_context.store_you_spells(
             character, server, saved)
         spells.clear_you_spells(character, server)
         self._parsers_dict['maps'].clear_player_location()
@@ -1054,10 +1473,10 @@ class VantageApp(QApplication):
         log_status_action.setEnabled(False)
         log_status_action.setToolTip(
             "Type /log on in EverQuest and link the EverQuest\\Logs folder")
-        get_eq_dir_action = menu.addAction('Select Logs Folder')
+        get_eq_dir_action = menu.addAction('Connect Logs…')
         get_eq_dir_action.setIcon(game_icon('ph-folder-open'))
         get_eq_dir_action.setToolTip(
-            "First type /log on in EverQuest, then select the EverQuest\\Logs folder")
+            "Automatically find the newest EverQuest logs or choose a folder manually")
         log_help_action = menu.addAction('How Do I Link Logs?')
         log_help_action.setIcon(game_icon('ph-file-search'))
         log_help_action.setToolTip(
@@ -1076,8 +1495,10 @@ class VantageApp(QApplication):
             f"BLOCKED AUDIO · {self._last_audio_blocked}")
         blocked_audio_action.setEnabled(False)
         blocked_audio_action.setToolTip(
-            "Shows the most recent sound Vantage prevented because mute was "
-            "active or its owning window was hidden")
+            "Audio can be blocked by Master Mute, Master Volume 0%, route "
+            "Off, missing audio, or an unavailable Windows backend. A hidden "
+            "window blocks audio only when that feature's explicit Sound "
+            "while window hidden setting is Off")
         mute_audio_action = menu.addAction('Mute All Sounds')
         mute_audio_action.setIcon(game_icon('ph-mute'))
         mute_audio_action.setCheckable(True)
@@ -1098,6 +1519,8 @@ class VantageApp(QApplication):
                 "opendkp": "Guild DKP & More",
                 "zones": "Zones",
                 "quests": "Quests",
+                "items_notes": "Items & Notes",
+                "log_searcher": "Log Searcher",
                 "vantage_ui": "VantageUI",
             }.get(parser.name, parser.name.title())
             toggle = menu.addAction(label)
@@ -1225,21 +1648,49 @@ class VantageApp(QApplication):
 
     def _update_settings_changed(self):
         enabled = bool(config.data['general'].get('update_check', True))
-        if enabled == self._update_auto_enabled:
+        auto_install = bool(
+            config.data['general'].get('auto_install_updates', False))
+        auto_install_changed = (
+            auto_install != self._update_install_auto_enabled)
+        self._update_install_auto_enabled = auto_install
+        if enabled == self._update_auto_enabled and not auto_install_changed:
             return
-        self._update_auto_enabled = enabled
-        if enabled:
-            self._schedule_update_check(500)
-        else:
-            self._update_heartbeat.stop()
-            self._update_check_state = "disabled"
-            self._vantage_ui_update_state = "disabled"
-            self._refresh_quickbar()
+        if enabled != self._update_auto_enabled:
+            self._update_auto_enabled = enabled
+            if enabled:
+                self._schedule_update_check(500)
+            else:
+                self._update_heartbeat.stop()
+                self._update_check_state = "disabled"
+                self._vantage_ui_update_state = "disabled"
+                self._refresh_quickbar()
+        info = getattr(self._update_controller, "latest_info", None)
+        if (auto_install_changed and auto_install and info is not None and
+                info.version > CURRENT_VERSION):
+            QTimer.singleShot(
+                0, lambda: self._start_automatic_companion_update(info))
 
     def _update_available(self, info):
         self._update_check_state = "ready"
         self._refresh_quickbar()
+        if self._start_automatic_companion_update(info):
+            return
         self._schedule_update_toast()
+
+    def _start_automatic_companion_update(self, info):
+        """Start the verified one-click updater only after explicit opt-in."""
+        if (not self._update_install_auto_enabled or info is None or
+                self._update_controller.busy or
+                self._update_toast._one_click_active):
+            return False
+        self._notified_companion_version = str(info.version)
+        ui_version = (
+            self._vantage_ui_available_version
+            if self._vantage_ui_update_ready else "")
+        self._update_toast.show_updates(
+            info=info, vantage_ui_version=ui_version)
+        self._update_toast.start_one_click_update()
+        return True
 
     def _vantage_ui_update_state_changed(self, snapshot):
         """Fold independent VantageUI discovery into the shared update UX."""
@@ -1306,31 +1757,79 @@ class VantageApp(QApplication):
             if toast:
                 toast._failed(f"Update could not start: {error}")
             return False
-        self._system_tray.setVisible(False)
-        self.quit()
+        self.exit_for_verified_update()
         return True
+
+    def exit_for_verified_update(self):
+        """Finish a verified handoff without changing the user's layout."""
+        self._update_heartbeat.stop()
+        self._system_tray.setVisible(False)
+        # Parser close handlers otherwise treat Qt's shutdown as a person
+        # closing every tool and can write transitional hidden/toggled state.
+        # The verified checkpoint has already persisted gameplay state.
+        config.APP_EXIT = True
+        self.quit()
 
     def checkpoint_for_update(self):
         """Persist and verify countdown state before another EXE can start."""
+        spells = None
+        handoff_frozen = False
+
+        def cancel_spell_handoff():
+            nonlocal handoff_frozen
+            cancel = getattr(spells, 'cancel_update_handoff', None)
+            if handoff_frozen and callable(cancel):
+                cancel()
+            handoff_frozen = False
+
         try:
             for parser in self._parsers:
                 parser._save_geometry()
             spells = self._parsers_dict.get('spells')
             timers = self._parsers_dict.get('timers')
             if spells is not None:
-                spells.checkpoint_runtime_state()
+                begin_handoff = getattr(spells, 'begin_update_handoff', None)
+                if callable(begin_handoff):
+                    spell_rows = begin_handoff()
+                    handoff_frozen = True
+                else:
+                    spells.checkpoint_runtime_state()
+                    spell_rows = copy.deepcopy(
+                        config.data.get('spells', {}).get(
+                            'active_timer_state', []))
+            else:
+                spell_rows = copy.deepcopy(
+                    config.data.get('spells', {}).get(
+                        'active_timer_state', []))
+            write_spell_handoff(spell_rows)
             if timers is not None:
+                timers.checkpoint_view_geometries()
                 timers.checkpoint_runtime_state()
-            spell_rows = copy.deepcopy(
-                config.data.get('spells', {}).get('active_timer_state', []))
+            device_sync = getattr(self, '_device_sync_instance', None)
+            sync_checkpoint = getattr(
+                device_sync, 'checkpoint_for_update', None)
+            if callable(sync_checkpoint) and not sync_checkpoint():
+                cancel_spell_handoff()
+                return False
             timer_rows = copy.deepcopy(
                 config.data.get('timers', {}).get('items', []))
             config.save()
-            return config.verify_update_checkpoint(spell_rows, timer_rows)
+            verified = config.verify_update_checkpoint(spell_rows, timer_rows)
+            if not verified:
+                cancel_spell_handoff()
+            return verified
         except Exception:
             # The installer treats False as a hard cancellation and leaves the
             # current Vantage process, tray, and windows running.
+            cancel_spell_handoff()
             return False
+
+    def cancel_update_handoff(self):
+        """Resume live spell persistence after an updater launch failure."""
+        spells = self._parsers_dict.get('spells')
+        cancel = getattr(spells, 'cancel_update_handoff', None)
+        if callable(cancel):
+            cancel()
 
     def show_update_dialog(self):
         self.clear_update_receipt()
@@ -1370,15 +1869,11 @@ class VantageApp(QApplication):
         return True
 
     def start_vantage_ui_update(self):
-        """Open VantageUI, then use its normal verified confirmation flow."""
+        """Open VantageUI and start its one-click verified install/update."""
         panel = self._parsers_dict.get("vantage_ui")
         if panel is None or not self.open_vantage_ui():
             return False
-        snapshot = panel.update_snapshot()
-        if snapshot.get("busy"):
-            return False
-        QTimer.singleShot(0, panel.update_skin)
-        return True
+        return panel.install_or_update()
 
     def new_version_available(self):
         latest = getattr(self, '_update_controller', None)
@@ -1408,6 +1903,39 @@ class VantageApp(QApplication):
         dialog.raise_()
         dialog.activateWindow()
 
+    def show_device_sync(self):
+        """Open the account-free persistent multi-PC sync setup."""
+        self._ensure_device_sync()
+        self._device_sync_instance.start()
+        dialog = self._device_sync_dialog_instance
+        dialog.refresh()
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def show_notification_history(self):
+        """Open searchable session evidence without replaying any audio."""
+        if self._notification_history_dialog is None:
+            quickbar = self._parsers_dict.get("quickbar")
+            self._notification_history_dialog = \
+                QuickBarNotificationHistoryDialog(self, quickbar)
+            if quickbar is not None:
+                def restore_history_focus(_result):
+                    button = quickbar.notification_rail.history_button
+                    if quickbar.isVisible() and button.isEnabled():
+                        button.setFocus(Qt.FocusReason.OtherFocusReason)
+                self._notification_history_dialog.finished.connect(
+                    restore_history_focus)
+        dialog = self._notification_history_dialog
+        dialog.refresh()
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+        QTimer.singleShot(
+            0, lambda: dialog.search.setFocus(
+                Qt.FocusReason.OtherFocusReason))
+        return dialog
+
     def show_support(self):
         """Open voluntary support externally; Vantage never handles payment data."""
         from vantage.helpers.about import SUPPORT_URL, open_external_url
@@ -1421,6 +1949,84 @@ class VantageApp(QApplication):
         self._about_dialog_instance.show()
         self._about_dialog_instance.raise_()
         self._about_dialog_instance.activateWindow()
+
+    def show_triggers(self, parent=None, owner=None):
+        """Open the existing editor, independently of the Buffs window.
+
+        The Spells parser remains the sole trigger runtime. Showing/reopening
+        this cached nonmodal editor never enables monitoring or resets rows.
+        """
+        owner = owner or parent or self._parsers_dict.get("quickbar")
+        dialog = self._triggers_dialog_instance
+        if dialog is None:
+            from vantage.helpers.settings import CustomTriggerSettings
+            dialog = CustomTriggerSettings(parent=owner)
+            dialog.setModal(False)
+            dialog.setWindowModality(Qt.WindowModality.NonModal)
+            dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+            dialog.finished.connect(
+                lambda _result, current=dialog:
+                self._restore_triggers_focus(current))
+            dialog.destroyed.connect(
+                lambda _object=None, current=dialog:
+                self._forget_triggers_dialog(current))
+            self._triggers_dialog_instance = dialog
+        else:
+            was_visible = dialog.isVisible()
+            if owner is not None and dialog.parentWidget() is not owner:
+                dialog.setParent(owner, dialog.windowFlags())
+            # Reflect settings edited elsewhere only after this window was
+            # closed. Raising an already open editor must not erase a draft.
+            if not was_visible:
+                dialog._load_from_config()
+        dialog._triggers_owner = owner
+        surface = getattr(owner, "scaled_surface", getattr(owner, "_surface", owner))
+        dialog._triggers_focus_target = (
+            surface.focusWidget() if surface is not None else None)
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+        self._refresh_quickbar()
+        return dialog
+
+    def _forget_triggers_dialog(self, dialog):
+        if self._triggers_dialog_instance is dialog:
+            self._triggers_dialog_instance = None
+            bar = self._parsers_dict.get("quickbar")
+            if bar is not None:
+                bar._dialog_targets.pop(dialog, None)
+            QTimer.singleShot(0, self._refresh_quickbar)
+
+    def _restore_triggers_focus(self, dialog):
+        """Return to the exact launcher without spawning another dialog."""
+        self._refresh_quickbar()
+        owner = getattr(dialog, "_triggers_owner", None)
+        if owner is None:
+            return
+        restore_action = getattr(owner, "restore_action_focus", None)
+        if callable(restore_action):
+            restore_action("triggers")
+            return
+        target = getattr(dialog, "_triggers_focus_target", None)
+
+        def restore_launcher():
+            try:
+                if not owner.isVisible():
+                    return
+                owner.raise_()
+                owner.activateWindow()
+                QApplication.setActiveWindow(owner)
+                scene = getattr(owner, "_dialog_scene", None)
+                proxy = getattr(owner, "_dialog_proxy", None)
+                if scene is not None and proxy is not None:
+                    scene.setFocusItem(proxy)
+                if target is not None and target.isEnabled():
+                    target.setFocus(Qt.FocusReason.OtherFocusReason)
+            except RuntimeError:
+                # The owning window may have been destroyed during shutdown.
+                return
+
+        QTimer.singleShot(0, restore_launcher)
 
     def show_spell_library(self):
         """Open the lazy P99 spell and class-skill catalog."""
@@ -1436,4 +2042,20 @@ class VantageApp(QApplication):
     def _mobile_snapshot(self):
         snapshot = self._parsers_dict["timers"].mobile_snapshot()
         snapshot["market"] = self._parsers_dict["market"].mobile_snapshot()
+        snapshot["buffs"] = self._parsers_dict["spells"].mobile_snapshot()
+        snapshot["guild"] = self._parsers_dict["opendkp"].mobile_snapshot()
+        quests = self._parsers_dict["quests"]
+        quests.ensure_catalog_refresh()
+        snapshot["quests"] = quests.mobile_snapshot()
+        snapshot["zones"] = self._parsers_dict["zones"].mobile_snapshot()
         return snapshot
+
+    def _mobile_browse_action(self, action, target):
+        """Apply a private, read-only catalog navigation request."""
+        if action == "guild":
+            return self._parsers_dict["opendkp"].mobile_select(target)
+        if action == "zone":
+            return self._parsers_dict["zones"].mobile_select(target)
+        if action == "quest":
+            return self._parsers_dict["quests"].mobile_select(target)
+        return False

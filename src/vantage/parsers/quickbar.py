@@ -5,21 +5,60 @@ from __future__ import annotations
 from collections import deque
 import time
 
-from PySide6.QtCore import QEvent, QSize, Qt, QTimer
-from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
+from shiboken6 import isValid
+
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import (
+    QAccessible, QAccessibleAnnouncementEvent, QColor, QPainter, QPen)
 from PySide6.QtWidgets import (
-    QApplication, QBoxLayout, QFrame, QLabel, QProgressBar, QSizePolicy,
-    QToolButton, QVBoxLayout)
+    QAbstractItemView, QAccessibleWidget, QApplication, QBoxLayout, QDialog,
+    QDialogButtonBox, QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+    QProgressBar, QPushButton, QSizePolicy, QSlider, QTableWidget,
+    QTableWidgetItem, QToolButton, QVBoxLayout, QWidget, QWidgetAction)
 
 from vantage.helpers import config
-from vantage.helpers.audio import audio_muted
+from vantage.helpers.audio import (
+    audio_muted, master_volume, set_master_volume)
 from vantage.helpers.icons import game_icon
 from vantage.helpers.parser import ParserWindow
 from vantage.helpers.quickbar_items import QUICKBAR_ITEMS
 
 
+class _DecorativeMuteDot(QFrame):
+    """Purely visual Master Mute state reinforcement."""
+
+
+class _IgnoredDecorativeAccessible(QAccessibleWidget):
+    """Invalid accessibility interface used to omit decorative widgets."""
+
+    def __init__(self, widget):
+        super().__init__(widget, QAccessible.Role.NoRole)
+
+    def isValid(self):
+        return False
+
+
+def _quickbar_accessibility_factory(_class_name, obj):
+    if isinstance(obj, _DecorativeMuteDot):
+        return _IgnoredDecorativeAccessible(obj)
+    return None
+
+
+# Qt does not expose a QWidget "accessibility hidden" attribute. Its public
+# factory API is the supported way to give a decorative child an invalid,
+# role-free interface so assistive technology sees only the checkable button.
+QAccessible.installFactory(_quickbar_accessibility_factory)
+
+
 class QuickBarNotificationRail(QFrame):
     """Show one attributable event once, then clear it from the rail."""
+
+    history_requested = Signal()
+    activity_changed = Signal()
+    _MAX_PENDING = 4
+    _CONTENT_INSET = 1
+    _MESSAGE_GAP = 4
+    _MINIMUM_CHANNEL_WIDTH = 82
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -30,17 +69,60 @@ class QuickBarNotificationRail(QFrame):
         self.setAccessibleDescription(
             "Shows the newest attributable Vantage event once")
 
-        self._label = QLabel(self)
+        self._channel = QLabel("SYSTEM", self)
+        self._channel.setObjectName("QuickBarNotificationChannel")
+        self._channel.setFixedWidth(82)
+        self._channel.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        channel_font = self._channel.font()
+        channel_font.setPixelSize(9)
+        channel_font.setBold(True)
+        self._channel.setFont(channel_font)
+        self._channel.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._channel.hide()
+        # Clip the moving text to its own lane, including around the rounded
+        # channel and History button corners in the proxy-hosted render.
+        self._message_viewport = QWidget(self)
+        self._message_viewport.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._label = QLabel(self._message_viewport)
         self._label.setObjectName("QuickBarNotificationText")
         self._label.setAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        message_font = self._label.font()
+        message_font.setPixelSize(12)
+        self._label.setFont(message_font)
         self._label.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._label.hide()
+        self.history_button = QToolButton(self)
+        self.history_button.setObjectName("QuickBarNotificationHistoryButton")
+        self.history_button.setAutoRaise(True)
+        self.history_button.setFixedSize(20, 17)
+        self.history_button.setIcon(game_icon("compact"))
+        self.history_button.setIconSize(QSize(13, 13))
+        self.history_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.history_button.setToolTip("Open Notification History")
+        self.history_button.setAccessibleName("Open Notification History")
+        self.history_button.setAccessibleDescription(
+            "Opens the last 250 Vantage notifications from this session")
+        self.history_button.clicked.connect(self.history_requested)
+        self.history_button.raise_()
         self._notice_id = 0
-        self._pending = deque(maxlen=20)
+        self._current_text = ""
+        # Do not silently evict written counterparts while this child is
+        # temporarily hidden by layout, roll-up, or top-level visibility.
+        self._pending = deque()
+        self._overflow_count = 0
         self._moving = False
         self._reduce_motion = False
+        self._fade_on_expire = False
+
+        # This widget is rendered inside ParserWindow's QGraphicsProxyWidget.
+        # A nested QGraphicsOpacityEffect made the complete rail disappear in
+        # the real proxy-hosted render even though its labels remained visible
+        # in Qt's object state. Keep this surface effect-free so the written
+        # counterpart for every audible notification is paintable.
 
         self._scroll_timer = QTimer(self)
         self._scroll_timer.setInterval(24)
@@ -49,9 +131,24 @@ class QuickBarNotificationRail(QFrame):
         self._clear_timer = QTimer(self)
         self._clear_timer.setSingleShot(True)
         self._clear_timer.setInterval(5000)
-        self._clear_timer.timeout.connect(self._clear)
+        self._clear_timer.timeout.connect(self._expire_current)
 
-    def present(self, notice_id, text, reduce_motion=False, available=True):
+    @staticmethod
+    def _channel_label(channel):
+        return {
+            "spells": "BUFFS / SPELLS",
+            "timers": "COMBAT / TIMERS",
+            "market": "MARKET",
+            "opendkp": "GUILD DKP",
+            "quickbar": "CHAT",
+            "chat": "CHAT",
+            "combat": "COMBAT",
+            "heals": "HEAL CHAIN",
+            "vitals": "VITALS",
+        }.get(str(channel or "").casefold(), "SYSTEM")
+
+    def present(self, notice_id, text, reduce_motion=False, available=True,
+                channel="system", created_at=None):
         """Queue a notice for one complete marquee pass in arrival order."""
         try:
             notice_id = int(notice_id)
@@ -59,57 +156,130 @@ class QuickBarNotificationRail(QFrame):
             return
         if notice_id <= self._notice_id or not str(text or "").strip():
             return
+        clean = " ".join(str(text).split())
         self._notice_id = notice_id
         self._reduce_motion = bool(reduce_motion)
-        clean = " ".join(str(text).split())
-        # Hidden/vertical rails consume the event immediately. A notice is a
-        # live event, not history that should surprise the user hours later.
-        if not available or not self.isVisible():
+        # ``available=False`` is reserved for an intentionally disabled rail.
+        # Orientation and ordinary temporary widget hiding must not consume a
+        # notice before it can render.
+        if not available:
             return
-        self._pending.append(clean)
+        try:
+            created_at = float(created_at)
+        except (TypeError, ValueError):
+            created_at = time.monotonic()
+        notice = (notice_id, clean, self._channel_label(channel), created_at)
+        if (self._label.isVisible() and
+                len(self._pending) >= self._MAX_PENDING):
+            # A combat burst must not make a newly audible event wait behind a
+            # minutes-long marquee backlog. Every exact event is retained in
+            # Notification History; collapse only the transient scheduler and
+            # put the newest event on screen now.
+            self._overflow_count += len(self._pending)
+            self._pending.clear()
+            self._pending.append(notice)
+            self._clear_current()
+            self._show_next()
+            return
+        self._pending.append(notice)
         if self._label.isVisible():
             self.setAccessibleDescription(
                 f"{len(self._pending)} more notification" +
                 ("s" if len(self._pending) != 1 else "") + " queued")
             return
-        self._show_next()
+        if self.isVisible():
+            self._show_next()
 
     def _show_next(self):
-        if not self._pending or not self.isVisible():
+        if not self.isVisible():
+            return
+        if not self._pending:
             self._clear_current()
             return
-        clean = self._pending.popleft()
+        _notice_id, clean, channel, _created_at = self._pending.popleft()
+        overflow_count = self._overflow_count
+        self._overflow_count = 0
         self._scroll_timer.stop()
         self._clear_timer.stop()
+        self._current_text = clean
         self._label.setText(clean)
-        self._label.adjustSize()
-        self._label.setFixedHeight(self.height() - 2)
+        self._channel.setText(channel)
+        self._layout_contents()
+        self._channel.show()
+        self._channel.raise_()
         self._label.show()
-        self.setToolTip(clean)
-        self.setAccessibleName(f"Latest Vantage notification: {clean}")
+        self._channel.raise_()
+        self.history_button.raise_()
+        history_hint = (
+            f"\n{overflow_count} earlier notifications are in Notification "
+            "History" if overflow_count else "")
+        self.setToolTip(clean + history_hint)
+        spoken = f"{channel}: {clean}"
+        self.setAccessibleName(f"Latest Vantage notification: {spoken}")
         self.setAccessibleDescription(
-            f"Marquee notification; {len(self._pending)} more queued")
-        self._announce_accessibly(clean)
+            f"Marquee notification; {len(self._pending)} more queued" +
+            (f"; {overflow_count} earlier notifications are available in "
+             "Notification History" if overflow_count else ""))
+        self._announce_accessibly(spoken)
+        self.activity_changed.emit()
+        # Combat summaries can be much wider than the rail and previously
+        # remained visible for a long marquee pass. Give them a bounded,
+        # readable dwell, then clear them so the Quick Bar is available for
+        # the next event. Opacity effects are deliberately not used here;
+        # they are unreliable in this proxy-hosted surface.
+        self._fade_on_expire = False
+        if channel == "COMBAT":
+            self._clear_timer.setInterval(4500)
+            self._clear_timer.start()
         if self._reduce_motion:
             self._moving = False
             # Preserve the meaningful type + source without moving or
             # squeezing a potentially unbounded message into this compact
             # surface. The complete notice remains in the accessible name.
-            summary = " · ".join(clean.split(" · ")[:2])
-            self._label.setText(summary)
-            self._label.setFixedWidth(max(1, self.width() - 14))
-            self._label.setGeometry(7, 1, self._label.width(), self.height() - 2)
-            self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._clear_timer.start()
+            self._update_static_text()
+            if channel != "COMBAT":
+                self._clear_timer.setInterval(5000)
+                self._clear_timer.start()
         else:
             self._moving = True
             self._label.setAlignment(
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            self._label.adjustSize()
-            self._label.setFixedHeight(self.height() - 2)
-            self._label.move(self.width() - 5, 1)
+            # A previous reduced-motion notice may have fixed the label to a
+            # narrow lane. Restore its full natural width for a complete pass.
+            self._label.setFixedSize(
+                max(1, self._label.sizeHint().width()),
+                self._message_viewport.height())
+            self._label.move(self._message_viewport.width(), 0)
             if self.isVisible():
                 self._scroll_timer.start()
+
+    def _layout_contents(self):
+        inset = self._CONTENT_INSET
+        height = max(1, self.height() - 2 * inset)
+        channel_width = max(
+            self._MINIMUM_CHANNEL_WIDTH,
+            self._channel.fontMetrics().horizontalAdvance(
+                self._channel.text()) + 2 * self._MESSAGE_GAP)
+        self._channel.setFixedWidth(channel_width)
+        self._channel.setGeometry(inset, inset, channel_width, height)
+        self.history_button.move(
+            max(0, self.width() - self.history_button.width() - inset), inset)
+        message_left = inset + channel_width + self._MESSAGE_GAP
+        message_width = max(
+            0, self.history_button.x() - self._MESSAGE_GAP - message_left)
+        self._message_viewport.setGeometry(
+            message_left, inset, message_width, height)
+        self._label.setFixedHeight(height)
+        self.history_button.raise_()
+
+    def _update_static_text(self):
+        summary = " · ".join(self._current_text.split(" · ")[:2])
+        width = self._message_viewport.width()
+        self._label.setText(self._label.fontMetrics().elidedText(
+            summary, Qt.TextElideMode.ElideRight, width))
+        self._label.setFixedWidth(width)
+        self._label.move(0, 0)
+        self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
     def _announce_accessibly(self, text):
         """Announce a newly accepted, visible event exactly once."""
@@ -125,19 +295,22 @@ class QuickBarNotificationRail(QFrame):
         if reduce_motion:
             self._scroll_timer.stop()
             self._moving = False
-            clean = self._label.text()
-            self._label.setText(" · ".join(clean.split(" · ")[:2]))
-            self._label.setFixedWidth(max(1, self.width() - 14))
-            self._label.setGeometry(7, 1, self._label.width(), self.height() - 2)
-            self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._layout_contents()
+            self._update_static_text()
+            self._fade_on_expire = False
+            self._clear_timer.setInterval(5000)
             self._clear_timer.start()
+
+    def _expire_current(self):
+        """Clear a bounded notice and advance to the next queued event."""
+        self._clear()
 
     def _advance(self):
         if not self.isVisible() or not self._label.isVisible():
             self._scroll_timer.stop()
             return
-        self._label.move(self._label.x() - 2, 1)
-        if self._label.x() + self._label.width() < 5:
+        self._label.move(self._label.x() - 2, 0)
+        if self._label.x() + self._label.width() < 0:
             self._clear()
 
     def _clear(self):
@@ -148,23 +321,316 @@ class QuickBarNotificationRail(QFrame):
     def _clear_current(self):
         self._scroll_timer.stop()
         self._clear_timer.stop()
+        self._fade_on_expire = False
         self._moving = False
+        self._current_text = ""
         self._label.clear()
         self._label.hide()
+        self._channel.hide()
         self.setToolTip(
             "The next attributable Vantage event appears here")
         self.setAccessibleName("Quick Bar notification rail; no active notice")
         self.setAccessibleDescription(
             f"{len(self._pending)} notifications waiting")
+        self.activity_changed.emit()
 
     def showEvent(self, event):
         super().showEvent(event)
+        self._layout_contents()
+        if self._label.isVisible() and not self._moving:
+            self._update_static_text()
+        if not self._label.isVisible() and self._pending:
+            self._show_next()
+            return
         if self._moving and self._label.isVisible():
             self._scroll_timer.start()
 
     def hideEvent(self, event):
         super().hideEvent(event)
         self._scroll_timer.stop()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._layout_contents()
+        if self._label.isVisible() and not self._moving:
+            self._update_static_text()
+
+    def discard_all(self):
+        """Forget active and queued notices when the rail is intentionally off."""
+        self._pending.clear()
+        self._overflow_count = 0
+        self._clear_current()
+
+
+class QuickBarNotificationHistoryDialog(QDialog):
+    """Searchable session evidence for Quick Bar notifications and audio."""
+
+    def __init__(self, application, parent=None):
+        super().__init__(parent)
+        self._application = application
+        self.setObjectName("QuickBarNotificationHistoryDialog")
+        self.setWindowTitle("Notification History")
+        self.setMinimumSize(680, 360)
+        self.resize(780, 440)
+        self.setAccessibleName("Notification History")
+        self.setAccessibleDescription(
+            "Search and copy recent Vantage notifications from this session")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+
+        heading = QLabel("Recent notifications · last 250 this session")
+        heading.setObjectName("SectionTitle")
+        layout.addWidget(heading)
+
+        self.latest_audio = QLabel()
+        self.latest_audio.setObjectName("NotificationHistoryLatestAudio")
+        self.latest_audio.setWordWrap(True)
+        self.latest_audio.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByKeyboard |
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.latest_audio.setAccessibleName("Latest Vantage audio")
+        layout.addWidget(self.latest_audio)
+
+        search_row = QHBoxLayout()
+        search_label = QLabel("Search:")
+        self.search = QLineEdit()
+        self.search.setClearButtonEnabled(True)
+        self.search.setPlaceholderText(
+            "Search time, category, or notification text")
+        self.search.setAccessibleName("Search notification history")
+        self.search.setAccessibleDescription(
+            "Filters the recent notification table as you type")
+        search_label.setBuddy(self.search)
+        search_row.addWidget(search_label)
+        search_row.addWidget(self.search, 1)
+        layout.addLayout(search_row)
+
+        self.table = QTableWidget(0, 3)
+        self.table.setObjectName("NotificationHistoryTable")
+        self.table.setHorizontalHeaderLabels(
+            ["Date / time", "Category", "Notification"])
+        self.table.setAccessibleName("Recent Vantage notifications")
+        self.table.setAccessibleDescription(
+            "Newest-first session history with adjustable columns, date, "
+            "category, and full message")
+        self.table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers)
+        # Arrow keys navigate rows; Tab belongs to the dialog workflow and
+        # must leave the table instead of cycling through every cell.
+        self.table.setTabKeyNavigation(False)
+        self.table.setSortingEnabled(False)
+        header = self.table.horizontalHeader()
+        header.setSectionsClickable(False)
+        header.setSectionsMovable(True)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table.setColumnWidth(0, 155)
+        self.table.setColumnWidth(1, 130)
+        self.table.setColumnWidth(2, 430)
+        layout.addWidget(self.table, 1)
+
+        footer = QHBoxLayout()
+        self.status = QLabel("No notifications this session")
+        self.status.setObjectName("NotificationHistoryStatus")
+        self.status.setAccessibleName("Notification history status")
+        footer.addWidget(self.status, 1)
+        self.copy_button = QPushButton("Copy selected")
+        self.copy_button.setAccessibleName("Copy selected notification")
+        self.copy_button.setAccessibleDescription(
+            "Copies the selected date, category, and full notification text")
+        self.copy_button.setEnabled(False)
+        footer.addWidget(self.copy_button)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.close)
+        self.close_button = buttons.button(
+            QDialogButtonBox.StandardButton.Close)
+        footer.addWidget(buttons)
+        layout.addLayout(footer)
+
+        self.search.textChanged.connect(self.refresh)
+        self.table.itemSelectionChanged.connect(self._selection_changed)
+        self.copy_button.clicked.connect(self._copy_selected)
+        QWidget.setTabOrder(self.search, self.table)
+        QWidget.setTabOrder(self.table, self.copy_button)
+        QWidget.setTabOrder(self.copy_button, self.close_button)
+        self.search.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def refresh(self):
+        """Render a stable newest-first view without replaying any audio."""
+        selected_key = None
+        current = self.table.item(self.table.currentRow(), 0)
+        if current is not None:
+            selected_key = current.data(Qt.ItemDataRole.UserRole)
+        scroll_value = self.table.verticalScrollBar().value()
+        query = " ".join(self.search.text().split()).casefold()
+        rows = list(self._application.quickbar_notice_history())
+        if query:
+            rows = [row for row in rows if query in " ".join((
+                str(row.get("display_time", "")),
+                str(row.get("category", "")),
+                str(row.get("message", "")))).casefold()]
+        self.table.clearSelection()
+        self.table.setCurrentCell(-1, -1)
+        self.table.setRowCount(len(rows))
+        for row_index, row in enumerate(rows):
+            row_key = (
+                float(row.get("occurred_at", 0.0)),
+                str(row.get("channel", "")), str(row.get("message", "")))
+            values = (
+                row.get("display_time", ""), row.get("category", ""),
+                row.get("message", ""))
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(str(value))
+                item.setToolTip(str(value))
+                item.setData(Qt.ItemDataRole.UserRole, row_key)
+                self.table.setItem(row_index, column, item)
+        selection_restored = False
+        if selected_key is not None:
+            for row_index in range(self.table.rowCount()):
+                item = self.table.item(row_index, 0)
+                if (item is not None and
+                        item.data(Qt.ItemDataRole.UserRole) == selected_key):
+                    self.table.selectRow(row_index)
+                    selection_restored = True
+                    break
+        if not selection_restored:
+            self.table.clearSelection()
+            self.table.setCurrentCell(-1, -1)
+        self.table.verticalScrollBar().setValue(scroll_value)
+        latest = str(getattr(
+            self._application, "_last_audio", "None yet") or "None yet")
+        latest_audio_text = (
+            "Latest audio: " + latest if latest != "None yet" else
+            "Latest audio: No Vantage audio has played this session")
+        self.latest_audio.setText(latest_audio_text)
+        self.latest_audio.setAccessibleName(latest_audio_text)
+        self.latest_audio.setAccessibleDescription(
+            "Most recent audio started by Vantage in this session")
+        total = len(self._application.quickbar_notice_history())
+        shown = len(rows)
+        status = (
+            f"{shown} of {total} shown · last 250 · this session" if query
+            else f"{total} notification" + ("s" if total != 1 else "") +
+            " · last 250 maximum · this session")
+        self.status.setText(status)
+        self.status.setAccessibleName(status)
+        self._selection_changed()
+
+    def _selection_changed(self):
+        self.copy_button.setEnabled(self.table.currentRow() >= 0)
+
+    def _copy_selected(self):
+        row = self.table.currentRow()
+        if row < 0:
+            return
+        values = [
+            self.table.item(row, column).text()
+            for column in range(self.table.columnCount())
+            if self.table.item(row, column) is not None]
+        QApplication.clipboard().setText(" · ".join(values))
+        message = "Selected notification copied"
+        self.status.setText(message)
+        self.status.setAccessibleName(message)
+        try:
+            QAccessible.updateAccessibility(
+                QAccessibleAnnouncementEvent(self.status, message))
+        except (AttributeError, RuntimeError, TypeError):
+            pass
+
+    def showEvent(self, event):
+        self.refresh()
+        super().showEvent(event)
+class QuickBarVolumeSlider(QSlider):
+    """Native slider behavior with deterministic Vantage painting."""
+
+    VISUAL_COLORS = {
+        "rail": "#182127",
+        "rail_outline": "#687A86",
+        "fill": "#9A7541",
+        "thumb_ring": "#C6A15A",
+        "thumb_core": "#362916",
+        "focus": "#D0A45B",
+    }
+
+    def __init__(self, parent=None):
+        super().__init__(Qt.Orientation.Horizontal, parent)
+        self._last_focus_reason = None
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+
+    def focusInEvent(self, event):
+        self._last_focus_reason = event.reason()
+        super().focusInEvent(event)
+        self.update()
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        self.update()
+
+    def enterEvent(self, event):
+        super().enterEvent(event)
+        self.update()
+
+    def leaveEvent(self, event):
+        super().leaveEvent(event)
+        self.update()
+
+    def paintEvent(self, _event):
+        """Paint a thin rail without platform-native light slider fills."""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        colors = {
+            name: QColor(value) for name, value in self.VISUAL_COLORS.items()}
+
+        left = 6.0
+        right = max(left, float(self.width()) - 6.0)
+        center_y = float(self.height()) / 2.0
+        value_span = max(1, self.maximum() - self.minimum())
+        progress = (self.value() - self.minimum()) / value_span
+        if self.invertedAppearance():
+            progress = 1.0 - progress
+        thumb_x = left + (right - left) * max(0.0, min(1.0, progress))
+
+        painter.setPen(QPen(
+            colors["rail_outline"], 6.0, Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap))
+        painter.drawLine(QPointF(left, center_y), QPointF(right, center_y))
+        painter.setPen(QPen(
+            colors["rail"], 4.0, Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap))
+        painter.drawLine(QPointF(left, center_y), QPointF(right, center_y))
+        if thumb_x > left:
+            painter.setPen(QPen(
+                colors["fill"], 4.0, Qt.PenStyle.SolidLine,
+                Qt.PenCapStyle.RoundCap))
+            painter.drawLine(
+                QPointF(left, center_y), QPointF(thumb_x, center_y))
+
+        ring = colors["focus"] if self.hasFocus() else colors["thumb_ring"]
+        if self.underMouse() or self.isSliderDown():
+            ring = colors["focus"]
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(ring)
+        painter.drawEllipse(QPointF(thumb_x, center_y), 5.0, 5.0)
+        painter.setBrush(colors["thumb_core"])
+        painter.drawEllipse(QPointF(thumb_x, center_y), 2.75, 2.75)
+
+        if self.hasFocus():
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(colors["focus"], 2.0))
+            painter.drawRoundedRect(
+                1.0, 2.0, max(0.0, self.width() - 2.0),
+                max(0.0, self.height() - 4.0), 4.0, 4.0)
+
+    def wheelEvent(self, event):
+        if not self.hasFocus():
+            event.ignore()
+            return
+        super().wheelEvent(event)
 
 
 class QuickBar(ParserWindow):
@@ -174,8 +640,10 @@ class QuickBar(ParserWindow):
     _allow_clickthrough = False
     _LOG_ONLINE_DEBOUNCE_MS = 2000
     _DIALOG_ACTIONS = {
+        "triggers": ("_triggers_dialog_instance", "show_triggers"),
         "spell_library": ("_spell_library_dialog", "show_spell_library"),
         "mobile": ("_mobile_dialog_instance", "show_mobile_share"),
+        "device_sync": ("_device_sync_dialog_instance", "show_device_sync"),
         "settings": ("_settings_instance", "show_settings"),
         "about": ("_about_dialog_instance", "show_about"),
         "updates": ("_update_dialog_instance", "show_update_dialog"),
@@ -195,6 +663,8 @@ class QuickBar(ParserWindow):
         self._header_visible = True
         self._tick_snapshot = None
         self._snapping_height = False
+        self._column_footer_height = 0
+        self._column_layout_busy = False
         self._last_orientation_toggle = 0.0
         self._log_online = False
         self._log_pulse_on = False
@@ -218,6 +688,8 @@ class QuickBar(ParserWindow):
         self._title_icon.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._setup_actions()
+        self._setup_column_viewport()
+        self._set_header_tab_order()
         # The logical buttons remain 27 px, while the inherited graphics view
         # scales their complete replica. Do not let QGraphicsView's scene size
         # hint become a large native minimum width.
@@ -226,6 +698,9 @@ class QuickBar(ParserWindow):
             QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         for target in self._window_targets.values():
             target.installEventFilter(self)
+            status_changed = getattr(target, "status_changed", None)
+            if status_changed is not None and hasattr(status_changed, "connect"):
+                status_changed.connect(self.refresh_state)
         tick = self._window_targets.get("tick")
         if tick is not None and hasattr(tick, "tray_state_changed"):
             tick.tray_state_changed.connect(self._server_tick_update)
@@ -236,6 +711,8 @@ class QuickBar(ParserWindow):
         self.refresh_state()
 
     def _setup_actions(self):
+        self._setup_volume_rocker()
+
         self.action_frame = QFrame()
         self.action_frame.setObjectName("QuickBarActions")
         self.action_layout = QBoxLayout(QBoxLayout.Direction.LeftToRight)
@@ -282,6 +759,17 @@ class QuickBar(ParserWindow):
             if key == "tick":
                 self._setup_tick_readout()
 
+        self._vitals_badge = QLabel("—", self._buttons["vitals"])
+        self._vitals_badge.setObjectName("QuickBarProductBadge")
+        self._vitals_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._vitals_badge.setGeometry(15, 1, 8, 9)
+        self._vitals_badge.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._vitals_badge.show()
+        vitals_dot = self._enabled_dots.get("vitals")
+        if vitals_dot is not None:
+            vitals_dot.move(2, 16)
+
         self._update_badge = QLabel("!", self._buttons["updates"])
         self._update_badge.setObjectName("QuickBarAlertBadge")
         self._update_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -312,6 +800,12 @@ class QuickBar(ParserWindow):
             "Reset presentation: hide other windows, expand rolled panels, disable compact timers, and reset window and table layouts; gameplay data is preserved")
         reset_layout.setAccessibleDescription(
             "Opens a confirmation before resetting presentation settings only")
+        sync_button = self._buttons["device_sync"]
+        sync_button.setToolTip(
+            "Sync My PCs · pair 2, 3 or more Vantage computers without an account")
+        sync_button.setAccessibleDescription(
+            "Opens the permanent Device Sync pairing window for settings, "
+            "layouts, notes, and managed WTS or WTB buttons")
         self._support_motion_marker = QFrame(support)
         self._support_motion_marker.setObjectName("QuickBarSupportSpark")
         self._support_motion_marker.setFixedSize(5, 5)
@@ -356,11 +850,482 @@ class QuickBar(ParserWindow):
             self.action_frame, 0,
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.notification_rail = QuickBarNotificationRail()
+        self._rail_floating = False
         self.notification_rail.setToolTip(
             "The next attributable Vantage event appears here")
+        self.notification_rail.history_requested.connect(
+            self._application.show_notification_history)
+        self.notification_rail.activity_changed.connect(
+            lambda: QTimer.singleShot(0, self._sync_vertical_notification_rail))
         self.content.addWidget(
             self.notification_rail, 0,
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+
+    def _setup_column_viewport(self):
+        """Expose a shorter saved column without shrinking its 24 px actions."""
+        button = QToolButton(self._scale_view)
+        button.setObjectName("QuickBarColumnScrollButton")
+        button.setFixedSize(24, 24)
+        button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        button.setStyleSheet("""
+            QToolButton#QuickBarColumnScrollButton {
+                color: #E7C979; background: #12151A;
+                border: 1px solid #4A4230; border-radius: 3px;
+                padding: 0; font-size: 12px;
+            }
+            QToolButton#QuickBarColumnScrollButton:hover {
+                background: #23211A; border-color: #9D8750;
+            }
+            QToolButton#QuickBarColumnScrollButton:focus {
+                border: 2px solid #E7C979;
+            }
+            QToolButton#QuickBarColumnScrollButton:pressed {
+                background: #353022;
+            }
+        """)
+        button.clicked.connect(lambda _checked=False: self._page_column_actions())
+        button.hide()
+        self._column_scroll_button = button
+        self._scale_view.verticalScrollBar().valueChanged.connect(
+            self._sync_column_scroll_hint)
+        # Register all authored children before first show; visibility is
+        # evaluated only when navigating, not while the proxy is initializing.
+        for widget in [self.orientation_button, *self._buttons.values(),
+                       self.tick_countdown, button]:
+            widget.installEventFilter(self)
+        self._scale_view.viewport().installEventFilter(self)
+        self._title.setToolTip(
+            "Drag the Quick Bar. In a shorter column, use the mouse wheel, "
+            "Page Up/Down, or the arrow below. Right-click or Shift+F10 "
+            "opens All Quick Bar actions.")
+
+    def _column_focus_actions(self):
+        widgets = [getattr(self, "orientation_button", None)]
+        for key, button in self._buttons.items():
+            widgets.append(button)
+            if key == "tick":
+                widgets.append(getattr(self, "tick_countdown", None))
+        return [widget for widget in widgets if widget is not None and
+                isValid(widget) and
+                widget.isEnabled() and widget.isVisibleTo(self._surface)]
+
+    def _layout_column_scroll_hint(self):
+        button = getattr(self, "_column_scroll_button", None)
+        if button is None or self._column_layout_busy:
+            return
+        self._column_layout_busy = True
+        try:
+            clipped = (self._orientation == "vertical" and
+                       not self._collapsed and
+                       self._design_size.height() > self._scale_view.height())
+            footer_height = 24 if clipped else 0
+            if footer_height != self._column_footer_height:
+                self._column_footer_height = footer_height
+                self._scale_view.setViewportMargins(0, 0, 0, footer_height)
+            button.setVisible(clipped)
+            if clipped:
+                button.move(max(0, (self._scale_view.width() - 24) // 2),
+                            max(0, self._scale_view.height() - 24))
+                button.raise_()
+        finally:
+            self._column_layout_busy = False
+
+    def _sync_column_scroll_hint(self, _value=None):
+        button = getattr(self, "_column_scroll_button", None)
+        if button is None:
+            return
+        scroll = self._scale_view.verticalScrollBar()
+        below = scroll.value() < scroll.maximum()
+        label = "More Quick Bar actions below" if below else \
+            "Return to Quick Bar actions above"
+        button.setText("▼" if below else "▲")
+        button.setAccessibleName(label)
+        button.setAccessibleDescription(
+            "Scroll without resizing. Mouse wheel and Page Up/Down also "
+            "scroll; Tab reveals each action. Right-click or Shift+F10 "
+            "opens All Quick Bar actions.")
+        button.setToolTip(label + " · Wheel / Page Up/Down · "
+                          "Right-click: All Quick Bar actions")
+
+    def _page_column_actions(self, direction=None):
+        if self._orientation != "vertical" or self._collapsed:
+            return
+        scroll = self._scale_view.verticalScrollBar()
+        if direction is None:
+            direction = 1 if scroll.value() < scroll.maximum() else -1
+        step = max(24, self._scale_view.viewport().height() - 24)
+        scroll.setValue(scroll.value() + int(direction) * step)
+
+    def _reveal_column_action(self, widget):
+        if (self._orientation != "vertical" or self._collapsed or
+                widget not in self._column_focus_actions()):
+            return
+        corner = widget.mapTo(self._surface, QPoint(0, 0))
+        rect = self._scale_proxy.mapRectToScene(QRectF(
+            corner.x(), corner.y(), widget.width(), widget.height()))
+        self._scale_view.ensureVisible(rect, 0, 3)
+        self._sync_column_scroll_hint()
+
+    def _setup_volume_rocker(self):
+        """Add compact, branded master-audio controls to the header."""
+        self.volume_rocker = QFrame()
+        self.volume_rocker.setObjectName("QuickBarVolumeRocker")
+        self.volume_rocker.setProperty("HeaderPriority", 100)
+        self.volume_rocker.setAccessibleName("Notification audio controls")
+        self.volume_rocker.setAccessibleDescription(
+            "Contains Master Mute, notification volume, and its percentage")
+        self.volume_rocker.setToolTip(
+            "Master Mute and notification volume for WAV and spoken alerts")
+        self.volume_rocker.setStyleSheet("""
+            QFrame#QuickBarVolumeRocker {
+                background: #11181D;
+                border: 1px solid #40505C;
+                border-radius: 5px;
+            }
+        """)
+
+        layout = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        layout.setContentsMargins(2, 0, 2, 0)
+        layout.setSpacing(2)
+
+        self.master_mute_button, self._master_mute_dot = \
+            self._new_master_mute_control(self.volume_rocker)
+        layout.addWidget(self.master_mute_button)
+
+        self.volume_value_label = QLabel()
+        self.volume_value_label.setObjectName("QuickBarVolumeValue")
+        self.volume_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.volume_value_label.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.volume_value_label.setStyleSheet("""
+            QLabel#QuickBarVolumeValue {
+                color: #E6D7AB;
+                background: transparent;
+                border: 0;
+                font-weight: 600;
+            }
+        """)
+        self.volume_value_label.setToolTip(
+            "Current notification volume; zero is silent but does not turn "
+            "on Master Mute")
+        label_width = self._configure_percentage_label(
+            self.volume_value_label)
+        # Preserve a usable slider while keeping the entire composite inside
+        # the former 130 px header budget. A larger system font gives the
+        # readout more room before the slider reaches its 44 px floor.
+        slider_width = self._compact_volume_slider_width(label_width)
+        self.volume_slider = QuickBarVolumeSlider()
+        self._configure_volume_slider(
+            self.volume_slider, width=slider_width)
+        self.volume_value_label.setBuddy(self.volume_slider)
+        layout.addWidget(self.volume_slider)
+        layout.addWidget(self.volume_value_label)
+        self.volume_rocker.setFixedSize(
+            2 + 24 + 2 + slider_width + 2 + label_width + 2, 24)
+
+        self.volume_rocker.setLayout(layout)
+        self.menu_area.addWidget(self.volume_rocker)
+
+        self._volume_save_timer = QTimer(self)
+        self._volume_save_timer.setSingleShot(True)
+        self._volume_save_timer.setInterval(180)
+        self._volume_save_timer.timeout.connect(self._save_master_volume)
+        self.volume_slider.valueChanged.connect(
+            lambda value, slider=self.volume_slider:
+            self._volume_slider_changed(value, slider))
+        self.volume_slider.sliderReleased.connect(self._save_master_volume)
+        self._overflow_master_mute_button = None
+        self._overflow_master_mute_dot = None
+        self._overflow_volume_slider = None
+        self._overflow_volume_label = None
+        self._overflow_keyboard_target = "mute"
+        self._header_overflow_menu.installEventFilter(self)
+        self._header_overflow_menu.aboutToShow.connect(
+            self._queue_overflow_volume_focus)
+        self._sync_volume_slider()
+        self._sync_master_mute_controls()
+
+    def _new_master_mute_control(self, parent):
+        """Create one compact mute toggle with a persistent state marker."""
+        button = QToolButton(parent)
+        button.setObjectName("QuickBarMuteToggle")
+        button.setAutoRaise(True)
+        button.setCheckable(True)
+        button.setFixedSize(24, 24)
+        button.setIcon(game_icon("ph-mute"))
+        button.setIconSize(QSize(15, 15))
+        button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        button.setStyleSheet("""
+            QToolButton#QuickBarMuteToggle {
+                background: transparent;
+                border: 1px solid transparent;
+                border-radius: 4px;
+                padding: 0;
+            }
+            QToolButton#QuickBarMuteToggle:hover {
+                background: #202A31;
+                border-color: #7A8992;
+            }
+            QToolButton#QuickBarMuteToggle:checked {
+                background: #3A2B20;
+                border-color: #B98A4A;
+            }
+            QToolButton#QuickBarMuteToggle:focus {
+                background: #202A31;
+                border: 2px solid #F0C778;
+            }
+            QToolButton#QuickBarMuteToggle:checked:focus {
+                background: #3A2B20;
+                border: 2px solid #F0C778;
+            }
+        """)
+        dot = _DecorativeMuteDot(button)
+        dot.setObjectName("QuickBarMuteStateDot")
+        dot.setFixedSize(6, 6)
+        dot.move(16, 2)
+        dot.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        dot.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        dot.setAccessibleName("")
+        dot.setAccessibleDescription("")
+        dot.setStyleSheet("""
+            QFrame#QuickBarMuteStateDot[State="off"] {
+                background: transparent;
+                border: 1px solid #778A96;
+                border-radius: 3px;
+            }
+            QFrame#QuickBarMuteStateDot[State="on"] {
+                background: #F0C778;
+                border: 1px solid #4B3515;
+                border-radius: 3px;
+            }
+        """)
+        button.clicked.connect(self._toggle_master_mute)
+        return button, dot
+
+    @staticmethod
+    def _configure_percentage_label(label):
+        """Reserve the rendered 100% width plus readable side breathing room."""
+        width = max(
+            label.minimumSizeHint().width(),
+            label.fontMetrics().horizontalAdvance("100%") + 8)
+        label.setFixedWidth(width)
+        return width
+
+    @staticmethod
+    def _compact_volume_slider_width(label_width):
+        """Share the old 130 px rocker budget with mute and large text."""
+        return max(44, min(64, 98 - max(0, int(label_width))))
+
+    @staticmethod
+    def _configure_volume_slider(slider, width):
+        """Apply one compact, high-contrast Vantage slider presentation."""
+        slider.setObjectName("QuickBarVolumeSlider")
+        slider.setRange(0, 100)
+        slider.setSingleStep(1)
+        slider.setPageStep(10)
+        slider.setTracking(True)
+        slider.setFixedSize(width, 24)
+        slider.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        slider.setAccessibleName("Notification volume")
+        slider.setAccessibleDescription(
+            "Scales every WAV and text to speech notification. Master Mute "
+            "is a separate control.")
+        slider.setToolTip(
+            "Notification volume · Arrow keys 1% · Page Up/Down 10% · "
+            "Home/End 0% or 100% · Master Mute remains separate")
+        slider.setStyleSheet("""
+            QSlider#QuickBarVolumeSlider {
+                background: transparent;
+                border: 0;
+            }
+        """)
+
+    def _set_header_tab_order(self):
+        """Keep keyboard traversal aligned with the visible title-bar order."""
+        if (self.volume_rocker.isHidden() and
+                self._header_overflow_button.isVisible()):
+            QWidget.setTabOrder(
+                self._button, self._header_overflow_button)
+            QWidget.setTabOrder(
+                self._header_overflow_button, self._settings_button)
+        else:
+            QWidget.setTabOrder(self._button, self.master_mute_button)
+            QWidget.setTabOrder(
+                self.master_mute_button, self.volume_slider)
+            QWidget.setTabOrder(self.volume_slider, self._settings_button)
+        QWidget.setTabOrder(self._settings_button, self._roll_button)
+        QWidget.setTabOrder(self._roll_button, self._minimize_button)
+
+    def _pack_header_controls(self):
+        """Pack the title bar, then mirror its visible keyboard order."""
+        super()._pack_header_controls()
+        if hasattr(self, "volume_rocker"):
+            self._set_header_tab_order()
+
+    def _header_overflow_candidates(self, widgets):
+        """Let the non-button volume composite participate in overflow."""
+        candidates = super()._header_overflow_candidates(widgets)
+        rocker = getattr(self, "volume_rocker", None)
+        if (rocker is not None and rocker in widgets and
+                not rocker.isHidden() and rocker not in candidates):
+            candidates.insert(0, rocker)
+        return candidates
+
+    def _rebuild_header_overflow_menu(self):
+        """Expose the hidden volume slider inside More actions as well."""
+        self._overflow_master_mute_button = None
+        self._overflow_master_mute_dot = None
+        self._overflow_volume_slider = None
+        self._overflow_volume_label = None
+        self._overflow_keyboard_target = "mute"
+        self._header_overflow_menu.setFocusProxy(None)
+        super()._rebuild_header_overflow_menu()
+        if self.volume_rocker not in self._header_overflowed:
+            return
+        menu = self._header_overflow_menu
+        host = QFrame(menu)
+        host.setObjectName("QuickBarOverflowVolume")
+        host.setAccessibleName("Notification audio controls")
+        host.setAccessibleDescription(
+            "Contains Master Mute, notification volume, and its percentage")
+        layout = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        layout.setContentsMargins(8, 3, 8, 3)
+        layout.setSpacing(6)
+        mute_button, mute_dot = self._new_master_mute_control(host)
+        slider = QuickBarVolumeSlider(host)
+        self._configure_volume_slider(slider, width=116)
+        label = QLabel(host)
+        label.setObjectName("QuickBarVolumeValue")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._configure_percentage_label(label)
+        label.setBuddy(slider)
+        host.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        host.setFocusProxy(mute_button)
+        layout.addWidget(mute_button)
+        layout.addWidget(slider)
+        layout.addWidget(label)
+        host.setLayout(layout)
+        menu.setFocusProxy(mute_button)
+        action = QWidgetAction(menu)
+        action.setText("Notification volume")
+        action.setDefaultWidget(host)
+        before = menu.actions()[0] if menu.actions() else None
+        menu.insertAction(before, action)
+        self._overflow_master_mute_button = mute_button
+        self._overflow_master_mute_dot = mute_dot
+        self._overflow_volume_slider = slider
+        self._overflow_volume_label = label
+        mute_button.installEventFilter(self)
+        slider.installEventFilter(self)
+        slider.valueChanged.connect(
+            lambda value, control=slider:
+            self._volume_slider_changed(value, control))
+        slider.sliderReleased.connect(self._save_master_volume)
+        self._sync_volume_slider()
+        self._sync_master_mute_controls()
+
+    def _queue_overflow_volume_focus(self):
+        """Place keyboard users on the first embedded audio control."""
+        button = self._overflow_master_mute_button
+        if button is None:
+            return
+
+        def focus_audio_controls():
+            try:
+                if (self._header_overflow_menu.isVisible() and
+                        button.isVisibleTo(self._header_overflow_menu)):
+                    button.setFocus(Qt.FocusReason.TabFocusReason)
+            except RuntimeError:
+                return
+
+        # QMenu applies its own active-action focus immediately after
+        # aboutToShow. Reassert once that native popup setup is complete so
+        # arrows, Page Up/Down, Home, and End reach the embedded QSlider.
+        QTimer.singleShot(0, focus_audio_controls)
+        QTimer.singleShot(20, focus_audio_controls)
+
+    def _toggle_master_mute(self, _checked=False):
+        """Toggle the authoritative audio kill switch, independent of volume."""
+        self._application.toggle_audio_muted()
+        self._sync_master_mute_controls()
+
+    def _sync_master_mute_controls(self):
+        """Mirror Master Mute into header and overflow affordances."""
+        muted = audio_muted()
+        controls = (
+            (getattr(self, "master_mute_button", None),
+             getattr(self, "_master_mute_dot", None)),
+            (getattr(self, "_overflow_master_mute_button", None),
+             getattr(self, "_overflow_master_mute_dot", None)),
+        )
+        state = "ON" if muted else "OFF"
+        for button, dot in controls:
+            if button is None:
+                continue
+            try:
+                blocked = button.blockSignals(True)
+                button.setChecked(muted)
+                button.blockSignals(blocked)
+                button.setProperty("State", state.casefold())
+                button.setAccessibleName(f"Master Mute: {state}")
+                button.setAccessibleDescription(
+                    "Toggle all Vantage sound and speech. " +
+                    ("All notification audio is muted." if muted else
+                     "Notification audio is active."))
+                button.setToolTip(
+                    f"Master Mute {state} · " +
+                    ("click to restore Vantage audio" if muted else
+                     "click to silence all Vantage audio"))
+                if dot is not None:
+                    dot.setProperty("State", state.casefold())
+                    style = dot.style()
+                    style.unpolish(dot)
+                    style.polish(dot)
+                    dot.update()
+                    dot.raise_()
+            except RuntimeError:
+                continue
+
+    def _volume_slider_changed(self, value, source):
+        """Apply changes live and coalesce durable writes while dragging."""
+        value = set_master_volume(value)
+        self._sync_volume_slider(value)
+        if source.isSliderDown():
+            self._volume_save_timer.stop()
+        else:
+            self._volume_save_timer.start()
+
+    def _save_master_volume(self):
+        """Persist the final slider value once after a drag or key burst."""
+        self._volume_save_timer.stop()
+        config.save()
+
+    def _sync_volume_slider(self, value=None):
+        """Mirror the authoritative setting without feedback or disk writes."""
+        value = master_volume() if value is None else max(0, min(100, int(value)))
+        sliders = [self.volume_slider]
+        overflow_slider = getattr(self, "_overflow_volume_slider", None)
+        if overflow_slider is not None:
+            sliders.append(overflow_slider)
+        for slider in sliders:
+            try:
+                blocked = slider.blockSignals(True)
+                slider.setValue(value)
+                slider.blockSignals(blocked)
+            except RuntimeError:
+                continue
+        text = f"{value}%"
+        self.volume_value_label.setText(text)
+        self.volume_value_label.setAccessibleName(f"{value} percent")
+        self.volume_value_label.setAccessibleDescription(
+            "Readout for the adjacent notification volume slider")
+        overflow_label = getattr(self, "_overflow_volume_label", None)
+        if overflow_label is not None:
+            try:
+                overflow_label.setText(text)
+                overflow_label.setAccessibleName(f"{value} percent")
+            except RuntimeError:
+                pass
 
     def _setup_tick_readout(self):
         self.tick_readout = QFrame()
@@ -403,10 +1368,73 @@ class QuickBar(ParserWindow):
         self._toggled = True
         self.show()
 
+    def apply_saved_presentation(self):
+        """Apply the saved client rectangle without a late aspect snap."""
+        geometry = list(config.data.get("quickbar", {}).get(
+            "geometry", self._geometry))
+        if len(geometry) != 4:
+            super().apply_saved_presentation()
+            return
+        expected = tuple(int(value) for value in geometry)
+        if self._orientation == 'vertical':
+            # Only the legacy ticker block has a grossly mismatched width/
+            # height scale. Preserve genuine saved column sizes and replicas.
+            width_scale = expected[2] / max(1, self._design_size.width())
+            height_scale = expected[3] / max(1, self._design_size.height())
+            if width_scale > max(1.0, height_scale * 4):
+                expected = (expected[0], expected[1], self._design_size.width(),
+                            self._design_size.height())
+                config.data['quickbar']['geometry'] = list(expected)
+        self._preserving_saved_geometry = True
+        try:
+            super().apply_saved_presentation()
+            self.setGeometry(*expected)
+        finally:
+            self._preserving_saved_geometry = False
+        # Resize events posted by setGeometry are delivered after this method
+        # returns. Remember the authored/saved rectangle so those deferred
+        # events update the scaled content without rewriting the window size.
+        self._saved_presentation_geometry = expected
+
+        def restore_exact_saved_geometry(saved=expected):
+            current = config.data.get("quickbar", {}).get("geometry", [])
+            try:
+                still_current = tuple(int(value) for value in current) == saved
+            except (TypeError, ValueError):
+                still_current = False
+            if still_current and not self._collapsed:
+                # Content scaling was already calculated by the base method;
+                # this final assignment protects the user's exact viewport.
+                self.setGeometry(*saved)
+
+        QTimer.singleShot(0, restore_exact_saved_geometry)
+
+    def prepare_presentation_refresh(self, geometry):
+        """Lock a UI refresh to the physical rectangle it started with.
+
+        Theme repolishing emits the shared settings signal before the
+        application reaches its final geometry-restoration loop.  The Quick
+        Bar rebuilds its content-derived design height in that signal.  If a
+        queued resize handler runs in between, it can aspect-snap the live
+        window to the new design height and race the final restore.  Record
+        the refresh snapshot before the signal is emitted so every immediate
+        and deferred scale pass recognizes the exact rectangle as authored.
+        """
+        try:
+            expected = tuple(int(value) for value in geometry)
+        except (TypeError, ValueError):
+            return
+        if len(expected) != 4:
+            return
+        self._geometry_save_timer.stop()
+        self._saved_presentation_geometry = expected
+
     def _effective_minimum_scale(self):
         # A one-row command strip can remain recoverable at 18 px high; using
         # the generic panel's 48 px floor would prevent a compact top bar.
         if self._orientation == "vertical":
+            if getattr(self, "_column_native_sizing", False):
+                return self.minimumHeight() / max(1, self._design_size.height())
             # The vertical bar becomes narrow by removing its empty lane, not
             # by shrinking the interactive controls below their authored size.
             return 1.0
@@ -416,7 +1444,11 @@ class QuickBar(ParserWindow):
             interactive_height -= rail.height()
         return max(
             self._minimum_scale,
-            72 / max(1, self._design_size.width()),
+            # Keep the horizontal launcher recoverable at the established
+            # width and target scale. Adding a few authored header pixels
+            # must not make the entire command strip (and every action
+            # target in it) eligible to shrink further.
+            292 / max(1, self._design_size.width()),
             18 / max(1, interactive_height))
 
     def _refresh_title_icon(self):
@@ -431,6 +1463,24 @@ class QuickBar(ParserWindow):
 
     def _update_uniform_scale(self):
         """Keep a command strip tight instead of creating an empty viewport."""
+        if self._orientation == "vertical" and not self._collapsed:
+            # The authored canvas grows with the catalog, not the saved
+            # physical rectangle. The shared view supplies native wheel
+            # scrolling, but its refresh normally pins hidden bars to zero.
+            scroll = self._scale_view.verticalScrollBar()
+            offset = scroll.value()
+            self._layout_column_scroll_hint()
+            super()._update_uniform_scale()
+            scroll.setValue(max(scroll.minimum(), min(scroll.maximum(), offset)))
+            self._sync_column_scroll_hint()
+            return
+        self._layout_column_scroll_hint()
+        if getattr(self, "_preserving_saved_geometry", False):
+            return super()._update_uniform_scale()
+        saved = getattr(self, "_saved_presentation_geometry", None)
+        if (saved is not None and not self._collapsed and
+                (self.width(), self.height()) == saved[2:]):
+            return super()._update_uniform_scale()
         if (not self._collapsed and not self._snapping_height
                 and getattr(self, "_design_size", None)):
             # The Quick Bar is a shrink-wrapped launcher, not a content
@@ -450,24 +1500,217 @@ class QuickBar(ParserWindow):
                 self._snapping_height = False
         super()._update_uniform_scale()
 
+    def _minimum_logical_surface_height(self):
+        if self._orientation == "vertical" and not self._collapsed:
+            return self._design_size.height()
+        return super()._minimum_logical_surface_height()
+
+    def _set_scaled_minimum_size(self):
+        if self._orientation == "vertical" and not self._collapsed:
+            # Enough room for one authored target and a discoverable scroll
+            # control; the full catalog remains in the logical canvas.
+            self.setMinimumSize(self._design_size.width(), 54)
+            return
+        super()._set_scaled_minimum_size()
+
     def parse(self, _timestamp, _text):
         """The Quick Bar contains commands and does not parse log lines."""
 
     def eventFilter(self, watched, event):
+        footer = getattr(self, "_column_scroll_button", None)
+        if (self._orientation == "vertical" and not self._collapsed and
+                event.type() in (QEvent.Type.FocusIn, QEvent.Type.KeyPress)):
+            column_actions = self._column_focus_actions()
+            if watched in column_actions and event.type() == QEvent.Type.FocusIn:
+                QTimer.singleShot(0, lambda target=watched:
+                                  self._reveal_column_action(target))
+            if ((watched in column_actions or watched is footer or
+                 watched is self._scale_view.viewport()) and
+                    event.type() == QEvent.Type.KeyPress):
+                key = event.key()
+                if (key == Qt.Key.Key_Menu or
+                        (key == Qt.Key.Key_F10 and event.modifiers() &
+                         Qt.KeyboardModifier.ShiftModifier)):
+                    self._show_window_context_menu(watched.mapToGlobal(
+                        watched.rect().center()))
+                    return True
+                if key in (Qt.Key.Key_PageDown, Qt.Key.Key_PageUp):
+                    self._page_column_actions(
+                        1 if key == Qt.Key.Key_PageDown else -1)
+                    return True
+                if (footer is not None and footer.isVisible() and
+                        key in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab)):
+                    reverse = (key == Qt.Key.Key_Backtab or bool(
+                        event.modifiers() & Qt.KeyboardModifier.ShiftModifier))
+                    reason = (Qt.FocusReason.BacktabFocusReason if reverse
+                              else Qt.FocusReason.TabFocusReason)
+                    if watched is footer:
+                        target = column_actions[-1 if reverse else 0]
+                        self._scale_view.setFocus(reason)
+                        self._scale_scene.setFocusItem(self._scale_proxy, reason)
+                        target.setFocus(reason)
+                        self._reveal_column_action(target)
+                        return True
+                    if column_actions and watched is column_actions[
+                            0 if reverse else -1]:
+                        footer.setFocus(reason)
+                        return True
+        overflow_controls = (
+            getattr(self, "_overflow_master_mute_button", None),
+            getattr(self, "_overflow_volume_slider", None),
+        )
+        if ((watched is self._header_overflow_menu or
+             watched in overflow_controls) and
+                event.type() == QEvent.Type.KeyPress and
+                self._header_overflow_menu.isVisible()):
+            mute_button = self._overflow_master_mute_button
+            slider = self._overflow_volume_slider
+            if mute_button is not None and slider is not None:
+                key = event.key()
+                if key in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
+                    reverse = (
+                        key == Qt.Key.Key_Backtab or
+                        bool(event.modifiers() &
+                             Qt.KeyboardModifier.ShiftModifier))
+                    current = QApplication.focusWidget()
+                    if watched is self._header_overflow_menu:
+                        target = mute_button if reverse else slider
+                    elif reverse:
+                        target = (mute_button if current is slider else slider)
+                    else:
+                        target = (slider if current is mute_button else
+                                  mute_button)
+                    reason = (Qt.FocusReason.BacktabFocusReason if reverse else
+                              Qt.FocusReason.TabFocusReason)
+                    self._overflow_keyboard_target = (
+                        "slider" if target is slider else "mute")
+                    target.setFocus(reason)
+                    return True
+                if ((watched is mute_button or
+                     watched is self._header_overflow_menu) and
+                        key in (Qt.Key.Key_Space, Qt.Key.Key_Return,
+                                Qt.Key.Key_Enter)):
+                    mute_button.click()
+                    return True
+                if (watched is not slider and not (
+                        watched is self._header_overflow_menu and
+                        self._overflow_keyboard_target == "slider")):
+                    return super().eventFilter(watched, event)
+                value = slider.value()
+                if key == Qt.Key.Key_Home:
+                    value = slider.minimum()
+                elif key == Qt.Key.Key_End:
+                    value = slider.maximum()
+                elif key in (Qt.Key.Key_Right, Qt.Key.Key_Up):
+                    value += slider.singleStep()
+                elif key in (Qt.Key.Key_Left, Qt.Key.Key_Down):
+                    value -= slider.singleStep()
+                elif key == Qt.Key.Key_PageUp:
+                    value += slider.pageStep()
+                elif key == Qt.Key.Key_PageDown:
+                    value -= slider.pageStep()
+                else:
+                    return super().eventFilter(watched, event)
+                slider.setFocus(Qt.FocusReason.TabFocusReason)
+                slider.setValue(max(
+                    slider.minimum(), min(slider.maximum(), value)))
+                return True
         if ((watched in self._target_names or
              watched in self._dialog_targets) and
                 event.type() in (QEvent.Type.Show, QEvent.Type.Hide)):
             QTimer.singleShot(0, self.refresh_state)
         return super().eventFilter(watched, event)
 
+    def nativeEvent(self, event_type, message):
+        # Windows' live resize constraint must bound the physical viewport,
+        # not force the full action canvas back into the saved rectangle.
+        # The flag is scoped to the native call only: rendering and presets
+        # retain scale 1 and the authored 24 px column targets.
+        if self._orientation != "vertical" or self._collapsed:
+            return super().nativeEvent(event_type, message)
+        prior_floor = self._minimum_readable_width
+        self._column_native_sizing = True
+        self._minimum_readable_width = max(
+            prior_floor, self._design_size.width())
+        try:
+            return super().nativeEvent(event_type, message)
+        finally:
+            self._minimum_readable_width = prior_floor
+            self._column_native_sizing = False
+
     def showEvent(self, event):
         super().showEvent(event)
         self.refresh_state()
+        self._sync_vertical_notification_rail()
 
     def hideEvent(self, event):
         super().hideEvent(event)
+        if getattr(self, '_rail_floating', False):
+            self.notification_rail.hide()
         self._sync_support_animation()
         self._sync_log_animation()
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        self._sync_vertical_notification_rail()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._sync_vertical_notification_rail()
+
+    def _set_notification_rail_host(self, floating):
+        """Keep a vertical tool column narrow without losing readable notices."""
+        floating = bool(floating)
+        if floating == self._rail_floating:
+            return
+        rail = self.notification_rail
+        self.content.removeWidget(rail)
+        self._rail_floating = floating
+        if floating:
+            flags = Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint
+            if self._always_on_top:
+                flags |= Qt.WindowType.WindowStaysOnTopHint
+            rail.setParent(self, flags)
+            rail.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+            rail.setWindowTitle('Vantage notification')
+            rail.setFixedWidth(320)
+        else:
+            rail.setParent(self._surface, Qt.WindowType.Widget)
+            self.content.addWidget(
+                rail, 0,
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+
+    def _sync_vertical_notification_rail(self):
+        """Anchor an active notice beside the column, within its own screen."""
+        if not getattr(self, '_rail_floating', False):
+            return
+        rail = self.notification_rail
+        # The adjacent owned notice must follow the same live pin preference,
+        # not retain whichever flag was used at the orientation transition.
+        top_flag = Qt.WindowType.WindowStaysOnTopHint
+        if bool(rail.windowFlags() & top_flag) != bool(self._always_on_top):
+            rail.setWindowFlag(top_flag, self._always_on_top)
+        enabled = config.data.get('quickbar', {}).get(
+            'show_notification_ticker', True)
+        visible = bool(enabled and self.isVisible() and not self._collapsed and
+                       (rail._current_text or rail._pending))
+        if not visible:
+            rail.hide()
+            return
+        anchor = self.frameGeometry()
+        screen = self.screen() or QApplication.primaryScreen()
+        area = screen.availableGeometry() if screen else None
+        width = min(320, max(1, area.width() - 16)) if area else 320
+        rail.setFixedWidth(width)
+        x = anchor.right() + 6
+        y = anchor.bottom() - rail.height() + 1
+        if area:
+            if x + width - 1 > area.right():
+                x = anchor.left() - width - 6
+            x = max(area.left(), min(x, area.right() - width + 1))
+            y = max(area.top(), min(y, area.bottom() - rail.height() + 1))
+        rail.move(x, y)
+        rail.show()
 
     def _parser_settings_config_update_watcher(self):
         super()._parser_settings_config_update_watcher()
@@ -500,6 +1743,24 @@ class QuickBar(ParserWindow):
 
     def _build_window_context_menu(self):
         menu, actions = super()._build_window_context_menu()
+        first_action = menu.actions()[0] if menu.actions() else None
+        all_actions = menu.addMenu("All Quick Bar actions")
+        menu.removeAction(all_actions.menuAction())
+        menu.insertMenu(first_action, all_actions)
+        all_actions.setToolTipsVisible(True)
+        for key, button in self._buttons.items():
+            if button.isHidden():
+                continue
+            action = all_actions.addAction(
+                button.icon(), str(button.property("BaseLabel") or
+                                   button.accessibleName()))
+            action.setEnabled(button.isEnabled())
+            action.setCheckable(button.isCheckable())
+            action.setChecked(button.isChecked())
+            action.setToolTip(button.toolTip())
+            action.triggered.connect(
+                lambda _checked=False, target=button: target.click())
+        actions["quickbar_actions"] = all_actions.menuAction()
         menu.addSeparator()
         show_header = menu.addAction("Show Quick Bar Header")
         show_header.setCheckable(True)
@@ -510,14 +1771,31 @@ class QuickBar(ParserWindow):
         actions["quickbar_header"] = show_header
         if not self._header_visible:
             actions["roll"].setVisible(False)
+        history = menu.addAction('Notification History…')
+        history.setToolTip('Search the full notification history without replaying sounds')
+        history.triggered.connect(self._application.show_notification_history)
+        actions['notification_history'] = history
         return menu, actions
 
     def _apply_quickbar_settings(self, preserve_scale=True):
         settings = config.data["quickbar"]
+        # Drain the previous packer's hidden list before setting new explicit
+        # orientation visibility. Otherwise a deferred pack can resurrect
+        # horizontal chrome inside the vertical branded drag handle.
+        for widget in tuple(self._header_overflowed):
+            widget.show()
+        self._header_overflowed = []
+        self._header_overflow_button.hide()
+        prior_size = QSize(self.size())
+        prior_orientation = self._orientation
         prior_width_scale = (
             self.width() / max(1, self._design_size.width()))
         self._orientation = settings.get("orientation", "horizontal")
         vertical = self._orientation == "vertical"
+        # Keep the growing catalog inside the established authored footprint
+        # by packing adjacent 24 px targets without shrinking any target.
+        # Overflow remains available at physically narrow saved sizes.
+        self.action_layout.setSpacing(0)
         self._header_visible = bool(settings.get("show_header", True))
         self._menu.setVisible(self._header_visible)
         self._menu.setEnabled(self._header_visible)
@@ -569,6 +1847,7 @@ class QuickBar(ParserWindow):
             self._buttons["updates"].property("UpdateProducts") or ""
         ).split(",")))
         self._set_update_button_presentation(product_names)
+        self._set_triggers_button_presentation()
 
         visible_widgets = [self.orientation_button]
         for key, button in self._buttons.items():
@@ -581,9 +1860,18 @@ class QuickBar(ParserWindow):
 
         tick_visible = bool(settings.get("show_server_tick", True))
         self.tick_readout.setVisible(tick_visible)
-        rail_visible = bool(
-            settings.get("show_notification_ticker", True) and not vertical)
-        self.notification_rail.setVisible(rail_visible)
+        rail_visible = bool(settings.get("show_notification_ticker", True))
+        self._set_notification_rail_host(vertical)
+        if not vertical:
+            self.notification_rail.setVisible(rail_visible)
+        if not rail_visible:
+            # The ticker preference is the only choice that discards its
+            # visual queue. Orientation changes keep every live notice.
+            self.notification_rail.discard_all()
+            discard = getattr(
+                self._application, "_take_quickbar_notices", None)
+            if callable(discard):
+                discard(discard=True)
         self.notification_rail.set_motion_reduced(
             config.data["general"].get("reduce_motion", False))
         if tick_visible:
@@ -591,8 +1879,18 @@ class QuickBar(ParserWindow):
         item_count = len(visible_widgets)
         margins = self.action_layout.contentsMargins()
         spacing = self.action_layout.spacing()
-        header_height = (
-            self._menu.sizeHint().height() if self._header_visible else 0)
+        # The 24 px rocker is created before the Quick Bar's first show. Make
+        # the title layout consume its fixed target immediately so a later
+        # settings refresh cannot grow the authored window by five pixels.
+        self.menu_area.activate()
+        self._menu_content.activate()
+        if self._header_visible:
+            header_height = self._menu.sizeHint().height()
+            if not vertical:
+                header_height = max(
+                    header_height, self.volume_rocker.height())
+        else:
+            header_height = 0
         header_width = (
             self._compact_header_width() if self._header_visible else 0)
 
@@ -607,9 +1905,11 @@ class QuickBar(ParserWindow):
                 margins.top() + margins.bottom() +
                 sum(widget.height() for widget in visible_widgets) +
                 max(0, item_count - 1) * spacing)
+            # Notification text lives in an adjacent transient tool surface;
+            # it must never turn this single column into a 240 px empty block.
+            authored_width = max(action_width, header_width)
             design_size = QSize(
-                max(action_width, header_width),
-                header_height + action_height)
+                authored_width, header_height + action_height)
         else:
             self.content.setAlignment(
                 self.action_frame,
@@ -621,10 +1921,15 @@ class QuickBar(ParserWindow):
             action_height = (
                 margins.top() + margins.bottom() +
                 max((widget.height() for widget in visible_widgets), default=24))
-            rail_width = max(120, action_width - 24)
+            authored_width = max(779, action_width, header_width)
+            # The rail spans the authored Quick Bar minus the final 24 px
+            # action target. Deriving it from action_width alone left a thin,
+            # inconsistent gap when zero-spacing packing kept the catalog
+            # narrower than the established 779 px surface.
+            rail_width = max(120, authored_width - 24)
             self.notification_rail.setFixedWidth(rail_width)
             design_size = QSize(
-                max(120, action_width, header_width),
+                authored_width,
                 header_height + action_height +
                 (self.notification_rail.height() if rail_visible else 0))
         # Quick Bar height is content-derived. Preserve its horizontal scale
@@ -632,13 +1937,59 @@ class QuickBar(ParserWindow):
         # smaller of width/height and accumulating a rounding shrink each time.
         self._set_design_size(design_size, preserve_scale=False)
         if preserve_scale and not self._collapsed:
-            scale = max(
-                self._effective_minimum_scale(), min(1.0, prior_width_scale))
-            self.resize(
-                round(design_size.width() * scale),
-                round(design_size.height() * scale))
+            if prior_orientation == self._orientation:
+                # Status/catalog changes must not rewrite the user's exact
+                # physical rectangle. The existing viewport handles narrow
+                # saved bars while every authored target remains 24 px.
+                self.resize(prior_size)
+
+                def restore_physical_size(
+                        expected_orientation=prior_orientation,
+                        expected_size=QSize(prior_size)):
+                    # Style repolishing can post a late size-hint resize after
+                    # this method returns. Reassert the exact saved rectangle
+                    # once that layout event has drained.
+                    saved_geometry = config.data.get(
+                        "quickbar", {}).get("geometry", [])
+                    saved_size = (
+                        list(saved_geometry[2:4])
+                        if isinstance(saved_geometry, list) else [])
+                    if (self._orientation == expected_orientation and
+                            not self._collapsed and saved_size == [
+                                expected_size.width(),
+                                expected_size.height()]):
+                        self.resize(expected_size)
+                        self._update_uniform_scale()
+
+                QTimer.singleShot(0, restore_physical_size)
+            else:
+                scale = max(
+                    self._effective_minimum_scale(),
+                    min(1.0, prior_width_scale))
+                self.resize(
+                    round(design_size.width() * scale),
+                    round(design_size.height() * scale))
         self._update_uniform_scale()
         self._fit_to_available_screen()
+        self._sync_vertical_notification_rail()
+
+    def _set_triggers_button_presentation(self):
+        """Keep the independent editor discoverable without widening a column."""
+        button = self._buttons['triggers']
+        # Resolve inherited QSS typography before the first size calculation.
+        # Otherwise the first settings refresh can change the logical width.
+        button.ensurePolished()
+        vertical = self._orientation == 'vertical'
+        text = '' if vertical else 'Triggers'
+        button.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonIconOnly if vertical else
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        button.setText(text)
+        width = 24 if vertical else max(
+            58, button.fontMetrics().horizontalAdvance(text) + 31)
+        button.setFixedSize(width, 24)
+        self._enabled_dots['triggers'].move(
+            16 if vertical else 2, 2 if vertical else 16)
 
     def _set_update_button_presentation(self, product_names=()):
         """Identify pending update products without relying on color alone."""
@@ -765,6 +2116,8 @@ class QuickBar(ParserWindow):
     def refresh_state(self):
         if not self._buttons:
             return
+        self._sync_volume_slider()
+        self._sync_master_mute_controls()
         for name, target in self._window_targets.items():
             button = self._buttons.get(name)
             if not button:
@@ -780,8 +2133,26 @@ class QuickBar(ParserWindow):
             label = str(button.property("BaseLabel") or
                         button.accessibleName())
             state = "open" if visible else "hidden"
-            button.setToolTip(f"{label} is {state} · click to toggle")
-            button.setAccessibleDescription(f"Currently {state}")
+            detail_getter = getattr(target, "quickbar_status", None)
+            detail = str(detail_getter() if callable(detail_getter) else "").strip()
+            if detail:
+                button.setToolTip(
+                    f"{label}: {detail} · window is {state} · click to toggle")
+                button.setAccessibleDescription(
+                    f"{detail}. Window is currently {state}")
+                button.setProperty(
+                    "MonitorState", detail.split(" ·", 1)[0].casefold())
+                button.setStyle(button.style())
+                if name == "vitals":
+                    monitor_state = detail.split(" ·", 1)[0].upper()
+                    self._vitals_badge.setText(
+                        "✓" if monitor_state == "ACTIVE" else
+                        "C" if monitor_state == "CALIBRATING" else "—")
+                    self._vitals_badge.setToolTip(detail)
+                    self._vitals_badge.raise_()
+            else:
+                button.setToolTip(f"{label} is {state} · click to toggle")
+                button.setAccessibleDescription(f"Currently {state}")
 
         for key, (attribute, _opener) in self._DIALOG_ACTIONS.items():
             button = self._buttons.get(key)
@@ -804,30 +2175,45 @@ class QuickBar(ParserWindow):
                 label = str(button.property("BaseLabel") or
                             button.accessibleName())
                 state = "open" if visible else "hidden"
-                button.setToolTip(f"{label} is {state} · click to toggle")
-                button.setAccessibleDescription(f"Currently {state}")
+                if key == "triggers":
+                    monitoring = ("on" if config.data['spells'].get(
+                        'use_custom_triggers', False) else "off")
+                    button.setToolTip(
+                        f"Triggers editor is {state} · custom monitoring is "
+                        f"{monitoring} · click to toggle the editor")
+                    button.setAccessibleDescription(
+                        f"Trigger editor is {state}. Custom trigger monitoring "
+                        f"is {monitoring}. Opening the editor does not change "
+                        "which triggers are enabled.")
+                else:
+                    button.setToolTip(f"{label} is {state} · click to toggle")
+                    button.setAccessibleDescription(f"Currently {state}")
 
         muted = audio_muted()
         mute_button = self._buttons["mute"]
+        sound_dialog = getattr(
+            self._application, "_feature_settings_instances", {}).get(
+                "Sounds")
+        sound_open = bool(sound_dialog is not None and sound_dialog.isVisible())
         mute_button.blockSignals(True)
-        mute_button.setChecked(muted)
+        mute_button.setChecked(sound_open)
         mute_button.blockSignals(False)
         mute_dot = self._enabled_dots.get("mute")
         if mute_dot is not None:
-            mute_dot.setVisible(muted)
-            mute_dot.raise_()
+            mute_dot.setVisible(sound_open)
+            if sound_open:
+                mute_dot.raise_()
         blocked = str(getattr(
             self._application, "_last_audio_blocked", "None yet"))
         played = str(getattr(
             self._application, "_last_audio", "None yet"))
+        sound_state = "all sounds muted" if muted else (
+            f"master volume {master_volume()} percent")
         mute_button.setToolTip(
-            (("All Vantage audio is blocked · last played: " + played +
-              " · last prevented: " + blocked)
-             if muted else
-             ("Mute all Vantage sounds · last played: " + played +
-              " · last prevented: " + blocked)))
+            "Open Sounds · " + sound_state + " · last played: " +
+            played + " · last prevented: " + blocked)
         mute_button.setAccessibleDescription(
-            "All sounds are muted" if muted else "Sounds are active")
+            "Open the Sounds center; " + sound_state)
 
         status = str(getattr(
             self._application, "_log_status", "NO LOGS")).strip().upper()
@@ -952,12 +2338,34 @@ class QuickBar(ParserWindow):
         self._sync_support_animation()
         if self._tick_snapshot is not None:
             self._server_tick_update(self._tick_snapshot)
-        notice_id = getattr(self._application, "_quickbar_notice_id", 0)
-        notice = getattr(self._application, "_quickbar_notice", "")
-        self.notification_rail.present(
-            notice_id, notice,
-            config.data["general"].get("reduce_motion", False),
-            available=self.isVisible() and self.notification_rail.isVisible())
+        rail_configured = bool(
+            config.data["quickbar"].get("show_notification_ticker", True))
+        rail_available = bool(
+            rail_configured and getattr(self, "_toggled", True))
+        take_notices = getattr(
+            self._application, "_take_quickbar_notices", None)
+        if callable(take_notices):
+            # A closed Quick Bar is temporary: retain its bounded application
+            # queue. Only the rail's own Off setting intentionally discards.
+            notices = (
+                take_notices(discard=True) if not rail_configured else
+                take_notices() if rail_available else [])
+        else:
+            notices = [(
+                getattr(self._application, "_quickbar_notice_id", 0),
+                getattr(self._application, "_quickbar_notice", ""),
+                getattr(
+                    self._application, "_quickbar_notice_channel", "system"),
+                getattr(self._application, "_quickbar_notice_at", time.monotonic()))]
+        if not rail_configured:
+            self.notification_rail.discard_all()
+        elif rail_available:
+            for notice_id, notice, channel, created_at in notices:
+                self.notification_rail.present(
+                    notice_id, notice,
+                    config.data["general"].get("reduce_motion", False),
+                    available=True, channel=channel, created_at=created_at)
+        self._sync_vertical_notification_rail()
 
     def _sync_support_animation(self):
         support = self._buttons.get("support")
@@ -1124,11 +2532,15 @@ class QuickBar(ParserWindow):
             self._application.reset_ui_layout(
                 parent=self, launcher=self._buttons.get(key))
         elif key == "link_logs":
-            self._application.select_logs_folder()
+            self._application.select_logs_folder(parent=self)
         elif key == "log_help":
             self._application.show_log_help()
         elif key == "mute":
-            self._application.toggle_audio_muted()
+            dialog = self._application.show_feature_settings(
+                "Sounds", owner=self)
+            if dialog not in self._dialog_targets:
+                self._dialog_targets[dialog] = key
+                dialog.installEventFilter(self)
         elif key == "quit":
             self._application.quit_vantage(confirm=True, parent=self)
         QTimer.singleShot(0, self.refresh_state)
@@ -1160,6 +2572,9 @@ class QuickBar(ParserWindow):
             self._scale_view.setFocus(Qt.FocusReason.OtherFocusReason)
             QTimer.singleShot(0, focus_embedded_action)
 
+        # Restore the logical child immediately for keyboard tests and screen
+        # readers, then repeat after the native window activation settles.
+        focus_embedded_action()
         QTimer.singleShot(0, activate_launcher)
         return True
 
@@ -1173,6 +2588,8 @@ class QuickBar(ParserWindow):
         opener = getattr(self._application, opener_name)
         if key == "settings":
             opener("Quick Bar")
+        elif key == "triggers":
+            opener(owner=self)
         else:
             opener()
         dialog = getattr(self._application, attribute, None)

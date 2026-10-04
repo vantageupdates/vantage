@@ -180,10 +180,10 @@ def test_central_sale_alert_reports_hidden_market_block_reason():
     app = SimpleNamespace(notify_event=lambda *args, **kwargs:
                           NotificationDeliveryResult(
                               "market_sale", "sound", "blocked", False,
-                              "window hidden"))
+                              "background audio off"))
     assert deliver_market_alert(
         app, "For sale · Manastone", "Manastone for sale") == (
-            "overlay shown", "blocked · Market window hidden")
+            "overlay shown", "blocked · Background audio is off")
 
 
 def test_sale_alert_watchlist_is_visible_and_removes_the_selected_row(tmp_path):

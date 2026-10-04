@@ -6,7 +6,7 @@ from vantage.helpers import config
 from vantage.helpers.application import VantageApp
 from vantage.helpers.notification_routes import (
     NOTIFICATION_ROUTES, NotificationDeliveryResult,
-    TellAudioCooldown, classify_chat_notification)
+    TellAudioCooldown, apply_starting_delivery, classify_chat_notification)
 
 
 EXPECTED_ROUTES = {
@@ -35,6 +35,74 @@ def test_route_catalog_is_complete_and_immutable():
         pass
     else:  # pragma: no cover - documents the immutability contract
         raise AssertionError('route catalog accepted mutation')
+
+
+def test_starting_delivery_changes_only_untouched_defaults():
+    saved = {
+        key: {
+            'delivery': route.default_delivery,
+            'sound': route.default_sound,
+            'voice': '',
+        }
+        for key, route in NOTIFICATION_ROUTES.items()
+    }
+    saved['market_sale']['sound'] = 'portable:sounds/my-sale.wav'
+    saved['tell_message']['voice'] = 'My narrator'
+    saved['death_loop']['delivery'] = 'off'
+    saved['spell_resisted']['sound'] = 'builtin:portal-ping'
+    original = copy.deepcopy(saved)
+
+    voice = apply_starting_delivery(saved, 'voice')
+
+    assert saved == original
+    assert set(voice.changed_keys) == {
+        'spell_fading', 'spell_worn_off', 'smart_timer',
+        'raid_encounter', 'opendkp_auction'}
+    assert len(voice.preserved_keys) == 5
+    assert voice.routes['spell_fading']['delivery'] == 'voice'
+    assert voice.routes['market_sale'] == saved['market_sale']
+    assert voice.routes['tell_message'] == saved['tell_message']
+    assert voice.routes['death_loop'] == saved['death_loop']
+    assert voice.routes['spell_resisted'] == saved['spell_resisted']
+
+
+def test_fresh_defaults_accept_text_to_speech_as_the_starting_style():
+    voice = apply_starting_delivery({}, 'voice')
+
+    expected_changed = {
+        key for key, route in NOTIFICATION_ROUTES.items()
+        if route.default_delivery == 'sound'}
+    assert set(voice.changed_keys) == expected_changed
+    assert set(voice.preserved_keys) == {
+        'tell_message', 'hail'}
+    assert all(
+        values['delivery'] == 'voice' and values['voice'] == ''
+        for values in voice.routes.values())
+    assert all(
+        values['sound'] == NOTIFICATION_ROUTES[key].default_sound
+        for key, values in voice.routes.items())
+
+
+def test_starting_delivery_can_reverse_automatic_voice_routes_to_beeps():
+    automatic_voice = {
+        key: {'delivery': 'voice', 'sound': route.default_sound, 'voice': ''}
+        for key, route in NOTIFICATION_ROUTES.items()
+    }
+    automatic_voice['market_sale']['sound'] = 'C:/alerts/market.wav'
+
+    sound = apply_starting_delivery(automatic_voice, 'sound')
+
+    assert sound.routes['spell_fading']['delivery'] == 'sound'
+    assert sound.routes['spell_fading']['sound'] == (
+        NOTIFICATION_ROUTES['spell_fading'].default_sound)
+    assert 'spell_fading' in sound.changed_keys
+    assert sound.routes['market_sale'] == automatic_voice['market_sale']
+    assert 'market_sale' in sound.preserved_keys
+
+
+def test_starting_delivery_rejects_an_unknown_mode():
+    with pytest.raises(ValueError, match='sound or voice'):
+        apply_starting_delivery({}, 'random')
 
 
 def test_chat_classifier_rejects_private_and_non_player_noise():
@@ -143,7 +211,9 @@ def test_dispatch_registers_semantics_before_exactly_one_audio(monkeypatch):
     config.data['sounds'] = {'routes': {
         'tell_message': {'delivery': 'voice', 'sound': '', 'voice': 'Amy'}}}
     monkeypatch.setattr(application, 'speak_text', lambda text, *a, **k: (
-        host.events.append(('voice', text, k.get('voice_name'))) or True))
+        host.events.append((
+            'voice', text, k.get('voice_name'),
+            k.get('replace_pending'))) or True))
     monkeypatch.setattr(application, 'play_alert', lambda *a, **k: (
         host.events.append(('sound', a[0])) or True))
     try:
@@ -154,9 +224,138 @@ def test_dispatch_registers_semantics_before_exactly_one_audio(monkeypatch):
             'voice', 'played', True)
         assert host.events == [
             ('text', 'Tell from Ayla'),
-            ('voice', 'Incoming tell from Ayla', 'Amy')]
+            ('voice', 'Incoming tell from Ayla', 'Amy', True)]
     finally:
         config.data['sounds'] = original
+
+
+def test_dispatch_marks_backend_audio_as_already_written(monkeypatch):
+    import vantage.helpers.application as application
+    host = _DispatchHost()
+    captured = []
+    original = config.data.get('sounds')
+    config.data['sounds'] = {'routes': {'smart_timer': {
+        'delivery': 'sound', 'sound': 'builtin:soft-tick', 'voice': ''}}}
+    monkeypatch.setattr(
+        application, 'play_alert',
+        lambda *args, **kwargs: captured.append(kwargs) or True)
+    try:
+        result = VantageApp.notify_event(
+            host, 'smart_timer', 'Frenzy is due now')
+        assert result.played is True
+        assert host.events == [('text', 'Frenzy is due now')]
+        assert captured[0]['visual_registered'] is True
+    finally:
+        config.data['sounds'] = original
+
+
+def test_direct_audio_callback_creates_one_semantic_written_notice():
+    events = []
+    host = type('AudioHost', (), {
+        '_last_audio_event': None,
+        '_last_audio': '',
+        '_queue_quickbar_notice': lambda self, message, **kwargs: events.append(
+            (message, kwargs.get('channel'))),
+        '_refresh_quickbar': lambda self: None,
+    })()
+
+    VantageApp.audio_started(
+        host, 'Mob trigger · Lord Nagafen is casting',
+        'builtin:portal-ping', 80, 'spells')
+    assert events == [(
+        'Mob trigger · Lord Nagafen is casting', 'spells')]
+
+    events.clear()
+    VantageApp.audio_started(
+        host, 'Mob trigger · Lord Nagafen is casting',
+        'builtin:portal-ping', 80, 'spells', visual_registered=True)
+    assert events == []
+
+
+def test_generic_direct_tts_callback_uses_phrase_not_backend_name():
+    events = []
+    host = type('AudioHost', (), {
+        '_last_audio_event': None,
+        '_last_audio': '',
+        '_queue_quickbar_notice': lambda self, message, **kwargs: events.append(
+            (message, kwargs.get('channel'))),
+        '_refresh_quickbar': lambda self: None,
+    })()
+
+    VantageApp.audio_started(
+        host, 'Vantage speech', 'tts:Insufficient mana to cast spell',
+        70, 'spells')
+    assert events == [(
+        'Spoken alert · Insufficient mana to cast spell', 'spells')]
+
+    events.clear()
+    VantageApp.audio_started(
+        host, 'Bard AE Count', 'tts:Three targets affected', 70, 'spells')
+    assert events == [(
+        'Bard AE Count · Three targets affected', 'spells')]
+
+
+def test_visual_notification_survives_speech_queue_backpressure(monkeypatch):
+    import vantage.helpers.application as application
+    host = _DispatchHost()
+    original = config.data.get('sounds')
+    config.data['sounds'] = {'routes': {
+        'smart_timer': {'delivery': 'voice', 'sound': '', 'voice': ''}}}
+    monkeypatch.setattr(application, 'speak_text', lambda *args, **kwargs: False)
+    monkeypatch.setattr(application, 'playback_block_reason', lambda *args: '')
+    monkeypatch.setattr(application, 'master_volume', lambda: 100)
+    try:
+        result = VantageApp.notify_event(
+            host, 'smart_timer', 'Frenzy spawned',
+            voice_text='Frenzy spawned')
+        assert (result.delivery, result.state, bool(result)) == (
+            'voice', 'unavailable', False)
+        assert host.events == [('text', 'Frenzy spawned')]
+    finally:
+        config.data['sounds'] = original
+
+
+def test_master_mute_keeps_visual_notice_and_blocks_route_audio():
+    import vantage.helpers.audio as audio
+    host = _DispatchHost()
+    original = copy.deepcopy(config.data)
+    previous_muted = audio._MUTED
+    try:
+        config.data.setdefault('general', {})['audio_muted'] = True
+        config.data['general']['master_volume'] = 100
+        config.data.setdefault('spells', {})['audio_profiles'] = {}
+        config.data['sounds'] = {'routes': {'smart_timer': {
+            'delivery': 'sound', 'sound': 'builtin:soft-tick', 'voice': ''}}}
+        audio._MUTED = True
+        result = VantageApp.notify_event(
+            host, 'smart_timer', 'Frenzy due', channel='timers')
+        assert result == NotificationDeliveryResult(
+            'smart_timer', 'sound', 'blocked', False, 'muted')
+        assert host.events == [('text', 'Frenzy due')]
+    finally:
+        audio._MUTED = previous_muted
+        config.data.clear()
+        config.data.update(original)
+
+
+def test_config_audio_sync_applies_mute_before_any_later_playback(monkeypatch):
+    import vantage.helpers.application as application
+    applied = []
+    original = copy.deepcopy(config.data)
+    try:
+        config.data.setdefault('general', {}).update({
+            'audio_muted': True, 'master_volume': 37})
+        monkeypatch.setattr(
+            application, 'set_audio_muted',
+            lambda value: applied.append(('mute', value)))
+        monkeypatch.setattr(
+            application, 'set_master_volume',
+            lambda value: applied.append(('volume', value)) or value)
+        assert VantageApp._sync_audio_settings(object()) == 37
+        assert applied == [('mute', True), ('volume', 37)]
+    finally:
+        config.data.clear()
+        config.data.update(original)
 
 
 def test_dispatch_off_is_visual_only(monkeypatch):
@@ -192,9 +391,67 @@ def test_dispatch_exposes_hidden_window_as_the_true_block_reason(monkeypatch):
         result = VantageApp.notify_event(
             host, 'market_sale', 'Manastone for sale', channel='market')
         assert result == NotificationDeliveryResult(
-            'market_sale', 'sound', 'blocked', False, 'window hidden')
+            'market_sale', 'sound', 'blocked', False,
+            'background audio off')
     finally:
         config.data['sounds'] = original
+
+
+@pytest.mark.parametrize(
+    'channel', ('quickbar', 'market', 'opendkp', 'combat', 'heals'))
+def test_hidden_feature_without_background_audio_control_stays_audible(channel):
+    """A closed panel cannot silently override the central Sounds route."""
+    panel = type('Panel', (), {
+        'isVisible': lambda self: False,
+        'isMinimized': lambda self: False,
+    })()
+    host = type('Host', (), {'_parsers_dict': {channel: panel}})()
+
+    assert VantageApp.audio_playback_allowed(host, channel) is True
+
+
+@pytest.mark.parametrize('channel', ('spells', 'timers', 'vitals'))
+def test_hidden_feature_honors_only_its_explicit_background_audio_opt_out(
+        channel):
+    panel = type('Panel', (), {
+        'isVisible': lambda self: False,
+        'isMinimized': lambda self: False,
+    })()
+    host = type('Host', (), {'_parsers_dict': {channel: panel}})()
+    original = copy.deepcopy(config.data)
+    try:
+        config.data.setdefault(channel, {}).pop('sounds_when_hidden', None)
+        assert VantageApp.audio_playback_allowed(host, channel) is True
+        config.data[channel]['sounds_when_hidden'] = False
+        assert VantageApp.audio_playback_allowed(host, channel) is False
+        config.data[channel]['sounds_when_hidden'] = True
+        assert VantageApp.audio_playback_allowed(host, channel) is True
+    finally:
+        config.data.clear()
+        config.data.update(original)
+
+
+def test_spell_background_audio_defaults_on_but_explicit_off_survives_reload(
+        tmp_path):
+    original = copy.deepcopy(config.data)
+    original_filename = config._filename
+    destination = tmp_path / 'audio-config.json'
+    try:
+        config.data.clear()
+        config.verify_settings()
+        assert config.data['spells']['sounds_when_hidden'] is True
+
+        config.data['spells']['sounds_when_hidden'] = False
+        config._filename = str(destination)
+        config.save()
+        config.data.clear()
+        config.load(str(destination))
+        config.verify_settings()
+        assert config.data['spells']['sounds_when_hidden'] is False
+    finally:
+        config._filename = original_filename
+        config.data.clear()
+        config.data.update(original)
 
 
 def test_explicit_sound_override_wins_but_empty_override_is_silent(monkeypatch):
@@ -251,6 +508,7 @@ def test_config_removes_afk_route_and_repairs_malformed_routes():
         config.data.setdefault('sounds', {})['routes'] = {
             'tell_message': {'delivery': 'LOUD', 'sound': 123,
                              'voice': ['not a voice']}}
+        config.data['sounds']['starting_delivery'] = 'random'
         config.verify_settings()
         assert 'afk_attacked_enabled' not in config.data['timers']
         assert 'safety_sound_enabled' not in config.data['timers']
@@ -258,6 +516,130 @@ def test_config_removes_afk_route_and_repairs_malformed_routes():
         assert config.data['sounds']['routes']['tell_message'] == {
             'delivery': 'voice', 'sound': 'builtin:gentle-knock',
             'voice': ''}
+        assert config.data['sounds']['starting_delivery'] == 'sound'
+    finally:
+        config.data.clear()
+        config.data.update(original)
+
+
+def test_sounds_route_test_status_is_truthful_and_accessible(monkeypatch):
+    from PySide6.QtGui import QAccessible
+    from PySide6.QtWidgets import QApplication, QComboBox, QLabel
+    from vantage.helpers.audio import AudioPreflightResult
+    from vantage.helpers import settings as settings_module
+    from vantage.helpers.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    delivery = QComboBox()
+    delivery.addItem('Off', 'off')
+    delivery.addItem('Sound', 'sound')
+    delivery.addItem('Voice', 'voice')
+    picker = QComboBox()
+    picker.addItem('Soft Notify', 'builtin:crystal-ping')
+    status = QLabel()
+    status.setAccessibleName('Notification test result')
+    played_calls = []
+    spoken_calls = []
+    monkeypatch.setattr(
+        settings_module, 'play_alert',
+        lambda *a, **k: played_calls.append((a, k)) or True)
+    monkeypatch.setattr(
+        settings_module, 'speak_text',
+        lambda *a, **k: spoken_calls.append((a, k)) or True)
+    check = {'value': AudioPreflightResult('sound', 'ready', True)}
+    monkeypatch.setattr(
+        settings_module, 'audio_preflight',
+        lambda *_a, **_k: check['value'])
+
+    delivery.setCurrentIndex(delivery.findData('sound'))
+    sound = SettingsWindow._test_notification_route(
+        None, 'market_sale', delivery, picker, status)
+    picker.addItem('Missing WAV', 'portable:sounds/missing.wav')
+    picker.setCurrentIndex(picker.count() - 1)
+    check['value'] = AudioPreflightResult(
+        'sound', 'unavailable', False, 'Sound file unavailable')
+    missing = SettingsWindow._test_notification_route(
+        None, 'market_sale', delivery, picker, status)
+    picker.setCurrentIndex(0)
+    check['value'] = AudioPreflightResult('sound', 'ready', True)
+    monkeypatch.setattr(settings_module, 'play_alert', lambda *a, **k: False)
+    audio_unavailable = SettingsWindow._test_notification_route(
+        None, 'market_sale', delivery, picker, status)
+    delivery.setCurrentIndex(delivery.findData('voice'))
+    check['value'] = AudioPreflightResult('voice', 'ready', True)
+    voice = SettingsWindow._test_notification_route(
+        None, 'market_sale', delivery, picker, status)
+    monkeypatch.setattr(settings_module, 'speak_text', lambda *a, **k: False)
+    unavailable = SettingsWindow._test_notification_route(
+        None, 'market_sale', delivery, picker, status)
+    delivery.setCurrentIndex(delivery.findData('off'))
+    check['value'] = AudioPreflightResult('off', 'off', False, 'Off')
+    off = SettingsWindow._test_notification_route(
+        None, 'market_sale', delivery, picker, status)
+    delivery.setCurrentIndex(delivery.findData('sound'))
+    check['value'] = AudioPreflightResult(
+        'sound', 'blocked', False, 'Master Mute')
+    muted = SettingsWindow._test_notification_route(
+        None, 'market_sale', delivery, picker, status)
+    check['value'] = AudioPreflightResult(
+        'sound', 'blocked', False, 'Master Volume 0%')
+    zero = SettingsWindow._test_notification_route(
+        None, 'market_sale', delivery, picker, status)
+
+    assert sound == 'Auctions / Market sale test: sound queued'
+    assert missing == 'Auctions / Market sale test: Sound file unavailable'
+    assert audio_unavailable == (
+        'Auctions / Market sale test: Windows audio backend unavailable')
+    assert voice == 'Auctions / Market sale test: voice queued'
+    assert played_calls[0][1]['channel'] == 'market'
+    assert spoken_calls[0][1]['channel'] == 'market'
+    assert unavailable == 'Auctions / Market sale test: Windows voice unavailable'
+    assert off == 'Auctions / Market sale test: Off'
+    assert muted == 'Auctions / Market sale test: Master Mute'
+    assert zero == 'Auctions / Market sale test: Master Volume 0%'
+    assert status.text() == zero
+    assert status.isHidden() is False
+    assert status.accessibleName() == zero
+    assert status.accessibleDescription() == (
+        f'Latest notification test result: {zero}')
+    interface = QAccessible.queryAccessibleInterface(status)
+    assert interface is not None
+    assert interface.text(QAccessible.Text.Name) == zero
+    assert interface.text(QAccessible.Text.Description) == (
+        f'Latest notification test result: {zero}')
+    assert app is not None
+
+
+def test_background_audio_checkbox_accessible_names_match_visible_labels():
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QAccessible
+    from PySide6.QtWidgets import QApplication
+    from vantage.helpers.settings import SettingsWindow
+
+    app = QApplication.instance() or QApplication([])
+    original = copy.deepcopy(config.data)
+    config.data.clear()
+    config.verify_settings()
+    app.show_device_sync = lambda: None
+    app.arrange_notification_overlays = lambda: None
+    app.show_overlay_notification = lambda *_a, **_k: None
+    app.manage_notification_overlays = lambda *_a, **_k: None
+    try:
+        window = SettingsWindow()
+        expectations = (
+            (window.spell_background_audio, 'Sound while window hidden'),
+            (window.timer_background_audio, 'Timer sounds while hidden'),
+        )
+        for checkbox, label in expectations:
+            assert checkbox.accessibleName() == label
+            assert checkbox.accessibleDescription() == checkbox.toolTip()
+            assert checkbox.focusPolicy() != Qt.FocusPolicy.NoFocus
+            interface = QAccessible.queryAccessibleInterface(checkbox)
+            assert interface.text(QAccessible.Text.Name) == label
+            assert interface.text(
+                QAccessible.Text.Description) == checkbox.toolTip()
+        window.close()
+        assert app is not None
     finally:
         config.data.clear()
         config.data.update(original)

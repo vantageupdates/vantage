@@ -28,11 +28,17 @@ def test_companion_is_installable_at_the_permanent_github_pages_address():
     assert manifest["start_url"] == "/vantage/companion/#market"
     assert manifest["display"] == "standalone"
     assert len(manifest["icons"]) >= 2
+    assert "icon-256.png" in html
+    assert "vantage-companion-v2" in worker
     assert 'id="install"' in html
     assert "Add to Home Screen" in html
     assert "Needs the PC QR session" in html
     assert "data/items.json" not in worker
     assert "'/data/'" in worker
+    assert "title.id='detail-title'" in (
+        COMPANION / "app.js").read_text(encoding="utf-8")
+    assert "(new tab)" in (
+        COMPANION / "app.js").read_text(encoding="utf-8")
 
 
 def test_static_item_builder_preserves_price_stats_and_correct_binding(tmp_path):

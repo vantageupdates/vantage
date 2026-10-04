@@ -8,7 +8,11 @@ the stable path. No permanent updater executable is installed.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import hashlib
+import hmac
+import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -19,12 +23,144 @@ import threading
 import time
 
 
+_SPELL_HANDOFF_FILENAME = "update-spell-handoff.json"
+_SPELL_HANDOFF_MAX_BYTES = 1024 * 1024
+_SPELL_HANDOFF_MAX_ROWS = 512
+_SPELL_HANDOFF_MAX_AGE_SECONDS = 24 * 60 * 60
+_OLD_PROCESS_EXIT_TIMEOUT_SECONDS = 90.0
+_TARGET_REPLACE_TIMEOUT_SECONDS = 90.0
+
+
+def _json_bytes(value):
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True,
+        separators=(",", ":")).encode("utf-8")
+
+
+def _spell_handoff_path():
+    override = os.environ.get("VANTAGE_DATA_DIR", "").strip()
+    if override:
+        root = Path(override).expanduser().resolve()
+    else:
+        local_app_data = os.environ.get("LOCALAPPDATA", "").strip()
+        root = (Path(local_app_data).expanduser().resolve() / "Vantage"
+                if local_app_data else
+                Path.home().resolve() / "AppData" / "Local" / "Vantage")
+    return root / _SPELL_HANDOFF_FILENAME
+
+
+def _stamp_spell_handoff(*, path=None, now=None):
+    """Atomically prove that the executable swap outlived old-process saves.
+
+    This remains standard-library-only because it runs inside the staged
+    updater before Qt or the normal application package starts.
+    """
+    source = Path(path) if path is not None else _spell_handoff_path()
+    applied_at = float(now if now is not None else time.time())
+    try:
+        if (not math.isfinite(applied_at) or applied_at <= 0 or
+                not source.is_file() or
+                source.stat().st_size > _SPELL_HANDOFF_MAX_BYTES):
+            return False
+        payload = json.loads(source.read_text(encoding="utf-8"))
+        rows = payload.get("rows") if isinstance(payload, dict) else None
+        created_at = float(payload.get("created_at", 0.0))
+        if (payload.get("schema") != 1 or not isinstance(rows, list) or
+                len(rows) > _SPELL_HANDOFF_MAX_ROWS or
+                not math.isfinite(created_at) or created_at <= 0 or
+                created_at > applied_at + 300 or
+                applied_at - created_at > _SPELL_HANDOFF_MAX_AGE_SECONDS):
+            return False
+        expected = str(payload.get("rows_sha256") or "")
+        actual = hashlib.sha256(_json_bytes(rows)).hexdigest()
+        if not expected or not hmac.compare_digest(expected, actual):
+            return False
+        payload["update_applied_at"] = applied_at
+        raw = _json_bytes(payload)
+        if len(raw) > _SPELL_HANDOFF_MAX_BYTES:
+            return False
+        source.parent.mkdir(parents=True, exist_ok=True)
+        temporary = ""
+        try:
+            with tempfile.NamedTemporaryFile(
+                    mode="wb", delete=False, dir=source.parent,
+                    prefix=".update-spell-handoff-stamp-",
+                    suffix=".tmp") as handle:
+                temporary = handle.name
+                handle.write(raw)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, source)
+        finally:
+            if temporary and os.path.exists(temporary):
+                try:
+                    os.unlink(temporary)
+                except OSError:
+                    pass
+        return True
+    except (OSError, TypeError, ValueError, OverflowError, json.JSONDecodeError):
+        return False
+
+
 def file_sha256(path):
     digest = hashlib.sha256()
     with open(path, "rb") as source:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _wait_for_process_exit(pid, timeout=_OLD_PROCESS_EXIT_TIMEOUT_SECONDS):
+    """Wait for the exact old Vantage child without terminating any process."""
+    try:
+        process_id = int(pid)
+        wait_seconds = max(0.0, float(timeout))
+    except (TypeError, ValueError):
+        return False
+    if process_id <= 0 or process_id == os.getpid():
+        return True
+    if os.name == "nt":
+        # SYNCHRONIZE is read-only process access. It lets the staged updater
+        # wait for the app that explicitly handed off without enumerating,
+        # closing, or terminating any other user process.
+        synchronize = 0x00100000
+        wait_object_0 = 0x00000000
+        wait_timeout = 0x00000102
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int,
+                                         ctypes.c_uint32]
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p,
+                                                  ctypes.c_uint32]
+        kernel32.WaitForSingleObject.restype = ctypes.c_uint32
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        handle = kernel32.OpenProcess(synchronize, False, process_id)
+        if not handle:
+            # The handed-off PID already disappearing is the common success
+            # path between process creation and this early updater mode.
+            return True
+        try:
+            milliseconds = min(
+                0xFFFFFFFE, max(0, round(wait_seconds * 1000)))
+            result = kernel32.WaitForSingleObject(handle, milliseconds)
+            if result == wait_object_0:
+                return True
+            if result == wait_timeout:
+                return False
+            return False
+        finally:
+            kernel32.CloseHandle(handle)
+
+    deadline = time.monotonic() + wait_seconds
+    while time.monotonic() < deadline:
+        try:
+            os.kill(process_id, 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            return False
+        time.sleep(0.1)
+    return False
 
 
 def _validated_cleanup_dir(path):
@@ -110,6 +246,11 @@ def apply_staged_update(arguments=None):
             if executable.read(2) != b"MZ":
                 raise ValueError("The staged update is not a Windows executable.")
 
+        if not _wait_for_process_exit(options.wait_pid):
+            raise TimeoutError(
+                "Vantage did not finish closing. Close any extra Vantage "
+                "windows, then open Updates and choose Try again.")
+
         # The PyInstaller parent may briefly retain the old image after its Qt
         # child exits. Copy beside it first, then retry only the atomic swap.
         staged = target.with_name(f".{target.stem}.update{target.suffix}")
@@ -117,7 +258,7 @@ def apply_staged_update(arguments=None):
         if file_sha256(staged).casefold() != expected:
             raise ValueError("The local update copy failed verification.")
 
-        deadline = time.monotonic() + 35.0
+        deadline = time.monotonic() + _TARGET_REPLACE_TIMEOUT_SECONDS
         last_error = None
         while time.monotonic() < deadline:
             try:
@@ -128,8 +269,15 @@ def apply_staged_update(arguments=None):
                 last_error = error
                 time.sleep(0.25)
         if last_error is not None:
-            raise OSError("Windows did not release the old Vantage executable")
+            raise OSError(
+                "Windows still had Vantage.exe open. Close any extra Vantage "
+                "windows, then open Updates and choose Try again.")
 
+        # The old process has fully exited before the successful swap above,
+        # so this one-shot stamp is necessarily newer than its final config
+        # save. Environment propagation remains the primary signal, while the
+        # stamp safely covers Windows launch paths which drop that variable.
+        _stamp_spell_handoff()
         _launch_target(
             target, updated_from=options.from_version,
             cleanup=cleanup_dir,

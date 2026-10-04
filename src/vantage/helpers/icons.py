@@ -12,14 +12,18 @@ WINDOW_ICONS = {
     "quickbar": "compact",
     "maps": "ph-map",
     "spells": "ph-wand",
+    "vitals": "ph-vitals",
     "tick": "ph-gauge",
     "timers": "ph-countdown",
     "combat": "ph-sword",
+    "random_parser": "ph-pulse-quiet",
     "heals": "ph-heal",
     "market": "ph-storefront",
     "opendkp": "ph-gavel",
     "zones": "ph-compass",
     "quests": "ph-quest-scroll",
+    "items_notes": "ph-backpack",
+    "log_searcher": "ph-log-search",
     "vantage_ui": "ph-layout",
 }
 

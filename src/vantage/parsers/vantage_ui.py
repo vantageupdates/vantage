@@ -3,19 +3,25 @@
 from __future__ import annotations
 
 import ctypes
+from datetime import datetime
 import html
+import json
 import os
 from pathlib import Path
 import subprocess
 import sys
 import threading
+import time
 
-from PySide6.QtCore import QObject, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QFileDialog, QFrame, QGridLayout, QLabel,
-    QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
-    QVBoxLayout, QWidget)
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QCompleter, QDialog,
+    QDialogButtonBox,
+    QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit,
+    QHeaderView, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit,
+    QProgressBar, QPushButton, QScrollArea, QSizePolicy, QTableWidget,
+    QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from vantage.helpers import config
 from vantage.helpers.icons import game_icon
@@ -23,6 +29,11 @@ from vantage.helpers.parser import ParserWindow
 from vantage.helpers.portable import data_dir
 from vantage.helpers.responsive import ResponsiveActionBar
 from vantage.helpers import ui_skin_updater
+from vantage.helpers.ui_profile_manager import (
+    UIProfileError, apply_skin_to_all, apply_skin_to_profiles,
+    audit_character_profiles, copy_layout,
+    discover_character_profiles, layout_sections, list_backups, read_elevated_profile_result,
+    request_elevated_profile_action, restore_backup)
 
 
 DEFAULT_EQ_ROOT = r"C:\Program Files (x86)\Sony\EverQuest"
@@ -126,13 +137,1179 @@ class _WorkerSignals(QObject):
     progress = Signal(int, str, int, int, int)
 
 
+class _OperationLogInteractionFilter(QObject):
+    """Distinguish a user's log interaction from Qt's disabled-focus fallback."""
+
+    def __init__(self, owner):
+        super().__init__(owner)
+        self.owner = owner
+
+    def eventFilter(self, watched, event):
+        if (self.owner._busy and event.type() in (
+                QEvent.Type.KeyPress, QEvent.Type.MouseButtonPress,
+                QEvent.Type.Wheel)):
+            self.owner._operation_fallback_touched = True
+        return False
+
+
+class CharacterUIManagerDialog(QDialog):
+    """Reversible multi-character VantageUI and layout manager."""
+
+    def __init__(self, panel):
+        super().__init__(panel)
+        self.panel = panel
+        self._profiles = ()
+        self._audits = ()
+        self._skin = ""
+        self._queued_action = None
+        self._pending_elevation = None
+        self._poll_attempts = 0
+        self._operation_focus_control = None
+        self._operation_fallback_control = None
+        self.setWindowTitle("Copy character UI · VantageUI")
+        self.setModal(False)
+        self.resize(760, 640)
+        self.setMinimumSize(620, 500)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(10, 9, 10, 10)
+        root.setSpacing(7)
+        scroll = QScrollArea()
+        scroll.setObjectName("CharacterUIOptionsScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet(
+            "QScrollArea#CharacterUIOptionsScroll {"
+            " background-color: #090A0C; border: none; }"
+            "QScrollArea#CharacterUIOptionsScroll > QWidget#qt_scrollarea_viewport {"
+            " background-color: #090A0C; }")
+        scroll.setAccessibleName("Character UI manager options")
+        scroll.setToolTip(
+            "Scroll through VantageUI verification, layout copy, and restore options")
+        self.options_scroll = scroll
+        content = QWidget()
+        content.setObjectName("CharacterUIOptionsContent")
+        content.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        content.setStyleSheet(
+            "QWidget#CharacterUIOptionsContent { background-color: #090A0C; }")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(7)
+        content_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+        self.options_content = content
+        scroll.setWidget(content)
+        self.tabs = QTabWidget()
+        self.tabs.setAccessibleName("Character UI tasks")
+        self.tabs.addTab(scroll, "Copy layout")
+        root.addWidget(self.tabs, 1)
+        intro = QLabel(
+            "Choose a source, check the characters to receive its layout, then copy. "
+            "Positions and sizes are stored in UI_<character>_<server>.ini. "
+            "The regular character INI (hotkeys, macros and friends) stays unchanged.")
+        intro.setWordWrap(True)
+        intro.setObjectName("VantageUIIntro")
+        content_layout.addWidget(intro)
+
+        skin_card = QFrame()
+        skin_card.setObjectName("VantageUICard")
+        skin_layout = QGridLayout(skin_card)
+        skin_layout.setContentsMargins(8, 7, 8, 7)
+        skin_layout.setHorizontalSpacing(6)
+        skin_layout.setVerticalSpacing(5)
+        skin_title = QLabel("Keep characters on the installed VantageUI")
+        skin_title.setObjectName("OpenDkpPanelTitle")
+        skin_layout.addWidget(skin_title, 0, 0, 1, 5)
+        self.skin_value = QLabel("No verified VantageUI selected")
+        self.skin_value.setAccessibleName("VantageUI version for all characters")
+        self.skin_value.setWordWrap(True)
+        skin_layout.addWidget(self.skin_value, 1, 0, 1, 4)
+        self.audit_refresh_button = QPushButton("Refresh / verify")
+        self.audit_refresh_button.setAccessibleName(
+            "Refresh and verify character VantageUI audit")
+        self.audit_refresh_button.setToolTip(
+            "Re-read every supported character UI INI and installed VantageUI folder")
+        self.audit_refresh_button.clicked.connect(
+            lambda _checked=False: self.refresh(announce=True))
+        skin_layout.addWidget(self.audit_refresh_button, 1, 4)
+        self.available_value = QLabel("Available release: Not checked")
+        self.available_value.setWordWrap(True)
+        self.available_value.setAccessibleName(
+            "Available VantageUI release: Not checked")
+        self.available_value.setAccessibleDescription(
+            "A newer available release is not installed until VantageUI is updated")
+        skin_layout.addWidget(self.available_value, 2, 0, 1, 5)
+        audit_label = QLabel("Character audit")
+        self.audit_table = QTableWidget(0, 5)
+        self.audit_table.setHorizontalHeaderLabels((
+            "Use", "Character", "Server", "Configured skin", "Status"))
+        self.audit_table.setAccessibleName("Character VantageUI audit")
+        self.audit_table.setAccessibleDescription(
+            "Each row shows the character, configured skin, and whether it uses "
+            "the verified installed VantageUI selection")
+        self.audit_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows)
+        self.audit_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection)
+        self.audit_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.audit_table.setSortingEnabled(True)
+        self.audit_table.setMinimumHeight(118)
+        self.audit_table.setTabKeyNavigation(False)
+        self.audit_table.verticalHeader().setVisible(False)
+        header = self.audit_table.horizontalHeader()
+        header.setSectionsClickable(True)
+        header.setSectionsMovable(True)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setStretchLastSection(True)
+        header.setSortIndicator(1, Qt.SortOrder.AscendingOrder)
+        audit_label.setBuddy(self.audit_table)
+        skin_layout.addWidget(audit_label, 3, 0, Qt.AlignmentFlag.AlignTop)
+        skin_layout.addWidget(self.audit_table, 3, 1, 1, 4)
+        self.include_default = QCheckBox(
+            "Also use this skin for new characters (eqclient.ini)")
+        self.include_default.setChecked(True)
+        self.include_default.setToolTip(
+            "Updates only UISkin in eqclient.ini; all other game settings stay unchanged")
+        skin_layout.addWidget(self.include_default, 4, 0, 1, 5)
+        audit_selection_actions = QHBoxLayout()
+        self.select_outdated_button = QPushButton("Select outdated")
+        self.select_outdated_button.setToolTip(
+            "Select characters that do not use the verified installed selection")
+        self.select_outdated_button.clicked.connect(self._select_outdated_profiles)
+        audit_selection_actions.addWidget(self.select_outdated_button)
+        self.clear_audit_button = QPushButton("Clear selection")
+        self.clear_audit_button.setToolTip("Clear selected character audit rows")
+        self.clear_audit_button.clicked.connect(self._clear_audit_targets)
+        audit_selection_actions.addWidget(self.clear_audit_button)
+        skin_layout.addLayout(audit_selection_actions, 5, 1, 1, 4)
+
+        audit_apply_actions = QHBoxLayout()
+        audit_apply_actions.addStretch(1)
+        self.apply_selected_button = QPushButton("Apply to selected…")
+        self.apply_selected_button.setIcon(game_icon("ph-wand"))
+        self.apply_selected_button.setAccessibleName(
+            "Apply installed VantageUI to selected characters")
+        self.apply_selected_button.setToolTip(
+            "Back up selected INIs, then change only their UISkin value")
+        self.apply_selected_button.clicked.connect(self.apply_selected_skin)
+        audit_apply_actions.addWidget(self.apply_selected_button)
+        self.apply_all_button = QPushButton("Apply to all characters…")
+        self.apply_all_button.setIcon(game_icon("ph-wand"))
+        self.apply_all_button.setAccessibleName(
+            "Apply selected VantageUI to every character")
+        self.apply_all_button.setToolTip(
+            "Back up every affected INI, then change only its UISkin value")
+        self.apply_all_button.clicked.connect(self.apply_skin)
+        audit_apply_actions.addWidget(self.apply_all_button)
+        skin_layout.addLayout(audit_apply_actions, 6, 1, 1, 4)
+
+        audit_sort_actions = QHBoxLayout()
+        audit_sort_actions.addStretch(1)
+        self.audit_sort_combo = QComboBox()
+        self.audit_sort_combo.setAccessibleName("Character audit sort column")
+        self.audit_sort_combo.setToolTip("Choose the character audit column to sort")
+        for label, column in (
+                ("Character", 1), ("Server", 2),
+                ("Configured skin", 3), ("Status", 4)):
+            self.audit_sort_combo.addItem(label, column)
+        self.audit_sort_combo.currentIndexChanged.connect(
+            self._audit_sort_column_changed)
+        audit_sort_actions.addWidget(self.audit_sort_combo)
+        self.audit_sort_button = QPushButton("Sort descending")
+        self.audit_sort_button.setAccessibleName("Sort descending")
+        self.audit_sort_button.setToolTip(
+            "Sort the selected character audit column descending")
+        self.audit_sort_button.clicked.connect(self._sort_audit)
+        audit_sort_actions.addWidget(self.audit_sort_button)
+        skin_layout.addLayout(audit_sort_actions, 7, 1, 1, 4)
+        skin_layout.setColumnStretch(1, 1)
+        audit_scroll = QScrollArea()
+        audit_scroll.setWidgetResizable(True)
+        audit_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        audit_scroll.setWidget(skin_card)
+        self.tabs.addTab(audit_scroll, "VantageUI versions")
+
+        layout_card = QFrame()
+        layout_card.setObjectName("VantageUICard")
+        layout_grid = QGridLayout(layout_card)
+        layout_grid.setContentsMargins(8, 7, 8, 7)
+        layout_grid.setHorizontalSpacing(6)
+        layout_grid.setVerticalSpacing(5)
+        layout_title = QLabel("Copy the layout you already like")
+        layout_title.setObjectName("OpenDkpPanelTitle")
+        layout_grid.addWidget(layout_title, 0, 0, 1, 3)
+        source_label = QLabel("1 · Copy from")
+        self.source_combo = QComboBox()
+        self.source_combo.setAccessibleName("Source character UI layout")
+        self.source_combo.setEditable(True)
+        self.source_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.source_combo.completer().setFilterMode(Qt.MatchFlag.MatchContains)
+        self.source_combo.completer().setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.source_combo.completer().setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.source_combo.lineEdit().setPlaceholderText("Search character or server…")
+        self.source_combo.editTextChanged.connect(self._update_action_states)
+        self.source_combo.setToolTip(
+            "Choose the character whose complete UI window layout is correct")
+        self.source_combo.currentIndexChanged.connect(self._source_changed)
+        source_label.setBuddy(self.source_combo)
+        layout_grid.addWidget(source_label, 1, 0)
+        layout_grid.addWidget(self.source_combo, 1, 1, 1, 2)
+        target_label = QLabel("2 · Copy to")
+        self.target_search = QLineEdit()
+        self.target_search.setPlaceholderText("Search characters or server…")
+        self.target_search.setClearButtonEnabled(True)
+        self.target_search.setAccessibleName("Search destination characters")
+        self.target_search.textChanged.connect(self._filter_targets)
+        layout_grid.addWidget(self.target_search, 2, 1, 1, 2)
+        self.target_list = QListWidget()
+        self.target_list.setAccessibleName("Characters receiving the copied layout")
+        self.target_list.setToolTip(
+            "Check every character that should receive the source window layout")
+        self.target_list.itemChanged.connect(self._update_action_states)
+        self.target_list.setMinimumHeight(120)
+        self.target_list.setMaximumHeight(150)
+        target_label.setBuddy(self.target_list)
+        layout_grid.addWidget(target_label, 2, 0, Qt.AlignmentFlag.AlignTop)
+        layout_grid.addWidget(self.target_list, 3, 1, 1, 2)
+        self.layout_preview = QLabel("Source stays unchanged · no targets selected")
+        self.layout_preview.setWordWrap(True)
+        self.layout_preview.setMinimumWidth(0)
+        self.layout_preview.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.layout_preview.setAccessibleName("Layout copy preview")
+        self.layout_preview.setAccessibleDescription(
+            "Shows the source, selected targets, installed skin, and backup scope")
+        layout_grid.addWidget(self.layout_preview, 4, 1, 1, 2)
+        target_actions = QHBoxLayout()
+        self.select_all_button = QPushButton("Select shown")
+        self.select_all_button.setToolTip(
+            "Select the matching characters shown; other selections stay checked")
+        self.select_all_button.clicked.connect(self._select_all_targets)
+        target_actions.addWidget(self.select_all_button)
+        self.clear_targets_button = QPushButton("Clear shown")
+        self.clear_targets_button.setToolTip("Uncheck matching characters without changing hidden selections")
+        self.clear_targets_button.clicked.connect(self._clear_shown_targets)
+        target_actions.addWidget(self.clear_targets_button)
+        target_actions.addStretch(1)
+        self.copy_layout_button = QPushButton("Copy layout…")
+        self.copy_layout_button.setObjectName("PrimaryAction")
+        self.copy_layout_button.setMinimumHeight(36)
+        self.copy_layout_button.setIcon(game_icon("copy"))
+        self.copy_layout_button.setAccessibleName(
+            "Copy source UI layout to selected characters")
+        self.copy_layout_button.setToolTip(
+            "Back up each target, then copy window and chat layout while keeping "
+            "target filenames and identities")
+        self.copy_layout_button.clicked.connect(self.apply_layout)
+        self.clear_all_targets_button = QPushButton("Clear all")
+        self.clear_all_targets_button.clicked.connect(self._clear_targets)
+        target_actions.addWidget(self.clear_all_targets_button)
+        self.copy_refresh_button = QPushButton("Refresh characters")
+        self.copy_refresh_button.clicked.connect(lambda: self.refresh(announce=True))
+        target_actions.addWidget(self.copy_refresh_button)
+        layout_grid.addLayout(target_actions, 5, 1, 1, 2)
+        self.copy_scope = QComboBox()
+        self.copy_scope.addItems(("All window and chat settings", "Only selected windows / settings"))
+        self.copy_scope.setAccessibleName("What to copy")
+        scope_label = QLabel("3 · What to copy")
+        scope_label.setBuddy(self.copy_scope)
+        layout_grid.addWidget(scope_label, 6, 0)
+        layout_grid.addWidget(self.copy_scope, 6, 1, 1, 2)
+        self.section_picker = QWidget()
+        section_layout = QVBoxLayout(self.section_picker)
+        section_layout.setContentsMargins(0, 0, 0, 0)
+        self.section_search = QLineEdit()
+        self.section_search.setPlaceholderText("Search windows: chat, buff, hotbutton…")
+        self.section_search.setClearButtonEnabled(True)
+        self.section_search.setAccessibleName("Search source UI windows")
+        section_layout.addWidget(self.section_search)
+        self.section_list = QListWidget()
+        self.section_list.setAccessibleName("UI windows and settings to copy")
+        self.section_list.setMinimumHeight(140)
+        self.section_list.setMaximumHeight(180)
+        section_layout.addWidget(self.section_list)
+        self.section_search.textChanged.connect(self._filter_sections)
+        self.section_list.itemChanged.connect(self._update_action_states)
+        section_actions = QHBoxLayout()
+        self.select_sections_button = QPushButton("Select shown windows")
+        self.clear_sections_button = QPushButton("Clear all windows")
+        self.select_sections_button.clicked.connect(self._select_shown_sections)
+        self.clear_sections_button.clicked.connect(self._clear_sections)
+        section_actions.addWidget(self.select_sections_button)
+        section_actions.addWidget(self.clear_sections_button)
+        section_layout.addLayout(section_actions)
+        layout_grid.addWidget(self.section_picker, 7, 1, 1, 2)
+        self.section_picker.hide()
+        self.copy_scope.currentIndexChanged.connect(self._scope_changed)
+        self.copy_skin = QCheckBox("Also use the installed VantageUI on these characters")
+        self.copy_skin.setToolTip("Off keeps each target's current skin. On changes only UISkin to the verified installed version.")
+        self.copy_skin.toggled.connect(self._update_action_states)
+        layout_grid.addWidget(self.copy_skin, 8, 1, 1, 2)
+        layout_grid.setColumnStretch(1, 1)
+        content_layout.addWidget(layout_card)
+
+        restore_card = QFrame()
+        restore_card.setObjectName("VantageUICard")
+        restore_layout = QGridLayout(restore_card)
+        restore_layout.setContentsMargins(8, 7, 8, 7)
+        restore_title = QLabel("Restore")
+        restore_title.setObjectName("OpenDkpPanelTitle")
+        restore_layout.addWidget(restore_title, 0, 0, 1, 3)
+        backup_label = QLabel("Restore point")
+        self.backup_combo = QComboBox()
+        self.backup_combo.setAccessibleName("Restore point")
+        self.backup_combo.setToolTip(
+            "Choose any previous skin or layout operation to undo")
+        self.backup_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.backup_combo.setMinimumContentsLength(18)
+        self.backup_combo.currentIndexChanged.connect(
+            self._update_backup_preview)
+        backup_label.setBuddy(self.backup_combo)
+        restore_layout.addWidget(backup_label, 1, 0)
+        restore_layout.addWidget(self.backup_combo, 1, 1)
+        self.restore_button = QPushButton("Restore selected…")
+        self.restore_button.setIcon(game_icon("ph-reload"))
+        self.restore_button.setAccessibleName("Restore selected character UI backup")
+        self.restore_button.setToolTip(
+            "Back up the current files first, then restore this operation")
+        self.restore_button.clicked.connect(self.restore_selected)
+        restore_layout.addWidget(self.restore_button, 1, 2)
+        restore_layout.setColumnStretch(1, 1)
+        restore_scroll = QScrollArea()
+        restore_scroll.setWidgetResizable(True)
+        restore_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        restore_scroll.setWidget(restore_card)
+        self.tabs.addTab(restore_scroll, "Restore backups")
+        content_layout.addStretch(1)
+        root.addWidget(self.copy_layout_button, 0, Qt.AlignmentFlag.AlignRight)
+        self.tabs.currentChanged.connect(lambda index: self.copy_layout_button.setVisible(index == 0))
+
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setFormat("Ready · 0%")
+        self.progress.setAccessibleName("Character UI operation progress")
+        self.progress.setFixedHeight(18)
+        self.progress.setStyleSheet(
+            "QProgressBar { min-height: 18px; max-height: 18px; }")
+        root.addWidget(self.progress)
+        self.progress.hide()
+        self.status = QLabel("Ready")
+        self.status.setWordWrap(True)
+        self.status.setMinimumHeight(36)
+        self.status.setObjectName("VantageUIStatus")
+        self.status.setAccessibleName("Character UI manager status")
+        root.addWidget(self.status)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.close)
+        root.addWidget(buttons)
+
+        QWidget.setTabOrder(self.audit_refresh_button, self.audit_table)
+        QWidget.setTabOrder(self.audit_table, self.include_default)
+        QWidget.setTabOrder(self.include_default, self.select_outdated_button)
+        QWidget.setTabOrder(self.select_outdated_button, self.clear_audit_button)
+        QWidget.setTabOrder(self.clear_audit_button, self.audit_sort_combo)
+        QWidget.setTabOrder(self.audit_sort_combo, self.audit_sort_button)
+        QWidget.setTabOrder(self.audit_sort_button, self.apply_selected_button)
+        QWidget.setTabOrder(self.apply_selected_button, self.apply_all_button)
+        QWidget.setTabOrder(self.apply_all_button, self.source_combo)
+        QWidget.setTabOrder(self.source_combo, self.target_list)
+        QWidget.setTabOrder(self.source_combo, self.target_search)
+        QWidget.setTabOrder(self.target_search, self.target_list)
+        QWidget.setTabOrder(self.target_list, self.select_all_button)
+        QWidget.setTabOrder(self.select_all_button, self.clear_targets_button)
+        QWidget.setTabOrder(self.clear_targets_button, self.clear_all_targets_button)
+        QWidget.setTabOrder(self.clear_all_targets_button, self.copy_refresh_button)
+        QWidget.setTabOrder(self.copy_refresh_button, self.copy_scope)
+        QWidget.setTabOrder(self.copy_scope, self.section_search)
+        QWidget.setTabOrder(self.section_search, self.section_list)
+        QWidget.setTabOrder(self.section_list, self.select_sections_button)
+        QWidget.setTabOrder(self.select_sections_button, self.clear_sections_button)
+        QWidget.setTabOrder(self.clear_sections_button, self.copy_skin)
+        QWidget.setTabOrder(self.copy_skin, self.copy_layout_button)
+        QWidget.setTabOrder(self.copy_layout_button, self.backup_combo)
+        QWidget.setTabOrder(self.backup_combo, self.restore_button)
+        QWidget.setTabOrder(
+            self.restore_button,
+            buttons.button(QDialogButtonBox.StandardButton.Close))
+
+        self._game_timer = QTimer(self)
+        self._game_timer.setInterval(1000)
+        self._game_timer.timeout.connect(self._run_queued_when_game_closes)
+        self._poll_timer = QTimer(self)
+        self._poll_timer.setInterval(250)
+        self._poll_timer.timeout.connect(self._poll_elevation)
+        self.audit_table.horizontalHeader().sortIndicatorChanged.connect(
+            self._audit_header_sort_changed)
+        self.audit_table.itemChanged.connect(self._update_action_states)
+        self.refresh()
+
+    @property
+    def state_directory(self):
+        return data_dir("ui-profile-backups")
+
+    def refresh(self, *, announce=False):
+        previous_source = str(self.source_combo.currentData() or "")
+        if not previous_source:
+            previous_source = str(config.data.get("vantage_ui", {}).get("layout_source", ""))
+        load_error = False
+        available = ""
+        try:
+            root = normalize_eq_root(self.panel.path_edit.text())
+            self._profiles = discover_character_profiles(root)
+            skin = ui_skin_updater.installed_folder(root)
+            self._skin = skin
+            available = str(getattr(self.panel._release, "version", "") or "")
+            self._audits = audit_character_profiles(
+                root, installed_folder=skin, available_version=available)
+            backups = list_backups(self.state_directory, root)
+        except (OSError, UIProfileError, ui_skin_updater.SkinUpdateError) as error:
+            load_error = True
+            self._profiles, self._audits = (), ()
+            self._skin, skin, backups = "", "", ()
+            self._set_status(f"Cannot load character UI profiles · {error}", error=True)
+        skin_text = (
+            f"Verified installed selection: {skin} · "
+            f"{len(self._profiles)} characters detected"
+            if skin else
+            f"No verified VantageUI selected · {len(self._profiles)} characters detected")
+        self.skin_value.setText(skin_text)
+        self.skin_value.setAccessibleName(skin_text)
+        self.skin_value.setAccessibleDescription(
+            "Verified installed VantageUI folder and detected character count")
+        if available:
+            installed_version = skin[len("VantageUI-v"):] if skin else ""
+            if version_is_newer(installed_version, available):
+                available_text = (
+                    f"Available release: {available} · not installed")
+            elif skin:
+                available_text = (
+                    f"Available release: {available} · selected version is current")
+            else:
+                available_text = f"Available release: {available} · not installed"
+        else:
+            available_text = "Available release: Not checked"
+        self.available_value.setText(available_text)
+        self.available_value.setAccessibleName(available_text)
+        self.available_value.setAccessibleDescription(available_text)
+        self._populate_audit_table()
+        if self.source_combo.count() == 0:
+            self.copy_skin.setChecked(bool(skin))
+        self.copy_skin.setEnabled(bool(skin))
+        self.source_combo.blockSignals(True)
+        self.source_combo.clear()
+        for profile in self._profiles:
+            self.source_combo.addItem(
+                profile.label, profile.filename)
+            self.source_combo.setItemData(
+                self.source_combo.count() - 1, profile.filename,
+                Qt.ItemDataRole.ToolTipRole)
+        index = self.source_combo.findData(previous_source)
+        if index < 0:
+            character = str(getattr(self.panel, "_active_character", "") or "").casefold()
+            server = str(getattr(self.panel, "_active_server", "") or "").casefold()
+            index = next((i for i, profile in enumerate(self._profiles)
+                          if profile.character.casefold() == character and
+                          profile.server.casefold() == server), -1)
+        self.source_combo.setCurrentIndex(max(0, index))
+        self.source_combo.blockSignals(False)
+        self._rebuild_targets()
+        self._rebuild_sections()
+        self.backup_combo.clear()
+        for backup in backups:
+            try:
+                created = datetime.fromisoformat(
+                    backup.created_utc.replace("Z", "+00:00")).astimezone()
+                when = created.strftime("%b %d, %Y · %I:%M %p")
+            except (TypeError, ValueError):
+                when = backup.created_utc[:19]
+            self.backup_combo.addItem(
+                f"{when} · {backup.label} · {backup.file_count} files",
+                backup.backup_id)
+        ready = bool(skin and self._profiles)
+        self.apply_all_button.setEnabled(ready)
+        self.select_outdated_button.setEnabled(bool(self._profiles))
+        self.clear_audit_button.setEnabled(bool(self._profiles))
+        self.restore_button.setEnabled(self.backup_combo.count() > 0)
+        self._update_backup_preview()
+        self._update_action_states()
+        if (not load_error and not self._queued_action and
+                not self._pending_elevation):
+            self._set_status(
+                self._audit_summary(),
+                announce=announce)
+
+    def _populate_audit_table(self):
+        checked = set(self._checked_audit_targets())
+        header = self.audit_table.horizontalHeader()
+        sort_column = header.sortIndicatorSection()
+        sort_order = header.sortIndicatorOrder()
+        current_row = self.audit_table.currentRow()
+        current_item = self.audit_table.item(current_row, 0)
+        current_filename = str(
+            current_item.data(Qt.ItemDataRole.UserRole) or ""
+            if current_item is not None else "")
+        current_column = max(0, self.audit_table.currentColumn())
+        self.audit_table.setSortingEnabled(False)
+        self.audit_table.setRowCount(0)
+        for audit in self._audits:
+            row = self.audit_table.rowCount()
+            self.audit_table.insertRow(row)
+            choose = QTableWidgetItem("")
+            choose.setData(Qt.ItemDataRole.UserRole, audit.profile.filename)
+            choose.setData(
+                Qt.ItemDataRole.AccessibleTextRole,
+                f"Select {audit.profile.label}")
+            choose.setData(Qt.ItemDataRole.AccessibleDescriptionRole, audit.detail)
+            choose.setFlags(choose.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            choose.setCheckState(
+                Qt.CheckState.Checked if audit.profile.filename in checked else
+                Qt.CheckState.Unchecked)
+            choose.setToolTip(audit.detail)
+            values = (
+                audit.profile.character, audit.profile.label.split(" · ")[-1],
+                audit.profile.skin or "Not set", audit.status)
+            self.audit_table.setItem(row, 0, choose)
+            for column, value in enumerate(values, start=1):
+                item = QTableWidgetItem(value)
+                item.setData(Qt.ItemDataRole.UserRole, audit.profile.filename)
+                item.setData(
+                    Qt.ItemDataRole.AccessibleDescriptionRole, audit.detail)
+                item.setToolTip(audit.detail)
+                self.audit_table.setItem(row, column, item)
+        self.audit_table.setSortingEnabled(True)
+        self.audit_table.sortItems(sort_column, sort_order)
+        if current_filename:
+            for row in range(self.audit_table.rowCount()):
+                item = self.audit_table.item(row, 0)
+                if (item is not None and str(item.data(
+                        Qt.ItemDataRole.UserRole) or "") == current_filename):
+                    self.audit_table.selectRow(row)
+                    self.audit_table.setCurrentCell(
+                        row, min(current_column,
+                                 self.audit_table.columnCount() - 1))
+                    break
+        self._update_audit_sort_button()
+
+    def _audit_sort_column_changed(self, _index):
+        column = int(self.audit_sort_combo.currentData() or 1)
+        self.audit_table.sortItems(column, Qt.SortOrder.AscendingOrder)
+        self._update_audit_sort_button()
+        self._set_status(
+            f"Sorted by {self.audit_sort_combo.currentText()}, ascending")
+
+    def _audit_header_sort_changed(self, column, _order):
+        index = self.audit_sort_combo.findData(column)
+        if index >= 0 and self.audit_sort_combo.currentIndex() != index:
+            self.audit_sort_combo.blockSignals(True)
+            self.audit_sort_combo.setCurrentIndex(index)
+            self.audit_sort_combo.blockSignals(False)
+        self._update_audit_sort_button()
+
+    def _update_audit_sort_button(self):
+        order = self.audit_table.horizontalHeader().sortIndicatorOrder()
+        next_order = (
+            Qt.SortOrder.DescendingOrder
+            if order == Qt.SortOrder.AscendingOrder else
+            Qt.SortOrder.AscendingOrder)
+        label = (
+            "Sort descending" if next_order == Qt.SortOrder.DescendingOrder
+            else "Sort ascending")
+        self.audit_sort_button.setText(label)
+        self.audit_sort_button.setAccessibleName(label)
+        self.audit_sort_button.setToolTip(
+            f"{label} by {self.audit_sort_combo.currentText()}")
+        current_direction = (
+            "ascending" if order == Qt.SortOrder.AscendingOrder else
+            "descending")
+        self.audit_table.setAccessibleDescription(
+            "Read-only character VantageUI audit with checkboxes in the Use "
+            f"column. Currently sorted by {self.audit_sort_combo.currentText()}, "
+            f"{current_direction}. Every column can be resized or moved.")
+
+    def _sort_audit(self):
+        column = int(self.audit_sort_combo.currentData() or 1)
+        current = self.audit_table.horizontalHeader().sortIndicatorOrder()
+        order = (
+            Qt.SortOrder.DescendingOrder
+            if current == Qt.SortOrder.AscendingOrder else
+            Qt.SortOrder.AscendingOrder)
+        self.audit_table.sortItems(column, order)
+        direction = (
+            "ascending" if order == Qt.SortOrder.AscendingOrder else
+            "descending")
+        self._set_status(
+            f"Sorted by {self.audit_sort_combo.currentText()}, {direction}")
+
+    def _checked_audit_targets(self):
+        targets = []
+        for row in range(self.audit_table.rowCount()):
+            item = self.audit_table.item(row, 0)
+            if item is not None and item.checkState() == Qt.CheckState.Checked:
+                targets.append(str(item.data(Qt.ItemDataRole.UserRole) or ""))
+        return [target for target in targets if target]
+
+    def _select_outdated_profiles(self):
+        outdated = {
+            audit.profile.filename for audit in self._audits if not audit.current}
+        for row in range(self.audit_table.rowCount()):
+            item = self.audit_table.item(row, 0)
+            item.setCheckState(
+                Qt.CheckState.Checked
+                if item.data(Qt.ItemDataRole.UserRole) in outdated else
+                Qt.CheckState.Unchecked)
+        self._set_status(f"Selected {len(outdated)} outdated character profiles")
+
+    def _clear_audit_targets(self):
+        for row in range(self.audit_table.rowCount()):
+            self.audit_table.item(row, 0).setCheckState(Qt.CheckState.Unchecked)
+        self._set_status("Character selection cleared")
+
+    def _audit_summary(self):
+        current = sum(1 for audit in self._audits if audit.current)
+        total = len(self._audits)
+        available = str(getattr(self.panel._release, "version", "") or "")
+        installed = self._skin[len("VantageUI-v"):] if self._skin else ""
+        release_note = (
+            f" · newer release {available} available but not installed"
+            if version_is_newer(installed, available) else "")
+        installed = self._skin or "no verified installed VantageUI"
+        empty_note = " · no supported character UI profiles found" if not total else ""
+        return (
+            f"Audit complete · {current}/{total} current · "
+            f"{installed}{empty_note}{release_note}")
+
+    def _begin_operation_focus(self):
+        """Remember a user-invoked action before its control is disabled."""
+        focused = QApplication.focusWidget()
+        if (QApplication.activeWindow() is self and focused is not None and
+                (focused is self or self.isAncestorOf(focused))):
+            self._operation_focus_control = focused
+            self._operation_fallback_control = None
+
+    def _record_operation_fallback(self):
+        if self._operation_focus_control is not None:
+            self._operation_fallback_control = QApplication.focusWidget()
+
+    def _restore_operation_focus(self):
+        initiating = self._operation_focus_control
+        if initiating is None:
+            return
+
+        def restore():
+            fallback = self._operation_fallback_control
+            self._operation_focus_control = None
+            self._operation_fallback_control = None
+            if not self.isVisible() or QApplication.activeWindow() is not self:
+                return
+            focused = QApplication.focusWidget()
+            if (focused is not None and focused not in (initiating, fallback) and
+                    focused.isEnabled() and
+                    (focused is self or self.isAncestorOf(focused))):
+                return
+            if (initiating.isEnabled() and initiating.isVisibleTo(self) and
+                    initiating.focusPolicy() != Qt.FocusPolicy.NoFocus):
+                initiating.setFocus(Qt.FocusReason.OtherFocusReason)
+
+        QTimer.singleShot(0, restore)
+
+    def _rebuild_targets(self):
+        source = str(self.source_combo.currentData() or "")
+        previously_checked = {
+            str(self.target_list.item(index).data(Qt.ItemDataRole.UserRole))
+            for index in range(self.target_list.count())
+            if self.target_list.item(index).checkState() == Qt.CheckState.Checked}
+        self.target_list.clear()
+        for profile in self._profiles:
+            is_source = profile.filename == source
+            label = f"{profile.label} (source)" if is_source else profile.label
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, profile.filename)
+            selectable = not is_source
+            item.setFlags(
+                item.flags() | Qt.ItemFlag.ItemIsUserCheckable
+                if selectable else item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+            item.setCheckState(
+                Qt.CheckState.Checked if selectable and (
+                    profile.filename in previously_checked)
+                else Qt.CheckState.Unchecked)
+            if not selectable:
+                description = (
+                    f"{profile.label} is the source and stays unchanged")
+                item.setToolTip(description)
+                item.setData(
+                    Qt.ItemDataRole.AccessibleDescriptionRole, description)
+            self.target_list.addItem(item)
+        self._filter_targets()
+        self._update_action_states()
+
+    def _source_changed(self, _index):
+        self._rebuild_targets()
+        self._rebuild_sections()
+        profile = self._source_profile()
+        if profile is not None:
+            config.data.setdefault("vantage_ui", {})["layout_source"] = profile.filename
+            config.save()
+
+    def _source_profile(self):
+        index = self.source_combo.currentIndex()
+        if index < 0 or self.source_combo.currentText() != self.source_combo.itemText(index):
+            return None
+        source = str(self.source_combo.currentData() or "")
+        return next((profile for profile in self._profiles
+                     if profile.filename == source), None)
+
+    def _filter_targets(self, *_args):
+        words = self.target_search.text().casefold().split()
+        for index in range(self.target_list.count()):
+            item = self.target_list.item(index)
+            item.setHidden(not all(word in item.text().casefold() for word in words))
+        self._update_action_states()
+
+    def _clear_shown_targets(self):
+        for index in range(self.target_list.count()):
+            item = self.target_list.item(index)
+            if not item.isHidden():
+                item.setCheckState(Qt.CheckState.Unchecked)
+
+    def _rebuild_sections(self):
+        checked = set(self._checked_sections())
+        self.section_list.blockSignals(True)
+        self.section_list.clear()
+        try:
+            source = str(self.source_combo.currentData() or "")
+            names = layout_sections(normalize_eq_root(self.panel.path_edit.text()), source) if source else ()
+            for name in names:
+                item = QListWidgetItem(name)
+                item.setData(Qt.ItemDataRole.UserRole, name)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(Qt.CheckState.Checked if name in checked else Qt.CheckState.Unchecked)
+                item.setToolTip(f"Copy this UI section, including positions and sizes for saved resolutions: [{name}]")
+                self.section_list.addItem(item)
+        except (OSError, UIProfileError) as error:
+            self.section_list.setToolTip(str(error))
+        self.section_list.blockSignals(False)
+        self._filter_sections()
+
+    def _checked_sections(self):
+        return [str(self.section_list.item(index).data(Qt.ItemDataRole.UserRole))
+                for index in range(self.section_list.count())
+                if self.section_list.item(index).checkState() == Qt.CheckState.Checked]
+
+    def _filter_sections(self, *_args):
+        words = self.section_search.text().casefold().split()
+        for index in range(self.section_list.count()):
+            item = self.section_list.item(index)
+            item.setHidden(not all(word in item.text().casefold() for word in words))
+
+    def _select_shown_sections(self):
+        for index in range(self.section_list.count()):
+            item = self.section_list.item(index)
+            if not item.isHidden():
+                item.setCheckState(Qt.CheckState.Checked)
+
+    def _clear_sections(self):
+        for index in range(self.section_list.count()):
+            self.section_list.item(index).setCheckState(Qt.CheckState.Unchecked)
+
+    def _scope_changed(self, index):
+        self.section_picker.setVisible(index == 1)
+        self._update_action_states()
+
+    def _select_all_targets(self):
+        source = str(self.source_combo.currentData() or "")
+        for index in range(self.target_list.count()):
+            item = self.target_list.item(index)
+            if not item.isHidden() and item.data(Qt.ItemDataRole.UserRole) != source:
+                item.setCheckState(Qt.CheckState.Checked)
+        self._update_action_states()
+
+    def _clear_targets(self):
+        for index in range(self.target_list.count()):
+            self.target_list.item(index).setCheckState(Qt.CheckState.Unchecked)
+        self._update_action_states()
+
+    def _checked_targets(self):
+        return [
+            str(self.target_list.item(index).data(Qt.ItemDataRole.UserRole))
+            for index in range(self.target_list.count())
+            if self.target_list.item(index).checkState() == Qt.CheckState.Checked]
+
+    def _target_labels(self, filenames):
+        labels = {
+            profile.filename: profile.label for profile in self._profiles}
+        selected = [labels.get(filename, filename) for filename in filenames]
+        if len(selected) <= 5:
+            return ", ".join(selected)
+        return ", ".join(selected[:5]) + f", and {len(selected) - 5} more"
+
+    def _update_backup_preview(self, *_args):
+        selected = self.backup_combo.currentText().strip()
+        description = (
+            f"Selected restore point: {selected}" if selected else
+            "No character UI restore point is available")
+        self.backup_combo.setToolTip(description)
+        self.backup_combo.setAccessibleDescription(description)
+
+    def _update_action_states(self, *_args):
+        ready = bool(self._skin and self._profiles)
+        interactive = self.audit_refresh_button.isEnabled()
+        audit_count = len(self._checked_audit_targets())
+        targets = self._checked_targets()
+        self.apply_selected_button.setEnabled(
+            interactive and ready and audit_count > 0)
+        source_profile = self._source_profile()
+        sections = self._checked_sections()
+        scope_valid = self.copy_scope.currentIndex() == 0 or bool(sections)
+        self.copy_layout_button.setEnabled(
+            interactive and source_profile is not None and bool(targets) and scope_valid and
+            (not self.copy_skin.isChecked() or bool(self._skin)))
+        self.copy_layout_button.setText(
+            f"Copy to {len(targets)} character{'s' if len(targets) != 1 else ''}…"
+            if targets else "Copy layout…")
+        source_label = source_profile.label if source_profile else "No source"
+        skin = self._skin if self.copy_skin.isChecked() else "each target's existing skin"
+        target_text = (
+            f"{len(targets)} target{'s' if len(targets) != 1 else ''}: "
+            f"{self._target_labels(targets)}" if targets else
+            "no targets selected")
+        hidden_count = sum(1 for index in range(self.target_list.count())
+                           if self.target_list.item(index).isHidden() and
+                           self.target_list.item(index).checkState() == Qt.CheckState.Checked)
+        scope = ("all window/chat settings" if self.copy_scope.currentIndex() == 0 else
+                 f"{len(sections)} selected windows/settings: {', '.join(sections[:5])}")
+        preview = (
+            f"Source stays unchanged: {source_label} · {target_text} · "
+            f"{scope} · copy uses {skin}; only changed targets are backed up" +
+            (f" · {hidden_count} selected character(s) hidden by search" if hidden_count else ""))
+        self.layout_preview.setText(preview)
+        self.layout_preview.setAccessibleName(f"Layout copy preview: {preview}")
+
+    def _confirm(self, title, text):
+        dialog = QMessageBox(
+            QMessageBox.Icon.Question, title, text,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            self)
+        dialog.setDefaultButton(QMessageBox.StandardButton.No)
+        dialog.setEscapeButton(QMessageBox.StandardButton.No)
+        return dialog.exec() == QMessageBox.StandardButton.Yes
+
+    def apply_skin(self):
+        root = normalize_eq_root(self.panel.path_edit.text())
+        try:
+            skin = ui_skin_updater.installed_folder(root)
+        except (OSError, ui_skin_updater.SkinUpdateError) as error:
+            self._set_status(f"Cannot verify VantageUI · {error}", error=True)
+            return False
+        count = len(self._profiles) + int(
+            self.include_default.isChecked() and (Path(root) / "eqclient.ini").is_file())
+        if not skin or not self._profiles:
+            self._set_status("Install or select VantageUI and refresh first", error=True)
+            return False
+        if not self._confirm(
+                "Apply VantageUI to all characters",
+                f"Change only UISkin to {skin} in {count} INI files?\n\n"
+                "Every affected file is backed up first. Macros, socials, "
+                "friends, hotkeys, and window positions stay unchanged."):
+            return False
+        return self._run_or_queue("skin", {
+            "skin_folder": skin,
+            "include_eqclient": self.include_default.isChecked()})
+
+    def apply_selected_skin(self):
+        root = normalize_eq_root(self.panel.path_edit.text())
+        try:
+            skin = ui_skin_updater.installed_folder(root)
+        except (OSError, ui_skin_updater.SkinUpdateError) as error:
+            self._set_status(f"Cannot verify VantageUI · {error}", error=True)
+            return False
+        targets = self._checked_audit_targets()
+        if not skin or not targets:
+            self._set_status(
+                "Select at least one character with an installed VantageUI",
+                error=True)
+            return False
+        if not self._confirm(
+                "Apply installed VantageUI to selected characters",
+                f"Change only UISkin to {skin} in {len(targets)} selected "
+                f"character INI files?\n\nTargets: {self._target_labels(targets)}\n\n"
+                "Every affected file is backed up first. "
+                "Window positions, macros, socials, friends, hotkeys, and "
+                "inventory settings stay unchanged."):
+            return False
+        return self._run_or_queue("skin", {
+            "skin_folder": skin, "targets": targets,
+            "include_eqclient": False})
+
+    def apply_layout(self):
+        root = normalize_eq_root(self.panel.path_edit.text())
+        try:
+            skin = ui_skin_updater.installed_folder(root) if self.copy_skin.isChecked() else ""
+        except (OSError, ui_skin_updater.SkinUpdateError) as error:
+            self._set_status(f"Cannot verify VantageUI · {error}", error=True)
+            return False
+        source = str(self.source_combo.currentData() or "")
+        targets = self._checked_targets()
+        sections = self._checked_sections() if self.copy_scope.currentIndex() == 1 else None
+        if (self._source_profile() is None or not source or not targets or
+                (self.copy_skin.isChecked() and not skin) or sections == []):
+            self._set_status("Choose a source and at least one target character", error=True)
+            return False
+        source_profile = next((
+            profile for profile in self._profiles
+            if profile.filename == source), None)
+        source_label = source_profile.label if source_profile else source
+        scope_text = ("complete window and chat layout" if sections is None else
+                      f"selected UI sections ({', '.join(sections)})")
+        skin_text = (f"The copy uses verified installed selection {skin}. " if skin else
+                     "Each target keeps its existing skin. ")
+        if not self._confirm(
+                "Copy character UI layout",
+                f"Copy {source_label}'s {scope_text} to "
+                f"{len(targets)} selected characters?\n\n"
+                f"Targets: {self._target_labels(targets)}\n\nThe source stays unchanged. "
+                f"{skin_text}Each changed "
+                "target is backed up first; identical targets are skipped. Target "
+                "filenames and character identities are preserved. "
+                "Macros, socials, friends, hotkeys, and inventory settings are "
+                "never copied."):
+            return False
+        options = {"skin_folder": skin, "source": source, "targets": targets}
+        if sections is not None:
+            options["sections"] = sections
+        if not self.copy_skin.isChecked():
+            options["update_skin"] = False
+        return self._run_or_queue("layout", options)
+
+    def restore_selected(self):
+        backup_id = str(self.backup_combo.currentData() or "")
+        if not backup_id:
+            self._set_status("Choose a backup to restore", error=True)
+            return False
+        selected_backup = self.backup_combo.currentText().strip()
+        if not self._confirm(
+                "Restore character UI backup",
+                f"Restore this Vantage character UI operation?\n\n"
+                f"Restore point: {selected_backup}\n\nVantage first "
+                "backs up the current files, so this restore can also be undone."):
+            return False
+        return self._run_or_queue("restore", {"backup_id": backup_id})
+
+    def _run_or_queue(self, action, options):
+        self._begin_operation_focus()
+        try:
+            running = ui_skin_updater.game_running()
+        except Exception as error:
+            self._set_status(f"Cannot safely check EverQuest · {error}", error=True)
+            self._restore_operation_focus()
+            return False
+        if running:
+            self._queued_action = (action, dict(options))
+            self._set_busy(True)
+            self.progress.show()
+            self.progress.setRange(0, 0)
+            self.progress.setFormat("Waiting for EverQuest to close…")
+            QTimer.singleShot(0, self._record_operation_fallback)
+            self._game_timer.start()
+            self._set_status(
+                "Queued · close EverQuest once; Vantage will apply this operation "
+                "automatically and will never close the game")
+            return True
+        return self._execute(action, options)
+
+    def _run_queued_when_game_closes(self):
+        if self._queued_action is None:
+            self._game_timer.stop()
+            return
+        try:
+            if ui_skin_updater.game_running():
+                return
+        except Exception as error:
+            self._queued_action = None
+            self._game_timer.stop()
+            self._set_busy(False)
+            self._set_status(f"Queued operation stopped · {error}", error=True)
+            self._restore_operation_focus()
+            return
+        action, options = self._queued_action
+        self._queued_action = None
+        self._game_timer.stop()
+        self._execute(action, options)
+
+    def _execute(self, action, options):
+        root = normalize_eq_root(self.panel.path_edit.text())
+        if self._operation_focus_control is None:
+            self._begin_operation_focus()
+        self._set_busy(True)
+        self.progress.show()
+        QTimer.singleShot(0, self._record_operation_fallback)
+        self.progress.setRange(0, 0)
+        self.progress.setFormat("Working…")
+        try:
+            if action == "skin":
+                targets = options.get("targets")
+                if targets is None:
+                    result = apply_skin_to_all(
+                        root, options["skin_folder"], self.state_directory,
+                        include_eqclient=bool(
+                            options.get("include_eqclient", True)))
+                else:
+                    result = apply_skin_to_profiles(
+                        root, options["skin_folder"], targets,
+                        self.state_directory, include_eqclient=False)
+            elif action == "layout":
+                result = copy_layout(
+                    root, options["skin_folder"], options["source"],
+                    options["targets"], self.state_directory,
+                    sections=options.get("sections"),
+                    update_skin=options.get("update_skin", True))
+            else:
+                result = restore_backup(
+                    root, self.state_directory, options["backup_id"])
+        except OSError as error:
+            permission_denied = (
+                isinstance(error, PermissionError) or
+                getattr(error, "winerror", None) == 5 or
+                "permission denied" in str(error).casefold() or
+                "access is denied" in str(error).casefold())
+            if permission_denied:
+                return self._request_elevation(action, root, options)
+            self._set_busy(False)
+            self.progress.setRange(0, 100)
+            self._set_status(f"Operation failed · {error}", error=True)
+            self._restore_operation_focus()
+            return False
+        except (UIProfileError, ui_skin_updater.SkinUpdateError) as error:
+            self._set_busy(False)
+            self.progress.setRange(0, 100)
+            self._set_status(f"Operation not applied · {error}", error=True)
+            self._restore_operation_focus()
+            return False
+        self._finish(action, result.changed, result.backup_id)
+        return True
+
+    def _request_elevation(self, action, root, options):
+        pending = request_elevated_profile_action(action, root, **options)
+        if pending is None:
+            self._set_busy(False)
+            self.progress.setRange(0, 100)
+            self._set_status(
+                "Windows permission was not granted; nothing was changed", error=True)
+            self._restore_operation_focus()
+            return False
+        self._pending_elevation = pending
+        self._poll_attempts = 0
+        self._poll_timer.start()
+        self._set_status(
+            "Approve the Windows permission prompt; Vantage will finish this "
+            "profile operation automatically")
+        return True
+
+    def _poll_elevation(self):
+        pending = self._pending_elevation
+        if pending is None:
+            self._poll_timer.stop()
+            return
+        self._poll_attempts += 1
+        try:
+            result = read_elevated_profile_result(pending)
+        except (OSError, UIProfileError, json.JSONDecodeError) as error:
+            self._pending_elevation = None
+            self._poll_timer.stop()
+            self._set_busy(False)
+            self.progress.setRange(0, 100)
+            self._set_status(f"Invalid Windows response · {error}", error=True)
+            self._restore_operation_focus()
+            return
+        if result is None:
+            if self._poll_attempts < 480:
+                return
+            pending.request_path.unlink(missing_ok=True)
+            self._pending_elevation = None
+            self._poll_timer.stop()
+            self._set_busy(False)
+            self.progress.setRange(0, 100)
+            self._set_status("Windows permission request timed out", error=True)
+            self._restore_operation_focus()
+            return
+        self._pending_elevation = None
+        self._poll_timer.stop()
+        if not result.get("ok"):
+            self._set_busy(False)
+            self.progress.setRange(0, 100)
+            self._set_status(
+                f"Operation not applied · {result.get('error', 'permission denied')}",
+                error=True)
+            self._restore_operation_focus()
+            return
+        self._finish(
+            str(result.get("action") or "operation"),
+            int(result.get("changed") or 0), str(result.get("backup_id") or ""))
+
+    def _finish(self, action, changed, backup_id):
+        labels = {
+            "skin": "VantageUI applied", "layout": "Layout copied",
+            "restore": "Backup restored"}
+        self._set_busy(False)
+        self.progress.setRange(0, 100)
+        self.progress.setValue(100)
+        self.progress.setFormat("Complete · 100%")
+        self.refresh()
+        backup_note = (
+            f" · restore point {backup_id[:8]}" if backup_id else
+            " · no files changed; no backup needed")
+        self._set_status(
+            f"{labels.get(action, 'Operation complete')} · {changed} files"
+            f"{backup_note} · {self._audit_summary()}")
+        self._restore_operation_focus()
+
+    def _set_busy(self, busy):
+        for control in (
+                self.include_default, self.backup_combo, self.source_combo,
+                self.target_list, self.select_all_button,
+                self.clear_targets_button, self.audit_refresh_button,
+                self.audit_table, self.select_outdated_button,
+                self.clear_audit_button, self.audit_sort_combo,
+                self.audit_sort_button, self.target_search, self.copy_scope,
+                self.section_search, self.section_list, self.select_sections_button,
+                self.clear_sections_button, self.clear_all_targets_button,
+                self.copy_refresh_button):
+            control.setEnabled(not busy)
+        ready = bool(self._skin and self._profiles)
+        self.apply_all_button.setEnabled(not busy and ready)
+        self.apply_selected_button.setEnabled(not busy and ready)
+        self.copy_layout_button.setEnabled(
+            not busy and ready and len(self._profiles) > 1)
+        self.restore_button.setEnabled(
+            not busy and self.backup_combo.count() > 0)
+        self.copy_skin.setEnabled(not busy and bool(self._skin))
+        if not busy:
+            self._update_action_states()
+
+    def _set_status(self, text, *, error=False, announce=True):
+        message = str(text)
+        self.status.setText(message)
+        self.status.setProperty("state", "error" if error else "ready")
+        self.status.style().unpolish(self.status)
+        self.status.style().polish(self.status)
+        self.status.setAccessibleName(f"Character UI manager status: {message}")
+        self.status.setAccessibleDescription(message)
+        if announce:
+            try:
+                event = QAccessibleAnnouncementEvent(self.status, message)
+                QAccessible.updateAccessibility(event)
+            except (AttributeError, RuntimeError):
+                pass
+
+
 class VantageUI(ParserWindow):
     """Independent, non-blocking VantageUI management surface."""
 
     name = "vantage_ui"
     update_state_changed = Signal(object)
     _allow_clickthrough = False
-    _minimum_scale = 0.80
 
     def __init__(self):
         super().__init__()
@@ -152,6 +1329,9 @@ class VantageUI(ParserWindow):
         self._installed_folder = ""
         self._release = None
         self._install_after_check = False
+        self._install_after_check_confirm = True
+        self._install_after_check_background = False
+        self._install_after_local = False
         self._install_action = ""
         self._progress_value = 0
         self._progress_stage = "Ready"
@@ -160,12 +1340,25 @@ class VantageUI(ParserWindow):
         self._operation_announcements = True
         self._progress_updates_enabled = True
         self._initiating_control = None
+        self._operation_fallback_control = None
+        self._operation_fallback_touched = False
         self._last_warnings = ()
         self._shared_update_controller = None
+        self._profile_manager = None
+        self._pending_profile_elevation = None
         self._automatic_timer = QTimer(self)
         self._automatic_timer.setInterval(AUTO_CHECK_MS)
         self._automatic_timer.timeout.connect(self._automatic_check)
         self._build_ui()
+        self._profile_sync_timer = QTimer(self)
+        self._profile_sync_timer.setInterval(1500)
+        self._profile_sync_timer.timeout.connect(self._try_pending_profile_sync)
+        self._profile_elevation_timer = QTimer(self)
+        self._profile_elevation_timer.setInterval(250)
+        self._profile_elevation_timer.timeout.connect(
+            self._poll_profile_sync_elevation)
+        if config.data["vantage_ui"].get("pending_profile_sync"):
+            self._profile_sync_timer.start()
         if self.auto_update.isChecked():
             self._automatic_timer.start()
 
@@ -173,16 +1366,21 @@ class VantageUI(ParserWindow):
     def state_directory(self):
         return data_dir("ui-updater", "backups")
 
+    @property
+    def profile_state_directory(self):
+        return data_dir("ui-profile-backups")
+
     def _build_ui(self):
         body = QFrame()
         body.setObjectName("VantageUIBody")
+        body.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         layout = QVBoxLayout(body)
         layout.setContentsMargins(12, 10, 12, 12)
         layout.setSpacing(8)
 
         intro = QLabel(
-            "Install and maintain the optional VantageUI skin for EverQuest "
-            "Titanium / Project 1999.")
+            "Install or update in one click. You can keep EverQuest open; "
+            "load the new skin after installation finishes.")
         intro.setObjectName("VantageUIIntro")
         intro.setWordWrap(True)
         layout.addWidget(intro)
@@ -202,6 +1400,10 @@ class VantageUI(ParserWindow):
             "VantageUI release uses its own versioned folder")
         self.path_edit.setToolTip(
             "EverQuest root containing eqgame.exe and the uifiles folder")
+        self.path_edit.setMinimumWidth(0)
+        self.path_edit.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.path_edit.setCursorPosition(0)
         self.path_edit.editingFinished.connect(self._path_edited)
         path_label.setBuddy(self.path_edit)
         self.browse_button = QPushButton("Browse…")
@@ -213,17 +1415,19 @@ class VantageUI(ParserWindow):
         path_layout.addWidget(path_label, 0, 0)
         path_layout.addWidget(self.path_edit, 0, 1)
         path_layout.addWidget(self.browse_button, 0, 2)
+        path_layout.setColumnStretch(1, 1)
         target_caption = QLabel("Versioned folders")
         self.target_value = QLabel()
         self.target_value.setWordWrap(True)
+        self.target_value.setMinimumWidth(0)
+        self.target_value.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.target_value.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByKeyboard |
             Qt.TextInteractionFlag.TextSelectableByMouse)
         self.target_value.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.target_value.setAccessibleName(
             "Selected and available VantageUI folders")
-        path_layout.addWidget(target_caption, 1, 0)
-        path_layout.addWidget(self.target_value, 1, 1, 1, 2)
         layout.addWidget(path_card)
 
         versions = QFrame()
@@ -247,18 +1451,18 @@ class VantageUI(ParserWindow):
         self.check_button.setToolTip(
             "Check verified Vantage GitHub release assets for VantageUI")
         self.check_button.clicked.connect(self.check_for_updates)
-        actions.addWidget(self.check_button)
         self.update_button = QPushButton("Install VantageUI")
+        self.update_button.setObjectName("PrimaryAction")
         self.update_button.setIcon(game_icon("ph-download"))
-        self.update_button.clicked.connect(self.update_skin)
+        self.update_button.clicked.connect(self.install_or_update)
         actions.addWidget(self.update_button)
+        actions.addWidget(self.check_button)
         self.restore_button = QPushButton("Restore")
         self.restore_button.setIcon(game_icon("ph-reload"))
         self.restore_button.setAccessibleName("Restore previous VantageUI")
         self.restore_button.setToolTip(
             "Select the previous verified VantageUI folder without overwriting files")
         self.restore_button.clicked.connect(self.restore_skin)
-        actions.addWidget(self.restore_button)
         self.copy_command_button = QPushButton("Copy /loadskin")
         self.copy_command_button.setIcon(game_icon("copy"))
         self.copy_command_button.setAccessibleName(
@@ -266,20 +1470,25 @@ class VantageUI(ParserWindow):
         self.copy_command_button.setToolTip(
             "Copy the exact /loadskin command for the selected verified folder")
         self.copy_command_button.clicked.connect(self.copy_loadskin_command)
-        actions.addWidget(self.copy_command_button)
+        self.character_ui_button = QPushButton("Copy character UI…")
+        self.character_ui_button.setIcon(game_icon("ph-stack"))
+        self.character_ui_button.setAccessibleName(
+            "Manage character VantageUI settings and layouts")
+        self.character_ui_button.setToolTip(
+            "Back up and update every character's selected VantageUI, copy "
+            "one character's window layout to others, or restore a backup")
+        self.character_ui_button.clicked.connect(self.show_profile_manager)
+        actions.addWidget(self.character_ui_button)
         layout.addWidget(actions)
 
-        # Keep the primary action in the ordinary left-to-right keyboard path.
-        # Native buttons retain Enter/Space activation and the shared focus ring.
-        QWidget.setTabOrder(self.path_edit, self.browse_button)
-        QWidget.setTabOrder(self.browse_button, self.target_value)
-        QWidget.setTabOrder(self.target_value, self.check_button)
-        QWidget.setTabOrder(self.check_button, self.update_button)
-        QWidget.setTabOrder(self.update_button, self.restore_button)
-        QWidget.setTabOrder(
-            self.restore_button, self.copy_command_button)
+        safety_note = QLabel(
+            "Verified download · keeps the current and previous version · "
+            "character INI changes are backed up")
+        safety_note.setObjectName("VantageUIScope")
+        safety_note.setWordWrap(True)
+        layout.addWidget(safety_note)
 
-        self.auto_update = QCheckBox("Automatically check and update VantageUI")
+        self.auto_update = QCheckBox("Install future VantageUI updates automatically")
         self.auto_update.setChecked(bool(
             config.data["vantage_ui"].get("auto_update", False)))
         self.auto_update.setAccessibleName("Automatic VantageUI updates")
@@ -289,6 +1498,22 @@ class VantageUI(ParserWindow):
         self.auto_update.toggled.connect(self._auto_update_changed)
         layout.addWidget(self.auto_update)
 
+        self.auto_apply_profiles = QCheckBox(
+            "Keep every character on the installed VantageUI version")
+        self.auto_apply_profiles.setChecked(bool(
+            config.data["vantage_ui"].get("auto_apply_profiles", True)))
+        self.auto_apply_profiles.setAccessibleName(
+            "Keep all character accounts on the installed VantageUI version")
+        self.auto_apply_profiles.setToolTip(
+            "After install, update only UISkin in every detected P99 UI INI and "
+            "eqclient.ini; each changed file is backed up first")
+        self.auto_apply_profiles.setAccessibleDescription(
+            "After a verified install, Vantage backs up the affected INI files "
+            "and changes only UISkin. If EverQuest is open, the change waits "
+            "until the game closes so EverQuest cannot overwrite it.")
+        self.auto_apply_profiles.toggled.connect(
+            self._auto_apply_profiles_changed)
+
         self.elevation_button = QPushButton("Retry with Windows permission…")
         self.elevation_button.setAccessibleName(
             "Open the VantageUI updater with Windows administrator permission")
@@ -297,6 +1522,17 @@ class VantageUI(ParserWindow):
         self.elevation_button.clicked.connect(self._request_elevation)
         self.elevation_button.hide()
         layout.addWidget(self.elevation_button)
+
+        self.profile_elevation_button = QPushButton(
+            "Apply account INIs with Windows permission…")
+        self.profile_elevation_button.setAccessibleName(
+            "Apply VantageUI to all character accounts with Windows permission")
+        self.profile_elevation_button.setToolTip(
+            "Open the normal Windows UAC prompt for the pending, backed-up INI update")
+        self.profile_elevation_button.clicked.connect(
+            self._request_profile_sync_elevation)
+        self.profile_elevation_button.hide()
+        layout.addWidget(self.profile_elevation_button)
 
         self.status = QLabel(
             "Ready. Choose the EverQuest folder, then Install VantageUI.")
@@ -323,7 +1559,9 @@ class VantageUI(ParserWindow):
         self.log.setMaximumBlockCount(80)
         self.log.setAccessibleName("VantageUI operation details")
         self.log.setToolTip("Recent verified update and recovery details")
-        layout.addWidget(self.log, 1)
+        self._log_interaction_filter = _OperationLogInteractionFilter(self)
+        self.log.installEventFilter(self._log_interaction_filter)
+        self.log.viewport().installEventFilter(self._log_interaction_filter)
 
         self.instruction = QLabel(
             "Install or select a verified VantageUI version to get its exact "
@@ -335,19 +1573,93 @@ class VantageUI(ParserWindow):
             "Use the selected folder's command after installation or restore")
         self.instruction.setWordWrap(True)
         self.instruction.setTextFormat(Qt.TextFormat.RichText)
-        layout.addWidget(self.instruction)
+        self.reload_card = QFrame()
+        self.reload_card.setObjectName("VantageUICard")
+        reload_layout = QVBoxLayout(self.reload_card)
+        reload_layout.setContentsMargins(8, 7, 8, 7)
+        reload_title = QLabel("Load VantageUI in EverQuest")
+        reload_title.setObjectName("OpenDkpPanelTitle")
+        reload_layout.addWidget(reload_title)
+        reload_layout.addWidget(self.instruction)
+        reload_layout.addWidget(self.copy_command_button)
+        layout.addWidget(self.reload_card)
+
+        self.options_button = QPushButton("More options")
+        self.options_button.setIcon(game_icon("settings"))
+        self.options_button.setCheckable(True)
+        self.options_button.setAccessibleName("Show more VantageUI options")
+        self.options_button.setAccessibleDescription("Additional options collapsed")
+        self.options_button.setToolTip(
+            "Restore, character layouts, installation paths, and operation details")
+        self.options_button.toggled.connect(self._show_options)
+        layout.addWidget(self.options_button)
+        self.options_card = QFrame()
+        self.options_card.setObjectName("VantageUICard")
+        options_layout = QVBoxLayout(self.options_card)
+        options_layout.setContentsMargins(8, 7, 8, 7)
+        options_layout.addWidget(target_caption)
+        options_layout.addWidget(self.target_value)
+        secondary_actions = ResponsiveActionBar(min_cell_width=150)
+        secondary_actions.addWidget(self.restore_button)
+        options_layout.addWidget(secondary_actions)
+        options_layout.addWidget(self.auto_apply_profiles)
+        self.log.setMinimumHeight(100)
+        options_layout.addWidget(self.log)
         scope = QLabel(
             "Only verified uifiles\\VantageUI-vX.Y.Z folders are managed. The "
-            "legacy VantageUI folder, other skins, character INIs, game binaries, "
-            "running processes, and Companion are never replaced.")
+            "legacy VantageUI folder and other skins are never changed. After a "
+            "verified install, Vantage can back up every detected UI_*.ini and "
+            "eqclient.ini, then change only UISkin so all accounts use the same "
+            "version. Character settings INIs, game binaries, running processes, "
+            "and Companion are never replaced.")
         scope.setObjectName("VantageUIScope")
         scope.setWordWrap(True)
-        layout.addWidget(scope)
-
-        self.content.addWidget(body, 1)
+        options_layout.addWidget(scope)
+        layout.addWidget(self.options_card)
+        self.options_card.hide()
+        layout.addStretch(1)
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
+        scroll = QScrollArea()
+        scroll.setObjectName("VantageUIOptionsScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setAccessibleName("VantageUI installation and update controls")
+        scroll.setWidget(body)
+        self.content.addWidget(scroll, 1)
         self._refresh_target()
         self._refresh_versions()
         self._refresh_controls()
+
+        controls = (
+            self.path_edit, self.browse_button, self.update_button,
+            self.check_button, self.character_ui_button, self.auto_update, self.elevation_button,
+            self.profile_elevation_button, self.copy_command_button,
+            self.options_button, self.target_value, self.restore_button,
+            self.auto_apply_profiles, self.log)
+        for before, after in zip(controls, controls[1:]):
+            QWidget.setTabOrder(before, after)
+
+    def _show_options(self, expanded):
+        self.options_card.setVisible(expanded)
+        self.options_button.setText(
+            "Fewer options" if expanded else "More options")
+        self.options_button.setAccessibleName(
+            "Hide more VantageUI options" if expanded else
+            "Show more VantageUI options")
+        self.options_button.setAccessibleDescription(
+            "Additional options expanded" if expanded else
+            "Additional options collapsed")
+
+    def install_or_update(self, _checked=False):
+        """The explicit primary action is consent; no second update dialog."""
+        if self._busy and self._active_action == "local":
+            # Opening the panel starts recovery/local discovery. Keep the
+            # explicit Updates action rather than dropping it while that read
+            # is in flight. Any recovery failure cancels this request.
+            self._install_after_local = True
+            return True
+        return self.update_skin(confirm=False)
 
     def parse(self, _timestamp, _text):
         """VantageUI is independent of EverQuest log parsing."""
@@ -507,9 +1819,11 @@ class VantageUI(ParserWindow):
         self._update_check_error = ""
         self._refresh_versions()
         self._refresh_controls()
-        if (self.auto_update.isChecked() and
-                version_is_newer(installed, release.version)):
+        update_available = version_is_newer(installed, release.version)
+        if self.auto_update.isChecked() and update_available:
             return self.update_skin(confirm=False, background=True)
+        if folder and self.auto_apply_profiles.isChecked():
+            self._schedule_profile_sync(folder)
         return True
 
     def shared_release_history_failed(self, message):
@@ -545,6 +1859,10 @@ class VantageUI(ParserWindow):
             text = "Update VantageUI"
             tooltip = (
                 "Check and install the release into a new verified versioned folder")
+        if self._busy and self._active_action == "update":
+            text = "Installing…" if self._install_action == "install" else "Updating…"
+        elif self._busy and self._active_action == "check":
+            text = "Checking…"
         self.update_button.setText(text)
         self.update_button.setAccessibleName(text)
         self.update_button.setToolTip(tooltip)
@@ -554,10 +1872,15 @@ class VantageUI(ParserWindow):
         for control in (
                 self.path_edit, self.browse_button, self.check_button,
                 self.restore_button, self.copy_command_button,
-                self.auto_update):
+                self.character_ui_button, self.auto_update,
+                self.auto_apply_profiles):
             control.setEnabled(not self._busy)
         self.copy_command_button.setEnabled(
             not self._busy and bool(self._installed_folder))
+        self.reload_card.setVisible(
+            not self._busy and bool(self._installed_folder) and
+            (self._release is None or not version_is_newer(
+                self._installed, self._release.version)))
         self.update_button.setEnabled(
             not self._busy and self._primary_action_kind() != "current")
 
@@ -565,20 +1888,175 @@ class VantageUI(ParserWindow):
         config.data["vantage_ui"]["eq_dir"] = normalize_eq_root(
             self.path_edit.text())
         config.data["vantage_ui"]["auto_update"] = self.auto_update.isChecked()
+        config.data["vantage_ui"]["auto_apply_profiles"] = \
+            self.auto_apply_profiles.isChecked()
         config.save()
+
+    def _auto_apply_profiles_changed(self, enabled):
+        self._save_settings()
+        if enabled and self._installed_folder:
+            self._schedule_profile_sync(
+                self._installed_folder, restore_focus=True)
+        elif not enabled:
+            config.data["vantage_ui"]["pending_profile_sync"] = {}
+            config.save()
+            self._profile_sync_timer.stop()
+            self.profile_elevation_button.hide()
+            self._set_status(
+                "Automatic character account updates are off. VantageUI files "
+                "remain installed and Character UI & layouts is still available.")
+
+    def _profile_sync_request(self):
+        value = config.data.get("vantage_ui", {}).get(
+            "pending_profile_sync", {})
+        return value if isinstance(value, dict) else {}
+
+    def _clear_profile_sync_request(self):
+        config.data["vantage_ui"]["pending_profile_sync"] = {}
+        config.save()
+        self._profile_sync_timer.stop()
+        self.profile_elevation_button.hide()
+
+    def _schedule_profile_sync(
+            self, skin_folder, *, restore_focus=False, focus_control=None):
+        """Persist a safe post-install INI update until it completes."""
+        if not self.auto_apply_profiles.isChecked():
+            return False
+        eq_root = normalize_eq_root(self.path_edit.text())
+        root = Path(eq_root)
+        if not (root.is_dir() and (root / "eqgame.exe").is_file()):
+            return False
+        if not (root / "uifiles" / str(skin_folder)).is_dir():
+            return False
+        request = {"eq_root": eq_root, "skin_folder": str(skin_folder)}
+        config.data["vantage_ui"]["pending_profile_sync"] = request
+        config.save()
+        self._profile_sync_timer.start()
+        return self._try_pending_profile_sync(
+            restore_focus=restore_focus, focus_control=focus_control)
+
+    def _try_pending_profile_sync(
+            self, *, restore_focus=False, focus_control=None):
+        request = self._profile_sync_request()
+        if (self._busy or self._pending_profile_elevation or
+                not request or not self.auto_apply_profiles.isChecked()):
+            return False
+        eq_root = normalize_eq_root(request.get("eq_root", ""))
+        skin = str(request.get("skin_folder") or "")
+        if eq_root != normalize_eq_root(self.path_edit.text()):
+            return False
+        try:
+            selected = ui_skin_updater.installed_folder(eq_root)
+            running = ui_skin_updater.game_running()
+        except (OSError, UIProfileError,
+                ui_skin_updater.SkinUpdateError) as error:
+            self._set_status(
+                f"Could not verify the pending character account update: {error}")
+            return False
+        if selected != skin:
+            self._clear_profile_sync_request()
+            self._set_status(
+                "The selected VantageUI version changed before account INIs "
+                "were updated. Refresh VantageUI and try again.")
+            return False
+        if running:
+            self._set_status(
+                f"VantageUI {self._installed or skin} is installed. All character "
+                "accounts will switch to it automatically when EverQuest closes; "
+                "Vantage will never stop the game.", announce=False)
+            return False
+
+        self._profile_sync_timer.stop()
+
+        def synchronize(log, progress):
+            progress("Backing up character UI settings", 20, 0, 0)
+            result = apply_skin_to_all(
+                eq_root, skin, self.profile_state_directory,
+                include_eqclient=True, allow_no_changes=True)
+            log(
+                f"Character UI sync: {result.changed} INI file"
+                f"{'s' if result.changed != 1 else ''} changed.")
+            progress("Character accounts use the selected VantageUI", 100, 0, 0)
+            return skin, result
+
+        started = self._start(
+            "profile-sync", synchronize,
+            "Backing up and applying the selected VantageUI to every character…",
+            restore_focus=restore_focus, announce=False)
+        if started and focus_control is not None:
+            self._initiating_control = focus_control
+        return started
+
+    def _request_profile_sync_elevation(self):
+        request = self._profile_sync_request()
+        if not request or self._pending_profile_elevation:
+            return False
+        try:
+            pending = request_elevated_profile_action(
+                "skin", request["eq_root"],
+                skin_folder=request["skin_folder"], include_eqclient=True)
+        except (OSError, UIProfileError, KeyError) as error:
+            pending = None
+            self._append_log(self._operation_token, str(error))
+        if pending is None:
+            self._set_status(
+                "Windows permission was not granted. Account INIs remain "
+                "unchanged and the automatic update is still pending.")
+            return False
+        self._pending_profile_elevation = pending
+        self.profile_elevation_button.setEnabled(False)
+        self._profile_elevation_timer.start()
+        self._set_status(
+            "Windows UAC opened for the backed-up character account update…")
+        return True
+
+    def _poll_profile_sync_elevation(self):
+        pending = self._pending_profile_elevation
+        if pending is None:
+            self._profile_elevation_timer.stop()
+            return
+        try:
+            result = read_elevated_profile_result(pending)
+        except (OSError, UIProfileError, ValueError) as error:
+            result = {"ok": False, "error": str(error)}
+        if result is None:
+            if (time.monotonic() - pending.started_at) < 120:
+                return
+            result = {"ok": False, "error": "Windows permission request timed out"}
+        self._profile_elevation_timer.stop()
+        self._pending_profile_elevation = None
+        self.profile_elevation_button.setEnabled(True)
+        if result.get("ok"):
+            changed = int(result.get("changed") or 0)
+            self._clear_profile_sync_request()
+            self._set_status(
+                f"All character accounts now use {self._installed_folder}. "
+                f"{changed} INI file{'s' if changed != 1 else ''} updated with "
+                "a restore point.")
+        else:
+            self.profile_elevation_button.show()
+            self._set_status(
+                "Windows could not apply the pending account INIs: "
+                f"{result.get('error') or 'unknown error'}. Nothing unsafe was changed.")
 
     def _path_edited(self):
         normalized = normalize_eq_root(self.path_edit.text())
         self.path_edit.setText(normalized)
+        if normalized == normalize_eq_root(
+                config.data["vantage_ui"].get("eq_dir", DEFAULT_EQ_ROOT)):
+            return
         self._release = None
         self._installed = ""
         self._installed_folder = ""
         self._last_warnings = ()
         self._install_after_check = False
+        self._install_after_local = False
         self._refresh_target()
         self._refresh_versions()
         self._save_settings()
-        self.refresh_local()
+        self._refresh_controls()
+        self._set_status(
+            "Folder changed. Click Install VantageUI to check and install here.")
 
     def browse(self):
         chosen = QFileDialog.getExistingDirectory(
@@ -607,6 +2085,16 @@ class VantageUI(ParserWindow):
         self._set_status(f"Copied {command}")
         return True
 
+    def show_profile_manager(self):
+        """Open the reversible character UI workflow without duplicating it."""
+        if self._profile_manager is None:
+            self._profile_manager = CharacterUIManagerDialog(self)
+        self._profile_manager.refresh()
+        self._profile_manager.show()
+        self._profile_manager.raise_()
+        self._profile_manager.activateWindow()
+        return self._profile_manager
+
     def _panel_owns_active_focus(self):
         focused = QApplication.focusWidget()
         return bool(
@@ -624,6 +2112,8 @@ class VantageUI(ParserWindow):
             focused is not None and
             (focused is self._surface or self._surface.isAncestorOf(focused))
             else None)
+        self._operation_fallback_control = None
+        self._operation_fallback_touched = False
         self._busy = True
         self._active_action = action
         self._operation_announcements = bool(announce)
@@ -643,6 +2133,8 @@ class VantageUI(ParserWindow):
         self.elevation_button.hide()
         self._set_status(status)
         self._refresh_controls()
+        if self._initiating_control is not None:
+            self._operation_fallback_control = self._surface.focusWidget()
 
         def run():
             try:
@@ -693,10 +2185,16 @@ class VantageUI(ParserWindow):
 
     def _consume_initiating_control(self):
         initiating = self._initiating_control
+        fallback = self._operation_fallback_control
+        touched = self._operation_fallback_touched
         self._initiating_control = None
-        return initiating
+        self._operation_fallback_control = None
+        self._operation_fallback_touched = False
+        return initiating, fallback, touched
 
-    def _focus_after_operation(self, preferred=None, *, initiating=None):
+    def _focus_after_operation(
+            self, preferred=None, *, initiating=None, fallback=None,
+            fallback_touched=False, restore_automatic_fallback=False):
         """Return keyboard focus after an asynchronous panel operation."""
         if initiating is None or not self._panel_owns_active_focus():
             return False
@@ -704,12 +2202,14 @@ class VantageUI(ParserWindow):
         if (focused is not None and focused is not initiating and
                 focused.isEnabled() and
                 (focused is self._surface or
-                 self._surface.isAncestorOf(focused))):
+                 self._surface.isAncestorOf(focused)) and
+                (not restore_automatic_fallback or focused is not fallback or
+                 fallback_touched)):
             # The user deliberately moved to another usable control while the
             # operation ran (commonly the log). Preserve that reading context.
             return False
         candidates = (
-            preferred, self.update_button, self.check_button,
+            initiating, preferred, self.update_button, self.check_button,
             self.restore_button, self.path_edit)
 
         def restore():
@@ -801,7 +2301,10 @@ class VantageUI(ParserWindow):
             # fetch the verified release, then continue through the existing
             # confirmation and installer path when that check completes.
             self._install_after_check = True
-            started = self.check_for_updates()
+            self._install_after_check_confirm = bool(confirm)
+            self._install_after_check_background = bool(background)
+            started = (self.check_for_updates(background=True) if background else
+                       self.check_for_updates())
             if not started:
                 self._install_after_check = False
             return started
@@ -822,11 +2325,15 @@ class VantageUI(ParserWindow):
         }[action]
         if confirm and not self._confirm(
                 title, prompt + "\n\n"
-                "The selected version and two earlier fallback versions are kept. "
+                "The selected version and one previous restore version are kept. "
                 "Modified, unmanaged, and legacy VantageUI folders are preserved. "
                 "Vantage never closes or signals EverQuest. If EverQuest is open, "
                 "do not reload the UI during installation; after success, run "
-                f"/loadskin {next_folder} 1 to apply the new files."):
+                f"/loadskin {next_folder} 1 to apply the new files. "
+                + ("Vantage will also back up and switch every detected character "
+                   "INI to this version; that step waits for EverQuest to close."
+                   if self.auto_apply_profiles.isChecked() else
+                   "Automatic character INI updates are currently off.")):
             self._set_status(f"VantageUI {action} cancelled. Nothing changed.")
             self._install_action = ""
             return False
@@ -856,8 +2363,10 @@ class VantageUI(ParserWindow):
         if not self._confirm(
                 "Restore VantageUI",
                 "Select the previous verified VantageUI folder?\n\n"
-                "No UI files or character INIs will be overwritten. After restore, "
-                "use the command shown by Vantage to load that version.\n\n"
+                "No UI files are overwritten. After restore, use the command shown "
+                "by Vantage to load that version. If automatic character updates "
+                "are enabled, every detected character INI is backed up and changed "
+                "to the restored version.\n\n"
                 "EverQuest must be closed for this selection change."):
             self._set_status("Restore cancelled. Nothing changed.")
             return False
@@ -881,22 +2390,29 @@ class VantageUI(ParserWindow):
     def _operation_completed(self, token, action, result):
         if token != self._operation_token:
             return
-        initiating = self._consume_initiating_control()
+        initiating, fallback, fallback_touched = \
+            self._consume_initiating_control()
         self._busy = False
         if action == "check":
             self._update_check_error = ""
         self._progress_value = 100
         if self._progress_updates_enabled:
             self.progress.setValue(100)
+        sync_after = ""
+        continue_local_install = False
         if action == "local":
             self._installed, self._installed_folder = result
+            sync_after = self._installed_folder
             next_action = (
                 "Install VantageUI" if not self._installed else
                 "Update VantageUI")
             self._set_status(
-                f"EverQuest folder ready. Choose {next_action}; Vantage will "
-                "check the verified release first. The legacy VantageUI folder "
-                "is preserved and is not treated as a versioned installation.")
+                f"Ready. Click {next_action}; Vantage checks and installs "
+                "the verified release for you.")
+            if self._install_after_local:
+                self._install_after_local = False
+                continue_local_install = True
+                sync_after = ""
         elif action == "check":
             self._release, self._installed, self._installed_folder = result
             newer = version_is_newer(self._installed, self._release.version)
@@ -921,6 +2437,7 @@ class VantageUI(ParserWindow):
                 f"{command}, then verify the UI in game."
                 + (" Some folders were preserved; review the operation details."
                    if self._last_warnings else ""))
+            sync_after = result.folder
             self._install_action = ""
         elif action == "restore":
             self._installed = result.version
@@ -931,6 +2448,19 @@ class VantageUI(ParserWindow):
             self._set_status(
                 "Previous verified VantageUI selected. Verify it in game with "
                 f"{self._loadskin_command()}.")
+            sync_after = result.folder
+        elif action == "profile-sync":
+            skin, profile_result = result
+            self._clear_profile_sync_request()
+            changed = int(profile_result.changed)
+            if changed:
+                self._set_status(
+                    f"All character accounts now use {skin}. {changed} INI "
+                    f"file{'s' if changed != 1 else ''} updated with one "
+                    "restorable backup.")
+            else:
+                self._set_status(
+                    f"All detected character accounts already use {skin}.")
         final_text = self.status.text()
         if self._progress_updates_enabled:
             self.progress.setFormat("Complete · 100%")
@@ -938,9 +2468,15 @@ class VantageUI(ParserWindow):
                 f"VantageUI operation complete. 100 percent. {final_text}")
         self._refresh_versions()
         self._refresh_controls()
-        if action == "check":
+        if continue_local_install:
+            self.install_or_update()
+        elif action == "check":
             if continue_install:
-                if (initiating is not None and
+                if not self._install_after_check_confirm:
+                    self.update_skin(
+                        confirm=False,
+                        background=self._install_after_check_background)
+                elif (initiating is not None and
                         self._panel_owns_active_focus()):
                     if (initiating.isEnabled() and
                             initiating.isVisibleTo(self)):
@@ -956,10 +2492,18 @@ class VantageUI(ParserWindow):
                 self.update_skin(confirm=False, background=True)
             else:
                 self._focus_after_operation(
-                    self.update_button, initiating=initiating)
+                    self.update_button, initiating=initiating,
+                    fallback=fallback, fallback_touched=fallback_touched)
         else:
             self._focus_after_operation(
-                self.update_button, initiating=initiating)
+                self.update_button, initiating=initiating,
+                fallback=fallback, fallback_touched=fallback_touched,
+                restore_automatic_fallback=(action == "profile-sync"))
+        if sync_after and self.auto_apply_profiles.isChecked():
+            self._schedule_profile_sync(
+                sync_after, restore_focus=self._operation_announcements,
+                focus_control=(
+                    initiating if self._operation_announcements else None))
         if not self._busy:
             self._active_action = ""
             self._operation_announcements = True
@@ -968,8 +2512,11 @@ class VantageUI(ParserWindow):
     def _operation_failed(self, token, action, error):
         if token != self._operation_token:
             return
-        initiating = self._consume_initiating_control()
+        initiating, fallback, fallback_touched = \
+            self._consume_initiating_control()
         self._busy = False
+        if action == "local":
+            self._install_after_local = False
         if action == "check":
             self._install_after_check = False
         message = str(error or "Unknown error")
@@ -992,11 +2539,19 @@ class VantageUI(ParserWindow):
                 f"{message} Close any tool using that file and try again. "
                 "Do not reload the UI; installation did not complete.")
         elif permission:
-            self.elevation_button.show()
-            self._set_status(
-                "Windows denied write access. Nothing unsafe was changed. "
-                "Use the normal UAC button below or choose another valid installation; "
-                "Vantage will not change folder permissions.")
+            if action == "profile-sync":
+                self.profile_elevation_button.show()
+                self._profile_sync_timer.stop()
+                self._set_status(
+                    "VantageUI is installed, but Windows denied access to the "
+                    "character INIs. Use the normal UAC button below; every file "
+                    "will be backed up and Vantage will not change folder permissions.")
+            else:
+                self.elevation_button.show()
+                self._set_status(
+                    "Windows denied write access. Nothing unsafe was changed. "
+                    "Use the normal UAC button below or choose another valid installation; "
+                    "Vantage will not change folder permissions.")
         else:
             failed_action = self._install_action or action
             self._install_action = ""
@@ -1010,13 +2565,20 @@ class VantageUI(ParserWindow):
                 f"VantageUI operation failed at {self._progress_value} percent. "
                 f"{self.status.text()}")
         self._refresh_controls()
-        if permission:
+        if permission and action != "profile-sync":
             self._focus_after_operation(
-                self.elevation_button, initiating=initiating)
+                self.elevation_button, initiating=initiating,
+                fallback=fallback, fallback_touched=fallback_touched)
+        elif permission:
+            self._focus_after_operation(
+                self.profile_elevation_button, initiating=initiating,
+                fallback=fallback, fallback_touched=fallback_touched,
+                restore_automatic_fallback=(action == "profile-sync"))
         else:
             self._focus_after_operation(
-                self._retry_control(action, initiating),
-                initiating=initiating)
+                self._retry_control(action, initiating), initiating=initiating,
+                fallback=fallback, fallback_touched=fallback_touched,
+                restore_automatic_fallback=(action == "profile-sync"))
         self._active_action = ""
         self._operation_announcements = True
         self._progress_updates_enabled = True

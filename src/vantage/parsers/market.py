@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 from dataclasses import dataclass
+import functools
 import gzip
 import hashlib
 import hmac
@@ -30,7 +31,8 @@ from PySide6.QtWidgets import (
     QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
     QStackedWidget, QTabWidget, QSystemTrayIcon, QTableView, QTableWidget,
-    QTableWidgetItem, QSizePolicy, QToolButton, QVBoxLayout, QWidget)
+    QTableWidgetItem, QSizePolicy, QStyle, QStyleOptionButton, QToolButton,
+    QVBoxLayout, QWidget)
 
 from vantage.helpers import config, resource_path
 from vantage.helpers.audio import audio_muted, notification_sound, play_alert
@@ -67,6 +69,8 @@ ZAM_TIMEOUT_MS = 6500
 ZAM_MAX_RETRIES = 1
 P99_ITEM_TIMEOUT_MS = 6500
 P99_ITEM_MAX_RETRIES = 1
+P99_ENTITY_TIMEOUT_MS = 8000
+P99_ENTITY_MAX_RETRIES = 1
 PIGPARSE_URL = "https://pigparse.azurewebsites.net/ServerIndex/Green"
 P99_PLANNER_URL = "https://p99planner.com/items"
 GEAR_META_URL = "https://p99planner.com/data/meta.json"
@@ -109,7 +113,7 @@ def deliver_market_alert(app, title, message, sound_enabled=None):
         }.get(result_key, "delivery unavailable")
         if getattr(result, "state", "") == "blocked":
             reason = {
-                "window hidden": "Market window hidden",
+                "background audio off": "Background audio is off",
                 "muted": "Master mute",
                 "master volume 0%": "Master volume 0%",
             }.get(getattr(result, "reason", ""),
@@ -141,7 +145,9 @@ def deliver_market_alert(app, title, message, sound_enabled=None):
     if sound_enabled:
         sounded = play_alert(
             notification_sound("market_sale"), MARKET_ALERT_VOLUME, 1,
-            source=title, allow_hidden=True)
+            source=title, channel="market", allow_hidden=True,
+            visual_registered=app is not None and hasattr(
+                app, "show_overlay_notification"))
         sound_state = (
             "sound played" if sounded else
             "sound muted" if audio_muted() else
@@ -377,6 +383,26 @@ def gear_item_summary_html(item):
     return "<br>".join(groups) or "No numeric stats or effects are listed."
 
 
+def wiki_item_stats_html(stats, effects=()):
+    """Escape a Wiki stat block while linking only its effect names."""
+    rendered = html.escape(str(stats or "No stats available."))
+    for effect in effects or ():
+        if not isinstance(effect, dict):
+            continue
+        name = " ".join(str(effect.get("name") or "").split())
+        target = " ".join(str(effect.get("target") or name).split())
+        escaped_name = html.escape(name)
+        if not escaped_name or escaped_name not in rendered:
+            continue
+        anchor = (
+            '<a href="vantage://wiki/effect/' + quote(target, safe="") +
+            '" style="color:#F2D784;text-decoration:underline;" '
+            'title="Open what ' + html.escape(name, quote=True) +
+            ' does">' + escaped_name + '</a>')
+        rendered = rendered.replace(escaped_name, anchor, 1)
+    return rendered.replace("\n", "<br>")
+
+
 def _gear_mask_labels(mask, options):
     """Return readable class, race, or slot labels for one equipment mask."""
     return tuple(
@@ -454,6 +480,7 @@ def considered_name(text):
 P99_ITEM_LINK_DELIMITER = "\x12"
 P99_CHAT_LIMIT = 255
 P99_LINK_RX = re.compile(r"\x12.{45} ?([^\x12]*)\x12")
+DISCORD_MESSAGE_LIMIT = 2000
 
 
 @dataclass(frozen=True, slots=True)
@@ -598,6 +625,43 @@ def compose_auction_lines(
     if group:
         lines.append(render_message(group))
     return lines
+
+
+def compose_discord_auction(entries, trade_type="WTS",
+                            max_length=DISCORD_MESSAGE_LIMIT):
+    """Build vertical Discord Markdown blocks with P99 Wiki item links."""
+    trade_type = "WTB" if str(trade_type).strip().upper() == "WTB" else "WTS"
+    maximum = max(120, min(DISCORD_MESSAGE_LIMIT, int(max_length or 0)))
+    item_lines = []
+    for entry in entries or ():
+        if not isinstance(entry, AuctionEntry):
+            entry = AuctionEntry(*entry)
+        name = " ".join(str(entry.name or "").split())
+        if not name:
+            continue
+        label = name.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+        slug = quote(name.replace(" ", "_"), safe="_")
+        details = []
+        if int(entry.quantity or 1) > 1:
+            details.append(f"{int(entry.quantity)}x")
+        price = normalize_auction_price(entry.price)
+        if price:
+            details.append(price)
+        suffix = f" — {' · '.join(details)}" if details else ""
+        item_lines.append(
+            f"[{label}]({P99_WIKI_URL.format(slug=slug)}){suffix}")
+    messages = []
+    current = trade_type
+    for line in item_lines:
+        candidate = f"{current}\n{line}"
+        if current != trade_type and len(candidate) > maximum:
+            messages.append(current)
+            current = f"{trade_type}\n{line}"
+        else:
+            current = candidate
+    if current != trade_type:
+        messages.append(current)
+    return messages
 
 
 def _wiki_cache_paths(name, server="Green"):
@@ -997,13 +1061,44 @@ def parse_wiki_item_wikitext(wikitext, fallback_name=""):
 
     item_name = _plain_wiki_text(field("itemname")) or fallback_name
     image_id = re.sub(r"\D", "", field("lucy_img_ID"))
-    stats = _plain_wiki_text(field("statsblock"))
+    raw_stats = field("statsblock")
+    stats = _plain_wiki_text(raw_stats)
+    numeric_stats = {}
+    for key, pattern in (
+            ("dmg", r"\b(?:DMG|Damage)\s*:\s*(-?\d+)\b"),
+            ("dly", r"\b(?:DLY|Delay)\s*:\s*(-?\d+)\b"),
+            ("ac", r"\bAC\s*:\s*(-?\d+)\b"),
+            ("hp", r"\bHP\s*:\s*(-?\d+)\b"),
+            ("mana", r"\bMana\s*:\s*(-?\d+)\b")):
+        match = re.search(pattern, stats, re.IGNORECASE)
+        if match:
+            try:
+                numeric_stats[key] = int(match.group(1))
+            except (TypeError, ValueError):
+                pass
+    effects = []
+    effect_lines = re.sub(
+        r"<br\s*/?>", "\n", raw_stats, flags=re.IGNORECASE).splitlines()
+    for line in effect_lines:
+        match = re.match(
+            r"\s*(?:Effect|Focus Effect|Worn Effect|Proc)\s*:\s*"
+            r"(?:\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|([^<(\r\n]+))",
+            line, re.IGNORECASE)
+        if not match:
+            continue
+        target = " ".join(str(match.group(1) or match.group(3) or "").split())
+        label = " ".join(str(match.group(2) or target).split())
+        if target and label and label.casefold() not in {
+                value["name"].casefold() for value in effects}:
+            effects.append({"name": label, "target": target})
     notes = _plain_wiki_text(field("notes"))
     if len(notes) > 600:
         notes = notes[:597].rsplit(" ", 1)[0] + "…"
     return {
         "name": item_name,
         "stats": stats or "The page does not contain a stat block.",
+        "numeric_stats": numeric_stats,
+        "effects": effects,
         "image": f"Item_{image_id}.png" if image_id else "",
         "drops": _parse_wiki_drops(source),
         "related_quests": _parse_wiki_related_quests(source),
@@ -1269,6 +1364,7 @@ def parse_wiki_entity_wikitext(wikitext, fallback_name="", kind="npc"):
             "kind": "NPC",
             "facts": facts,
             "drops": drops,
+            "related_quests": _parse_wiki_related_quests(source),
             "summary": summary or "The Wiki does not include a short description.",
         }
 
@@ -1288,6 +1384,68 @@ def parse_wiki_entity_wikitext(wikitext, fallback_name="", kind="npc"):
         "facts": facts,
         "summary": summary or "The Wiki does not include a short introduction.",
     }
+
+
+@functools.lru_cache(maxsize=512)
+def bundled_effect_entity_data(effect_name):
+    """Return an always-available effect card from bundled classic data.
+
+    The Wiki remains authoritative for slot mechanics and item-specific
+    duration. This local record keeps an item Effect link useful during a
+    transient network failure and gives the online refresh something honest
+    to improve instead of replacing the card with an error.
+    """
+    wanted = str(effect_name or "").strip().casefold()
+    if not wanted:
+        return {}
+    matches = []
+    try:
+        source = open(
+            resource_path("data/spells/spells_us.txt"), encoding="utf-8",
+            errors="replace")
+    except OSError:
+        return {}
+    with source:
+        for line in source:
+            values = line.rstrip("\r\n").split("^")
+            if len(values) <= 144 or values[1].strip().casefold() != wanted:
+                continue
+            matches.append(values)
+    if not matches:
+        return {}
+    # Duplicate classic rows exist. Prefer the oldest stable spell id; the
+    # live Wiki refresh supplies the exact current P99 item mechanics.
+    values = min(
+        matches, key=lambda row: int(row[0]) if row[0].isdigit() else 999999)
+    name = values[1].strip() or str(effect_name).replace("_", " ")
+    facts = [("Local source", "Bundled classic spell record")]
+    if values[0].strip():
+        facts.append(("Spell ID", values[0].strip()))
+    try:
+        cast_ms = int(values[13])
+    except (TypeError, ValueError):
+        cast_ms = 0
+    if cast_ms:
+        facts.append(("Casting", f"{cast_ms / 1000:g} seconds"))
+    try:
+        spell_type = int(values[83])
+    except (TypeError, ValueError, IndexError):
+        spell_type = -1
+    if spell_type in {0, 1}:
+        facts.append((
+            "Type", "Beneficial" if spell_type == 1 else "Detrimental"))
+    messages = []
+    for label, index in (("Cast on you", 6), ("Cast on other", 7),
+                         ("Wears off", 8)):
+        value = " ".join(values[index].split())
+        if value:
+            messages.append(f"{label}: {value}")
+    summary = (
+        "LOCAL EFFECT RECORD\n" + "\n".join(messages) +
+        "\n\nExact effect slots and item-specific duration refresh from "
+        "Project 1999 Wiki when the connection is available.")
+    return {"name": name, "kind": "EFFECT", "facts": facts,
+            "summary": summary}
 
 
 def _quality(item):
@@ -2157,9 +2315,17 @@ class WikiItemCard(UniformScaleDialog):
         self.stats.setAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.stats.setWordWrap(True)
+        self.stats.setTextFormat(Qt.TextFormat.RichText)
         self.stats.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.stats.setToolTip("Item stats from the P99 Wiki page")
+            Qt.TextInteractionFlag.TextBrowserInteraction)
+        self.stats.setOpenExternalLinks(False)
+        self.stats.linkActivated.connect(self._internal_wiki_link)
+        self.stats.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.stats.setAccessibleName("P99 item stats and effect links")
+        self.stats.setAccessibleDescription(
+            "Item stat block; linked spell or effect names open their internal Vantage card")
+        self.stats.setToolTip(
+            "Item stats from P99 Wiki · select an underlined effect name to open its details")
         card_layout.addWidget(self.stats, 3, 0, 1, 2)
 
         self.quest_use = QLabel(
@@ -2348,7 +2514,9 @@ class WikiItemCard(UniformScaleDialog):
         if not self._accept_source_token(token):
             return False
         self.name_label.setText(data.get("name") or self.item_name)
-        self.stats.setText(data.get("stats") or "No stats available.")
+        self.stats.setText(wiki_item_stats_html(
+            data.get("stats") or "No stats available.",
+            data.get("effects") or ()))
         self._p99_origin = {
             "drops": list(data.get("drops") or []),
             "related_quests": list(data.get("related_quests") or []),
@@ -2633,12 +2801,15 @@ class WikiItemCard(UniformScaleDialog):
 class WikiEntityCard(UniformScaleDialog):
     """In-app P99 Wiki summary for a drop NPC, zone, or item effect."""
 
+    source_retry_requested = Signal()
+
     def __init__(self, name, kind, parent=None):
         super().__init__(
             QSize(430, 310), parent, minimum_size=QSize(151, 109),
             initial_size=QSize(387, 279))
         self.target_name = name
         self.entity_kind = kind
+        self._has_entity_data = False
         self.wiki_url = _wiki_target_url(name)
         self.setObjectName("WikiEntityDialog")
         self.setWindowTitle(f"Vantage · {name}")
@@ -2676,30 +2847,51 @@ class WikiEntityCard(UniformScaleDialog):
         open_wiki.setToolTip(
             "Open the full Project 1999 Wiki page in your browser")
         open_wiki.clicked.connect(lambda: webbrowser.open(self.wiki_url))
+        retry = QPushButton("Retry")
+        retry.setIcon(game_icon("ph-reload"))
+        retry.setAccessibleName(f"Retry loading {name}")
+        retry.setToolTip(
+            "Refresh this card from Project 1999 Wiki; local cached data "
+            "remains visible if the connection fails")
+        retry.clicked.connect(self.source_retry_requested.emit)
+        self.retry_button = retry
         close = QPushButton("Close")
         close.setToolTip("Close this card")
         close.clicked.connect(self.close)
         actions = QHBoxLayout()
         actions.addStretch(1)
+        actions.addWidget(retry)
         actions.addWidget(open_wiki)
         actions.addWidget(close)
         outer.addLayout(actions)
 
-    def set_entity_data(self, data, cached=False):
+    def set_entity_data(self, data, cached=False, local=False):
+        self._has_entity_data = True
         self.name_label.setText(data.get("name") or self.target_name)
         facts = data.get("facts") or []
         self.facts.setText(" · ".join(
             f"{label}: {value}" for label, value in facts) or
             "No additional structured details.")
         self.summary.setText(data.get("summary") or "No description available.")
-        self.source.setText(
-            f"PROJECT 1999 WIKI · {data.get('kind', '').upper()} · " +
-            ("LOCAL CACHE" if cached else "UPDATED"))
+        if local:
+            self.source.setText(
+                f"LOCAL CLASSIC DATA · {data.get('kind', '').upper()} · "
+                "WIKI REFRESH PENDING")
+        else:
+            self.source.setText(
+                f"PROJECT 1999 WIKI · {data.get('kind', '').upper()} · " +
+                ("LOCAL CACHE" if cached else "UPDATED"))
 
     def set_error(self, message):
+        if self._has_entity_data:
+            self.source.setText("LOCAL DATA · WIKI REFRESH UNAVAILABLE")
+            self.source.setToolTip(
+                f"The local card remains usable. Refresh detail: {message}")
+            return
         self.source.setText("PROJECT 1999 WIKI · OFFLINE")
-        self.facts.setText("This card could not be loaded right now.")
-        self.summary.setText(str(message))
+        self.facts.setText("No local record is available for this page.")
+        self.summary.setText(
+            f"The online details could not be refreshed. {message}")
 
 
 class AuctionQuantity(QFrame):
@@ -2770,6 +2962,8 @@ class AuctionComposer(QWidget):
         self._raw_lines = []
         self._linked_lines = []
         self._copy_index = 0
+        self._discord_lines = []
+        self._discord_copy_index = 0
         self._token_target = None
         self._pending_hotbutton_install = None
         self._queued_hotbutton_install = None
@@ -3044,6 +3238,15 @@ class AuctionComposer(QWidget):
         self.preview_status.setToolTip(
             "EverQuest chat limit and the number of generated messages")
         preview_header.addWidget(self.preview_status, 1)
+        self.discord_copy_button = QPushButton("Copy Discord WTS")
+        self.discord_copy_button.setIcon(game_icon("copy"))
+        self.discord_copy_button.setEnabled(False)
+        self.discord_copy_button.setAccessibleName(
+            "Copy vertical Discord WTS message with item links")
+        self.discord_copy_button.setToolTip(
+            "Copy WTS as one item per line with clickable Project 1999 Wiki links")
+        self.discord_copy_button.clicked.connect(self.copy_discord_next)
+        preview_header.addWidget(self.discord_copy_button)
         self.clear_button = QPushButton("Clear")
         self.clear_button.setIcon(game_icon("delete"))
         self.clear_button.setToolTip("Remove all selected items")
@@ -3113,6 +3316,12 @@ class AuctionComposer(QWidget):
             ". Additional macros continue in the next open slots. If EQ is open, "
             "Vantage waits until it closes")
         self.copy_button.setText("Copy WTS" if selling else "Copy WTB")
+        self.discord_copy_button.setText(
+            "Copy Discord WTS" if selling else "Copy Discord WTB")
+        self.discord_copy_button.setAccessibleName(
+            f"Copy vertical Discord {trade_type} message with item links")
+        self.discord_copy_button.setToolTip(
+            f"Copy {trade_type} as one item per line with clickable Project 1999 Wiki links")
         self._sync_copy_button_accessibility()
         self.paste_note.setText(
             ("Copy WTS = plain text · Install WTS button = clickable hotbar."
@@ -3350,6 +3559,7 @@ class AuctionComposer(QWidget):
     def _rebuild(self, *_args):
         trade_type = "WTB" if self.trade_type.currentIndex() == 1 else "WTS"
         selected = self.selected_entries()
+        self._discord_copy_index = 0
         try:
             self._raw_lines = compose_auction_lines(
                 selected, trade_type,
@@ -3359,12 +3569,15 @@ class AuctionComposer(QWidget):
                 selected, trade_type,
                 self.message_template.text(), self.item_template.text(),
                 self.separator.text(), self.suffix.text(), clickable=True)
+            self._discord_lines = compose_discord_auction(selected, trade_type)
         except ValueError as error:
             self._raw_lines = []
             self._linked_lines = []
+            self._discord_lines = []
             self.preview.setPlainText("")
             self._set_preview_status(str(error))
             self.copy_button.setEnabled(False)
+            self.discord_copy_button.setEnabled(False)
             self.hotbutton_button.setEnabled(False)
             return
         previews = [
@@ -3372,11 +3585,15 @@ class AuctionComposer(QWidget):
             for index, line in enumerate(self._raw_lines)]
         self.preview.setPlainText("\n".join(previews))
         self.copy_button.setEnabled(bool(self._raw_lines))
+        self.discord_copy_button.setEnabled(bool(self._discord_lines))
         self._sync_hotbutton_enabled()
         if not self._raw_lines:
             self._set_preview_status("Choose one or more items")
             self.copy_button.setText(
                 "Copy WTB" if trade_type == "WTB" else "Copy WTS")
+            self.discord_copy_button.setText(
+                "Copy Discord WTB" if trade_type == "WTB" else
+                "Copy Discord WTS")
             self._sync_copy_button_accessibility()
             return
         self._copy_index %= len(self._raw_lines)
@@ -3398,6 +3615,29 @@ class AuctionComposer(QWidget):
             f"Copy {trade_type} {self._copy_index + 1}/{len(self._raw_lines)}")
         self._sync_copy_button_accessibility()
         self.copy_button.setEnabled(not too_long)
+
+    def copy_discord_next(self):
+        """Copy the next vertical Markdown block without sending externally."""
+        if not self._discord_lines:
+            return False
+        self._discord_copy_index %= len(self._discord_lines)
+        message = self._discord_lines[self._discord_copy_index]
+        if not _copy_plain_auction_text(message):
+            self._set_preview_status(
+                "Clipboard is busy · close another clipboard tool and try again",
+                announce=True)
+            return False
+        copied = self._discord_copy_index
+        self._discord_copy_index = (copied + 1) % len(self._discord_lines)
+        trade_type = "WTB" if self.trade_type.currentIndex() == 1 else "WTS"
+        self._set_preview_status(
+            f"Copied Discord {trade_type} {copied + 1}/{len(self._discord_lines)} · "
+            "paste into your channel",
+            announce=True)
+        self.discord_copy_button.setText(
+            f"Copy Discord {trade_type} {self._discord_copy_index + 1}/"
+            f"{len(self._discord_lines)}")
+        return True
 
     def refresh_prices(self):
         for row in range(self.items.rowCount()):
@@ -3605,11 +3845,36 @@ class AuctionComposer(QWidget):
             result.get("backup", "character.ini.vantage-backup"))
 
 
+class _MarketRefreshButton(QPushButton):
+    """Reserve the styled busy caption so refreshing never moves the search."""
+
+    def sizeHint(self):
+        self.ensurePolished()
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        metrics = self.fontMetrics()
+        option.text = max(
+            ("Refresh", "Refreshing…", self.text()),
+            key=lambda text: metrics.size(
+                Qt.TextFlag.TextShowMnemonic, text).width())
+        content = metrics.size(Qt.TextFlag.TextShowMnemonic, option.text)
+        if not option.icon.isNull():
+            # QPushButton uses this same icon/text gap in its native size hint.
+            content = QSize(
+                content.width() + option.iconSize.width() + 4,
+                max(content.height(), option.iconSize.height()))
+        stable = self.style().sizeFromContents(
+            QStyle.ContentsType.CT_PushButton, option, content, self)
+        return super().sizeHint().expandedTo(stable)
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
+
+
 class GreenMarket(ParserWindow):
     # Market contains search, filters and tables; click-through would make its
     # primary workflow impossible. Keep that overlay-only option out of here.
     _allow_clickthrough = False
-    _minimum_scale = 0.80
     def __init__(self):
         self.name = "market"
         super().__init__()
@@ -3636,6 +3901,7 @@ class GreenMarket(ParserWindow):
         self._network = QNetworkAccessManager(self)
         self._zam_inflight = {}
         self._p99_item_inflight = {}
+        self._p99_entity_inflight = {}
         self._model = MarketModel()
         self._proxy = MarketFilter()
         self._proxy.setSourceModel(self._model)
@@ -3697,11 +3963,14 @@ class GreenMarket(ParserWindow):
             "local /auction history is not changed")
         self.server_selector.currentTextChanged.connect(self._server_changed)
 
-        self._refresh_button = QPushButton("Refresh")
+        self._refresh_button = _MarketRefreshButton("Refresh")
         self._refresh_button.setIcon(game_icon("refresh"))
         self._refresh_button.setToolTip(
-            f"Refresh prices from PigParse {self._server}")
-        self._refresh_button.clicked.connect(self.refresh)
+            f"Refresh PigParse {self._server} prices and retry verified P99 "
+            "item stats")
+        self._refresh_button.setAccessibleName(
+            "Refresh market prices and verified item stats")
+        self._refresh_button.clicked.connect(self._refresh_all_sources)
         self._sources_button = QPushButton("Sources")
         self._sources_button.setIcon(game_icon("layers"))
         self._sources_button.setToolTip(
@@ -3747,6 +4016,9 @@ class GreenMarket(ParserWindow):
         self.gear_status = QLabel("Loading P99 metadata…")
         self.gear_status.setObjectName("MarketGearSource")
         self.gear_status.setWordWrap(True)
+        self.gear_status.setAccessibleName(self.gear_status.text())
+        self.gear_status.setAccessibleDescription(
+            "Current availability of the verified P99 item stats index")
         self.gear_status.setToolTip(
             "Class, race, slot, stats, and effect names come from the local "
             "P99 item index and are matched by item name; PigParse supplies prices.")
@@ -4096,6 +4368,19 @@ class GreenMarket(ParserWindow):
         if self._toggled and not self._loaded_online:
             self.refresh()
 
+    def _refresh_all_sources(self):
+        """Retry independently verified item stats and market prices."""
+        self._refresh_gear_index()
+        self.refresh()
+
+    def _set_gear_status(self, text, description=""):
+        text = str(text)
+        self.gear_status.setText(text)
+        self.gear_status.setAccessibleName(text)
+        self.gear_status.setAccessibleDescription(
+            str(description).strip() or
+            "Current availability of the verified P99 item stats index")
+
     def _zone_explorer_page(self):
         """Build the compact P99 zone browser inside Market."""
         page = QWidget()
@@ -4266,7 +4551,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(requested.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.125")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_finished(
             reply, requested, cached_path))
@@ -4279,7 +4564,7 @@ class GreenMarket(ParserWindow):
             payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
             parsed = payload.get("parse")
             if not isinstance(parsed, dict):
-                raise ValueError("zone not found on P99 Wiki")
+                raise ValueError("Wiki zone page unavailable")
             wikitext = parsed.get("wikitext", {})
             rendered = parsed.get("text", {})
             if isinstance(wikitext, dict):
@@ -4406,7 +4691,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(target.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.125")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_npc_drops_finished(
             reply, mob, target, key, cache_path))
@@ -4478,7 +4763,7 @@ class GreenMarket(ParserWindow):
         name = str(self._zone_data.get("name") or "")
         app = QApplication.instance()
         maps = getattr(app, "_parsers_dict", {}).get("maps")
-        if not maps or not maps._load_zone(name):
+        if not maps or not maps._preview_zone(name):
             self.zone_summary.setText(
                 f"No bundled Vantage map matches {name}.")
             return False
@@ -4590,6 +4875,10 @@ class GreenMarket(ParserWindow):
 
     def _market_table(self):
         table = QTableView()
+        table.setObjectName("MarketPriceTable")
+        table.setAccessibleName("PigParse market prices")
+        table.setAccessibleDescription(
+            "Sortable P99 market price results. Select a row to inspect the item.")
         table.setModel(self._proxy)
         table.setSortingEnabled(True)
         table.sortByColumn(0, Qt.SortOrder.AscendingOrder)
@@ -4611,6 +4900,10 @@ class GreenMarket(ParserWindow):
 
     def _gear_table(self):
         table = QTableView()
+        table.setObjectName("MarketGearTable")
+        table.setAccessibleName("P99 item gear and stat results")
+        table.setAccessibleDescription(
+            "Sortable P99 item results with stats, effects, prices, drops, and quests.")
         table.setModel(self._gear_proxy)
         table.setSortingEnabled(True)
         table.sortByColumn(3, Qt.SortOrder.DescendingOrder)
@@ -4726,7 +5019,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.125")
         reply = self._network.get(request)
         timer = QTimer(self)
         timer.setSingleShot(True)
@@ -4811,7 +5104,7 @@ class GreenMarket(ParserWindow):
             return None
         request = QNetworkRequest(QUrl(safe_url))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.125")
         reply = self._network.get(request)
         timer = QTimer(self)
         timer.setSingleShot(True)
@@ -4908,20 +5201,50 @@ class GreenMarket(ParserWindow):
         card.show()
         card.raise_()
         cache_path = _wiki_entity_cache_path(target, kind)
+        loaded = False
         try:
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
             card.set_entity_data(cached, cached=True)
+            loaded = True
         except (OSError, ValueError, json.JSONDecodeError):
             pass
+        if not loaded and kind == "effect":
+            local = bundled_effect_entity_data(target)
+            if local:
+                card.set_entity_data(local, local=True)
+        card.source_retry_requested.connect(
+            lambda: self._request_wiki_entity(
+                card, cache_path, target, kind))
+        self._request_wiki_entity(card, cache_path, target, kind)
+        return card
 
+    def _request_wiki_entity(self, card, cache_path, target, kind):
+        token = int(getattr(card, "_entity_request_token", 0)) + 1
+        card._entity_request_token = token
+        for reply, context in tuple(self._p99_entity_inflight.items()):
+            if context.get("card") is card:
+                try:
+                    reply.abort()
+                except RuntimeError:
+                    self._p99_entity_inflight.pop(reply, None)
+        card.retry_button.setEnabled(False)
+        self._wiki_entity_request(
+            card, cache_path, target, kind, token, attempt=0)
+
+    def _wiki_entity_request(
+            self, card, cache_path, target, kind, token, attempt):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.125")
+        request.setTransferTimeout(P99_ENTITY_TIMEOUT_MS)
         reply = self._network.get(request)
-        reply.finished.connect(lambda: self._wiki_entity_finished(
-            reply, card, cache_path, target, kind))
-        return card
+        context = {
+            "card": card, "cache_path": cache_path, "target": target,
+            "kind": kind, "token": token, "attempt": attempt}
+        self._p99_entity_inflight[reply] = context
+        reply.finished.connect(lambda: self._wiki_entity_finished(reply))
+        return reply
 
     def _considered_entity(self, name):
         context = getattr(self, '_character_context', None)
@@ -4949,9 +5272,15 @@ class GreenMarket(ParserWindow):
         self._last_consider_name = name
         self._consider_card = self._show_wiki_entity(name, name, 'npc')
 
-    @staticmethod
-    def _wiki_entity_finished(reply, card, cache_path, target, kind):
+    def _wiki_entity_finished(self, reply):
+        context = self._p99_entity_inflight.pop(reply, None)
+        if context is None:
+            reply.deleteLater()
+            return
+        card = context["card"]
         try:
+            if int(getattr(card, "_entity_request_token", -1)) != context["token"]:
+                return
             if reply.error() != QNetworkReply.NetworkError.NoError:
                 raise ValueError(reply.errorString())
             payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
@@ -4962,16 +5291,31 @@ class GreenMarket(ParserWindow):
             if isinstance(wikitext, dict):
                 wikitext = wikitext.get("*", "")
             data = parse_wiki_entity_wikitext(
-                wikitext, fallback_name=target, kind=kind)
+                wikitext, fallback_name=context["target"],
+                kind=context["kind"])
             card.set_entity_data(data)
-            cache_path.write_text(json.dumps(data), encoding="utf-8")
+            context["cache_path"].write_text(
+                json.dumps(data), encoding="utf-8")
         except (OSError, RuntimeError, UnicodeError, ValueError,
                 json.JSONDecodeError) as error:
             try:
-                card.set_error(str(error))
+                if context["attempt"] < P99_ENTITY_MAX_RETRIES:
+                    QTimer.singleShot(
+                        0, lambda values=context: self._wiki_entity_request(
+                            values["card"], values["cache_path"],
+                            values["target"], values["kind"],
+                            values["token"], values["attempt"] + 1))
+                else:
+                    card.set_error(str(error))
             except RuntimeError:
                 pass
         finally:
+            try:
+                if (context["attempt"] >= P99_ENTITY_MAX_RETRIES or
+                        reply.error() == QNetworkReply.NetworkError.NoError):
+                    card.retry_button.setEnabled(True)
+            except RuntimeError:
+                pass
             reply.deleteLater()
 
     def _wiki_item_finished(
@@ -5006,7 +5350,7 @@ class GreenMarket(ParserWindow):
                     filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.68")
+                    "Vantage/1.44.125")
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
                     lambda: self._wiki_icon_finished(
@@ -5167,7 +5511,7 @@ class GreenMarket(ParserWindow):
                 [item.name for item in items])
             self._set_stat_sort(self.stat_sort.currentData())
             self._rebuild_mobile_items()
-            self.gear_status.setText(
+            self._set_gear_status(
                 f"P99 item index · {len(items):,} stats + effects")
             self._update_gear_summary()
             return True
@@ -5194,8 +5538,10 @@ class GreenMarket(ParserWindow):
             stats = {}
             effects = []
             gear_id = 0
+            peq_id = 0
             if isinstance(metadata, GearItem):
                 gear_id = metadata.id
+                peq_id = metadata.peqId
                 stats = {
                     key: metadata.stat(key) for key in (
                         "ac", "hp", "mana", "astr", "asta", "adex",
@@ -5216,11 +5562,15 @@ class GreenMarket(ParserWindow):
                 "classes": classes,
                 "races": races,
                 "slots": slots,
+                "class_names": _gear_mask_labels(classes, CLASS_BITS),
+                "race_names": _gear_mask_labels(races, RACE_BITS),
+                "slot_names": _gear_mask_labels(slots, SLOT_BITS),
                 "nodrop": bool(metadata.nodrop) if isinstance(
                     metadata, GearItem) else False,
                 "era": metadata.era if isinstance(metadata, GearItem) else "",
                 "id": item.get("i"),
                 "gear_id": gear_id,
+                "peq_id": peq_id,
                 "stats": stats,
                 "effects": effects,
                 "wiki_url": _wiki_target_url(name),
@@ -5259,7 +5609,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.125")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -5267,7 +5617,11 @@ class GreenMarket(ParserWindow):
         try:
             if reply.error() != QNetworkReply.NetworkError.NoError:
                 if not self._proxy.gear:
-                    self.gear_status.setText("P99 item stats unavailable")
+                    self._set_gear_status(
+                        "P99 item stats unavailable · source could not be "
+                        "checked · choose Refresh to try again",
+                        "The item-stat source could not be reached. Existing "
+                        "market prices remain available.")
                 return
             metadata = json.loads(bytes(reply.readAll()).decode("utf-8"))
             expected = str(metadata.get("sqlite", {}).get("sha256", ""))
@@ -5276,19 +5630,23 @@ class GreenMarket(ParserWindow):
             if cache.exists() and expected:
                 digest = hashlib.sha256(cache.read_bytes()).hexdigest()
                 if hmac.compare_digest(digest, expected):
-                    self.gear_status.setText(
+                    self._set_gear_status(
                         f"P99 item index · {len(self._gear_model.items):,} stats + effects · current")
                     return
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
                 QNetworkRequest.KnownHeaders.UserAgentHeader,
-                "Vantage/1.44.68")
+                "Vantage/1.44.125")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
         except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
             if not self._proxy.gear:
-                self.gear_status.setText("P99 item stats unavailable")
+                self._set_gear_status(
+                    "P99 item stats unavailable · source response was invalid "
+                    "· choose Refresh to try again",
+                    "The item-stat source returned invalid metadata. Existing "
+                    "market prices remain available.")
         finally:
             reply.deleteLater()
 
@@ -5309,15 +5667,30 @@ class GreenMarket(ParserWindow):
             pending.replace(target)
             if not self._load_gear_cache():
                 raise ValueError("the index could not be opened")
-            self.gear_status.setText(
+            self._set_gear_status(
                 f"P99 item index · {len(self._gear_model.items):,} stats + effects · updated")
         except (OSError, EOFError, ValueError, sqlite3.Error) as error:
             if self._gear_model.items:
-                self.gear_status.setText(
+                self._set_gear_status(
                     f"Cached P99 item index · {len(self._gear_model.items):,} "
                     "stats + effects · refresh deferred")
             else:
-                self.gear_status.setText(f"P99 item stats unavailable · {error}")
+                if str(error) == "data signature does not match":
+                    message = (
+                        "P99 item stats unavailable · verification failed · "
+                        "choose Refresh to try again")
+                    description = (
+                        "Vantage rejected item-stat data whose published "
+                        "signature did not match. PigParse prices remain "
+                        "available; Refresh safely retries both sources.")
+                else:
+                    message = (
+                        "P99 item stats unavailable · download failed · "
+                        "choose Refresh to try again")
+                    description = (
+                        f"Verified item stats could not be loaded: {error}. "
+                        "PigParse prices remain available.")
+                self._set_gear_status(message, description)
         finally:
             reply.deleteLater()
 
@@ -5584,7 +5957,8 @@ class GreenMarket(ParserWindow):
             f"Filters PigParse {server} prices and the shared P99 item metadata "
             "while you type")
         self._refresh_button.setToolTip(
-            f"Refresh prices from PigParse {server}")
+            f"Refresh PigParse {server} prices and retry verified P99 item "
+            "stats")
         self._detail_button.setToolTip(
             f"Open the selected item's full PigParse {server} history")
         self._wiki_button.setToolTip(
@@ -5643,7 +6017,7 @@ class GreenMarket(ParserWindow):
         self.status.setText(f"Refreshing PigParse {server}…")
         request = QNetworkRequest(QUrl(market_endpoint(server)))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.125")
         reply = self._network.get(request)
         reply.setProperty("market_server", server)
         reply.finished.connect(lambda: self._finished(reply))
@@ -5771,7 +6145,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(market_detail_api(server).format(
             item_name=quote(name, safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.125")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.setProperty("market_server", server)

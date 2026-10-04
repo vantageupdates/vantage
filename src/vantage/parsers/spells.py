@@ -8,16 +8,19 @@ import re
 import sqlite3
 import time
 from collections import deque
+from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QPainter
+from PySide6.QtGui import (
+    QAccessible, QAccessibleAnnouncementEvent, QColor, QDesktopServices,
+    QPainter)
 from PySide6.QtNetwork import (
     QNetworkAccessManager, QNetworkReply, QNetworkRequest)
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QComboBox,
-                             QFileDialog, QFrame, QHBoxLayout, QInputDialog,
-                             QLabel, QMenu, QProgressBar, QScrollArea,
-                             QSpinBox, QSizePolicy, QToolButton, QVBoxLayout,
-                             QPushButton, QWidget)
+                             QCheckBox, QFileDialog, QFrame, QHBoxLayout,
+                             QInputDialog, QLabel, QMenu, QProgressBar,
+                             QScrollArea, QSpinBox, QSizePolicy, QToolButton,
+                             QVBoxLayout, QPushButton, QWidget)
 
 from vantage.helpers.parser import ParserWindow
 from vantage.helpers import config, format_time, resource_path, text_time_to_seconds
@@ -29,15 +32,21 @@ from vantage.helpers.boats import (
 from vantage.helpers.icons import game_icon, game_pixmap
 from vantage.helpers.log_events import extract_killed_mob
 from vantage.helpers.portable import data_dir, store_portable_file
-from vantage.helpers.respawn_catalog import named_spawn_for
+from vantage.helpers.respawn_catalog import NAMED_SPAWN_CATALOG, named_spawn_for
 from vantage.helpers.spell_icons import (
     spell_icon_pixmap, spell_icon_coordinates)
+from vantage.helpers.timer_sync import (
+    LEGACY_UNKNOWN_REGEN_NAMES, record_explicit_timer_removals,
+    record_local_timer_state, sanitize_timer_rows, timer_identity)
 from vantage.helpers.trigger_groups import (
     effective_trigger_style, group_enabled, normalize_trigger_color)
 
 
 TOKEN_RX = re.compile(r"\{([A-Za-z][A-Za-z0-9_]*)\}")
 GROUP_REF_RX = re.compile(r"\$(?:\{(\d+)\}|(\d+))")
+EXTERNAL_CAST_RX = re.compile(
+    r"^(?P<mob>[A-Za-z0-9'` .-]{1,80}?) begins to cast a spell\.$",
+    re.IGNORECASE)
 DISCIPLINE_COOLDOWN_RX = re.compile(
     r"^You can use the ability (?P<name>[\w` ]+) again in "
     r"(?P<minutes>\d+) (?:minute\(s\)|minutes?) "
@@ -50,6 +59,7 @@ ITEM_GLOW_RX = re.compile(
     r"^Your (?P<item>[A-Z][^.]*?) "
     r"(?:begin(?:s)? to glow(?:[^.]*)?|glows?(?:[^.]*))\.$")
 ITEM_CLICK_WINDOW_SECONDS = 15.0
+OWNED_CAST_EVIDENCE_SECONDS = 20.0
 CHARM_TARGET_WINDOW_SECONDS = 45.0
 # Log lines have one-second timestamps and the file reader polls independently
 # from Qt's timers. Keep a small late-arrival margin so a valid landing line
@@ -85,11 +95,90 @@ ITEM_CLICK_DURATION_SECONDS = {
 }
 # P99 omits the spell name when another player buffs you. A few landing lines
 # are shared by a whole spell family, so they cannot enter the normal unique
-# message index. Use the lowest common player spell as a truthful label rather
-# than allowing an unrelated item-only alias to claim the line.
+# message index. Keep the family identity without pretending the lowest rank
+# is authoritative; an exact cast from another tailed character log can later
+# replace the family row.
 AMBIGUOUS_EXTERNAL_SELF_BUFFS = {
     "you begin to regenerate.": "Regeneration",
 }
+REGENERATION_FAMILY = frozenset({
+    'regeneration', 'chloroplast', 'regrowth', 'pack chloroplast',
+    'regrowth of the grove', 'regeneration effect (rank unknown)',
+})
+P99_LEVEL_CAP = 60
+BARD_CLASS_INDEX = 7
+SHORT_BARD_TWIST_SECONDS = 30
+SELF_DIRECTED_EFFECT_RX = re.compile(
+    r'\b(?:you|your|yours|yourself)\b', re.IGNORECASE)
+
+
+def _is_explicit_self_effect(text):
+    """Return whether a landing sentence explicitly addresses this player."""
+    return bool(SELF_DIRECTED_EFFECT_RX.search(str(text or '')))
+
+
+def _shared_self_buff_family(spell):
+    """Return a stable identity for exact and unresolved shared-text buffs."""
+    explicit = str(getattr(spell, 'shared_buff_family', '') or '').strip()
+    if explicit:
+        return explicit.casefold()
+    if str(getattr(spell, 'name', '') or '').strip().casefold() in \
+            REGENERATION_FAMILY:
+        return 'regeneration'
+    return ''
+
+
+def _spell_runtime_key(spell):
+    """Return the stable, non-empty identity used for a rendered spell row.
+
+    P99 spell records commonly carry an existing but empty ``runtime_key``.
+    ``getattr(..., spell.name)`` does not apply its fallback in that case, so
+    every ordinary buff previously compared as the same empty key. Explicit
+    keys retain their exact semantics; only blank keys fall back to the
+    normalized visible spell name.
+    """
+    explicit = str(getattr(spell, 'runtime_key', '') or '').strip()
+    if explicit:
+        return explicit
+    return str(getattr(spell, 'name', '') or '').strip().casefold()
+
+
+def _spell_runtime_key_matches(spell, value):
+    """Match an external lookup without changing explicit-key case rules."""
+    requested = str(value or '').strip()
+    if not requested:
+        return False
+    explicit = str(getattr(spell, 'runtime_key', '') or '').strip()
+    return (_spell_runtime_key(spell) == requested if explicit else
+            _spell_runtime_key(spell) == requested.casefold())
+
+
+def _spell_duration_seconds(spell, level):
+    """Calculate a spell's live duration using the active character level."""
+    try:
+        explicit = int(getattr(spell, 'duration_seconds', 0) or 0)
+    except (TypeError, ValueError):
+        explicit = 0
+    if explicit > 0:
+        return explicit
+    return max(0, int(get_spell_duration(spell, level)) * 6)
+
+
+def _is_short_bard_twist(spell, level):
+    """Identify beneficial, castable Bard songs that churn every 30s or less."""
+    levels = tuple(getattr(spell, 'class_levels', ()) or ())
+    if len(levels) <= BARD_CLASS_INDEX:
+        return False
+    try:
+        bard_level = int(levels[BARD_CLASS_INDEX])
+        cast_time = int(getattr(spell, 'cast_time', 0) or 0)
+        beneficial = int(getattr(spell, 'type', 0) or 0) != 0
+    except (TypeError, ValueError):
+        return False
+    if not beneficial or cast_time <= 0 or not 0 < bard_level <= 65:
+        return False
+    seconds = _spell_duration_seconds(spell, level)
+    return 0 < seconds <= SHORT_BARD_TWIST_SECONDS
 
 
 def _focus_spell_control(widget):
@@ -207,13 +296,14 @@ def _external_self_buff_effects(spell_book, unique_messages):
     resolved = {}
     for message, spell in unique_messages.items():
         class_levels = tuple(getattr(spell, 'class_levels', ()) or ())
-        if (int(getattr(spell, 'type', 0) or 0) != 0 and
+        if (_is_explicit_self_effect(message) and
+                int(getattr(spell, 'type', 0) or 0) != 0 and
                 int(getattr(spell, 'duration_formula', 0) or 0) != 0 and
                 any(0 < int(level) <= 65 for level in class_levels)):
             resolved[str(message).strip().casefold()] = spell
     for message, spell_name in AMBIGUOUS_EXTERNAL_SELF_BUFFS.items():
         spell = spell_book.get(spell_name)
-        if spell is not None:
+        if spell is not None and _is_explicit_self_effect(message):
             resolved[message.casefold()] = spell
     return resolved
 
@@ -290,6 +380,78 @@ def render_trigger_text(template, match, trigger):
     return GROUP_REF_RX.sub(numeric_group, rendered) if match else rendered
 
 
+@functools.lru_cache(maxsize=1)
+def _bundled_p99_npc_names():
+    """Return conservative external-caster evidence shipped with Vantage.
+
+    Classic EQ's cast line does not identify whether a single title-cased name
+    belongs to a player or NPC. The P99 named-spawn catalog and in-game map
+    labels provide a bounded local allow-list for those ambiguous names.
+    Lowercase/common multiword NPC names are handled without this scan.
+    """
+    names = {
+        entry.npc_name.strip().casefold()
+        for entry in NAMED_SPAWN_CATALOG.values()
+        if entry.npc_name.strip()
+    }
+    try:
+        map_root = Path(resource_path('data/maps/map_files'))
+        for path in map_root.glob('*.txt'):
+            try:
+                lines = path.read_text(
+                    encoding='utf-8', errors='ignore').splitlines()
+            except OSError:
+                continue
+            for line in lines:
+                if not line.startswith('P '):
+                    continue
+                fields = line.split(',', 7)
+                if len(fields) != 8:
+                    continue
+                label = fields[-1].strip().replace('_', ' ')
+                label = re.sub(r'\s*\([^)]*\)\s*$', '', label).strip()
+                if 0 < len(label) <= 80:
+                    names.add(label.casefold())
+    except (OSError, TypeError, ValueError):
+        pass
+    return frozenset(names)
+
+
+def external_npc_cast_actor(text, active_character=''):
+    """Extract a safely attributable NPC from a classic P99 cast-start line.
+
+    ``You begin casting <spell>.`` is the player's distinct self-cast form and
+    can never match. For the ambiguous external ``begins to cast a spell``
+    form, lowercase/common multiword names are strong NPC evidence. A lone
+    title-cased name must exist in Vantage's bundled P99 NPC/map catalog.
+    """
+    match = EXTERNAL_CAST_RX.fullmatch(str(text or '').strip())
+    if not match:
+        return ''
+    actor = ' '.join(match.group('mob').split())
+    folded = actor.casefold()
+    character = ' '.join(str(active_character or '').split()).casefold()
+    if (not actor or folded == 'you' or folded.startswith('your ') or
+            (character and character != 'configureme' and
+             (folded == character or folded.startswith(character + ' ')))):
+        return ''
+    if (actor[0].islower() or ' ' in actor or
+            folded in _bundled_p99_npc_names()):
+        return actor
+    return ''
+
+
+def trigger_match_allowed(trigger, match, text, active_character=''):
+    """Apply narrow safety filters used by predefined trigger definitions."""
+    if not match:
+        return False
+    if getattr(trigger, 'match_filter', '') == 'external_npc_cast':
+        actor = external_npc_cast_actor(text, active_character)
+        captured = str(match.groupdict().get('mob') or '').strip()
+        return bool(actor and actor.casefold() == captured.casefold())
+    return True
+
+
 def dynamic_timer_seconds(match):
     """Resolve a GINA-style ``{ts}`` capture into seconds."""
     if not match:
@@ -320,8 +482,6 @@ class Spells(ParserWindow):
     """Tracks spell casting, duration, and targets by name."""
 
     spell_faded = Signal(str, str)
-    _keep_header_readable = True
-    _minimum_readable_width = 210
 
     def __init__(self):
         self.name = "spells"
@@ -341,6 +501,10 @@ class Spells(ParserWindow):
         self._casting = None  # holds Spell when casting
         self._zoning = None  # holds time of zone or None
         self._spell_trigger = None
+        # One application consumes several tailed character logs. Keep a
+        # bounded derived record of owned casts so an intervening cast from a
+        # different log cannot erase exact cross-log attribution evidence.
+        self._recent_owned_casts = deque(maxlen=32)
         self._pending_charm = None
         self._pending_item_click = None
         self._item_self_effects = _anchorless_self_click_effects(
@@ -375,12 +539,49 @@ class Spells(ParserWindow):
         self._runtime_state_save_timer.setInterval(200)
         self._runtime_state_save_timer.timeout.connect(
             self._persist_runtime_timer_state)
+        # Once an update handoff has been verified, the exact active rows are
+        # immutable for the few milliseconds between launching the updater and
+        # QApplication.aboutToQuit.  Widget teardown and late sync callbacks
+        # must not turn that authoritative checkpoint into an empty snapshot.
+        self._update_handoff_rows = None
         self._spell_container.state_changed.connect(
             self._schedule_runtime_timer_state_save)
+        self._spell_container.timer_rows_removed.connect(
+            self._record_runtime_timer_removals)
+        self._migrate_legacy_unknown_regeneration()
         self._refresh_character_profiles()
         self._restore_runtime_timer_state()
         QApplication.instance().aboutToQuit.connect(
             self._persist_runtime_timer_state)
+
+    def _migrate_legacy_unknown_regeneration(self):
+        """Remove only the old non-authoritative unknown-regen sentinel."""
+        changed = False
+        spells = config.data.get('spells', {})
+        rows = spells.get('active_timer_state', [])
+        cleaned_rows = sanitize_timer_rows(rows)
+        if cleaned_rows != rows:
+            spells['active_timer_state'] = cleaned_rows
+            changed = True
+        profiles = config.data.get('general', {}).get(
+            'character_profiles', {})
+        if isinstance(profiles, dict):
+            for profile in profiles.values():
+                if not isinstance(profile, dict):
+                    continue
+                saved = profile.get('saved_you_spells', [])
+                if not isinstance(saved, list):
+                    continue
+                cleaned = [
+                    item for item in saved
+                    if not (isinstance(item, dict) and str(
+                        item.get('name') or '').strip().casefold() in
+                        LEGACY_UNKNOWN_REGEN_NAMES)]
+                if cleaned != saved:
+                    profile['saved_you_spells'] = cleaned
+                    changed = True
+        if changed and getattr(config, '_filename', ''):
+            config.save()
 
     def _setup_ui(self):
         self._spell_container = SpellContainer()
@@ -425,6 +626,7 @@ class Spells(ParserWindow):
             config.data['spells'].get('show_boat_schedules', False))
         self._boat_toggle.setAccessibleName('Show P99 boat schedules')
         self._boat_toggle.setProperty('HeaderPriority', 1)
+        self._boat_toggle.setProperty('HeaderAlwaysVisible', True)
         self._boat_toggle.setToolTip(
             'Show or hide compact P99 boat arrivals; use the arrow to refresh or inspect the PigParse source')
         self._boat_toggle.setPopupMode(
@@ -502,6 +704,27 @@ class Spells(ParserWindow):
         profile_layout.addWidget(self._add_character_button, 0)
         profile_layout.addWidget(self._level_widget, 0)
         self.content.insertWidget(1, self._profile_bar, 0)
+        self._active_sync_row = QWidget()
+        self._active_sync_row.setObjectName('SpellActiveSyncRow')
+        sync_layout = QHBoxLayout(self._active_sync_row)
+        sync_layout.setContentsMargins(3, 1, 3, 1)
+        sync_layout.setSpacing(2)
+        self._active_sync_toggle = QCheckBox('Sync buffs across PCs')
+        self._active_sync_toggle.setObjectName('SpellActiveSyncToggle')
+        self._active_sync_toggle.setChecked(
+            config.data.get('device_sync', {}).get(
+                'sync_active_spells', True))
+        self._active_sync_toggle.setAccessibleName(
+            'Sync active buffs with paired PCs')
+        self._active_sync_toggle.setToolTip(
+            'On: active buffs follow the paired PC with the latest real '
+            'EverQuest log activity for each character. Off: this PC neither '
+            'sends nor receives active buffs; Smart Timers are unaffected.')
+        self._active_sync_toggle.toggled.connect(
+            self._toggle_active_spell_sync)
+        sync_layout.addWidget(self._active_sync_toggle, 0)
+        sync_layout.addStretch(1)
+        self.content.insertWidget(2, self._active_sync_row, 0)
         self._camp_state = ''
         self._update_profile_bar_density()
 
@@ -593,7 +816,7 @@ class Spells(ParserWindow):
             outcome = (
                 f"{spell_name} {outcome_labels[kind]}"
                 if spell_name and kind in outcome_labels else message)
-            queue_notice(outcome, target_name)
+            queue_notice(outcome, target_name, channel='spells')
         while len(self._event_pills) > 3:
             self._dismiss_spell_event(self._event_pills[-1])
         self._event_tray.show()
@@ -606,15 +829,22 @@ class Spells(ParserWindow):
 
     def _line_has_custom_audio(self, text):
         """Avoid playing both a row-fade sound and a matching trigger sound."""
+        if not config.data.get('spells', {}).get('use_custom_triggers', True):
+            return False
         active_character = (
             self._active_character or
             config.data.get('sharing', {}).get('player_name', ''))
         for rx, _end_rxs, trigger in self._custom_timers:
             match = rx.match(text)
+            if not trigger_match_allowed(
+                    trigger, match, text, active_character):
+                continue
             captured_character = (
                 match.groupdict().get('c') if match else '')
             if (match and trigger.enabled and
-                    (trigger.sound_path or trigger.tts_text) and
+                    self._custom_trigger_has_audio(
+                        trigger, 'basic', trigger.sound_path,
+                        trigger.tts_text) and
                     group_enabled(
                         config.data['spells'], trigger.category,
                         active_character) and
@@ -749,6 +979,43 @@ class Spells(ParserWindow):
     def _spell_for_active_profile(self, source):
         spell = copy.copy(source)
         spell.runtime_level = self._active_cast_level()
+        # Short Bard twists are useful as a live visual when this player cast
+        # them, but warning/fade noise and cross-device persistence turn normal
+        # song rotation into a notification storm.
+        spell.transient_silent = _is_short_bard_twist(
+            spell, spell.runtime_level)
+        return spell
+
+    def _external_self_spell(self, source, landing_text):
+        """Create an honest max-level estimate when EQ hides caster details."""
+        family_name = AMBIGUOUS_EXTERNAL_SELF_BUFFS.get(
+            str(landing_text or '').strip().casefold(), '')
+        if family_name == 'Regeneration':
+            # Every player-cast rank uses the same landing and worn-off lines.
+            # Use the longest P99 player rank as an upper-bound so the row can
+            # never expire after 78 seconds merely because the recipient's
+            # profile level is unknown. EQ's worn-off line remains decisive.
+            estimate_source = (
+                self.spell_book.get('Regrowth of the Grove') or source)
+            spell = copy.copy(estimate_source)
+            spell.name = 'regeneration effect (rank unknown)'
+            spell.runtime_key = 'regeneration'
+            spell.shared_buff_family = 'regeneration'
+            spell.duration_seconds = _spell_duration_seconds(
+                estimate_source, P99_LEVEL_CAP)
+            spell.external_detection_note = (
+                'External regeneration family · exact rank hidden by the '
+                'recipient EQ log · upper-bound duration; worn-off is exact')
+            spell.guard_initial_worn_off = True
+            spell.source_item = ''
+            spell.item_only = False
+            spell.runtime_level = P99_LEVEL_CAP
+            return spell
+        spell = copy.copy(source)
+        spell.runtime_level = P99_LEVEL_CAP
+        spell.external_detection_note = (
+            'External buff · duration estimated at the P99 level cap because '
+            'the recipient EQ log does not report the caster level')
         return spell
 
     def _schedule_runtime_timer_state_save(self):
@@ -757,14 +1024,49 @@ class Spells(ParserWindow):
     def _persist_runtime_timer_state(self):
         self.checkpoint_runtime_state()
 
+    def begin_update_handoff(self):
+        """Freeze and return the exact active rows handed to the updater."""
+        self._update_handoff_rows = None
+        self.checkpoint_runtime_state()
+        self._update_handoff_rows = copy.deepcopy(
+            config.data['spells'].get('active_timer_state', []))
+        return copy.deepcopy(self._update_handoff_rows)
+
+    def cancel_update_handoff(self):
+        """Resume ordinary persistence when an update never launches."""
+        self._update_handoff_rows = None
+
     def checkpoint_runtime_state(self):
         """Synchronously preserve every active buff before an app handoff."""
         self._runtime_state_save_timer.stop()
-        config.data['spells']['active_timer_state'] = \
-            self._spell_container.snapshot_runtime_state()
+        spells = config.data['spells']
+        if self._update_handoff_rows is not None:
+            current_rows = copy.deepcopy(self._update_handoff_rows)
+        else:
+            current_rows = self._spell_container.snapshot_runtime_state()
+        rows, metadata = record_local_timer_state(
+            spells.get('active_timer_state', []),
+            current_rows,
+            spells.get('active_timer_sync', {}))
+        spells['active_timer_state'] = rows
+        spells['active_timer_sync'] = metadata
         if getattr(config, '_filename', ''):
             config.save()
-        return len(config.data['spells']['active_timer_state'])
+        return len(rows)
+
+    def _record_runtime_timer_removals(self, removed_rows):
+        """Persist only removal events captured before their widgets detach."""
+        if self._update_handoff_rows is not None:
+            # Removal signals emitted while Qt tears down the window are not
+            # gameplay evidence. The replacement process will age the frozen
+            # absolute deadlines and resume normal authoritative removals.
+            return
+        spells = config.data['spells']
+        rows, metadata = record_explicit_timer_removals(
+            spells.get('active_timer_state', []), removed_rows,
+            spells.get('active_timer_sync', {}))
+        spells['active_timer_state'] = rows
+        spells['active_timer_sync'] = metadata
 
     def _restore_runtime_timer_state(self):
         saved = config.data['spells'].get('active_timer_state', [])
@@ -773,8 +1075,13 @@ class Spells(ParserWindow):
         # Drop expired or malformed rows immediately. Absolute deadlines mean
         # the remaining values are already current after any offline interval.
         cleaned = self._spell_container.snapshot_runtime_state()
-        if cleaned != saved:
+        if self._runtime_sync_signature(cleaned) != \
+                self._runtime_sync_signature(saved):
+            cleaned, metadata = record_local_timer_state(
+                saved, cleaned,
+                config.data['spells'].get('active_timer_sync', {}))
             config.data['spells']['active_timer_state'] = cleaned
+            config.data['spells']['active_timer_sync'] = metadata
             if getattr(config, '_filename', ''):
                 config.save()
         return restored
@@ -808,13 +1115,93 @@ class Spells(ParserWindow):
             return False
         if target_index in trigger.delivered_target_indexes:
             return False
-        spell = self._spell_for_active_profile(trigger.spell)
+        owner_character = str(getattr(
+            trigger, 'owner_character', '') or '').strip().casefold()
+        recipient_character = str(getattr(
+            self, '_active_character', '') or '').strip().casefold()
+        if (owner_character and recipient_character and
+                owner_character != recipient_character and
+                target_name != '__you__'):
+            # Another tailed log can prove only that its own character
+            # received the cast. Its nearby explicit-other messages do not
+            # belong to the caster's pending group/target window.
+            return False
+        # The spell and caster level belong to the log that opened the cast,
+        # not whichever recipient log supplied this landing line. This lets a
+        # Druid log name Regrowth of the Grove correctly on an SK log.
+        spell = copy.copy(trigger.spell)
+        if (target_name == '__you__' and owner_character and
+                recipient_character and owner_character != recipient_character):
+            # A cross-log landing can be the replacement generation while the
+            # recipient log immediately emits the old generation's wear-off.
+            spell.guard_initial_worn_off = True
         self._spell_container.add_spell(
             spell, timestamp, target_name,
             getattr(self, '_active_character', ''),
             getattr(self, '_active_server', ''),
             named=self._is_named_target(target_name))
         trigger.delivered_target_indexes.add(target_index)
+        if int(getattr(trigger.spell, 'max_targets', 1) or 1) == 1:
+            evidence = getattr(trigger, '_owned_evidence', None)
+            if evidence is not None:
+                try:
+                    self._recent_owned_casts.remove(evidence)
+                except ValueError:
+                    pass
+        return True
+
+    def _remember_owned_cast(self, timestamp, spell):
+        evidence = {
+            'timestamp': timestamp,
+            'spell': copy.copy(spell),
+            'character': str(getattr(self, '_active_character', '') or ''),
+            'server': str(getattr(self, '_active_server', '') or ''),
+        }
+        self._recent_owned_casts.append(evidence)
+        return evidence
+
+    def _consume_cross_log_self_landing(self, timestamp, text):
+        """Resolve a self landing from an exact cast in another tailed log."""
+        if not _is_explicit_self_effect(text):
+            return False
+        recipient = str(getattr(self, '_active_character', '') or '').strip()
+        server = str(getattr(self, '_active_server', '') or '').strip()
+        folded = str(text or '').strip().casefold()
+        matches = []
+        retained = deque(maxlen=self._recent_owned_casts.maxlen)
+        for evidence in self._recent_owned_casts:
+            try:
+                age = (timestamp - evidence['timestamp']).total_seconds()
+            except (KeyError, TypeError, AttributeError):
+                continue
+            if age < 0 or age > OWNED_CAST_EVIDENCE_SECONDS:
+                continue
+            retained.append(evidence)
+            spell = evidence.get('spell')
+            caster = str(evidence.get('character') or '').strip()
+            caster_server = str(evidence.get('server') or '').strip()
+            if (not spell or not caster or not recipient or
+                    caster.casefold() == recipient.casefold() or
+                    (server and caster_server and
+                     server.casefold() != caster_server.casefold()) or
+                    str(getattr(spell, 'effect_text_you', '') or '').strip(
+                    ).casefold() != folded):
+                continue
+            expected = max(
+                0.0, float(getattr(spell, 'cast_time', 0) or 0) / 1000.0)
+            matches.append((abs(age - expected), -age, evidence))
+        self._recent_owned_casts = retained
+        if not matches:
+            return False
+        evidence = min(matches, key=lambda item: (item[0], item[1]))[2]
+        try:
+            self._recent_owned_casts.remove(evidence)
+        except ValueError:
+            pass
+        spell = copy.copy(evidence['spell'])
+        spell.guard_initial_worn_off = True
+        self._spell_container.add_spell(
+            spell, timestamp, '__you__', recipient, server)
         return True
 
     def _consume_charm_activity(self, timestamp, text):
@@ -900,8 +1287,12 @@ class Spells(ParserWindow):
         # for a few seconds instead of disappearing without an explanation.
         custom_worn_audio = self._line_has_custom_audio(text)
         faded = self._spell_container.mark_worn_off(
-            text, timestamp, play_sound=False)
-        if faded:
+            text, timestamp, play_sound=False,
+            character=getattr(self, '_active_character', ''),
+            server=getattr(self, '_active_server', ''))
+        silent_transient = bool(
+            faded and getattr(faded, 'transient_silent', False))
+        if faded and not silent_transient:
             target = faded.parentWidget()
             target_name = (
                 target.target_label.text()
@@ -913,11 +1304,14 @@ class Spells(ParserWindow):
             self._push_spell_event(
                 event_kind, getattr(faded.spell, 'name', 'Spell'),
                 target_name)
-            if not custom_worn_audio:
+            # A generation that already delivered its final fading alert must
+            # not emit another sound or voice when its worn-off line arrives.
+            if not custom_worn_audio and faded.claim_final_fade_alert():
                 faded._play_fade_alert(
                     notice=(f"{getattr(faded.spell, 'name', 'Spell')} worn off" +
                             (f" · {target_name}" if target_name else "")),
-                    route_key='spell_worn_off', register=False)
+                    route_key='spell_worn_off', register=False,
+                    phase='final')
             self.spell_faded.emit(
                 str(getattr(target, 'name', '')),
                 str(getattr(faded.spell, 'name', 'Spell')))
@@ -934,11 +1328,34 @@ class Spells(ParserWindow):
         if config.data['spells']['use_custom_triggers']:
             for rx, end_rxs, ct in self._custom_timers:
                 evaluation_started = time.perf_counter_ns()
-                if any(end_rx.match(text) for end_rx in end_rxs):
+                active_character = (
+                    self._active_character or
+                    config.data['sharing'].get('player_name', ''))
+                end_matches = [
+                    match for end_rx in end_rxs
+                    if (match := end_rx.match(text)) is not None]
+                if end_matches:
                     match_us = (
                         time.perf_counter_ns() - evaluation_started) / 1000.0
                     removed = False
                     for run_key in self._trigger_run_keys(ct):
+                        run = self._trigger_runs[run_key]
+                        character = str(run.get('character') or '').strip()
+                        if (not Spells._trigger_delivery_enabled(
+                                    run['trigger'], character) or
+                                (character and active_character and
+                                 character.casefold() !=
+                                 active_character.casefold()) or
+                                (ct.zone and ct.zone.casefold() !=
+                                 self._current_zone.casefold())):
+                            continue
+                        if not any(
+                                not end_match.groupdict().get('c') or
+                                not character or
+                                end_match.groupdict()['c'].casefold() ==
+                                character.casefold()
+                                for end_match in end_matches):
+                            continue
                         removed = self._end_trigger_run(run_key) or removed
                     if removed:
                         self._record_trigger_match(
@@ -948,12 +1365,10 @@ class Spells(ParserWindow):
                 match = rx.match(text)
                 match_us = (
                     time.perf_counter_ns() - evaluation_started) / 1000.0
-                active_character = (
-                    self._active_character or
-                    config.data['sharing'].get('player_name', ''))
                 captured_character = (
                     match.groupdict().get('c') if match else '')
-                if (match and ct.enabled and
+                if (match and trigger_match_allowed(
+                            ct, match, text, active_character) and ct.enabled and
                         group_enabled(
                             config.data['spells'], ct.category,
                             active_character) and
@@ -964,12 +1379,25 @@ class Spells(ParserWindow):
                          active_character.casefold()) and
                         (not ct.zone or ct.zone.casefold() == self._current_zone.casefold())):
                     now = time.monotonic()
-                    if now - ct.last_fired < 0.75:
+                    match_key = (
+                        str(match.groupdict().get('mob') or '').casefold()
+                        if ct.match_filter == 'external_npc_cast' else '')
+                    last_fired = (
+                        ct.last_fired_by_key.get(match_key, 0.0)
+                        if match_key else ct.last_fired)
+                    if now - last_fired < ct.match_cooldown_seconds:
                         continue
                     if (ct.counter_reset_seconds and ct.last_fired and
                             now - ct.last_fired > ct.counter_reset_seconds):
                         ct.counter = 0
                     ct.last_fired = now
+                    if match_key:
+                        ct.last_fired_by_key[match_key] = now
+                        if len(ct.last_fired_by_key) > 128:
+                            oldest = min(
+                                ct.last_fired_by_key,
+                                key=ct.last_fired_by_key.get)
+                            ct.last_fired_by_key.pop(oldest, None)
                     ct.counter += 1
                     ct.runtime_character = active_character
                     timer_name = render_trigger_text(
@@ -1031,36 +1459,31 @@ class Spells(ParserWindow):
                         else:
                             output.append("Existing timer kept")
                     app = QApplication.instance()
-                    has_audio = bool(ct.sound_path or ct.tts_text)
+                    rendered_speech = render_trigger_text(
+                        ct.tts_text, match, ct)
+                    has_audio = self._custom_trigger_has_audio(
+                        ct, 'basic', ct.sound_path, rendered_speech)
+                    has_notice = bool(has_audio or ct.alert_text or (
+                        ct.audio_muted and
+                        ct.configured_audio_delivery('basic') != 'off'))
                     outcome_already_registered = bool(
                         faded or
                         SPELL_WORN_OFF_RX.match(str(text or '').strip()) or
                         SPELL_RESIST_RX.match(str(text or '').strip()) or
                         str(text or '').strip().casefold() in CHARM_BREAK_LINES)
-                    if has_audio and not outcome_already_registered:
+                    if has_notice and not outcome_already_registered:
                         app._queue_quickbar_notice(
                             render_trigger_text(ct.alert_text, match, ct)
-                            if ct.alert_text else f'{timer_name} matched')
-                    if ct.sound_path:
-                        play_alert(
-                            ct.sound_path,
-                            config.data['spells']['fade_sound_volume'], 1,
-                            source=f"Trigger · {timer_name}",
-                            character=active_character,
-                            server=getattr(self, '_active_server', ''),
+                            if ct.alert_text else f'{timer_name} matched',
                             channel='spells')
-                        output.append(
-                            f"Sound · {sound_display_name(ct.sound_path)}")
-                    elif ct.tts_text:
-                        speak_text(
-                            render_trigger_text(ct.tts_text, match, ct),
-                            config.data['spells']['fade_sound_volume'],
-                            ct.interrupt_speech,
-                            source=f"Trigger · {timer_name} · speech",
-                            character=active_character,
-                            server=getattr(self, '_active_server', ''),
-                            channel='spells')
-                        output.append("Text-to-speech")
+                    audio_output = self._deliver_custom_trigger_audio(
+                        ct, 'basic', ct.sound_path, rendered_speech,
+                        ct.interrupt_speech, f"Trigger · {timer_name}",
+                        active_character,
+                        getattr(self, '_active_server', ''),
+                        visual_registered=has_notice)
+                    if audio_output:
+                        output.append(audio_output)
                     if ct.clipboard_text:
                         QApplication.clipboard().setText(
                             render_trigger_text(ct.clipboard_text, match, ct))
@@ -1087,7 +1510,8 @@ class Spells(ParserWindow):
                             character=active_character,
                             text_color=self._trigger_text_color(
                                 ct, active_character),
-                            register=not has_audio)
+                            register=not has_notice,
+                            quickbar_channel='spells')
                         output.append(f"{ct.overlay_id.title()} overlay")
                     self._record_trigger_match(
                         timestamp, ct, text, " · ".join(output) or "Matched",
@@ -1116,6 +1540,9 @@ class Spells(ParserWindow):
                 # effect is fixed at twelve minutes.  Let the owned glow line
                 # select the indexed item effect before the landing is timed.
                 indexed_spell = self.spell_book.get(indexed_spell_name)
+                if indexed_spell is not None:
+                    indexed_spell = self._spell_for_active_profile(
+                        indexed_spell)
                 self._spell_trigger.mark_item_cast(
                     item_name, timestamp, indexed_spell)
         elif not item_triggers_enabled:
@@ -1125,8 +1552,16 @@ class Spells(ParserWindow):
         if self._spell_trigger:
             spell_line_consumed = bool(
                 self._spell_trigger.parse(timestamp, text))
+        if spell_line_consumed and self._pending_item_click:
+            # The exact cast/item trigger consumed its own landing. Do not let
+            # that stale ownership anchor block a later instant click.
+            self._pending_item_click = None
+        cross_log_landing = False
+        if not spell_line_consumed:
+            cross_log_landing = self._consume_cross_log_self_landing(
+                timestamp, text)
         if (item_triggers_enabled and not item_glow and
-                not spell_line_consumed):
+                not spell_line_consumed and not cross_log_landing):
             self._consume_item_effect(timestamp, text)
 
         # Initial Spell Cast and trigger setup
@@ -1139,9 +1574,14 @@ class Spells(ParserWindow):
                     self._pending_charm = None
 
                 spell_trigger = SpellTrigger(
-                    spell=spell,
-                    timestamp=timestamp
+                    spell=self._spell_for_active_profile(spell),
+                    timestamp=timestamp,
+                    owner_character=str(
+                        getattr(self, '_active_character', '') or ''),
+                    owner_server=str(getattr(self, '_active_server', '') or '')
                 )
+                spell_trigger._owned_evidence = self._remember_owned_cast(
+                    timestamp, spell_trigger.spell)
                 spell_trigger.target_detected.connect(
                     self._spell_target_detected)
                 spell_trigger.spell_triggered.connect(self._spell_triggered)
@@ -1175,7 +1615,7 @@ class Spells(ParserWindow):
             if event_kind == 'RESIST':
                 QApplication.instance().notify_event(
                     'spell_resisted', f'{failed_spell.name} resisted',
-                    overlay=False, register=False,
+                    overlay=False, register=False, visual_registered=True,
                     character=getattr(self, '_active_character', ''),
                     server=getattr(self, '_active_server', ''),
                     channel='spells')
@@ -1190,7 +1630,7 @@ class Spells(ParserWindow):
             self._push_spell_event('RESIST', resist_name)
             QApplication.instance().notify_event(
                 'spell_resisted', f'{resist_name} resisted',
-                overlay=False, register=False,
+                overlay=False, register=False, visual_registered=True,
                 character=getattr(self, '_active_character', ''),
                 server=getattr(self, '_active_server', ''), channel='spells')
 
@@ -1230,12 +1670,25 @@ class Spells(ParserWindow):
             else:
                 item_name = pending[1]
 
+        # Without an owned cast/item anchor, a log sentence can only describe
+        # this character when its grammar explicitly says you/your/yours.
+        # This prevents nearby players' and NPCs' effects from leaking into
+        # the active character's self-buff list.
+        if not pending and not _is_explicit_self_effect(text):
+            return False
+
         preferred = pending[2] if pending and len(pending) > 2 else ''
         landing = self._item_effect_landing(
             text, include_other=bool(pending), preferred_spell=preferred)
         if not landing:
             return False
         spell, target, indexed_item = landing
+        # An unanchored landing can come from any nearby Bard's group song.
+        # Only this player's preceding cast (or an observed item glow) is
+        # authoritative enough to create a rapidly cycling song timer.
+        if not pending and _is_short_bard_twist(
+                spell, self._active_cast_level()):
+            return False
         # Without a glow/cast anchor, accept only the dedicated P99-indexed
         # instant-self lookup. The item-only flag alone is too broad because
         # NPC-only spells can share otherwise ordinary landing messages.
@@ -1250,9 +1703,13 @@ class Spells(ParserWindow):
             if not player_buff and not indexed_click:
                 return False
         self._pending_item_click = None
-        detected = _item_effect_spell(spell, indexed_item or item_name)
+        if not pending and player_buff:
+            detected = self._external_self_spell(spell, text)
+        else:
+            detected = _item_effect_spell(spell, indexed_item or item_name)
         detected.source_item = indexed_item or item_name
-        detected.runtime_level = self._active_cast_level()
+        if not getattr(detected, 'runtime_level', 0):
+            detected.runtime_level = self._active_cast_level()
         self._spell_container.add_spell(
             detected, timestamp, target,
             getattr(self, '_active_character', ''),
@@ -1262,7 +1719,9 @@ class Spells(ParserWindow):
 
     def _item_effect_landing(
             self, text, include_other=False, preferred_spell=''):
-        preferred = self.spell_book.get(str(preferred_spell or ''))
+        preferred_name = str(preferred_spell or '').strip()
+        preferred = (
+            self.spell_book.get(preferred_name) if preferred_name else None)
         if preferred and preferred.duration_formula != 0:
             if preferred.effect_text_you and text == preferred.effect_text_you:
                 return preferred, '__you__', ''
@@ -1271,16 +1730,22 @@ class Spells(ParserWindow):
                 target = text[:-len(preferred.effect_text_other)].strip()
                 if target:
                     return preferred, target, ''
+            # An owned item glow identifies one exact effect. A different
+            # nearby player's landing must never fall through to a generic
+            # clicky/other-effect lookup and borrow that ownership anchor.
+            return None
         external = self._external_self_effects.get(
             str(text or '').strip().casefold())
-        if external:
+        if (external and str(text or '').strip().casefold() not in
+                AMBIGUOUS_EXTERNAL_SELF_BUFFS):
             return external, '__you__', ''
         indexed = self._item_self_effects.get(
             str(text or '').strip().casefold())
         if indexed:
             return indexed[0], '__you__', indexed[1]
         spell = self.text_you.get(text)
-        if (spell and spell.effect_text_you and
+        if (spell and _is_explicit_self_effect(text) and
+                spell.effect_text_you and
                 spell.duration_formula != 0):
             return spell, '__you__', ''
         if include_other:
@@ -1317,6 +1782,11 @@ class Spells(ParserWindow):
         self._bard_group.set_enabled(enabled)
         if not enabled:
             self._bard_counter.reset()
+        active_sync = config.data.get('device_sync', {}).get(
+            'sync_active_spells', True)
+        self._active_sync_toggle.blockSignals(True)
+        self._active_sync_toggle.setChecked(bool(active_sync))
+        self._active_sync_toggle.blockSignals(False)
 
     def _flush_bard_counts(self):
         if not config.data['spells'].get('bard_count_enabled', False):
@@ -1331,27 +1801,30 @@ class Spells(ParserWindow):
                 'bard_count_overlay', True)
             speak = config.data['spells'].get('bard_count_audio', False)
             if speak and not show_overlay:
-                app._queue_quickbar_notice(summary.text)
+                app._queue_quickbar_notice(
+                    summary.text, channel='spells')
             if show_overlay:
                 app.show_overlay_notification(
                     'Bard AE Count', summary.text, msecs=5000,
                     overlay_id='alerts',
                     character=getattr(self, '_active_character', ''),
-                    text_color='#D2B873')
+                    text_color='#D2B873', quickbar_channel='spells')
             if speak:
                 speak_text(
                     summary.text,
-                    config.data['spells']['fade_sound_volume'], True,
+                    config.data['spells']['fade_sound_volume'],
                     source='Bard AE Count',
                     character=getattr(self, '_active_character', ''),
                     server=getattr(self, '_active_server', ''),
-                    channel='spells')
+                    channel='spells', visual_registered=True)
 
     def _trigger_run_keys(self, trigger):
         """Return every live internal run owned by one trigger definition."""
         return [
             key for key, run in self._trigger_runs.items()
-            if run.get('trigger') is trigger]
+            if run.get('trigger') is trigger or (
+                trigger.name and
+                getattr(run.get('trigger'), 'name', '') == trigger.name)]
 
     def _matching_trigger_runs(self, trigger, display_name):
         """Apply GINA's optional cross-trigger TimerName restart scope."""
@@ -1414,6 +1887,18 @@ class Spells(ParserWindow):
         }
 
     @staticmethod
+    def _trigger_delivery_enabled(trigger, character=''):
+        """Apply current monitoring settings to the original run character."""
+        settings = config.data.get('spells', {})
+        character = str(character or '').strip()
+        return bool(
+            settings.get('use_custom_triggers', True) and
+            trigger.enabled and
+            group_enabled(settings, trigger.category, character) and
+            (not trigger.profile or
+             trigger.profile.casefold() == character.casefold()))
+
+    @staticmethod
     def _trigger_text_color(trigger, character=''):
         style = effective_trigger_style(
             config.data['spells'], trigger.category,
@@ -1422,7 +1907,9 @@ class Spells(ParserWindow):
 
     def _show_trigger_run_overlay(self, run, remaining=None):
         trigger = run['trigger']
-        if trigger.overlay_id == 'none':
+        if (trigger.overlay_id == 'none' or
+                not Spells._trigger_delivery_enabled(
+                    trigger, run.get('character', ''))):
             return
         duration = run['duration'] if remaining is None else max(
             1, int(math.ceil(remaining)))
@@ -1436,10 +1923,53 @@ class Spells(ParserWindow):
                 else 'countdown'),
             character=run.get('character', ''),
             text_color=self._trigger_text_color(
-                trigger, run.get('character', '')))
+                trigger, run.get('character', '')),
+            quickbar_channel='spells')
+
+    @staticmethod
+    def _custom_trigger_has_audio(trigger, stage, sound, speech):
+        mode = trigger.audio_delivery(stage)
+        return bool(
+            (mode == 'sound' and str(sound or '').strip()) or
+            (mode == 'tts' and str(speech or '').strip()))
+
+    def _deliver_custom_trigger_audio(
+            self, trigger, stage, sound, speech, interrupt, source,
+            character='', server='', visual_registered=False):
+        """Deliver exactly one explicitly selected audio action."""
+        if not Spells._trigger_delivery_enabled(trigger, character):
+            return ''
+        mode = trigger.audio_delivery(stage)
+        if mode == 'sound' and str(sound or '').strip():
+            play_alert(
+                sound, config.data['spells']['fade_sound_volume'], 1,
+                source=source, character=character, server=server,
+                channel='spells', visual_registered=visual_registered)
+            return f"Sound · {sound_display_name(sound)}"
+        if mode != 'tts' or not str(speech or '').strip():
+            return ''
+        settings = trigger.speech_settings(stage)
+        configured_mode = (
+            trigger.delivery if stage == 'basic' else
+            getattr(trigger, f'timer_{stage}_delivery', 'legacy'))
+        # Old trigger rows inherit the historical trigger-volume slider.
+        # Once Delivery is explicitly saved, the phase owns its TTS volume.
+        volume = (
+            config.data['spells']['fade_sound_volume']
+            if configured_mode == 'legacy' else settings['volume'])
+        speak_text(
+            speech, volume, interrupt,
+            source=f'{source} · speech', character=character,
+            server=server, channel='spells',
+            voice_name=settings['voice_name'], pitch=settings['pitch'],
+            visual_registered=visual_registered)
+        return 'Text-to-speech'
 
     def _fire_trigger_stage(self, run, stage):
         trigger = run['trigger']
+        if not Spells._trigger_delivery_enabled(
+                trigger, run.get('character', '')):
+            return
         if stage == 'ending':
             text = run['ending_text']
             sound = trigger.timer_ending_sound
@@ -1454,24 +1984,18 @@ class Spells(ParserWindow):
             label = 'Timer ended'
         outputs = []
         app = QApplication.instance()
-        has_audio = bool(sound or speech)
+        has_audio = self._custom_trigger_has_audio(
+            trigger, stage, sound, speech)
         semantic = text or f"{run['name']} · {label}"
-        if has_audio:
-            app._queue_quickbar_notice(semantic)
-        if sound:
-            play_alert(
-                sound, config.data['spells']['fade_sound_volume'], 1,
-                source=f"Trigger · {run['name']} · {label}",
-                character=run.get('character', ''),
-                server=run.get('server', ''), channel='spells')
-            outputs.append(f"Sound · {sound_display_name(sound)}")
-        elif speech:
-            speak_text(
-                speech, config.data['spells']['fade_sound_volume'], interrupt,
-                source=f"Trigger · {run['name']} · {label} speech",
-                character=run.get('character', ''),
-                server=run.get('server', ''), channel='spells')
-            outputs.append('Text-to-speech')
+        # Audio Off/mute does not suppress the event's written counterpart.
+        app._queue_quickbar_notice(semantic, channel='spells')
+        audio_output = self._deliver_custom_trigger_audio(
+            trigger, stage, sound, speech, interrupt,
+            f"Trigger · {run['name']} · {label}",
+            run.get('character', ''), run.get('server', ''),
+            visual_registered=True)
+        if audio_output:
+            outputs.append(audio_output)
         if text and trigger.overlay_id != 'none':
             app.show_overlay_notification(
                 f"{run['name']} · {label}", text, msecs=4500,
@@ -1479,7 +2003,7 @@ class Spells(ParserWindow):
                 character=run.get('character', ''),
                 text_color=self._trigger_text_color(
                     trigger, run.get('character', '')),
-                register=not has_audio)
+                register=False, quickbar_channel='spells')
             outputs.append('Overlay')
         if outputs:
             self._record_trigger_match(
@@ -1552,22 +2076,25 @@ class Spells(ParserWindow):
             getattr(widget, 'runtime_character', '') or '').strip().casefold()
         widget_server = str(
             getattr(widget, 'runtime_server', '') or '').strip().casefold()
-        if character and widget_character and character != widget_character:
+        if character and character != widget_character:
             return False
-        if server and widget_server and server != widget_server:
+        if server and server != widget_server:
             return False
         return True
 
     def snapshot_you_spells(self, character='', server='', now=None):
-        """Capture exact remaining self-buff seconds for camp restoration."""
+        """Capture self buffs with deadlines that keep aging while offline."""
         target = self._spell_container.get_spell_target_by_name('__you__')
         if not target:
             return []
         now = now or datetime.datetime.now()
+        now_epoch = time.time()
         saved = []
         for widget in target.spell_widgets():
             if not self._spell_widget_matches_profile(
                     widget, character, server):
+                continue
+            if getattr(widget, 'transient_silent', False):
                 continue
             seconds = int(math.ceil(
                 (widget.end_time - now).total_seconds()))
@@ -1575,6 +2102,11 @@ class Spells(ParserWindow):
                 saved.append({
                     'name': widget.spell.name,
                     'seconds': min(seconds, 7 * 24 * 60 * 60),
+                    'deadline': now_epoch + min(
+                        seconds, 7 * 24 * 60 * 60),
+                    'warning_played': bool(widget._warning_played),
+                    'final_warning_played': bool(
+                        widget._final_warning_played),
                 })
         return saved[:128]
 
@@ -1586,7 +2118,9 @@ class Spells(ParserWindow):
         removed = 0
         for widget in list(target.spell_widgets()):
             if self._spell_widget_matches_profile(widget, character, server):
-                widget._remove()
+                # Camp temporarily clears the rendered rows, but the saved
+                # character snapshot must survive for the next login.
+                widget._remove(authoritative=False)
                 removed += 1
         self._spell_container._sync_empty_state()
         return removed
@@ -1603,18 +2137,278 @@ class Spells(ParserWindow):
                 continue
             source = lookup.get(str(item.get('name') or '').casefold())
             try:
-                remaining = int(item.get('seconds', 0))
-            except (TypeError, ValueError):
+                deadline = float(item.get('deadline', 0) or 0)
+                remaining = int(math.ceil(deadline - time.time())) \
+                    if deadline > 0 else int(item.get('seconds', 0))
+            except (TypeError, ValueError, OverflowError):
                 remaining = 0
             if not source or remaining <= 0:
                 continue
             spell = Spell(**source.__dict__)
             spell.saved_remaining_seconds = min(
                 remaining, 7 * 24 * 60 * 60)
+            spell.saved_warning_played = bool(
+                item.get('warning_played', False))
+            spell.saved_final_warning_played = bool(
+                item.get('final_warning_played', False))
             self._spell_container.add_spell(
                 spell, timestamp, '__you__', character, server)
             restored += 1
         return restored
+
+    @staticmethod
+    def _runtime_sync_signature(rows):
+        signature = []
+        for item in rows if isinstance(rows, list) else ():
+            if not isinstance(item, dict):
+                continue
+            spell = item.get('spell') if isinstance(item.get('spell'), dict) \
+                else {}
+            try:
+                deadline = int(float(item.get('deadline') or 0))
+            except (TypeError, ValueError, OverflowError):
+                deadline = 0
+            signature.append((
+                str(item.get('target') or '').casefold(),
+                str(item.get('character') or '').casefold(),
+                str(item.get('server') or '').casefold(),
+                str(spell.get('runtime_key') or spell.get('name') or '').casefold(),
+                deadline,
+                bool(item.get('warning_played', False)),
+                bool(item.get('final_warning_played', False))))
+        return tuple(sorted(signature))
+
+    @staticmethod
+    def _preserve_local_warning_claims(incoming, current):
+        """Keep one device's delivered-warning claim for the same generation.
+
+        A device-sync refresh replaces every rendered row when any timer in the
+        profile changes.  Warning delivery is local UI state, so an otherwise
+        identical incoming generation must not reset it merely because the
+        peer has not delivered that warning itself.  A materially different
+        deadline is a real recast and remains unclaimed.
+        """
+        claimed = {}
+        for row in current if isinstance(current, list) else ():
+            if not isinstance(row, dict) or not (
+                    row.get('warning_played') or
+                    row.get('final_warning_played')):
+                continue
+            key = timer_identity(row)
+            try:
+                deadline = float(row.get('deadline', 0))
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if key and deadline > 0:
+                claimed[key] = (
+                    deadline,
+                    bool(row.get('warning_played', False)),
+                    bool(row.get('final_warning_played', False)))
+        merged = copy.deepcopy(incoming) if isinstance(incoming, list) else []
+        for row in merged:
+            if not isinstance(row, dict):
+                continue
+            key = timer_identity(row)
+            try:
+                deadline = float(row.get('deadline', 0))
+            except (TypeError, ValueError, OverflowError):
+                continue
+            # Restore/serialization can round the same absolute deadline by
+            # one second.  A genuine recast shifts it by far more than this.
+            if key in claimed and abs(deadline - claimed[key][0]) <= 1.1:
+                if claimed[key][1]:
+                    row['warning_played'] = True
+                if claimed[key][2]:
+                    row['final_warning_played'] = True
+        return merged
+
+    def _synced_focus_candidates(self):
+        """Return stable keys and controls in the visible spell-row order."""
+        candidates = []
+        for target in self._spell_container.spell_targets():
+            if target.isHidden():
+                continue
+            target_key = (
+                'target', str(target.name or '').casefold(),
+                str(target.instance_marker or '').casefold(),
+                int(target.created_order))
+            candidates.append((target_key, target.target_label))
+            for widget in target.spell_widgets():
+                if widget.isHidden() or widget._removed:
+                    continue
+                key = timer_identity({
+                    'target': target.name,
+                    'target_marker': target.instance_marker,
+                    'target_created_order': target.created_order,
+                    'character': widget.runtime_character,
+                    'server': widget.runtime_server,
+                    'spell': self._spell_container._spell_runtime_payload(
+                        widget.spell),
+                })
+                candidates.append((('timer', key), widget))
+        return candidates
+
+    def _capture_synced_focus(self):
+        focused = QApplication.focusWidget()
+        if (focused is None or
+                (focused is not self._spell_container and
+                 not self._spell_container.isAncestorOf(focused))):
+            return None
+        candidates = self._synced_focus_candidates()
+        for index, (key, control) in enumerate(candidates):
+            if focused is control or control.isAncestorOf(focused):
+                return key, index
+        return None
+
+    def _restore_synced_focus(self, anchor):
+        if anchor is None:
+            return
+        key, prior_index = anchor
+        candidates = self._synced_focus_candidates()
+        target = next(
+            (control for candidate_key, control in candidates
+             if candidate_key == key), None)
+        if target is None and candidates:
+            target = candidates[min(prior_index, len(candidates) - 1)][1]
+        if target is None:
+            target = getattr(self, '_character_widget', None)
+        if target is not None and target.isVisible() and target.isEnabled():
+            _focus_spell_control(target)
+
+    def refresh_synced_content(self):
+        """Refresh active buff/countdown rows after a newer device snapshot."""
+        saved = config.data.get('spells', {}).get('active_timer_state', [])
+        current = self._spell_container.snapshot_runtime_state()
+        saved = Spells._preserve_local_warning_claims(saved, current)
+        if self._runtime_sync_signature(saved) == \
+                self._runtime_sync_signature(current):
+            return 0
+        focus_anchor = self._capture_synced_focus()
+        self._runtime_state_save_timer.stop()
+        for target in list(self._spell_container.spell_targets()):
+            target.setParent(None)
+            target.deleteLater()
+        restored = self._spell_container.restore_runtime_state(
+            saved, self.spell_book)
+        cleaned = self._spell_container.snapshot_runtime_state()
+        if self._runtime_sync_signature(cleaned) != \
+                self._runtime_sync_signature(saved):
+            cleaned, metadata = record_local_timer_state(
+                saved, cleaned,
+                config.data['spells'].get('active_timer_sync', {}))
+            config.data['spells']['active_timer_state'] = cleaned
+            config.data['spells']['active_timer_sync'] = metadata
+        self._spell_container._sync_empty_state()
+        self._restore_synced_focus(focus_anchor)
+        return restored
+
+    def mobile_snapshot(self):
+        """Return active spell timers for the private mobile companion."""
+        now_epoch = time.time()
+        selected = self._selected_character_profile()
+        character = str(
+            getattr(self, '_active_character', '') or
+            selected.get('character') or '').strip()
+        server = str(
+            getattr(self, '_active_server', '') or
+            selected.get('server') or '').strip()
+        rows = []
+        seen = set()
+        for item in self._spell_container.snapshot_runtime_state(
+                now_epoch=now_epoch):
+            item_character = str(item.get('character') or '').strip()
+            item_server = str(item.get('server') or '').strip()
+            if character and item_character and \
+                    item_character.casefold() != character.casefold():
+                continue
+            if character and not item_character:
+                continue
+            if server and item_server and \
+                    item_server.casefold() != server.casefold():
+                continue
+            if server and not item_server:
+                continue
+            payload = item.get('spell') or {}
+            name = str(payload.get('name') or '').strip()
+            target = str(item.get('target') or '__you__').strip()
+            try:
+                remaining = max(0, int(math.ceil(
+                    float(item.get('deadline', 0)) - now_epoch)))
+                duration = max(remaining, int(
+                    payload.get('duration_seconds') or remaining))
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if not name or remaining <= 0:
+                continue
+            source = self.spell_book.get(name)
+            color = spell_progress_palette(source)[1] if source else '#477B91'
+            target_label = {
+                '__you__': 'You', '__custom__': 'Custom',
+                '__utility__': 'Utility',
+            }.get(target, str(item.get('target_alias') or target))
+            marker = str(item.get('target_marker') or '').strip()
+            if marker and target not in {'__you__', '__custom__', '__utility__'}:
+                target_label = f'{target_label} · {marker}'
+            key = (target.casefold(), name.casefold(),
+                   item_character.casefold(), item_server.casefold())
+            seen.add(key)
+            rows.append({
+                'key': '|'.join(key),
+                'name': name,
+                'target': target_label,
+                'remaining_seconds': remaining,
+                'remaining': self._mobile_time_text(remaining),
+                'progress': max(0, min(100, round(
+                    remaining / max(1, duration) * 100))),
+                'color': color,
+                'detrimental': target not in {
+                    '__you__', '__custom__', '__utility__'},
+                'source_item': str(payload.get('source_item') or ''),
+            })
+
+        # A completed camp intentionally removes rows from the live window.
+        # Keep the same character's still-current snapshot visible on mobile.
+        context = getattr(self, '_character_context', None)
+        if context and self._camp_state == 'camped':
+            for item in getattr(context, 'saved_you_spells', ()):
+                name = str(item.get('name') or '').strip()
+                try:
+                    remaining = max(0, int(math.ceil(
+                        float(item.get('deadline', 0)) - now_epoch)))
+                except (TypeError, ValueError, OverflowError):
+                    remaining = 0
+                key = ('__you__', name.casefold(), character.casefold(),
+                       server.casefold())
+                if not name or remaining <= 0 or key in seen:
+                    continue
+                source = self.spell_book.get(name)
+                color = spell_progress_palette(source)[1] if source else '#477B91'
+                rows.append({
+                    'key': '|'.join(key), 'name': name, 'target': 'You',
+                    'remaining_seconds': remaining,
+                    'remaining': self._mobile_time_text(remaining),
+                    'progress': 100, 'color': color, 'detrimental': False,
+                    'source_item': str(
+                        getattr(source, 'source_item', '') or ''),
+                })
+        rows.sort(key=lambda row: (
+            row['target'].casefold(), row['remaining_seconds'],
+            row['name'].casefold()))
+        return {
+            'character': character,
+            'server': server,
+            'camp_state': self._camp_state,
+            'timers': rows[:512],
+            'generated_at': int(now_epoch),
+        }
+
+    @staticmethod
+    def _mobile_time_text(seconds):
+        seconds = max(0, int(seconds))
+        hours, remainder = divmod(seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return (f'{hours:d}:{minutes:02d}:{seconds:02d}' if hours else
+                f'{minutes:d}:{seconds:02d}')
 
     def set_camp_status(self, state, character=''):
         """Show compact, silent feedback for the log-authoritative camp state."""
@@ -1682,6 +2476,11 @@ class Spells(ParserWindow):
             profile = dict(self._character_widget.itemData(profile_index) or {})
             profile['level'] = max(1, min(65, int(context.level)))
             self._character_widget.setItemData(profile_index, profile)
+        if context.character and profile_index >= 0 and \
+                self._character_widget.currentIndex() != profile_index:
+            # Log identity is authoritative: switching characters immediately
+            # switches the visible desktop and mobile buff profile.
+            self._character_widget.setCurrentIndex(profile_index)
         selected = self._selected_character_profile()
         selected_matches = bool(
             context.character and (
@@ -1725,8 +2524,10 @@ class Spells(ParserWindow):
         self._custom_timers = []
         previous_errors = dict(self._trigger_compile_errors)
         compile_errors = {}
+        definitions = {}
         for item in config.data['spells']['custom_timers']:
             ct = CustomTrigger(*item)
+            definitions[ct.name] = ct
             try:
                 rx = compile_trigger_pattern(
                     ct.text, '', ct.regex)
@@ -1746,6 +2547,26 @@ class Spells(ParserWindow):
                 continue
             self._custom_timers.append((rx, end_rxs, ct))
         self._trigger_compile_errors = compile_errors
+        # Running timers retain their deadlines and rendered target text, but
+        # monitoring and audio edits apply before the next timed delivery.
+        for run in self._trigger_runs.values():
+            running = run['trigger']
+            saved = definitions.get(running.name)
+            if saved is not None:
+                running.enabled = saved.enabled
+                running.category = saved.category
+                running.profile = saved.profile
+                running.audio_muted = saved.audio_muted
+                for stage in ('basic', 'ending', 'ended'):
+                    fields = (
+                        ('delivery', 'sound_path', 'tts_voice', 'tts_volume',
+                         'tts_pitch') if stage == 'basic' else
+                        tuple(f'timer_{stage}_{suffix}' for suffix in
+                              ('delivery', 'sound', 'voice', 'volume', 'pitch')))
+                    for field in fields:
+                        setattr(running, field, getattr(saved, field))
+            else:
+                running.enabled = False
 
     def _record_trigger_match(
             self, timestamp, trigger, line, output, status="Matched",
@@ -1795,11 +2616,14 @@ class Spells(ParserWindow):
                     match_us=match_us)
                 matches += 1
                 continue
-            if not match:
-                continue
-            trigger.runtime_character = (
+            active_character = (
                 self._active_character or
                 config.data.get('sharing', {}).get('player_name', ''))
+            if not trigger_match_allowed(
+                    trigger, match, line, active_character):
+                continue
+            trigger.runtime_character = (
+                active_character)
             rendered_name = render_trigger_text(trigger.name, match, trigger)
             outputs = []
             if trigger.timer_type != 'none':
@@ -1813,10 +2637,11 @@ class Spells(ParserWindow):
             if trigger.alert_text:
                 outputs.append(
                     f"overlay: {render_trigger_text(trigger.alert_text, match, trigger)}")
-            if trigger.tts_text:
+            delivery = trigger.audio_delivery('basic')
+            if delivery == 'tts' and trigger.tts_text:
                 outputs.append(
                     f"speech: {render_trigger_text(trigger.tts_text, match, trigger)}")
-            if trigger.sound_path:
+            if delivery == 'sound' and trigger.sound_path:
                 outputs.append(f"sound: {sound_display_name(trigger.sound_path)}")
             if trigger.clipboard_text:
                 outputs.append(
@@ -1839,6 +2664,19 @@ class Spells(ParserWindow):
         config.data['spells']['use_custom_triggers'] = \
             self._custom_timer_toggle.isChecked()
         config.save()
+
+    def _toggle_active_spell_sync(self, checked):
+        config.data.setdefault('device_sync', {})[
+            'sync_active_spells'] = bool(checked)
+        config.save()
+        app = QApplication.instance()
+        app_signals = getattr(app, '_signals', {})
+        settings_signals = (
+            app_signals.get('settings')
+            if isinstance(app_signals, dict) else None)
+        config_updated = getattr(settings_signals, 'config_updated', None)
+        if config_updated is not None:
+            config_updated.emit()
 
     def _boat_server_name(self):
         value = str(getattr(self, '_active_server', '') or '').casefold()
@@ -1876,7 +2714,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.68')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.125')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -2154,6 +2992,7 @@ class BardCountGroup(QFrame):
 class SpellContainer(QFrame):
 
     state_changed = Signal()
+    timer_rows_removed = Signal(object)
 
     def __init__(self):
         super().__init__()
@@ -2247,9 +3086,10 @@ class SpellContainer(QFrame):
                 widget_server = str(
                     getattr(widget, 'runtime_server', '') or '').strip().casefold()
                 matches = (
-                    not self._filter_character or not widget_character or
-                    (widget_character == self._filter_character and
-                     (not self._filter_server or not widget_server or
+                    (not self._filter_character and not self._filter_server) or
+                    ((not self._filter_character or
+                      widget_character == self._filter_character) and
+                     (not self._filter_server or
                       widget_server == self._filter_server)))
                 widget.setVisible(matches)
                 visible = visible or matches
@@ -2263,13 +3103,65 @@ class SpellContainer(QFrame):
             'duration_formula', 'pvp_duration', 'pvp_duration_formula', 'type',
             'spell_icon', 'skill', 'resist_type', 'effect_text_you',
             'effect_text_other', 'effect_text_worn_off', 'source_item',
-            'item_only', 'runtime_level')
+            'item_only', 'runtime_level', 'shared_buff_family',
+            'external_detection_note')
         payload = {}
         for field_name in fields:
-            value = getattr(spell, field_name, None)
+            value = (_spell_runtime_key(spell)
+                     if field_name == 'runtime_key' else
+                     getattr(spell, field_name, None))
             if isinstance(value, (str, int, float, bool)) or value is None:
                 payload[field_name] = value
         return payload
+
+    def _runtime_row_for_widget(
+            self, target, widget, now_epoch=None, now_datetime=None,
+            include_ended=False):
+        """Serialize one row, including its identity before explicit removal."""
+        if (not isinstance(target, SpellTarget) or
+                not isinstance(widget, SpellWidget) or
+                getattr(widget, 'transient_silent', False)):
+            return None
+        now_epoch = time.time() if now_epoch is None else float(now_epoch)
+        now_datetime = now_datetime or datetime.datetime.now()
+        remaining = (widget.end_time - now_datetime).total_seconds()
+        if not include_ended and (
+                widget._removed or widget._faded or remaining <= 0):
+            return None
+        return {
+            # Identity does not depend on the deadline. An ended/faded row
+            # still needs a positive placeholder so the shared sanitizer can
+            # validate the captured removal event.
+            'deadline': (
+                now_epoch + remaining if remaining > 0 else now_epoch + 0.001),
+            'target': target.name,
+            'target_created_order': target.created_order,
+            'target_activity_order': target.last_activity_order,
+            'target_named': target.is_named,
+            'target_marker': target.instance_marker,
+            'target_alias': target.alias,
+            'character': widget.runtime_character,
+            'server': widget.runtime_server,
+            'warning_played': widget._warning_played,
+            'final_warning_played': widget._final_warning_played,
+            'spell': self._spell_runtime_payload(widget.spell),
+        }
+
+    def _record_widget_timer_removal(self, widget, target):
+        row = self._runtime_row_for_widget(
+            target, widget, include_ended=True)
+        if row:
+            self.timer_rows_removed.emit([row])
+
+    def _record_target_timer_removals(self, target):
+        rows = [
+            row for row in (
+                self._runtime_row_for_widget(
+                    target, widget, include_ended=True)
+                for widget in target.spell_widgets())
+            if row]
+        if rows:
+            self.timer_rows_removed.emit(rows)
 
     def snapshot_runtime_state(self, now_epoch=None, now_datetime=None):
         """Serialize active rows with absolute deadlines for offline aging."""
@@ -2280,24 +3172,11 @@ class SpellContainer(QFrame):
                 self.findChildren(SpellTarget),
                 key=lambda item: item.created_order):
             for widget in target.spell_widgets():
-                if widget._removed or widget._faded:
+                row = self._runtime_row_for_widget(
+                    target, widget, now_epoch, now_datetime)
+                if not row:
                     continue
-                remaining = (widget.end_time - now_datetime).total_seconds()
-                if remaining <= 0:
-                    continue
-                saved.append({
-                    'deadline': now_epoch + remaining,
-                    'target': target.name,
-                    'target_created_order': target.created_order,
-                    'target_activity_order': target.last_activity_order,
-                    'target_named': target.is_named,
-                    'target_marker': target.instance_marker,
-                    'target_alias': target.alias,
-                    'character': widget.runtime_character,
-                    'server': widget.runtime_server,
-                    'warning_played': widget._warning_played,
-                    'spell': self._spell_runtime_payload(widget.spell),
-                })
+                saved.append(row)
                 if len(saved) >= 512:
                     return saved
         return saved
@@ -2336,11 +3215,14 @@ class SpellContainer(QFrame):
                         'pvp_duration_formula', 'type', 'spell_icon', 'skill',
                         'resist_type', 'effect_text_you', 'effect_text_other',
                         'effect_text_worn_off', 'source_item', 'item_only',
-                        'runtime_level'}:
+                        'runtime_level', 'shared_buff_family',
+                        'external_detection_note'}:
                     setattr(spell, key, value)
             spell.saved_remaining_seconds = min(
                 remaining, 365 * 24 * 60 * 60)
             spell.saved_warning_played = bool(item.get('warning_played', False))
+            spell.saved_final_warning_played = bool(
+                item.get('final_warning_played', False))
             target_name = str(item.get('target') or '__you__')[:128]
             try:
                 created_order = max(1, int(
@@ -2386,7 +3268,7 @@ class SpellContainer(QFrame):
         # may already have inferred duplicates, so collapse them before recast.
         if named and len(instances) > 1:
             for duplicate in instances[1:]:
-                duplicate._remove()
+                duplicate._remove(authoritative=False)
             instances = instances[:1]
         if named and instances:
             instances[0].is_named = True
@@ -2426,7 +3308,7 @@ class SpellContainer(QFrame):
         if (named or str(target).startswith('__') or
                 not _spell_targets_enemy(spell)):
             return instances[0]
-        spell_key = str(getattr(spell, 'runtime_key', spell.name))
+        spell_key = _spell_runtime_key(spell)
         matching = []
         for instance in instances:
             widget = instance.spell_widget(spell_key)
@@ -2478,7 +3360,9 @@ class SpellContainer(QFrame):
         self._sync_empty_state()
         return True
 
-    def mark_worn_off(self, text, timestamp=None, play_sound=True):
+    def mark_worn_off(
+            self, text, timestamp=None, play_sound=True,
+            character='', server=''):
         """Mark one best matching row FADED without erasing its mob context."""
         worn_text = str(text or '').strip().casefold()
         if not worn_text:
@@ -2504,6 +3388,29 @@ class SpellContainer(QFrame):
                     matches.append(widget)
         if not matches:
             return None
+        profile_character = str(character or '').strip().casefold()
+        profile_server = str(server or '').strip().casefold()
+        if profile_character or profile_server:
+            exact = []
+            legacy = []
+            for widget in matches:
+                widget_character = str(
+                    widget.runtime_character or '').strip().casefold()
+                widget_server = str(
+                    widget.runtime_server or '').strip().casefold()
+                if widget_character or widget_server:
+                    if ((not profile_character or
+                         widget_character == profile_character) and
+                            (not profile_server or
+                             widget_server == profile_server)):
+                        exact.append(widget)
+                else:
+                    legacy.append(widget)
+            # Never consume a different character's matching effect. A blank
+            # pre-profile row is the only safe fallback for migrated state.
+            matches = exact or legacy
+            if not matches:
+                return None
         victim = min(matches, key=lambda widget: widget.end_time)
         victim.mark_faded(timestamp, play_sound=play_sound)
         return victim
@@ -2558,8 +3465,7 @@ class SpellContainer(QFrame):
         if (destination is source or
                 destination.name.casefold() != source.name.casefold()):
             return destination
-        spell_key = str(getattr(
-            widget.spell, 'runtime_key', widget.spell.name))
+        spell_key = _spell_runtime_key(widget.spell)
         existing = destination.spell_widget(spell_key)
         if existing and existing is not widget:
             return destination
@@ -2599,11 +3505,9 @@ class SpellContainer(QFrame):
             return False
         removed = False
         for widget in list(target.spell_widgets()):
-            widget_key = str(getattr(
-                widget.spell, 'runtime_key', widget.spell.name))
             matches = (
-                widget_key == str(runtime_key)
-                if runtime_key else
+                _spell_runtime_key_matches(widget.spell, runtime_key)
+                if str(runtime_key or '').strip() else
                 widget.spell.name.casefold() == str(name).casefold())
             if matches:
                 widget._remove()
@@ -2662,11 +3566,14 @@ class SpellTarget(QFrame):
         self._layout.addWidget(self.target_label, 0)
         self._layout.addStretch()
 
-    def _remove(self, event=None):
+    def _remove(self, event=None, authoritative=True):
         if self._removed:
             return
-        self._removed = True
         owner = self.parentWidget()
+        if (authoritative and owner and
+                hasattr(owner, '_record_target_timer_removals')):
+            owner._record_target_timer_removals(self)
+        self._removed = True
         focus_target = None
         if owner:
             siblings = [
@@ -2692,10 +3599,8 @@ class SpellTarget(QFrame):
         return self.findChildren(SpellWidget)
 
     def spell_widget(self, spell_key):
-        spell_key = str(spell_key)
         for widget in self.spell_widgets():
-            if str(getattr(
-                    widget.spell, 'runtime_key', widget.spell.name)) == spell_key:
+            if _spell_runtime_key_matches(widget.spell, spell_key):
                 return widget
         return None
 
@@ -2845,11 +3750,10 @@ class SpellTarget(QFrame):
     def add_spell(self, spell, timestamp, character='', server=''):
         target_type = 0 if _spell_targets_enemy(spell) else 1
         matching = []
-        spell_key = str(getattr(spell, 'runtime_key', spell.name))
+        spell_key = _spell_runtime_key(spell)
         for sw in self.findChildren(SpellWidget):
             target_type *= 0 if _spell_targets_enemy(sw.spell) else 1
-            widget_key = str(getattr(
-                sw.spell, 'runtime_key', sw.spell.name))
+            widget_key = _spell_runtime_key(sw.spell)
             # Self buffs describe one active effect per character.  Old saved
             # rows and item-click aliases may use a different runtime key for
             # the same visible buff, so their canonical identity is the spell
@@ -2859,6 +3763,10 @@ class SpellTarget(QFrame):
                 (self.name == '__you__' and
                  str(sw.spell.name).strip().casefold() ==
                  str(spell.name).strip().casefold()) or
+                (self.name == '__you__' and
+                 _shared_self_buff_family(sw.spell) and
+                 _shared_self_buff_family(sw.spell) ==
+                 _shared_self_buff_family(spell)) or
                 widget_key == spell_key)
             existing_character = str(
                 sw.runtime_character or '').strip().casefold()
@@ -2879,14 +3787,15 @@ class SpellTarget(QFrame):
             primary = max(matching, key=lambda widget: (
                 bool(str(widget.runtime_character or '').strip()),
                 widget.end_time))
+            previous_name = str(primary.spell.name)
             primary.spell = spell
             primary.runtime_character = str(
                 character or primary.runtime_character or '')
             primary.runtime_server = str(server or primary.runtime_server or '')
-            primary.recast(timestamp)
+            primary.recast(timestamp, previous_name=previous_name)
             for duplicate in matching:
                 if duplicate is not primary:
-                    duplicate._remove()
+                    duplicate._remove(authoritative=False)
         else:
             self._layout.addWidget(SpellWidget(
                 spell, timestamp, character, server))
@@ -2914,17 +3823,28 @@ class SpellProgressBar(QProgressBar):
 
     def __init__(self, spell_name):
         super().__init__()
-        self._spell_name = string.capwords(spell_name)
+        self._spell_name = ''
+        self._context_description = ''
         self._time_text = ''
         self.setTextVisible(False)
+        self.set_spell_metadata(spell_name)
+
+    def set_spell_metadata(self, spell_name, context_description=''):
+        """Refresh painted and assistive text when a row changes identity."""
+        self._spell_name = string.capwords(str(spell_name or 'Spell'))
+        self._context_description = str(context_description or '').strip()
         self.setAccessibleName(f'{self._spell_name} spell timer')
+        self.set_time_text(self._time_text)
 
     def set_time_text(self, text):
         self._time_text = str(text)
-        self.setAccessibleDescription(
+        countdown = (
             f'{self._spell_name} has faded'
             if self._time_text == 'FADED' else
             f'{self._spell_name}, {self._time_text} remaining')
+        self.setAccessibleDescription(
+            f'{countdown}. {self._context_description}'
+            if self._context_description else countdown)
         self.update()
 
     def paintEvent(self, event):
@@ -2955,8 +3875,8 @@ class SpellProgressBar(QProgressBar):
         right_flags = (
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
-        # One restrained one-pixel shadow keeps text legible on every school
-        # color without adding glow or another UI layer.
+        # One restrained one-pixel shadow keeps the single light label
+        # legible across both the filled chunk and the empty track.
         painter.setPen(QColor(0, 0, 0, 205))
         painter.drawText(name_rect.translated(1, 1), left_flags, name)
         painter.drawText(
@@ -2979,6 +3899,8 @@ class SpellWidget(QFrame):
         self.setAccessibleName(f'{self.spell.name} spell timer')
         self.runtime_character = str(character or '')
         self.runtime_server = str(server or '')
+        self.transient_silent = bool(getattr(
+            self.spell, 'transient_silent', False))
         self._active = True
         self._removed = False
         self._faded = False
@@ -2986,10 +3908,17 @@ class SpellWidget(QFrame):
         self._ignore_worn_off_until = None
         self._warning_played = bool(getattr(
             self.spell, 'saved_warning_played', False))
+        self._final_warning_played = bool(getattr(
+            self.spell, 'saved_final_warning_played', False))
 
         self._fade_remove_timer = QTimer(self)
         self._fade_remove_timer.setSingleShot(True)
         self._fade_remove_timer.timeout.connect(self._remove_if_still_faded)
+        # Own the refresh callback so repeated fade/recast/manual refreshes
+        # restart one timer instead of multiplying anonymous singleShot chains.
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.setSingleShot(True)
+        self._refresh_timer.timeout.connect(self._update)
 
         self._setup_ui()
         # Child construction can cause some Qt platform styles to restore a
@@ -2997,6 +3926,12 @@ class SpellWidget(QFrame):
         # assembled so keyboard removal and actions remain reliable.
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._calculate(timestamp)
+        if bool(getattr(self.spell, 'guard_initial_worn_off', False)):
+            try:
+                self._ignore_worn_off_until = timestamp + datetime.timedelta(
+                    seconds=RECAST_WORN_OFF_GRACE_SECONDS)
+            except TypeError:
+                self._ignore_worn_off_until = None
         self.setProperty('Warning', False)
         self._update()
 
@@ -3032,11 +3967,11 @@ class SpellWidget(QFrame):
         layout = QHBoxLayout()
         layout.setContentsMargins(1, 2, 2, 2)
         self.setLayout(layout)
-        icon_label = get_spell_icon(
+        self._icon_label = get_spell_icon(
             self.spell.spell_icon, self.spell.name)
-        icon_label.setAttribute(
+        self._icon_label.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        layout.addWidget(icon_label, 0)
+        layout.addWidget(self._icon_label, 0)
         layout.setSpacing(2)
 
         self.progress = SpellProgressBar(self.spell.name)
@@ -3056,9 +3991,20 @@ class SpellWidget(QFrame):
             Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
         layout.addWidget(self.progress, 1)
+        self._refresh_spell_metadata()
+
+    def _refresh_spell_metadata(self, previous_name=''):
+        """Keep the reused row's visible, tooltip, icon, and AT text aligned."""
+        readable_name = string.capwords(str(self.spell.name or 'Spell'))
         school = spell_school_name(self.spell)
         item_source = str(getattr(self.spell, 'source_item', '') or '')
-        source_text = f'Item click · {item_source} · ' if item_source else ''
+        detection_note = str(getattr(
+            self.spell, 'external_detection_note', '') or '')
+        source_text = (
+            f'Item click · {item_source} · ' if item_source else
+            f'{detection_note} · ' if detection_note else '')
+        self.setAccessibleName(f'{readable_name} spell timer')
+        self.progress.set_spell_metadata(readable_name, detection_note)
         self.progress.setToolTip(
             f'{source_text}{school} · visual progress of the spell time remaining')
         self.setToolTip(
@@ -3066,13 +4012,29 @@ class SpellWidget(QFrame):
             'Enter, Space, Shift+F10, or Menu for mob assignment, sound, and '
             'remove actions')
         target_kind = 'beneficial or personal' if self.spell.type else 'hostile'
+        uncertainty = f'{detection_note}. ' if detection_note else ''
         self.setAccessibleDescription(
-            f'{target_kind} {school} timer; double-click or press Delete to '
+            f'{uncertainty}{target_kind} {school} timer; double-click or '
+            'press Delete to '
             'remove; press Enter, Space, Shift+F10, or Menu for actions')
+        self._icon_label.setPixmap(spell_icon_pixmap(self.spell.spell_icon, 22))
+        self._icon_label.setAccessibleName(f'Icon for {readable_name}')
+        self._icon_label.setToolTip(
+            f'{readable_name} · Velious spell icon {int(self.spell.spell_icon)}')
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.customContextMenuRequested.connect(self._sound_menu)
+        if not getattr(self, '_sound_menu_connected', False):
+            self.customContextMenuRequested.connect(self._sound_menu)
+            self._sound_menu_connected = True
+        old_readable = string.capwords(str(previous_name or ''))
+        if old_readable and old_readable.casefold() != readable_name.casefold():
+            event = QAccessibleAnnouncementEvent(
+                self, f'{old_readable} identified as {readable_name}')
+            event.setPoliteness(QAccessible.AnnouncementPoliteness.Polite)
+            QAccessible.updateAccessibility(event)
 
-    def recast(self, timestamp):
+    def recast(self, timestamp, previous_name=''):
+        self.transient_silent = bool(getattr(
+            self.spell, 'transient_silent', False))
         self._calculate(timestamp)
         self.progress.setStyleSheet(spell_progress_stylesheet(self.spell))
         self._fade_remove_timer.stop()
@@ -3085,6 +4047,7 @@ class SpellWidget(QFrame):
         except TypeError:
             self._ignore_worn_off_until = None
         self._warning_played = False
+        self._final_warning_played = False
         self.setProperty('Warning', False)
         self.setProperty('Critical', False)
         self.setProperty('Pulse', False)
@@ -3094,15 +4057,7 @@ class SpellWidget(QFrame):
         self.progress.setProperty('Faded', False)
         self.setStyle(self.style())
         self.progress.setStyle(self.progress.style())
-        school = spell_school_name(self.spell)
-        item_source = str(getattr(self.spell, 'source_item', '') or '')
-        source_text = f'Item click · {item_source} · ' if item_source else ''
-        self.progress.setToolTip(
-            f'{source_text}{school} · visual progress of the spell time remaining')
-        self.setToolTip(
-            f'{source_text}{school} · double-click to remove; right-click, '
-            'Enter, Space, Shift+F10, or Menu for mob assignment, sound, and '
-            'remove actions')
+        self._refresh_spell_metadata(previous_name)
         # Clear a visible FADED label immediately. Calling _update() here
         # would create another recurring callback chain, so refresh only the
         # active display while the existing chain continues normally.
@@ -3128,6 +4083,7 @@ class SpellWidget(QFrame):
 
     def _update(self):
         if self._removed:
+            self._refresh_timer.stop()
             return
         refresh_ms = 1000
         if self._faded:
@@ -3145,33 +4101,51 @@ class SpellWidget(QFrame):
             self.progress.setProperty('Faded', True)
             self.progress.setProperty('Pulse', pulse)
             self.progress.setStyle(self.progress.style())
-            QTimer.singleShot(250 if not config.data['general'].get(
-                'reduce_motion') else 1000, self._update)
+            self._refresh_timer.start(
+                250 if not config.data['general'].get(
+                    'reduce_motion') else 1000)
             return
         if self._active:
             remaining = self.end_time - datetime.datetime.now()
             remaining_seconds = remaining.total_seconds()
             self.progress.setValue(max(0, int(remaining_seconds)))
             self.progress.update()
-            warning, critical, pulse, refresh_ms = spell_warning_state(
-                remaining_seconds,
-                config.data['spells']['fade_warning_seconds'],
-                config.data['general'].get('reduce_motion'))
+            if self.transient_silent:
+                warning, critical, pulse, refresh_ms = False, False, False, 1000
+            else:
+                warning, critical, pulse, refresh_ms = spell_warning_state(
+                    remaining_seconds,
+                    config.data['spells']['fade_warning_seconds'],
+                    config.data['general'].get('reduce_motion'))
+            self.setProperty('Warning', warning)
+            self.setProperty('Critical', critical)
+            self.setProperty('Pulse', pulse)
             self.progress.setProperty('Warning', warning)
             self.progress.setProperty('Critical', critical)
             self.progress.setProperty('Pulse', pulse)
             self.progress.setStyle(self.progress.style())
-            if warning:
-                if remaining_seconds > 0 and not self._warning_played:
-                    self._warning_played = True
+            # Construction calls _update() before QLayout has attached this
+            # row to its SpellTarget.  Defer delivery until the next owned
+            # refresh so the target is attributable and the warning claim can
+            # be persisted through the container's state_changed signal.
+            phase = spell_fade_alert_phase(
+                remaining_seconds,
+                config.data['spells']['fade_warning_seconds'],
+                config.data['spells'].get('fade_voice_warning_seconds', 5))
+            if phase and isinstance(self.parentWidget(), SpellTarget):
+                claimed = (
+                    self.claim_final_fade_alert()
+                    if phase == 'final' else self.claim_fade_alert())
+                if claimed:
                     notice = self._fading_notice(remaining_seconds)
-                    self._play_fade_alert(notice=notice)
+                    self._play_fade_alert(notice=notice, phase=phase)
             if remaining_seconds <= 0:
                 self._remove()
                 return
             self.progress.set_time_text(format_time(remaining))
         if not self._removed:
-            QTimer.singleShot(refresh_ms if self._active else 1000, self._update)
+            self._refresh_timer.start(
+                refresh_ms if self._active else 1000)
 
     def pause(self):
         self._active = False
@@ -3188,6 +4162,9 @@ class SpellWidget(QFrame):
         """Keep an early worn-off effect visible as a red blinking FADED row."""
         if self._removed or self._faded:
             return
+        if self.transient_silent:
+            self._remove()
+            return
         self._faded = True
         self._active = False
         self._faded_until = time.monotonic() + 6.0
@@ -3203,12 +4180,29 @@ class SpellWidget(QFrame):
             'the row remains for 6 seconds')
         self.progress.setToolTip(tooltip)
         self.setToolTip(tooltip)
-        if play_sound and not self._warning_played:
-            self._warning_played = True
-            self._play_fade_alert()
+        if play_sound and self.claim_final_fade_alert():
+            self._play_fade_alert(route_key='spell_worn_off', phase='final')
         self._request_resort()
         self._notify_state_changed()
         self._update()
+
+    def claim_fade_alert(self):
+        """Atomically claim this generation's early audible warning."""
+        if self._warning_played:
+            return False
+        self._warning_played = True
+        # The claim is durable state, not merely paint state.  Persist it
+        # before an unrelated sync refresh can rebuild this same generation.
+        self._notify_state_changed()
+        return True
+
+    def claim_final_fade_alert(self):
+        """Atomically claim the configured final or worn-off alert generation."""
+        if self._final_warning_played:
+            return False
+        self._final_warning_played = True
+        self._notify_state_changed()
+        return True
 
     def elongate(self, seconds):
         self.end_time += datetime.timedelta(seconds=seconds)
@@ -3230,13 +4224,21 @@ class SpellWidget(QFrame):
         if owner and hasattr(owner, 'state_changed'):
             owner.state_changed.emit()
 
-    def _remove(self):
+    def _remove(self, authoritative=True):
         if self._removed:
             return
+        self._refresh_timer.stop()
         self._fade_remove_timer.stop()
         target, owner = self._owner_container()
+        if (authoritative and owner and
+                hasattr(owner, '_record_widget_timer_removal')):
+            owner._record_widget_timer_removal(self, target)
+        focused = QApplication.focusWidget()
+        restore_focus = bool(
+            focused is self or
+            (focused is not None and self.isAncestorOf(focused)))
         focus_target = None
-        if target:
+        if restore_focus and target:
             siblings = [
                 widget for widget in target.spell_widgets()
                 if widget is not self and not widget._removed]
@@ -3272,30 +4274,102 @@ class SpellWidget(QFrame):
         parts.append(f'{seconds}s')
         return ' · '.join(parts)
 
+    def _fade_voice_text(self, route_key):
+        """Name the exact effect and recipient without volatile countdowns."""
+        target = self.parentWidget()
+        if isinstance(target, SpellTarget):
+            if target.name == '__you__':
+                target_name = self.runtime_character or 'you'
+            elif target.name == '__custom__':
+                target_name = 'custom timer'
+            else:
+                target_name = target.alias or target.title
+        else:
+            target_name = self.runtime_character or 'the tracked target'
+        action = 'worn off' if route_key == 'spell_worn_off' else 'fading'
+        spell_name = string.capwords(str(self.spell.name or 'Spell'))
+        return f'{spell_name} {action} on {target_name}'
+
+    def _fade_voice_dedupe_key(self, route_key, phase='final'):
+        """Identify one spoken warning generation while preserving recasts."""
+        target = self.parentWidget()
+        target_name = str(getattr(target, 'name', '') or '')
+        target_marker = str(getattr(target, 'instance_marker', '') or '')
+        try:
+            generation = int(round(self.end_time.timestamp() * 1000))
+        except (AttributeError, OSError, OverflowError, ValueError):
+            generation = 0
+        return '|'.join((
+            str(route_key or ''), self.runtime_server, self.runtime_character,
+            target_name, target_marker, _spell_runtime_key(self.spell),
+            str(generation), str(phase or 'final')))
+
     @staticmethod
     def _queue_fading_notice(notice):
         app = QApplication.instance()
         queue_notice = getattr(app, '_queue_quickbar_notice', None)
         if callable(queue_notice):
-            queue_notice(notice)
+            queue_notice(notice, channel='spells')
 
     def _play_fade_alert(
             self, force=False, notice='', route_key='spell_fading',
-            register=True):
+            register=True, phase='final'):
         settings = config.data['spells']
         key = self.spell.name
-        semantic_notice = notice or f"{self.spell.name} fading soon"
+        semantic_notice = str(notice or '').strip()
+        if not semantic_notice:
+            if route_key == 'spell_worn_off':
+                target = self.parentWidget()
+                target_name = (
+                    target.target_label.text()
+                    if target and hasattr(target, 'target_label') else '')
+                semantic_notice = f"{self.spell.name} worn off" + (
+                    f" · {target_name}" if target_name else '')
+            else:
+                semantic_notice = f"{self.spell.name} fading soon"
         app = QApplication.instance()
         notify = getattr(app, 'notify_event', None)
+        trigger_muted = False
+        target = self.parentWidget()
+        if isinstance(target, SpellTarget) and target.name == '__custom__':
+            # Custom timer rows also use the general buff fading renderer.
+            # Resolve their owner so its mute cannot leak through that route.
+            parser = getattr(app, '_parsers_dict', {}).get('spells')
+            runtime_key = str(getattr(self.spell, 'runtime_key', '') or '')
+            run = getattr(parser, '_trigger_runs', {}).get(runtime_key)
+            if run is not None:
+                trigger_owner = run['trigger']
+                trigger_character = run.get('character', self.runtime_character)
+            else:
+                # Plain named timers can survive a reload without an active
+                # trigger run. Never match another trigger by a partial name.
+                row = next((item for item in settings.get('custom_timers', [])
+                            if item and item[0] == runtime_key), None)
+                trigger_owner = CustomTrigger(*row) if row else None
+                trigger_character = self.runtime_character
+            # A retained custom row keeps its visuals while monitoring is Off.
+            # Explicit user tests remain available; ordinary buffs use their
+            # usual notification route regardless of custom monitoring state.
+            if not force and (
+                    trigger_owner is None or
+                    not Spells._trigger_delivery_enabled(
+                        trigger_owner, trigger_character)):
+                return False
+            trigger_muted = bool(trigger_owner and trigger_owner.audio_muted)
 
         def dispatch(**kwargs):
             if callable(notify):
                 return notify(
                     route_key, semantic_notice, overlay=False,
+                    voice_text=self._fade_voice_text(route_key),
+                    voice_dedupe_key=self._fade_voice_dedupe_key(
+                        route_key, phase),
                     volume=settings['fade_sound_volume'],
                     character=self.runtime_character,
                     server=self.runtime_server, channel='spells',
-                    register=register, **kwargs)
+                    register=register,
+                    visual_registered=(True if not register else None),
+                    **kwargs)
             # Lightweight widget tests and embedders can provide a plain
             # QApplication. Preserve the semantic rail notice when available,
             # but never crash merely because the Vantage dispatcher is absent.
@@ -3303,19 +4377,51 @@ class SpellWidget(QFrame):
                 self._queue_fading_notice(semantic_notice)
             return False
 
-        if not force and (
-                not settings['fade_sound_enabled'] or
+        if (
+                trigger_muted or not settings['fade_sound_enabled'] or
                 key in settings['fade_sound_muted']):
+            if force:
+                self._queue_fading_notice(
+                    f'Test · {key}: fading audio is muted or Off')
             return dispatch(delivery_override='off')
         override = settings['fade_sound_overrides'].get(key)
+        route_settings = config.data.get('sounds', {}).get(
+            'routes', {}).get(route_key, {})
+        if str(route_settings.get('delivery', '')).casefold() == 'off':
+            if force:
+                self._queue_fading_notice(f'Test · {key}: fading audio is Off')
+            return dispatch(delivery_override='off')
         if force:
-            return play_alert(
-                override or settings['fade_sound_path'],
-                settings['fade_sound_volume'], 1,
-                source=f"Test · {self.spell.name}",
-                character=self.runtime_character,
-                server=self.runtime_server, allow_hidden=True)
-        return dispatch(sound_override=override)
+            semantic_notice = f'Test · {semantic_notice}'
+            result = dispatch(sound_override=override, allow_hidden=True)
+            state = getattr(result, 'state', 'unavailable')
+            delivery = getattr(result, 'delivery', 'off')
+            reason = str(getattr(result, 'reason', '') or '')
+            outcome = ('Voice queued' if delivery == 'voice' else 'Sound queued'
+                       ) if state == 'played' else reason or (
+                           'Off' if delivery == 'off' else 'Audio unavailable')
+            self._queue_fading_notice(f'Test · {key}: {outcome}')
+            return result
+        if phase == 'early':
+            if override:
+                return dispatch(sound_override=override)
+            return dispatch(delivery_override='sound')
+        # A Voice-configured route speaks only in the final phase. Sound-only
+        # routes and per-spell WAV overrides have already delivered their one
+        # audible cue at the early threshold, so the final phase is written to
+        # the rail without replaying the same beep or WAV.
+        delivery = str(route_settings.get('delivery', '')).casefold()
+        if not override and delivery == 'voice':
+            return dispatch()
+        if not self._warning_played:
+            # A very short/restored timer can first become attributable inside
+            # the final window. In that case deliver its configured sound once
+            # instead of losing the only audible warning.
+            if override:
+                return dispatch(sound_override=override)
+            if delivery == 'sound':
+                return dispatch(delivery_override='sound')
+        return dispatch(delivery_override='off')
 
     def _sound_menu(self, position):
         settings = config.data['spells']
@@ -3330,8 +4436,8 @@ class SpellWidget(QFrame):
             assign_menu.setToolTipsVisible(True)
             for candidate in owner.get_spell_targets_by_name(target.name):
                 label = candidate.alias or candidate.instance_marker
-                candidate_has_effect = bool(candidate.spell_widget(str(getattr(
-                    self.spell, 'runtime_key', self.spell.name))))
+                candidate_has_effect = bool(candidate.spell_widget(
+                    _spell_runtime_key(self.spell)))
                 action = assign_menu.addAction(
                     f'{candidate.title.title()} · {label}' +
                     (' · current' if candidate is target else ''))
@@ -3434,6 +4540,19 @@ def _spell_targets_enemy(spell):
         not int(getattr(spell, 'type', 0)) or
         'less aggressive' in str(
             getattr(spell, 'effect_text_other', '')).casefold())
+
+
+def spell_fade_alert_phase(remaining_seconds, warning_seconds=40,
+                          voice_warning_seconds=5):
+    """Return one warning phase; the spoken stop takes priority over the cue."""
+    remaining = float(remaining_seconds)
+    if remaining <= 0:
+        return ''
+    if remaining <= max(1, min(600, int(voice_warning_seconds))):
+        return 'final'
+    if remaining <= max(0, int(warning_seconds)):
+        return 'early'
+    return ''
 
 
 def spell_warning_state(remaining_seconds, warning_seconds=40,
@@ -3540,7 +4659,12 @@ def _spell_bar_contrast(foreground, background):
     """Return the measured sRGB contrast of a painted label and bar stop."""
     def luminance(color):
         channels = []
-        for channel in (color.redF(), color.greenF(), color.blueF()):
+        # The stylesheet serializes QColor to 8-bit sRGB hex. Measure those
+        # exact rendered channels rather than QColor's higher-precision HSV
+        # intermediates, which can round across the 4.5:1 boundary.
+        for channel in (
+                color.red() / 255.0, color.green() / 255.0,
+                color.blue() / 255.0):
             channels.append(
                 channel / 12.92 if channel <= 0.04045 else
                 ((channel + 0.055) / 1.055) ** 2.4)
@@ -3554,9 +4678,10 @@ def _spell_bar_contrast(foreground, background):
     return (lighter + 0.05) / (darker + 0.05)
 
 
-def _readable_spell_bar_color(color, minimum_contrast=4.5):
-    """Darken only value until off-white timer text meets normal-text AA."""
-    foreground = QColor('#F7F8F8')
+def _readable_spell_bar_color(
+        color, minimum_contrast=4.5, foreground=None):
+    """Adjust only value until the semantic label color meets text AA."""
+    foreground = QColor(foreground or '#F7F8F8')
     hue, saturation, value, alpha = color.getHsv()
     while (value > 0 and
            _spell_bar_contrast(foreground, color) < minimum_contrast):
@@ -3565,15 +4690,53 @@ def _readable_spell_bar_color(color, minimum_contrast=4.5):
     return color
 
 
+def spell_semantic_progress_palettes():
+    """Return AA-limited normal/pulse gradients for timer status states."""
+    definitions = {
+        'warning': (
+            '#FFF0C2',
+            ('#A76D1D', '#855312', '#593509'),
+            ('#BC812D', '#9A6515', '#68410B')),
+        'critical': (
+            '#FFFFFF',
+            ('#D05258', '#B3363C', '#772329'),
+            ('#E25A62', '#BC353C', '#812229')),
+        'faded': (
+            '#F7F8F8',
+            ('#BF414A', '#9B2831', '#671A22'),
+            ('#EC626B', '#D13E48', '#8D232C')),
+    }
+    palettes = {}
+    for state, (foreground, normal, pulse) in definitions.items():
+        palettes[state] = {
+            'foreground': foreground,
+            'normal': tuple(
+                _readable_spell_bar_color(
+                    QColor(stop), foreground=foreground).name(
+                        QColor.NameFormat.HexRgb).upper()
+                for stop in normal),
+            'pulse': tuple(
+                _readable_spell_bar_color(
+                    QColor(stop), foreground=foreground).name(
+                        QColor.NameFormat.HexRgb).upper()
+                for stop in pulse),
+        }
+    return palettes
+
+
 def spell_progress_palette(spell):
     """Build a moderately chromatic, readable palette from the spell icon."""
     body = _spell_icon_accent(int(getattr(spell, 'spell_icon', 0) or 0))
     hue, saturation, value, alpha = body.getHsv()
-    highlight = _readable_spell_bar_color(QColor.fromHsv(
-        hue, max(96, saturation - 8), min(170, value + 18), alpha))
-    body = _readable_spell_bar_color(body)
-    depth = _readable_spell_bar_color(QColor.fromHsv(
-        hue, min(248, saturation + 10), max(62, value - 16), alpha))
+    raw_stops = (
+        QColor.fromHsv(
+            hue, max(96, saturation - 8), min(170, value + 18), alpha),
+        body,
+        QColor.fromHsv(
+            hue, min(248, saturation + 10), max(62, value - 16), alpha),
+    )
+    highlight, body, depth = (
+        _readable_spell_bar_color(color) for color in raw_stops)
     border = QColor.fromHsv(
         hue, max(112, min(232, saturation - 18)),
         min(162, value + 10), alpha)
@@ -3584,6 +4747,13 @@ def spell_progress_palette(spell):
 def spell_progress_stylesheet(spell):
     """A compact, gently dimensional bar keyed to the real icon artwork."""
     highlight, body, depth, border = spell_progress_palette(spell)
+    semantic = spell_semantic_progress_palettes()
+    warning = semantic['warning']['normal']
+    warning_pulse = semantic['warning']['pulse']
+    critical = semantic['critical']['normal']
+    critical_pulse = semantic['critical']['pulse']
+    faded = semantic['faded']['normal']
+    faded_pulse = semantic['faded']['pulse']
     return f"""
         QProgressBar {{
             min-height: 20px;
@@ -3605,33 +4775,39 @@ def spell_progress_stylesheet(spell):
         }}
         QProgressBar[Warning="true"]::chunk {{
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #A76D1D, stop:0.22 #855312, stop:1 #593509);
+                stop:0 {warning[0]}, stop:0.22 {warning[1]},
+                stop:1 {warning[2]});
         }}
         QProgressBar[Warning="true"][Pulse="true"]::chunk {{
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #BC812D, stop:0.22 #9A6515, stop:1 #68410B);
+                stop:0 {warning_pulse[0]}, stop:0.22 {warning_pulse[1]},
+                stop:1 {warning_pulse[2]});
         }}
         QProgressBar[Critical="true"] {{
             border-color: #E35B5B;
         }}
         QProgressBar[Critical="true"]::chunk {{
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #D05258, stop:0.22 #B3363C, stop:1 #772329);
+                stop:0 {critical[0]}, stop:0.22 {critical[1]},
+                stop:1 {critical[2]});
         }}
         QProgressBar[Critical="true"][Pulse="true"]::chunk {{
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #E25A62, stop:0.22 #BC353C, stop:1 #812229);
+                stop:0 {critical_pulse[0]}, stop:0.22 {critical_pulse[1]},
+                stop:1 {critical_pulse[2]});
         }}
         QProgressBar[Faded="true"] {{
             border-color: #B54149;
         }}
         QProgressBar[Faded="true"]::chunk {{
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #BF414A, stop:0.22 #9B2831, stop:1 #671A22);
+                stop:0 {faded[0]}, stop:0.22 {faded[1]},
+                stop:1 {faded[2]});
         }}
         QProgressBar[Faded="true"][Pulse="true"]::chunk {{
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #EC626B, stop:0.22 #D13E48, stop:1 #8D232C);
+                stop:0 {faded_pulse[0]}, stop:0.22 {faded_pulse[1]},
+                stop:1 {faded_pulse[2]});
         }}
     """
 
@@ -3737,15 +4913,18 @@ class SpellTrigger(QObject):
             folded = str(text or '').casefold()
             effect_you = str(self.spell.effect_text_you or '')
             effect_other = str(self.spell.effect_text_other or '')
-            if effect_you and folded.startswith(effect_you.casefold()):
-                # cast self
+            if effect_you and folded == effect_you.casefold():
+                # Exact self text wins before suffix matching. Some shipped
+                # self messages (for example, Camouflage's "Your body fades
+                # away.") also end with the generic other-target suffix.
                 self.targets.append((timestamp, '__you__'))
                 matched = True
             elif effect_other and folded.endswith(effect_other.casefold()):
                 # cast other
                 target = text[:-len(effect_other)].strip()
-                self.targets.append((timestamp, target))
-                matched = True
+                if target and target.casefold() != 'you':
+                    self.targets.append((timestamp, target))
+                    matched = True
             elif _is_charm_spell(self.spell):
                 target = _charmed_pet_from_activity(text)
                 if target:
@@ -3917,12 +5096,26 @@ class CustomTrigger:
                  timer_ending_tts='', timer_ending_interrupt=False,
                  timer_ended_tts='', timer_ended_interrupt=False,
                  text_color='', timer_name='',
-                 restart_based_on_timer_name=False, **_):
+                 restart_based_on_timer_name=False,
+                 delivery='legacy', tts_voice='', tts_volume=100,
+                 tts_pitch=0, timer_ending_delivery='legacy',
+                 timer_ending_voice='', timer_ending_volume=100,
+                 timer_ending_pitch=0, timer_ended_delivery='legacy',
+                 timer_ended_voice='', timer_ended_volume=100,
+                 timer_ended_pitch=0, match_filter='',
+                 match_cooldown_seconds=0.75, audio_muted=False, **_):
         self.name, self.text, self.time = name, text, time
         self.zone = zone
         self.sound_path = sound_path
         self.alert_text = alert_text
-        self.enabled = bool(enabled)
+        # Imported/legacy rows can contain textual checkbox values. Preserve
+        # an explicit false value instead of treating every non-empty string
+        # as truthy and silently re-enabling a built-in trigger.
+        enabled_text = str(enabled or '').strip().casefold()
+        self.enabled = (
+            enabled if type(enabled) is bool else
+            False if enabled_text in {'false', '0', 'off', 'no'} else
+            True)
         self.regex = bool(regex)
         self.source = str(source or 'Vantage')
         self.category = str(category or 'Default').strip() or 'Default'
@@ -3989,9 +5182,52 @@ class CustomTrigger:
         self.timer_ending_interrupt = bool(timer_ending_interrupt)
         self.timer_ended_tts = str(timer_ended_tts or '')
         self.timer_ended_interrupt = bool(timer_ended_interrupt)
+        def delivery_mode(value):
+            value = str(value or 'legacy').strip().casefold()
+            return value if value in ('legacy', 'sound', 'tts', 'off') \
+                else 'legacy'
+
+        def percent(value):
+            try:
+                return max(0, min(100, int(value)))
+            except (TypeError, ValueError):
+                return 100
+
+        def speech_pitch(value):
+            try:
+                return max(-10, min(10, int(value)))
+            except (TypeError, ValueError):
+                return 0
+
+        self.delivery = delivery_mode(delivery)
+        self.audio_muted = (audio_muted is True or str(audio_muted).strip().casefold()
+                            in {'true', '1', 'on', 'yes'})
+        self.tts_voice = str(tts_voice or '')[:160]
+        self.tts_volume = percent(tts_volume)
+        self.tts_pitch = speech_pitch(tts_pitch)
+        self.timer_ending_delivery = delivery_mode(timer_ending_delivery)
+        self.timer_ending_voice = str(timer_ending_voice or '')[:160]
+        self.timer_ending_volume = percent(timer_ending_volume)
+        self.timer_ending_pitch = speech_pitch(timer_ending_pitch)
+        self.timer_ended_delivery = delivery_mode(timer_ended_delivery)
+        self.timer_ended_voice = str(timer_ended_voice or '')[:160]
+        self.timer_ended_volume = percent(timer_ended_volume)
+        self.timer_ended_pitch = speech_pitch(timer_ended_pitch)
+        match_filter = str(match_filter or '').strip().casefold()
+        self.match_filter = (
+            match_filter if match_filter in {'external_npc_cast'} else '')
+        try:
+            match_cooldown_seconds = float(match_cooldown_seconds)
+        except (TypeError, ValueError):
+            match_cooldown_seconds = 0.75
+        if not math.isfinite(match_cooldown_seconds):
+            match_cooldown_seconds = 0.75
+        self.match_cooldown_seconds = max(
+            0.0, min(300.0, match_cooldown_seconds))
         self.text_color = normalize_trigger_color(text_color)
         self.counter = 0
         self.last_fired = 0.0
+        self.last_fired_by_key = {}
         self.active_names = []
         self.runtime_character = ''
 
@@ -4009,7 +5245,45 @@ class CustomTrigger:
             self.interrupt_speech, self.timer_ending_tts,
             self.timer_ending_interrupt, self.timer_ended_tts,
             self.timer_ended_interrupt, self.text_color, self.timer_name,
-            self.restart_based_on_timer_name]
+            self.restart_based_on_timer_name, self.delivery, self.tts_voice,
+            self.tts_volume, self.tts_pitch, self.timer_ending_delivery,
+            self.timer_ending_voice, self.timer_ending_volume,
+            self.timer_ending_pitch, self.timer_ended_delivery,
+            self.timer_ended_voice, self.timer_ended_volume,
+            self.timer_ended_pitch, self.match_filter,
+            self.match_cooldown_seconds, self.audio_muted]
+
+    def audio_delivery(self, stage='basic'):
+        """Resolve effective delivery without discarding muted audio choices."""
+        if self.audio_muted:
+            return 'off'
+        return self.configured_audio_delivery(stage)
+
+    def configured_audio_delivery(self, stage='basic'):
+        """Resolve saved delivery, even while muted, for editing and restore."""
+        prefix = '' if stage == 'basic' else f'timer_{stage}_'
+        mode = getattr(self, f'{prefix}delivery', 'legacy')
+        if mode != 'legacy':
+            return mode
+        sound = self.sound_path if stage == 'basic' else getattr(
+            self, f'timer_{stage}_sound', '')
+        speech = self.tts_text if stage == 'basic' else getattr(
+            self, f'timer_{stage}_tts', '')
+        return 'sound' if sound else 'tts' if speech else 'off'
+
+    def speech_settings(self, stage='basic'):
+        if stage == 'basic':
+            return {
+                'voice_name': self.tts_voice,
+                'volume': self.tts_volume,
+                'pitch': self.tts_pitch,
+            }
+        prefix = f'timer_{stage}_'
+        return {
+            'voice_name': getattr(self, f'{prefix}voice', ''),
+            'volume': getattr(self, f'{prefix}volume', 100),
+            'pitch': getattr(self, f'{prefix}pitch', 0),
+        }
 
     def __str__(self):
         return '{},{},{}'.format(

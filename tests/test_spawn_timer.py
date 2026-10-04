@@ -1,8 +1,14 @@
+from types import SimpleNamespace
+
+from vantage.helpers import config
 from vantage.helpers.spawn_timer import (
     PHASE_AVAILABLE,
     PHASE_COMBAT,
     PHASE_RESPAWN,
     SpawnTimerState,
+    render_timer_notification_text,
+    TIMER_MODE_COOLDOWN,
+    TIMER_MODE_COUNTDOWN,
     reset_stale_persisted_timers,
     zone_timer_visible,
     parse_duration_input,
@@ -11,7 +17,7 @@ from vantage.helpers.respawn_catalog import (
     NAMED_SPAWN_CATALOG, RESPAWN_CATALOG, duration_seconds,
     named_spawn_for, respawn_for_short_name)
 from vantage.parsers.timers import (
-    extract_killed_mob, extract_log_timer_command)
+    SpawnTimers, extract_killed_mob, extract_log_timer_command)
 
 
 def test_manual_kill_anchors_respawn_and_increments_cycle():
@@ -49,6 +55,65 @@ def test_non_smart_timer_waits_for_manual_confirmation():
     assert timer.deadline is None
 
 
+def test_general_countdown_completes_once_without_entering_a_spawn_cycle():
+    timer = SpawnTimerState(
+        "Gate rotation", 45, timer_mode=TIMER_MODE_COUNTDOWN)
+    timer.start(100)
+
+    events = timer.tick(145)
+
+    assert [event.kind for event in events] == ["complete"]
+    assert events[0].message == "Gate rotation: timer complete"
+    assert timer.phase == PHASE_AVAILABLE
+    assert timer.running is False
+    assert timer.deadline is None
+    assert timer.cycles == 1
+    assert timer.tick(500) == []
+    assert not timer.matches_kill("Gate rotation")
+
+
+def test_reusable_cooldown_can_be_restarted_after_becoming_ready():
+    timer = SpawnTimerState(
+        "Clicky", 30, timer_mode=TIMER_MODE_COOLDOWN)
+    timer.start(10)
+    assert [event.kind for event in timer.tick(40)] == ["ready"]
+    assert timer.phase == PHASE_AVAILABLE
+    assert timer.running is False
+
+    timer.restart(80)
+
+    assert timer.phase == PHASE_RESPAWN
+    assert timer.deadline == 110
+
+
+def test_mobile_toggle_starts_a_completed_generic_timer_again():
+    timer = SpawnTimerState(
+        "Clicky", 30, timer_mode=TIMER_MODE_COOLDOWN)
+    timer.start(10)
+    timer.tick(40)
+
+    class Host:
+        _states = {timer.timer_id: timer}
+
+        def __init__(self):
+            self.message = ""
+            self.changes = 0
+
+        def announce(self, message):
+            self.message = message
+
+        def state_changed(self):
+            self.changes += 1
+
+    host = Host()
+    SpawnTimers.mobile_action(host, "toggle", timer.timer_id)
+
+    assert timer.running is True
+    assert timer.phase == PHASE_RESPAWN
+    assert host.message == "Clicky: started from phone"
+    assert host.changes == 1
+
+
 def test_pause_and_resume_preserve_remaining_time():
     timer = SpawnTimerState("Mob", 60)
     timer.start(0)
@@ -62,6 +127,125 @@ def test_kill_match_honors_zone_and_regex():
     timer = SpawnTimerState("Quillmane", 100, zone="South Karana", mob_pattern=r"^Quillmane$")
     assert timer.matches_kill("Quillmane", "South Karana")
     assert not timer.matches_kill("Quillmane", "North Karana")
+
+
+def test_death_list_matches_full_names_and_safe_multi_word_phrases():
+    timer = SpawnTimerState(
+        "Quillmane cycle", 100, zone="South Karana",
+        death_mobs=["Quillmane", "escaped splitpaw gnoll"])
+
+    assert timer.matches_kill("quillmane", "south karana")
+    assert timer.matches_kill("An Escaped Splitpaw Gnoll", "South Karana")
+    assert timer.matches_kill(
+        "an escaped splitpaw gnoll scout", "South Karana")
+    assert not timer.matches_kill("Quillmane's pet", "South Karana")
+    assert not timer.matches_kill("Quillmane", "North Karana")
+
+
+def test_distinctive_partial_chardok_name_matches_but_generic_word_does_not():
+    timer = SpawnTimerState(
+        "Kennel camp", 1_200, zone="Chardok",
+        death_mobs=["Kennel Master"])
+
+    assert timer.matches_kill("Kennel Master Al`ele", "Chardok")
+    assert not timer.matches_kill("An apprentice kennelmaster", "Chardok")
+
+    generic = SpawnTimerState(
+        "Unsafe generic", 1_200, zone="Chardok", death_mobs=["Master"])
+    assert not generic.matches_kill("Kennel Master Al`ele", "Chardok")
+
+
+def test_legacy_death_regex_remains_compatible_when_no_exact_list_exists():
+    timer = SpawnTimerState(
+        "Legacy camp", 100, mob_pattern=r"^(Quillmane|a named PH \d+)$")
+
+    assert timer.matches_kill("Quillmane")
+    assert timer.matches_kill("a named PH 3")
+    assert not timer.matches_kill("Quillmane's pet")
+
+
+def test_exact_death_list_round_trips_and_deduplicates_case_insensitively():
+    timer = SpawnTimerState(
+        "Camp", 100,
+        death_mobs=["Quillmane", " quillmane ", "a custom PH"])
+
+    restored = SpawnTimerState.from_dict(timer.to_dict())
+
+    assert restored.death_mobs == ["Quillmane", "a custom PH"]
+
+
+def test_timer_tts_settings_round_trip_and_corrupt_values_are_bounded():
+    timer = SpawnTimerState(
+        "Frenzy", 100, zone="Lower Guk", delivery="tts",
+        tts_text="{timer} is {state} in {zone}", tts_voice="Narrator",
+        tts_pitch=7, volume=43)
+    restored = SpawnTimerState.from_dict(timer.to_dict())
+    assert restored.delivery == "tts"
+    assert restored.tts_text == "{timer} is {state} in {zone}"
+    assert restored.tts_voice == "Narrator"
+    assert restored.tts_pitch == 7 and restored.volume == 43
+    assert render_timer_notification_text(
+        restored.tts_text, restored, "warning", 12) == \
+        "Frenzy is ending soon in Lower Guk"
+    assert render_timer_notification_text(
+        "{name} · {event} · {seconds}", restored, "ready", 0) == \
+        "Frenzy · ready · 0"
+
+    restored = SpawnTimerState.from_dict({
+        "name": "Bad", "respawn_seconds": 1, "delivery": "carrier pigeon",
+        "tts_text": "x" * 500, "tts_voice": "v" * 500,
+        "tts_pitch": 999,
+    })
+    assert restored.delivery == "legacy"
+    assert len(restored.tts_text) == 300
+    assert len(restored.tts_voice) == 160
+    assert restored.tts_pitch == 10
+
+
+def test_legacy_timer_dict_keeps_existing_route_and_defaults_safely():
+    restored = SpawnTimerState.from_dict({
+        "name": "Legacy", "respawn_seconds": 60,
+        "sound_path": "builtin:quiet-chime", "volume": 31,
+    })
+    assert restored.delivery == "legacy"
+    assert restored.sound_path == "builtin:quiet-chime"
+    assert restored.volume == 31
+
+
+def test_exact_death_list_is_bounded_for_safe_persistence():
+    timer = SpawnTimerState(
+        "Large camp", 100,
+        death_mobs=[f"placeholder {index}" for index in range(40)])
+
+    assert len(timer.death_mobs) == 24
+    assert timer.death_mobs[-1] == "placeholder 23"
+
+
+def test_automatic_named_timer_records_its_exact_death_name():
+    config.verify_settings()
+
+    class Host:
+        _current_zone = "South Karana"
+        _missing_zone_notified = None
+
+        def _named_respawn_entry(self, _mob):
+            return (
+                SimpleNamespace(respawn_seconds=1_920),
+                SimpleNamespace(seconds=1_920, note=""))
+
+        def _register_timer(self, timer):
+            self.timer = timer
+
+        def announce(self, message):
+            self.message = message
+
+    host = Host()
+
+    assert SpawnTimers._create_automatic_timer(host, "Quillmane", 1_000)
+    assert host.timer.death_mobs == ["Quillmane"]
+    assert host.timer.mob_pattern == ""
+    assert host.timer.matches_kill("quillmane", "South Karana")
+    assert not host.timer.matches_kill("Quillmane's pet", "South Karana")
 
 
 def test_friendly_duration_input_uses_minutes_for_bare_numbers():
@@ -111,12 +295,13 @@ def test_unclean_or_legacy_session_does_not_discard_saved_timers():
     assert settings["items"] == [{"name": "Preserve me"}]
 
 
-def test_zone_timer_rows_are_grouped_without_losing_global_rows():
+def test_zone_timer_rows_require_exact_zone_except_in_saved_overview():
     assert zone_timer_visible("Velketor's Labyrinth", "Velketor's Labyrinth")
     assert zone_timer_visible("velketor's labyrinth", "VELKETOR'S LABYRINTH")
     assert not zone_timer_visible("Kael Drakkel", "Velketor's Labyrinth")
-    assert zone_timer_visible("", "Velketor's Labyrinth")
+    assert not zone_timer_visible("", "Velketor's Labyrinth")
     assert zone_timer_visible("Kael Drakkel", "")
+    assert zone_timer_visible("", "")
 
 
 def test_timer_volume_is_individual_and_clamped():
@@ -165,6 +350,9 @@ def test_automatic_catalog_accepts_named_mobs_and_rejects_zone_trash():
     assert named_spawn_for("velketor", "Crystal Fang") is not None
     assert named_spawn_for("velketor", "a crystalline watcher") is None
     assert named_spawn_for("southkarana", "Quillmane") is not None
+    kennel_master = named_spawn_for("chardok", "Kennel Master Al`ele")
+    assert kennel_master is not None
+    assert kennel_master.respawn_seconds == 20 * 60
 
 
 def test_automatic_timer_metadata_survives_persistence():

@@ -293,6 +293,45 @@ class GameWindowCapture:
             self._cached_at = now
             return status, frame
 
+    def image_frame(self, *, require_enabled=False, require_foreground=True):
+        """Return ``(status, QImage, window_rect)`` for local analysis.
+
+        This is the read-only primitive used by Vitals Monitor.  It does not
+        depend on the phone-view preference unless ``require_enabled`` is
+        requested. Direct capture from the EverQuest window is safe while
+        Vantage is foreground; only the desktop/screen fallback requires
+        EverQuest itself to be foreground. ``require_foreground`` is retained
+        for API compatibility and never relaxes that screen-fallback rule.
+        ``window_rect`` is ``(left, top, width, height)`` in screen pixels.
+        """
+        with self._lock:
+            if not self._supported:
+                return (
+                    self._status(False, "Capture is available on Windows only."),
+                    QImage(), ())
+            if require_enabled and not self._enabled:
+                return (
+                    self._status(False, "Enable 'EverQuest View' in Vantage."),
+                    QImage(), ())
+            hwnd, title = self._find_window()
+            if not hwnd:
+                message = (
+                    "EverQuest is not open or does not match the linked executable."
+                    if self._target else
+                    "EverQuest is not open. It will be detected automatically when it starts.")
+                return self._status(False, message), QImage(), ()
+            if self._is_window_minimized(hwnd):
+                return (
+                    self._status(False, "EverQuest is minimized; restore it to read vitals.", title),
+                    QImage(), ())
+            image, rect = self._capture_image(hwnd)
+            if image.isNull() or not rect:
+                message = self._capture_error or (
+                    "Windows could not capture the image. Use EverQuest in windowed "
+                    "or borderless-window mode.")
+                return self._status(False, message, title), QImage(), ()
+            return self._status(True, "Live read-only pixel capture.", title), image, rect
+
     def _status(self, available, message, title=""):
         if title:
             self._last_title = title
@@ -585,19 +624,19 @@ class GameWindowCapture:
         _, self._hwnd, self._last_title = max(matches, key=lambda item: item[0])
         return self._hwnd, self._last_title
 
-    def _capture_jpeg(self, hwnd):
+    def _capture_image(self, hwnd):
         self._capture_error = ""
         self._capture_mode = ""
         rect = wintypes.RECT()
         if not self._user32.GetWindowRect(hwnd, ctypes.byref(rect)):
-            return b""
+            return QImage(), ()
         width, height = rect.right - rect.left, rect.bottom - rect.top
         if width <= 0 or height <= 0 or width > 8192 or height > 8192:
-            return b""
+            return QImage(), ()
 
         source_dc = self._user32.GetWindowDC(hwnd)
         if not source_dc:
-            return b""
+            return QImage(), ()
         memory_dc = self._gdi32.CreateCompatibleDC(source_dc)
         bitmap = self._gdi32.CreateCompatibleBitmap(source_dc, width, height)
         if not memory_dc or not bitmap:
@@ -606,7 +645,7 @@ class GameWindowCapture:
             if memory_dc:
                 self._gdi32.DeleteDC(memory_dc)
             self._user32.ReleaseDC(hwnd, source_dc)
-            return b""
+            return QImage(), ()
 
         previous = self._gdi32.SelectObject(memory_dc, bitmap)
         try:
@@ -615,26 +654,25 @@ class GameWindowCapture:
                 self._capture_mode = "window"
             else:
                 # DirectX under WinEQ commonly rejects PrintWindow. Copying from
-                # the game's own DC works reliably, but is allowed only while an
-                # EQ/WinEQ surface is foreground so a covered desktop is never
-                # exposed to the phone.
-                if not self._game_is_foreground(hwnd):
-                    self._capture_error = (
-                        "WinEQ2 detected · bring EverQuest to the foreground to continue.")
-                    return b""
+                # the game's own DC is still a direct, window-scoped read and
+                # remains safe while Vantage's monitor/calibration UI has focus.
                 if self._gdi32.BitBlt(
                         memory_dc, 0, 0, width, height, source_dc,
                         0, 0, SRCCOPY):
                     self._capture_mode = "wineq-window"
                 else:
+                    # Only this last-resort desktop copy can include covered
+                    # pixels. Never use it unless EQ/WinEQ is foreground.
+                    if not self._screen_fallback_allowed(hwnd):
+                        return QImage(), ()
                     screen_dc = self._user32.GetDC(0)
                     if not screen_dc:
-                        return b""
+                        return QImage(), ()
                     try:
                         if not self._gdi32.BitBlt(
                                 memory_dc, 0, 0, width, height, screen_dc,
                                 rect.left, rect.top, SRCCOPY | CAPTUREBLT):
-                            return b""
+                            return QImage(), ()
                         self._capture_mode = "wineq-screen"
                     finally:
                         self._user32.ReleaseDC(0, screen_dc)
@@ -649,31 +687,46 @@ class GameWindowCapture:
             if self._gdi32.GetDIBits(
                     memory_dc, bitmap, 0, height, pixels,
                     ctypes.byref(info), DIB_RGB_COLORS) != height:
-                return b""
+                return QImage(), ()
             image = QImage(
                 bytes(pixels), width, height, width * 4,
                 # A 32-bit Windows DIB is B,G,R,X in memory. Format_RGB32
                 # represents that native little-endian layout in Qt.
                 QImage.Format.Format_RGB32).copy()
             if image.isNull():
-                return b""
-            if image.width() > self._max_width:
-                image = image.scaledToWidth(
-                    self._max_width,
-                    Qt.TransformationMode.SmoothTransformation)
-            encoded = QByteArray()
-            output = QBuffer(encoded)
-            if not output.open(QIODevice.OpenModeFlag.WriteOnly):
-                return b""
-            try:
-                if not image.save(output, "JPEG", self._quality):
-                    return b""
-            finally:
-                output.close()
-            return bytes(encoded)
+                return QImage(), ()
+            return image, (rect.left, rect.top, width, height)
         finally:
             if previous:
                 self._gdi32.SelectObject(memory_dc, previous)
             self._gdi32.DeleteObject(bitmap)
             self._gdi32.DeleteDC(memory_dc)
             self._user32.ReleaseDC(hwnd, source_dc)
+
+    def _screen_fallback_allowed(self, hwnd):
+        """Gate desktop capture without blocking direct EQ window capture."""
+        if self._game_is_foreground(hwnd):
+            return True
+        self._capture_error = (
+            "Direct EverQuest capture is unavailable · bring EverQuest to "
+            "the foreground for the safe WinEQ screen fallback.")
+        return False
+
+    def _capture_jpeg(self, hwnd):
+        image, _rect = self._capture_image(hwnd)
+        if image.isNull():
+            return b""
+        if image.width() > self._max_width:
+            image = image.scaledToWidth(
+                self._max_width,
+                Qt.TransformationMode.SmoothTransformation)
+        encoded = QByteArray()
+        output = QBuffer(encoded)
+        if not output.open(QIODevice.OpenModeFlag.WriteOnly):
+            return b""
+        try:
+            if not image.save(output, "JPEG", self._quality):
+                return b""
+        finally:
+            output.close()
+        return bytes(encoded)

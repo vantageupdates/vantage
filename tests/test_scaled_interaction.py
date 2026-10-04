@@ -110,6 +110,7 @@ market_layout_after = {
 }
 
 timer = SpawnTimerState('Scaled test', 1800, kill_seconds=90)
+timers._refresh_zone_filter('')
 timers._states[timer.timer_id] = timer
 timers._add_row(timer)
 row = timers._rows[timer.timer_id]
@@ -224,6 +225,8 @@ print(json.dumps({
         name: [panel.minimumWidth(), panel.minimumHeight()]
         for name, panel in app._parsers_dict.items()
     },
+    'quickbar_design': [app._parsers_dict['quickbar']._design_size.width(),
+                        app._parsers_dict['quickbar']._design_size.height()],
     'missing_by_panel': missing_by_panel,
     'replicas': replicas,
     'header_reveal': header_reveal,
@@ -259,32 +262,46 @@ def test_scaled_panels_keep_keyboard_pointer_and_tooltips(tmp_path):
     assert result["timer_resize_was_clamped"] is True
     assert result["timer_focus_started_on_suffix"] is True
     assert result["timer_short_focus_visible"] is True
-    assert result["timer_size"][0] == 300
+    assert result["timer_size"][0] == 130
     assert result["timer_size"][1] >= math.ceil(
         result["timer_required_single"] * 300 / 520)
     assert result["missing_timer_tooltips"] == []
     assert result["map_manual_pan"] is True
+    # The visible Triggers label widens the authored row (852 x 72 here),
+    # not its targets or height. Keep the 292px recovery width and verify
+    # the exact uniform aspect-derived minimum, rather than the old 779px
+    # catalog's fixed 27px result (the new catalog yields 25px).
+    quickbar_width, quickbar_height = result["quickbar_design"]
+    quickbar_scale = max(.25, 292 / quickbar_width,
+                         18 / (quickbar_height - 19))
     assert result["minimum_sizes"] == {
-        "quickbar": [255, 25],
-        "maps": [320, 320], "spells": [210, 111],
-        "tick": [208, 114],
-        "timers": [300, min(
+            "quickbar": [292, round(quickbar_height * quickbar_scale)],
+        "maps": [100, 100], "spells": [65, 100],
+        "tick": [65, 36],
+        "timers": [130, min(
             result["timer_required_physical_height"],
             result["timer_screen_height"])],
-        "combat": [416, 240],
-        "heals": [416, 176], "market": [784, 496],
-        "opendkp": [784, 496],
-        "zones": [720, 448], "quests": [720, 580],
-        "vantage_ui": [560, 432]}
+        "combat": [130, 75],
+        "random_parser": [108, 75],
+        "heals": [130, 55], "market": [245, 155],
+        "opendkp": [245, 155],
+            "zones": [225, 140], "quests": [225, 145],
+            "items_notes": [225, 142],
+            "vantage_ui": [175, 135],
+            "log_searcher": [240, 140],
+            "vitals": [140, 115]}
     assert result["minimum_sizes"]["timers"] == [
-        300, min(
+        130, min(
             result["timer_required_physical_height"],
             result["timer_screen_height"])]
     assert result["missing_by_panel"] == {
         "quickbar": [], "maps": [], "spells": [], "tick": [],
         "timers": [], "combat": [],
+        "random_parser": [],
         "heals": [], "market": [], "opendkp": [], "zones": [], "quests": [],
+        "items_notes": [],
         "vantage_ui": [],
+        "log_searcher": [], "vitals": [],
         "overlay_editor": []}
     assert all(
         replica['logical_before'][:3] == replica['logical_after'][:3]

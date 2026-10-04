@@ -33,7 +33,7 @@ RELEASE_HISTORY_API = (
     f"https://api.github.com/repos/{REPOSITORY}/releases?per_page=40&page=1")
 RELEASES_URL = f"https://github.com/{REPOSITORY}/releases"
 ASSET_NAME = "Vantage.exe"
-USER_AGENT = "Vantage/1.44.68"
+USER_AGENT = "Vantage/1.44.125"
 _COMPANION_TAG = re.compile(
     r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
 
@@ -359,9 +359,15 @@ class UpdateController(QObject):
         ]
         if open_vantage_ui:
             command.append("--open-vantage-ui")
-        subprocess.Popen(
-            command, cwd=str(target.parent), close_fds=True,
-            creationflags=flags)
+        try:
+            subprocess.Popen(
+                command, cwd=str(target.parent), close_fds=True,
+                creationflags=flags)
+        except Exception:
+            cancel_handoff = getattr(app, 'cancel_update_handoff', None)
+            if callable(cancel_handoff):
+                cancel_handoff()
+            raise
         self._preserve_staged = True
 
     def cleanup(self):
@@ -793,9 +799,13 @@ class UpdateDialog(UniformScaleDialog):
         self._one_click_active = False
         self._suppress_restore_focus = True
         app = QApplication.instance()
-        if getattr(app, "_system_tray", None):
-            app._system_tray.setVisible(False)
-        app.quit()
+        exit_for_update = getattr(app, "exit_for_verified_update", None)
+        if callable(exit_for_update):
+            exit_for_update()
+        else:
+            if getattr(app, "_system_tray", None):
+                app._system_tray.setVisible(False)
+            app.quit()
 
     def hideEvent(self, event):
         super().hideEvent(event)

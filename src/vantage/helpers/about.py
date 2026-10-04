@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 from vantage.helpers import resource_path
 from vantage.helpers.icons import game_icon
 from vantage.helpers.scaled_dialog import UniformScaleDialog
+from vantage.helpers.terms import load_terms_text
 
 
 SOURCE_URL = "https://github.com/vantageupdates/vantage"
@@ -191,6 +192,16 @@ class AboutDialog(UniformScaleDialog):
                 if url.scheme().casefold() == "mailto"
                 else open_external_url(url.toString())))
         tabs.addTab(credits, "Credits & Acknowledgments")
+
+        terms = QTextBrowser()
+        terms.setObjectName("TermsPrivacy")
+        terms.setOpenExternalLinks(False)
+        terms.setOpenLinks(False)
+        terms.setAccessibleName("Vantage Terms and Privacy notice")
+        terms.setAccessibleDescription(
+            "Scrollable copy of the Terms and Privacy notice accepted at startup")
+        terms.setMarkdown(load_terms_text())
+        tabs.addTab(terms, "Terms & Privacy")
 
         notices = QPlainTextEdit()
         notices.setObjectName("LegalNotices")

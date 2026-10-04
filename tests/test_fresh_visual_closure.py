@@ -146,23 +146,26 @@ def test_final_visual_review_contracts(tmp_path):
     assert result['combat_selector_count'] == 22
     assert result['combat_selector_name'] == 'Combat analysis view'
     assert result['combat_sync'] == [[0, 0], [5, 5], [21, 21]]
-    # Every interactive panel stays at 80% of its authored footprint.
+    # Exact replica presets may reach 25% without allowing a blank or clipped
+    # logical surface.
     for minimum_width, minimum_height, width, height in result['minimums'].values():
         assert width >= minimum_width and height >= minimum_height
-        assert minimum_width >= 416
-        assert minimum_height >= 176
+        assert minimum_width >= 130
+        assert minimum_height >= 55
     assert result['zone_columns_name'] == 'Resize zone table columns'
     assert result['readable_minimums'] == {
-        'maps': [320, 320], 'tick': [208, 114],
-        'market': [784, 496], 'zones': [720, 448]}
+        'maps': [100, 100], 'tick': [65, 36],
+        'market': [245, 155], 'zones': [225, 140]}
     assert result['combat_native_buttons'] == {
         'random_split': 'ToolbarAction',
         'random_clear': 'ToolbarAction',
         'log_add': 'ToolbarAction',
         'log_delete': 'ToolbarAction'}
+    assert [case['window'] for case in result['quest_cases']] == [
+        [900, 580], [720, 580], [720, 580], [900, 420]]
     for case in result['quest_cases']:
-        assert case['window'][0] >= 720 and case['window'][1] >= 580
-        assert case['surface'][0] == 900 and case['surface'][1] >= 580
+        assert case['surface'][0] == 900
+        assert case['surface'][1] >= case['window'][1]
         assert case['list_width'] >= 250
         assert case['summary_height'] >= 240
         assert case['wiki_full'] is True

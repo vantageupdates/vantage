@@ -123,6 +123,8 @@ escape = {'visible': dialog.isVisible(), 'restored': len(restored)}
 # Companion progress stops at the three useful milestones, then gives one
 # final verified/restart status. The checkbox carries the explicit opt-in.
 app.quit = lambda: None
+update_exits = []
+app.exit_for_verified_update = lambda: update_exits.append(True)
 dialog.show()
 dialog.open_ui_after_restart.setChecked(True)
 dialog.download_button.click()
@@ -134,6 +136,7 @@ download = {
     'downloaded': controller.downloaded is info,
     'installed': controller.installed,
     'progress': dialog.progress.value(),
+    'verified_exit': update_exits,
 }
 
 # Manual check errors return focus to Check again, not a disabled download.
@@ -233,6 +236,7 @@ def test_update_dialog_separates_products_and_restores_focus(tmp_path):
         'installed': [
             '1.0.1', 'verified-Vantage.exe', {'open_vantage_ui': True}],
         'progress': 100,
+        'verified_exit': [True],
     }
     assert result['check_error'] == {
         'status': 'GitHub unavailable',

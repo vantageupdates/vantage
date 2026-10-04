@@ -3,3 +3,4 @@ colorhash
 pathvalidate
 semver
 segno
+zeroconf>=0.132,<0.140

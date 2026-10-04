@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import asdict, dataclass, field
+import math
 import re
+import time
 
 from vantage.helpers.spell_catalog import p99_unique_spell_profiles
 
@@ -86,6 +88,11 @@ PET_SUMMON_SPELLS = frozenset(name.casefold() for name in (
         "Greater Conjuration")
     for element in ("Air", "Earth", "Fire", "Water"))
 
+LEGACY_UNKNOWN_REGEN_NAMES = frozenset({
+    "regeneration effect (rank unknown)",
+    "external regeneration (rank unknown)",
+})
+
 
 @dataclass
 class CharacterContext:
@@ -152,11 +159,33 @@ class CharacterContextTracker:
             if not isinstance(item, dict):
                 continue
             name = str(item.get("name") or "").strip()[:96]
+            if name.casefold() in LEGACY_UNKNOWN_REGEN_NAMES:
+                continue
             seconds = max(0, min(
                 7 * 24 * 60 * 60,
                 cls._safe_int(item.get("seconds"), 0)))
-            if name and seconds:
-                normalized.append({"name": name, "seconds": seconds})
+            try:
+                deadline = float(item.get("deadline", 0) or 0)
+            except (TypeError, ValueError, OverflowError):
+                deadline = 0
+            if deadline <= 0 and seconds:
+                # Upgrade a legacy remaining-time snapshot once. New snapshots
+                # always persist an absolute deadline so time keeps passing
+                # while the character is camped or Vantage is closed.
+                deadline = time.time() + seconds
+            remaining = max(0, min(
+                7 * 24 * 60 * 60,
+                int(math.ceil(deadline - time.time()))))
+            if name and remaining:
+                normalized.append({
+                    "name": name,
+                    "seconds": remaining,
+                    "deadline": deadline,
+                    "warning_played": bool(
+                        item.get("warning_played", False)),
+                    "final_warning_played": bool(
+                        item.get("final_warning_played", False)),
+                })
         return normalized
 
     @staticmethod
@@ -193,13 +222,15 @@ class CharacterContextTracker:
         level = max(1, min(65, int(level)))
         return context, self._change(context, level=level)
 
-    def store_you_spells_if_empty(self, character, server, spells):
-        """Mirror EQTool: preserve a camp snapshot only when none is pending."""
+    def store_you_spells(self, character, server, spells):
+        """Replace this character's camp snapshot with its newest buff state."""
         context = self.context(character, server)
-        if context.saved_you_spells:
-            return context, False
         saved = self._normalize_saved_you_spells(spells)
         return context, self._change(context, saved_you_spells=saved)
+
+    def store_you_spells_if_empty(self, character, server, spells):
+        """Backward-compatible alias; newest logout state is authoritative."""
+        return self.store_you_spells(character, server, spells)
 
     def take_saved_you_spells(self, character, server):
         """Return and clear the one-shot camp snapshot restored at welcome."""

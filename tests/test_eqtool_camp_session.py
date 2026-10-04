@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 from PySide6.QtCore import QCoreApplication
 from PySide6.QtTest import QTest
@@ -57,7 +58,7 @@ def test_camp_controller_matches_exact_lines_cancels_and_separates_profiles():
     assert qt_app is not None
 
 
-def test_character_context_keeps_one_bounded_camp_snapshot_until_welcome():
+def test_character_context_keeps_latest_aging_camp_snapshot_until_welcome():
     tracker = CharacterContextTracker()
     context, changed = tracker.store_you_spells_if_empty(
         "Alice", "Green", [
@@ -66,16 +67,19 @@ def test_character_context_keeps_one_bounded_camp_snapshot_until_welcome():
             {"name": "Invalid", "seconds": -1},
         ])
     assert changed is True
-    assert context.saved_you_spells == [
-        {"name": "Spirit of Wolf", "seconds": 372}]
+    assert context.saved_you_spells[0]["name"] == "Spirit of Wolf"
+    assert context.saved_you_spells[0]["seconds"] == 372
+    assert context.saved_you_spells[0]["deadline"] > time.time()
 
     _context, changed = tracker.store_you_spells_if_empty(
         "Alice", "Green", [{"name": "Shielding", "seconds": 99}])
-    assert changed is False
+    assert changed is True
     _context, saved, changed = tracker.take_saved_you_spells(
         "Alice", "Green")
     assert changed is True
-    assert saved == [{"name": "Spirit of Wolf", "seconds": 372}]
+    assert saved[0]["name"] == "Shielding"
+    assert saved[0]["seconds"] == 99
+    assert saved[0]["deadline"] > time.time()
     assert tracker.snapshot()["green|alice"]["saved_you_spells"] == []
 
 
@@ -148,6 +152,7 @@ after_camp_names = sorted(
     widget.spell.name for widget in target.spell_widgets())
 saved = config.data['general']['character_profiles'][
     'green|alice']['saved_you_spells']
+mobile_after_camp = spells.mobile_snapshot()
 camped_text = spells._title.text()
 location_cleared = '__you__' not in maps._map._data.players
 
@@ -164,6 +169,7 @@ restored_seconds = round(
     (restored.end_time - datetime.datetime.now()).total_seconds())
 saved_after_welcome = config.data['general']['character_profiles'][
     'green|alice']['saved_you_spells']
+mobile_after_welcome = spells.mobile_snapshot()
 welcome_status_cleared = (
     spells._camp_state == '' and spells._title.text() == 'Spells')
 
@@ -183,10 +189,12 @@ print(json.dumps({
     'camped_text': camped_text,
     'after_camp_names': after_camp_names,
     'saved': saved,
+    'mobile_after_camp': mobile_after_camp,
     'location_cleared': location_cleared,
     'after_welcome_names': after_welcome_names,
     'restored_seconds': restored_seconds,
     'saved_after_welcome': saved_after_welcome,
+    'mobile_after_welcome': mobile_after_welcome,
     'welcome_status_cleared': welcome_status_cleared,
     'after_abandon_names': after_abandon_names,
     'location_after_abandon': '__you__' in maps._map._data.players,
@@ -216,15 +224,25 @@ def test_camp_cycle_preserves_restores_and_clears_only_the_active_profile(
     assert result["after_camp_names"] == ["shielding"]
     assert result["saved"][0]["name"] == "spirit of wolf"
     assert result["saved"][0]["seconds"] > 0
+    assert result["mobile_after_camp"]["character"] == "Alice"
+    assert result["mobile_after_camp"]["camp_state"] == "camped"
+    assert [row["name"].casefold()
+            for row in result["mobile_after_camp"]["timers"]] == [
+        "spirit of wolf"]
+    assert result["mobile_after_camp"]["timers"][0]["remaining_seconds"] > 0
     assert result["location_cleared"] is True
     assert result["after_welcome_names"] == ["shielding", "spirit of wolf"]
     assert 0 < result["restored_seconds"] <= result["saved"][0]["seconds"]
     assert result["saved_after_welcome"] == []
+    assert result["mobile_after_welcome"]["camp_state"] == ""
+    assert [row["name"].casefold()
+            for row in result["mobile_after_welcome"]["timers"]] == [
+        "spirit of wolf"]
     assert result["welcome_status_cleared"] is True
     assert result["after_abandon_names"] == ["shielding", "spirit of wolf"]
     assert result["location_after_abandon"] is True
-    assert result["minimum"] == [210, 111]
+    assert result["minimum"] == [65, 100]
     assert result["logical_surface"][0] == 260
-    # The horizontal readability floor is independent of the vertical floor:
-    # the shortest window clips the list instead of shrinking its header.
-    assert 136 <= result["logical_surface"][1] <= 138
+    # The complete 25% replica keeps its full logical surface; shortening the
+    # physical window does not clip or rearrange tracked buff rows.
+    assert result["logical_surface"][1] == 400

@@ -1,4 +1,4 @@
-"""Modern spawn timer overlay for Project 1999."""
+"""Modern shared timer workspaces for Project 1999."""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ import math
 import re
 import string
 import time
+import uuid
+from collections import deque
 
 from PySide6.QtCore import QDateTime, QEvent, QLocale, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import (
@@ -15,10 +17,12 @@ from PySide6.QtGui import (
     QLinearGradient, QPainter, QPainterPath, QShortcut)
 from PySide6.QtWidgets import (
     QApplication,
+    QAbstractItemView,
     QBoxLayout,
     QCheckBox,
     QColorDialog,
     QComboBox,
+    QCompleter,
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
@@ -26,18 +30,26 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QProgressBar,
     QPushButton,
     QSizePolicy,
     QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
 from vantage.helpers import config
 from vantage.helpers.audio import (
-    add_custom_sound_to_combo, play_alert, set_sound_combo_value)
+    audio_preflight, audio_reason_label, add_custom_sound_to_combo, play_alert,
+    set_sound_combo_value, speak_text, speech_voice_names,
+    unavailable_voice_label,
+    vantage_command_voice_description,
+    vantage_command_voice_label)
 from vantage.helpers.icons import game_icon
 from vantage.helpers.log_events import extract_killed_mob
 from vantage.helpers.encounter_events import (
@@ -47,10 +59,11 @@ from vantage.helpers.eq_clipboard import set_eq_clipboard
 from vantage.helpers.parser import ParserWindow
 from vantage.helpers.portable import store_portable_file
 from vantage.helpers.responsive import (
-    ResponsiveActionBar, polish_form)
+    ResponsiveActionBar, polish_form, scrollable)
 from vantage.helpers.respawn_catalog import (
     CATALOG_SOURCE, CATALOG_SOURCE_URL, NAMED_CATALOG_SOURCE,
-    NAMED_CATALOG_SOURCE_URL, RESPAWN_CATALOG, named_spawn_for,
+    NAMED_CATALOG_SOURCE_URL, NAMED_SPAWN_CATALOG, RESPAWN_CATALOG,
+    named_spawn_for,
     respawn_for_short_name)
 from vantage.helpers.safety_alerts import SafetyAlertState
 from vantage.helpers.scaled_dialog import UniformScaleDialog
@@ -60,19 +73,31 @@ from vantage.helpers.spawn_timer import (
     PHASE_IDLE,
     PHASE_RESPAWN,
     SpawnTimerState,
+    TIMER_MODE_COOLDOWN,
+    TIMER_MODE_COUNTDOWN,
+    TIMER_MODE_SPAWN,
+    TIMER_TTS_DEFAULT,
+    MAX_DEATH_MOB_NAME_LENGTH,
+    MAX_DEATH_MOBS,
+    normalize_death_mobs,
+    render_timer_notification_text,
     reset_stale_persisted_timers,
     format_seconds,
     parse_duration_input,
     zone_timer_visible,
 )
 from vantage.helpers.timer_share import (
-    TIMER_SHARE_PREFIX,
+    TIMER_SHARE_PREFIXES,
     TimerShareError,
     build_timer_share_codes,
     decode_timer_share_code,
     extract_timer_share_codes,
     shared_record_to_state,
 )
+from vantage.helpers.timer_keywords import (
+    KEYWORD_ACTIONS, MAX_KEYWORD_RULES, match_keyword_phrase,
+    normalize_keyword_phrase, normalize_keyword_rules, own_say_message,
+    validate_keyword_rule)
 
 
 LOG_TIMER_COMMAND = re.compile(
@@ -80,10 +105,42 @@ LOG_TIMER_COMMAND = re.compile(
     r"(?:-(?P<label>[A-Za-z0-9_.'`-]+))?",
     re.IGNORECASE)
 
+
+NAMED_MOB_SUGGESTIONS = tuple(sorted(
+    {
+        entry.npc_name.strip().casefold(): entry.npc_name.strip()
+        for entry in NAMED_SPAWN_CATALOG.values()
+        if entry.npc_name.strip()
+    }.values(), key=str.casefold))
+
 AUTO_TIMER_COLORS = (
     "#B97252", "#9A7650", "#7B8755", "#4F8378",
     "#657A96", "#806C91", "#995E73", "#8D7048",
 )
+MAX_CROSS_ZONE_WATCHES = 64
+
+
+TIMER_CLONE_CONFIGURATION_FIELDS = (
+    "name", "respawn_seconds", "kill_seconds", "warning_seconds", "color",
+    "smart", "zone", "mob_pattern", "death_mobs", "sound_path", "volume",
+    "delivery", "tts_text", "tts_voice", "tts_pitch", "source",
+    "automatic", "timer_mode",
+)
+
+
+def clone_timer_configuration(timer):
+    """Copy saved timer configuration into a fresh, idle runtime identity."""
+    values = timer.to_dict()
+    clone = SpawnTimerState(**{
+        key: values[key] for key in TIMER_CLONE_CONFIGURATION_FIELDS
+        if key in values})
+    # Be explicit even though the dataclass defaults already start idle. This
+    # keeps cloning safe if future configuration fields are added around the
+    # persisted runtime fields.
+    clone.reset()
+    clone.cycles = 0
+    clone.warning_sent = False
+    return clone
 
 
 def extract_log_timer_command(text):
@@ -130,7 +187,7 @@ SPAWN_TIMER_WINDOW_STYLE = """
     QLabel#ParserWindowTitle {
         color: #ECE8DF;
         font-family: "Segoe UI Variable", "Segoe UI";
-        font-size: 11px;
+        font-size: 12px;
         font-weight: 600;
     }
     QFrame#SpawnTimerRow {
@@ -273,20 +330,59 @@ class TimerProgressBar(QProgressBar):
 
 
 class TimerEditDialog(UniformScaleDialog):
-    def __init__(self, timer=None, parent=None):
+    def __init__(self, timer=None, parent=None, clone_source=None):
         super().__init__(
-            QSize(500, 420), parent, minimum_size=QSize(200, 168))
+            QSize(560, 660), parent, minimum_size=QSize(200, 232))
         self.timer = timer
+        self.clone_source = clone_source
         self.color = timer.color if timer else "#B38C52"
-        self.setWindowTitle("Edit Smart Timer" if timer else "New Smart Timer")
+        self.setWindowTitle(
+            "Clone Smart Timer" if clone_source is not None else
+            "Edit Smart Timer" if timer else "New Smart Timer")
 
         form = polish_form(QFormLayout())
+        self._timer_form = form
         form.setSpacing(5)
+        if clone_source is not None:
+            self.clone_notice = QLabel(
+                "NEW INDEPENDENT TIMER · Change the timer name or add/change "
+                "a death mob or trigger before saving.")
+            self.clone_notice.setWordWrap(True)
+            self.clone_notice.setObjectName("TimerCloneNotice")
+            self.clone_notice.setAccessibleName(
+                "Clone timer change required")
+            self.clone_notice.setAccessibleDescription(
+                "This is a new independent timer. Change its name or death "
+                "matching list before Save becomes valid; the original is "
+                "never overwritten.")
+            self.clone_notice.setToolTip(
+                "The clone starts READY with a new identity and cannot "
+                "overwrite the original timer")
+            form.addRow(self.clone_notice)
+        else:
+            self.clone_notice = None
         self.name = QLineEdit(timer.name if timer else "")
         self.name.setPlaceholderText("Example: Quillmane")
         self.name.setToolTip(
             "A short label shown on the timer row, overlays, and phone view")
+        if clone_source is not None:
+            self.name.setAccessibleDescription(
+                "Change this name, or change the death matching list, before "
+                "saving the independent clone.")
         form.addRow("Name", self.name)
+
+        self.timer_mode = QComboBox()
+        self.timer_mode.addItem("Spawn / respawn", TIMER_MODE_SPAWN)
+        self.timer_mode.addItem("General countdown", TIMER_MODE_COUNTDOWN)
+        self.timer_mode.addItem("Reusable cooldown", TIMER_MODE_COOLDOWN)
+        current_mode = getattr(timer, "timer_mode", TIMER_MODE_SPAWN)
+        selected_mode = self.timer_mode.findData(current_mode)
+        self.timer_mode.setCurrentIndex(max(0, selected_mode))
+        self.timer_mode.setAccessibleName("Timer type")
+        self.timer_mode.setToolTip(
+            "Choose a mob spawn cycle, a one-time general countdown, or a "
+            "cooldown that can be restarted whenever it is used")
+        form.addRow("Timer type", self.timer_mode)
 
         self.respawn = QLineEdit(format_seconds(timer.respawn_seconds) if timer else "00:32:00")
         self.respawn.setPlaceholderText("3 = 3 min · 3:50 · 1:03:50")
@@ -309,7 +405,8 @@ class TimerEditDialog(UniformScaleDialog):
         self.warning.setSuffix(" s")
         self.warning.setValue(timer.warning_seconds if timer else 30)
         self.warning.setToolTip(
-            "Play and display the fading warning this many seconds before spawn")
+            "Play and display a warning this many seconds before the timer "
+            "finishes or the spawn becomes available")
         form.addRow("Advance warning", self.warning)
 
         self.smart = QCheckBox("Assume kill when the estimate ends")
@@ -322,16 +419,178 @@ class TimerEditDialog(UniformScaleDialog):
         self.zone = QLineEdit(timer.zone if timer else "")
         self.zone.setPlaceholderText("Blank = all zones")
         self.zone.setToolTip(
-            "Only match death lines while this zone is active; leave blank "
-            "to use the timer in every zone")
+            "Only match death lines while this zone is active. Blank allows "
+            "detection in any zone, but the row appears only under All saved "
+            "timers unless a window explicitly watches it.")
         form.addRow("Zone", self.zone)
 
+        # ``mob_pattern`` remains hidden for saved pre-list timers. New input
+        # is stored as a full name or distinctive multi-word match phrase.
         self.mob_pattern = QLineEdit(timer.mob_pattern if timer else "")
-        self.mob_pattern.setPlaceholderText("Regex or mob name")
-        self.mob_pattern.setToolTip(
-            "Mob name or regular expression matched against EverQuest death "
-            "lines; blank uses the timer name")
-        form.addRow("Detect death", self.mob_pattern)
+        self.mob_pattern.hide()
+        self._death_list_changed = False
+        initial_death_mobs = normalize_death_mobs(
+            getattr(timer, "death_mobs", []) if timer else [])
+        if (timer and not initial_death_mobs and
+                not str(getattr(timer, "mob_pattern", "") or "").strip()):
+            initial_death_mobs = normalize_death_mobs([timer.name])
+
+        self.death_mob_panel = QWidget()
+        # QFormLayout's WrapLongRows policy otherwise bases the following
+        # row on the panel's pre-wrap size hint while this nested list expands
+        # to its minimum height.  A fixed logical-canvas height keeps the
+        # compact editor deterministic and prevents later notification rows
+        # from painting through the death-name list.
+        self.death_mob_panel.setFixedHeight(164)
+        self.death_mob_panel.setAccessibleName("Detect deaths")
+        self.death_mob_panel.setAccessibleDescription(
+            "Adds full mob or placeholder names, or distinctive multi-word "
+            "phrases, that can restart this timer")
+        death_layout = QVBoxLayout(self.death_mob_panel)
+        death_layout.setContentsMargins(0, 0, 0, 0)
+        death_layout.setSpacing(4)
+        death_input_row = QHBoxLayout()
+        death_input_row.setContentsMargins(0, 0, 0, 0)
+        death_input_row.setSpacing(4)
+        self.death_mob_picker = QComboBox()
+        self.death_mob_picker.setEditable(True)
+        self.death_mob_picker.setInsertPolicy(
+            QComboBox.InsertPolicy.NoInsert)
+        self.death_mob_picker.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.death_mob_picker.setMinimumContentsLength(12)
+        self.death_mob_picker.addItems(NAMED_MOB_SUGGESTIONS)
+        self.death_mob_picker.setCurrentIndex(-1)
+        self.death_mob_picker.setAccessibleName(
+            "Detect deaths: named mob or custom placeholder")
+        self.death_mob_picker.setAccessibleDescription(
+            "Editable named-mob picker. Type to search all bundled P99 "
+            "nameds, use Arrow keys to choose a suggestion, or type a "
+            "custom placeholder; press Enter to add it. Save up to 24 full "
+            "names or distinctive multi-word phrases of no more than 128 "
+            "characters each.")
+        self.death_mob_input = self.death_mob_picker.lineEdit()
+        self.death_mob_input.setPlaceholderText("Named mob or custom PH")
+        self.death_mob_input.setAccessibleName(
+            "Detect deaths: mob or placeholder name to add")
+        self.death_mob_input.setAccessibleDescription(
+            "Type a full mob or placeholder name, or a distinctive phrase of "
+            "two or more words. Suggestions search all named mobs in "
+            "Vantage's P99 catalog, regardless of selected zone. Use Arrow "
+            "keys to select a suggestion and Enter to add.")
+        self.death_mob_input.setToolTip(
+            "Add a full name or distinctive multi-word phrase. Type to search "
+            "every bundled P99 named mob, or enter a custom placeholder; "
+            "press Enter to add.")
+        self.death_mob_picker.setToolTip(self.death_mob_input.toolTip())
+        self.death_mob_completer = self.death_mob_picker.completer()
+        self.death_mob_completer.setCaseSensitivity(
+            Qt.CaseSensitivity.CaseInsensitive)
+        self.death_mob_completer.setFilterMode(
+            Qt.MatchFlag.MatchContains)
+        self.death_mob_completer.setCompletionMode(
+            QCompleter.CompletionMode.PopupCompletion)
+        self.death_mob_completer.setMaxVisibleItems(10)
+        completion_popup = self.death_mob_completer.popup()
+        completion_popup.setAccessibleName("P99 named mob suggestions")
+        completion_popup.setAccessibleDescription(
+            "Filtered suggestions from every zone; use Arrow keys and Enter "
+            "to add one to this timer.")
+        self.death_mob_input.returnPressed.connect(
+            self._death_mob_return_pressed)
+        self.death_mob_completer.activated[str].connect(
+            self._add_death_mob_suggestion)
+        self.death_mob_picker.installEventFilter(self)
+        self.death_mob_input.installEventFilter(self)
+        death_input_row.addWidget(self.death_mob_picker, 1)
+
+        self.death_mob_add = QPushButton("Add")
+        self.death_mob_add.setAccessibleName(
+            "Add death detection name or phrase")
+        self.death_mob_add.setAccessibleDescription(
+            "Adds the typed catalog suggestion, custom placeholder, or "
+            "distinctive multi-word phrase for this timer")
+        self.death_mob_add.setToolTip(
+            "Add the typed named mob or custom placeholder to this timer")
+        self.death_mob_add.clicked.connect(self._add_death_mob)
+        death_input_row.addWidget(self.death_mob_add)
+        self.death_mob_remove = QPushButton("Remove")
+        self.death_mob_remove.setAccessibleName(
+            "Remove selected death detection name")
+        self.death_mob_remove.setAccessibleDescription(
+            "Removes the selected mob or placeholder match from this "
+            "timer without changing other entries")
+        self.death_mob_remove.setToolTip(
+            "Remove the selected match; Delete works from the list too")
+        self.death_mob_remove.clicked.connect(self._remove_death_mob)
+        death_input_row.addWidget(self.death_mob_remove)
+        death_layout.addLayout(death_input_row)
+
+        self.death_mob_list = QListWidget()
+        self.death_mob_list.setMinimumHeight(76)
+        self.death_mob_list.setMaximumHeight(88)
+        self.death_mob_list.setAccessibleName(
+            "Detect deaths: mob and placeholder match list")
+        self.death_mob_list.setAccessibleDescription(
+            "Each complete name can restart this timer. Select a name and "
+            "press Delete or Remove to stop matching it.")
+        self.death_mob_list.setToolTip(
+            "Full names and distinctive phrases that restart this timer from "
+            "an EverQuest death line")
+        self.death_mob_list.installEventFilter(self)
+        self.death_mob_list.currentRowChanged.connect(
+            self._refresh_death_mob_actions)
+        for mob_name in initial_death_mobs:
+            self.death_mob_list.addItem(mob_name)
+        death_layout.addWidget(self.death_mob_list)
+
+        self.death_mob_help = QLabel(
+            "Full names or 2+ word partial phrases · up to 24 entries · "
+            "128 characters each · all P99 nameds or any custom PH")
+        self.death_mob_help.setWordWrap(True)
+        self.death_mob_help.setAccessibleDescription(
+            "Detect deaths instructions: full names or distinctive partial "
+            "phrases of two or more words; up to 24 entries; all P99 nameds "
+            "or any custom placeholder")
+        self.death_mob_help.setToolTip(
+            "Full names match exactly; partial phrases need two or more "
+            "contiguous words from the EverQuest death-line name")
+        death_layout.addWidget(self.death_mob_help)
+
+        self.death_mob_status = QLabel()
+        self.death_mob_status.setAccessibleName("Death detection list status")
+        self.death_mob_status.setAccessibleDescription(
+            "Reports death-name or phrase additions, removals, duplicates, "
+            "and limits")
+        self.death_mob_status.setToolTip(
+            "Status for this timer's death detection names and phrases")
+        death_layout.addWidget(self.death_mob_status)
+        # Tall, responsive compound controls are spanning rows.  Qt's
+        # WrapLongRows bookkeeping can otherwise position the following row
+        # using the panel's unwrapped hint while the panel paints at its full
+        # height, causing visible overlap at normal dialog widths.
+        self._death_mob_label = QLabel("Detect deaths")
+        self._death_mob_label.setBuddy(self.death_mob_picker)
+        form.addRow(self._death_mob_label)
+        form.addRow(self.death_mob_panel)
+        self._death_suggestion_announce_timer = QTimer(self)
+        self._death_suggestion_announce_timer.setSingleShot(True)
+        self._death_suggestion_announce_timer.setInterval(350)
+        self._death_suggestion_announce_timer.timeout.connect(
+            self._announce_death_mob_status)
+        self.finished.connect(
+            lambda _result: self._death_suggestion_announce_timer.stop())
+        self.death_mob_input.textChanged.connect(
+            self._death_mob_input_changed)
+        self._refresh_death_mob_actions()
+        if timer and str(getattr(timer, "mob_pattern", "") or "").strip():
+            self._set_death_mob_status(
+                "Legacy death pattern remains active until this list changes")
+        else:
+            self._set_death_mob_count_status()
+        self.timer_mode.currentIndexChanged.connect(
+            self._timer_mode_changed)
+        self._timer_mode_changed()
 
         color_row = QHBoxLayout()
         self.color_preview = QPushButton(self.color)
@@ -343,7 +602,28 @@ class TimerEditDialog(UniformScaleDialog):
         form.addRow("Color", color_row)
         self._update_color_preview()
 
+        self.delivery = QComboBox()
+        self.delivery.addItem(
+            "Use Smart Timer route (legacy)", "legacy")
+        self.delivery.addItem("Sound / WAV", "sound")
+        self.delivery.addItem("Text to speech", "tts")
+        self.delivery.addItem("Off", "off")
+        current_delivery = (
+            getattr(timer, "delivery", "legacy") if timer else "sound")
+        self.delivery.setCurrentIndex(max(
+            0, self.delivery.findData(current_delivery)))
+        self.delivery.setAccessibleName("Timer notification delivery")
+        self.delivery.setAccessibleDescription(
+            "Choose one notification output for warning and ready events: "
+            "the existing shared Smart Timer route, a sound or custom WAV, "
+            "Windows text to speech, or no audio.")
+        self.delivery.setToolTip(
+            "Applies to ending-soon, spawn-ready, complete, and cooldown-ready "
+            "events; visual notices remain available when audio is Off")
+        form.addRow("Delivery", self.delivery)
+
         sound_panel = QWidget()
+        self._sound_panel = sound_panel
         sound_row = QVBoxLayout(sound_panel)
         sound_row.setContentsMargins(0, 0, 0, 0)
         sound_row.setSpacing(5)
@@ -358,7 +638,9 @@ class TimerEditDialog(UniformScaleDialog):
         if configured_sound is None:
             self.sound.setCurrentIndex(0)
         browse = QPushButton("WAV…")
+        self._sound_browse = browse
         browse.setIcon(game_icon("copy"))
+        browse.setAccessibleName("Choose WAV for this timer")
         browse.setToolTip(
             "Add a royalty-free WAV file to Vantage's portable sound gallery")
         browse.clicked.connect(self._browse_sound)
@@ -376,11 +658,61 @@ class TimerEditDialog(UniformScaleDialog):
         self.sound_test_status = QLabel("Test status · ready")
         self.sound_test_status.setAccessibleName("Timer notification test status")
         self.sound_test_status.setToolTip(
-            "Reports whether the test played sound or voice, is Off, was "
+            "Reports whether sound or voice was queued, is Off, was "
             "blocked, or is unavailable")
         self.sound_test_status.setWordWrap(True)
         sound_row.addWidget(self.sound_test_status)
-        form.addRow("Alarm gallery", sound_panel)
+        self._sound_panel_label = QLabel("Alarm gallery")
+        self._sound_panel_label.setBuddy(self.sound)
+        form.addRow(self._sound_panel_label)
+        form.addRow(sound_panel)
+
+        tts_panel = QWidget()
+        self._tts_panel = tts_panel
+        tts_form = polish_form(QFormLayout(tts_panel))
+        tts_form.setContentsMargins(0, 0, 0, 0)
+        tts_form.setSpacing(4)
+        self.tts_text = QLineEdit(
+            getattr(timer, "tts_text", TIMER_TTS_DEFAULT)
+            if timer else TIMER_TTS_DEFAULT)
+        self.tts_text.setMaxLength(300)
+        self.tts_text.setAccessibleName("Timer speech message")
+        self.tts_text.setAccessibleDescription(
+            "Speech used for all timer notifications. Tokens are timer, state, "
+            "zone, event, seconds, and the name alias.")
+        self.tts_text.setToolTip(
+            "Tokens: {timer} or {name}, {state}, {zone}, {event}, {seconds}")
+        self.tts_voice = QComboBox()
+        self.tts_voice.addItem(vantage_command_voice_label(), "")
+        for voice in speech_voice_names():
+            self.tts_voice.addItem(voice, voice)
+        configured_voice = str(getattr(timer, "tts_voice", "") or "")
+        voice_index = self.tts_voice.findData(configured_voice)
+        missing_voice = configured_voice if configured_voice and \
+            voice_index < 0 else ""
+        if missing_voice:
+            self.tts_voice.addItem(
+                unavailable_voice_label(missing_voice), missing_voice)
+            voice_index = self.tts_voice.count() - 1
+        self.tts_voice.setCurrentIndex(max(0, voice_index))
+        self.tts_voice.setAccessibleName("Timer Windows voice")
+        self.tts_voice.setAccessibleDescription(
+            vantage_command_voice_description(missing_voice))
+        self.tts_voice.setToolTip(
+            "Voice for this timer. " + vantage_command_voice_description())
+        self.tts_pitch = QSpinBox()
+        self.tts_pitch.setRange(-10, 10)
+        self.tts_pitch.setValue(getattr(timer, "tts_pitch", 0) if timer else 0)
+        self.tts_pitch.setAccessibleName("Timer speech pitch")
+        self.tts_pitch.setToolTip(
+            "Pitch from -10 to 10 for this timer's Windows speech")
+        tts_form.addRow("Message", self.tts_text)
+        tts_form.addRow("Voice", self.tts_voice)
+        tts_form.addRow("Pitch", self.tts_pitch)
+        self._tts_panel_label = QLabel("Text to speech")
+        self._tts_panel_label.setBuddy(self.tts_text)
+        form.addRow(self._tts_panel_label)
+        form.addRow(tts_panel)
 
         self.volume = QSpinBox()
         self.volume.setRange(0, 100)
@@ -392,6 +724,9 @@ class TimerEditDialog(UniformScaleDialog):
             "Volume for this timer only; 0 mutes its alarm")
         test.clicked.connect(self._test_notification)
         form.addRow("This timer's volume", self.volume)
+        self.delivery.currentIndexChanged.connect(
+            self._notification_delivery_changed)
+        self._notification_delivery_changed()
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
@@ -411,8 +746,22 @@ class TimerEditDialog(UniformScaleDialog):
         layout.setSpacing(5)
         form_host = QWidget()
         form_host.setLayout(form)
-        layout.addWidget(form_host, 1)
+        # Keep every focusable editor control at its natural logical height.
+        # The body scrolls at shorter displays instead of letting QFormLayout
+        # compress compound rows until they overlap one another.
+        form_host.setMinimumHeight(720)
+        self._form_scroll = scrollable(form_host, "TimerEditScroll")
+        self._form_scroll.setAccessibleName("Smart Timer editor fields")
+        self._form_scroll.setAccessibleDescription(
+            "Scrollable timer fields, death matches, and notification options")
+        layout.addWidget(self._form_scroll, 1)
         layout.addWidget(buttons)
+        if clone_source is not None:
+            QTimer.singleShot(0, self._focus_clone_name)
+
+    def _focus_clone_name(self):
+        self.name.setFocus(Qt.FocusReason.OtherFocusReason)
+        self.name.selectAll()
 
     def _pick_color(self):
         selected = QColorDialog.getColor(QColor(self.color), self, "Timer Color")
@@ -437,21 +786,59 @@ class TimerEditDialog(UniformScaleDialog):
         app = QApplication.instance()
         selected = (None if self.sound.currentIndex() == 0 else
                     str(self.sound.currentData() or ""))
+        delivery = str(self.delivery.currentData() or "off")
         result = None
-        if app is not None and hasattr(app, "notify_event"):
+        if delivery == "tts":
+            sample = SpawnTimerState(
+                self.name.text().strip() or "Smart Timer",
+                max(1, parse_duration_input(self.respawn.text()) or 1),
+                zone=self.zone.text().strip())
+            speech = render_timer_notification_text(
+                self.tts_text.text(), sample, "ready", 0)
+            owner = self.parent()
+            character = getattr(owner, "_active_character", "")
+            server = getattr(owner, "_active_server", "")
+            check = audio_preflight(
+                "voice", text=speech, volume=self.volume.value(),
+                character=character, server=server, channel="timers",
+                allow_hidden=True)
+            played = bool(check.ready and speak_text(
+                speech, self.volume.value(),
+                source=f"Test · timer {sample.name}",
+                character=character, server=server, channel="timers",
+                allow_hidden=True,
+                voice_name=str(self.tts_voice.currentData() or ""),
+                pitch=self.tts_pitch.value()))
+            result = type("Result", (), {
+                "delivery": "tts", "state": (
+                    "played" if played else
+                    check.state if not check.ready else "unavailable"),
+                "reason": (check.reason if not check.ready else
+                           "Windows voice backend unavailable")})()
+        elif app is not None and hasattr(app, "notify_event"):
             result = app.notify_event(
                 "smart_timer", "Smart Timer test",
                 voice_text="Smart Timer test", overlay=False, register=False,
-                sound_override=selected, volume=self.volume.value(), repeat=2,
+                sound_override=(
+                    selected if delivery in ("legacy", "sound") else None),
+                volume=self.volume.value(), repeat=2,
+                channel="timers", allow_hidden=True,
+                delivery_override=(
+                    None if delivery == "legacy" else delivery))
+        elif delivery in ("legacy", "sound") and selected:
+            check = audio_preflight(
+                "sound", sound=selected, volume=self.volume.value(),
                 channel="timers", allow_hidden=True)
-        elif selected:
-            played = play_alert(
+            played = bool(check.ready and play_alert(
                 selected, self.volume.value(), 2,
                 source=f"Test · timer {self.name.text().strip() or 'new'}",
-                allow_hidden=True)
+                channel="timers", allow_hidden=True))
             result = type("Result", (), {
                 "delivery": "sound", "state": (
-                    "played" if played else "unavailable"), "reason": ""})()
+                    "played" if played else
+                    check.state if not check.ready else "unavailable"),
+                "reason": (check.reason if not check.ready else
+                           "Windows audio backend unavailable")})()
 
         delivery = getattr(result, "delivery", "off")
         state = getattr(result, "state", "off")
@@ -459,12 +846,14 @@ class TimerEditDialog(UniformScaleDialog):
         if delivery == "off":
             message = "Test status · Off — this timer will not play audio"
         elif state == "played":
-            message = f"Test status · {delivery} played"
-        elif state == "blocked":
-            message = f"Test status · blocked" + (f" · {reason}" if reason else "")
+            label = 'Voice' if delivery in ('tts', 'voice') else 'Sound'
+            message = f"Test status · {label} queued"
         else:
-            message = f"Test status · {delivery} unavailable"
+            message = f"Test status · {audio_reason_label(reason, delivery)}"
         self.sound_test_status.setText(message)
+        self.sound_test_status.setAccessibleName(message)
+        self.sound_test_status.setAccessibleDescription(
+            f"Latest timer notification test result: {message}")
         try:
             QAccessible.updateAccessibility(
                 QAccessibleAnnouncementEvent(self.sound_test_status, message))
@@ -472,53 +861,932 @@ class TimerEditDialog(UniformScaleDialog):
             pass
         return result
 
+    def _notification_delivery_changed(self, *_args):
+        mode = str(self.delivery.currentData() or "off")
+        sound_enabled = mode in ("legacy", "sound")
+        speech_enabled = mode == "tts"
+        self.sound.setEnabled(sound_enabled)
+        self._sound_browse.setEnabled(sound_enabled)
+        self._tts_panel.setEnabled(speech_enabled)
+        description = {
+            "legacy": "The saved Smart Timer route and optional timer WAV are active.",
+            "sound": "Sound or WAV is active; text to speech is inactive.",
+            "tts": "Text to speech is active; sound or WAV is inactive.",
+            "off": "Audio is off for this timer; visual notifications remain active.",
+        }.get(mode, "Audio is off for this timer.")
+        self.delivery.setAccessibleDescription(description)
+
     @staticmethod
     def _normalize_duration(field):
         seconds = parse_duration_input(field.text())
         if seconds > 0:
             field.setText(format_seconds(seconds))
 
+    def _death_mob_names(self):
+        return normalize_death_mobs([
+            self.death_mob_list.item(index).text()
+            for index in range(self.death_mob_list.count())])
+
+    def _set_death_mob_status(self, message, announce=False):
+        message = str(message or "").strip()
+        self.death_mob_status.setText(message)
+        self.death_mob_status.setAccessibleDescription(message)
+        if announce:
+            self._announce_death_mob_status()
+
+    def _announce_death_mob_status(self):
+        message = self.death_mob_status.text().strip()
+        if not message:
+            return
+        try:
+            QAccessible.updateAccessibility(
+                QAccessibleAnnouncementEvent(
+                    self.death_mob_status, message))
+        except (AttributeError, RuntimeError):
+            pass
+
+    def _set_death_mob_count_status(self, announce=False):
+        count = self.death_mob_list.count()
+        message = (
+            f"0 of {MAX_DEATH_MOBS} saved · the timer name matches exactly"
+            if not count else
+            f"{count} of {MAX_DEATH_MOBS} death "
+            f"match{'es' if count != 1 else ''} saved")
+        self._set_death_mob_status(message, announce=announce)
+
+    def _death_mob_input_changed(self, text):
+        self._refresh_death_mob_actions()
+        query = str(text or "").strip()
+        if not query:
+            self._death_suggestion_announce_timer.stop()
+            self._set_death_mob_count_status()
+            return
+        self.death_mob_completer.setCompletionPrefix(query)
+        suggestions = self.death_mob_completer.completionCount()
+        saved = self.death_mob_list.count()
+        if suggestions:
+            message = (
+                f"{suggestions} named suggestion"
+                f"{'s' if suggestions != 1 else ''} · {saved} of "
+                f"{MAX_DEATH_MOBS} saved · use Arrow keys and Enter")
+        else:
+            message = (
+                f"No catalog suggestion · {saved} of {MAX_DEATH_MOBS} "
+                "saved · Enter adds this custom PH")
+        self._set_death_mob_status(message)
+        self._death_suggestion_announce_timer.start()
+
+    def _refresh_death_mob_actions(self, *_args):
+        self.death_mob_add.setEnabled(bool(
+            self.death_mob_input.text().strip()))
+        self.death_mob_remove.setEnabled(
+            self.death_mob_list.currentRow() >= 0)
+
+    def _add_death_mob_suggestion(self, name):
+        selected = str(name or "")
+        # QCompleter writes its selected text back into the line edit after
+        # emitting activated(). Commit on the next event-loop turn so the
+        # successful add can clear the field once, after that write.
+        QTimer.singleShot(
+            0, lambda: self._commit_death_mob_suggestion(selected))
+
+    def _commit_death_mob_suggestion(self, name):
+        self.death_mob_input.setText(name)
+        return self._add_death_mob()
+
+    def _death_mob_return_pressed(self):
+        """Let an active completer selection own Enter exactly once."""
+        popup = self.death_mob_completer.popup()
+        if popup.isVisible() and popup.currentIndex().isValid():
+            return False
+        return self._add_death_mob()
+
+    def _add_death_mob(self):
+        self._death_suggestion_announce_timer.stop()
+        raw_name = " ".join(self.death_mob_input.text().split())
+        if len(raw_name) > MAX_DEATH_MOB_NAME_LENGTH:
+            self._set_death_mob_status(
+                f"Name is {len(raw_name)} characters · maximum is "
+                f"{MAX_DEATH_MOB_NAME_LENGTH}; shorten it before adding",
+                announce=True)
+            self.death_mob_input.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        values = normalize_death_mobs([raw_name])
+        if not values:
+            self._set_death_mob_status(
+                "Type a mob or placeholder name to add", announce=True)
+            self.death_mob_input.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        name = values[0]
+        existing = {
+            self.death_mob_list.item(index).text().casefold(): index
+            for index in range(self.death_mob_list.count())
+        }
+        if name.casefold() in existing:
+            row = existing[name.casefold()]
+            self.death_mob_list.setCurrentRow(row)
+            self._set_death_mob_status(
+                f"Already added: {self.death_mob_list.item(row).text()}",
+                announce=True)
+            self.death_mob_input.selectAll()
+            self.death_mob_input.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        if self.death_mob_list.count() >= MAX_DEATH_MOBS:
+            self._set_death_mob_status(
+                f"Limit reached · remove one of {MAX_DEATH_MOBS} names",
+                announce=True)
+            self.death_mob_list.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        self.death_mob_list.addItem(name)
+        self.death_mob_list.setCurrentRow(self.death_mob_list.count() - 1)
+        self.death_mob_input.clear()
+        self._death_list_changed = True
+        self._set_death_mob_count_status(announce=True)
+        self.death_mob_input.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
+
+    def _remove_death_mob(self):
+        row = self.death_mob_list.currentRow()
+        if row < 0:
+            self._set_death_mob_status(
+                "Select a death name to remove", announce=True)
+            self.death_mob_list.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        removed = self.death_mob_list.takeItem(row)
+        removed_name = removed.text() if removed is not None else ""
+        self._death_list_changed = True
+        if self.death_mob_list.count():
+            self.death_mob_list.setCurrentRow(
+                min(row, self.death_mob_list.count() - 1))
+            self.death_mob_list.setFocus(Qt.FocusReason.OtherFocusReason)
+        else:
+            self.death_mob_input.setFocus(Qt.FocusReason.OtherFocusReason)
+        self._set_death_mob_status(
+            f"Removed {removed_name} · " + (
+                f"{self.death_mob_list.count()} death match"
+                f"{'es' if self.death_mob_list.count() != 1 else ''} remain"
+                if self.death_mob_list.count() else
+                "the timer name now matches exactly"),
+            announce=True)
+        self._refresh_death_mob_actions()
+        return True
+
+    def eventFilter(self, watched, event):
+        if (watched in (
+                getattr(self, 'death_mob_picker', None),
+                getattr(self, 'death_mob_input', None)) and
+                event.type() == QEvent.Type.KeyPress):
+            popup = self.death_mob_completer.popup()
+            if popup.isVisible() and event.key() in (
+                    Qt.Key.Key_Down, Qt.Key.Key_Up):
+                model = self.death_mob_completer.completionModel()
+                count = model.rowCount()
+                if count:
+                    current = popup.currentIndex().row()
+                    if event.key() == Qt.Key.Key_Down:
+                        row = 0 if current < 0 else min(count - 1, current + 1)
+                    else:
+                        row = count - 1 if current < 0 else max(0, current - 1)
+                    index = model.index(row, 0)
+                    popup.setCurrentIndex(index)
+                    popup.scrollTo(index)
+                return True
+            if popup.isVisible() and event.key() in (
+                    Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                index = popup.currentIndex()
+                if index.isValid():
+                    selected = str(index.data() or "")
+                    popup.hide()
+                    self._add_death_mob_suggestion(selected)
+                    return True
+            if popup.isVisible() and event.key() == Qt.Key.Key_Escape:
+                popup.hide()
+                return True
+        if (watched is getattr(self, 'death_mob_list', None) and
+                event.type() == QEvent.Type.KeyPress and
+                event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace)):
+            self._remove_death_mob()
+            return True
+        return super().eventFilter(watched, event)
+
     def _validate(self):
         if not self.name.text().strip():
             QMessageBox.warning(self, "Name Required", "Enter a name for the timer.")
             self.name.setFocus()
-            return
+            return False
         if parse_duration_input(self.respawn.text()) <= 0:
             QMessageBox.warning(
                 self, "Invalid Respawn Time",
                 "Use 3 for three minutes, 3:50, or 1:03:50.")
             self.respawn.setFocus()
-            return
-        if parse_duration_input(self.kill.text()) <= 0:
+            return False
+        if (self.timer_mode.currentData() == TIMER_MODE_SPAWN and
+                parse_duration_input(self.kill.text()) <= 0):
             QMessageBox.warning(
                 self, "Invalid Kill Time",
                 "Use 3 for three minutes, 3:50, or 1:03:50.")
             self.kill.setFocus()
-            return
+            return False
+        if self.clone_source is not None and not self._clone_has_required_change():
+            QMessageBox.warning(
+                self, "Change Required",
+                "This clone must have a different timer name or a changed "
+                "death mob / trigger list before it can be saved. The "
+                "original timer will not be changed.")
+            self.name.setFocus(Qt.FocusReason.OtherFocusReason)
+            self.name.selectAll()
+            return False
         self.accept()
+        return True
+
+    def _clone_has_required_change(self):
+        source = self.clone_source
+        if source is None:
+            return True
+        if self.name.text().strip() != str(source.name or "").strip():
+            return True
+        current_mobs = self._death_mob_names()
+        source_mobs = normalize_death_mobs(source.death_mobs)
+        if current_mobs != source_mobs:
+            return True
+        # Legacy patterns remain editable through migration to the visible
+        # death-match list. Preserve their exact value until that list changes.
+        current_pattern = (
+            "" if self._death_list_changed or current_mobs else
+            self.mob_pattern.text().strip())
+        return current_pattern != str(source.mob_pattern or "").strip()
 
     def apply(self, timer=None):
         timer = timer or SpawnTimerState(
             self.name.text(), parse_duration_input(self.respawn.text()))
         timer.name = self.name.text().strip()
+        timer.timer_mode = str(
+            self.timer_mode.currentData() or TIMER_MODE_SPAWN)
         timer.respawn_seconds = parse_duration_input(self.respawn.text())
         timer.kill_seconds = parse_duration_input(self.kill.text())
         timer.warning_seconds = self.warning.value()
         timer.smart = self.smart.isChecked()
         timer.zone = self.zone.text().strip()
-        timer.mob_pattern = self.mob_pattern.text().strip()
+        timer.death_mobs = self._death_mob_names()
+        if self._death_list_changed or timer.death_mobs:
+            timer.mob_pattern = ""
+        else:
+            timer.mob_pattern = self.mob_pattern.text().strip()
         timer.color = self.color
         selected = self.sound.currentData()
         timer.sound_path = None if self.sound.currentIndex() == 0 else str(
             selected or "")
         timer.volume = self.volume.value()
+        timer.delivery = str(self.delivery.currentData() or "off")
+        timer.tts_text = self.tts_text.text().strip()[:300]
+        timer.tts_voice = str(self.tts_voice.currentData() or "")[:160]
+        timer.tts_pitch = self.tts_pitch.value()
         return timer
+
+    def _timer_mode_changed(self, *_args):
+        """Keep the editor concise and avoid mob-only wording for general timers."""
+        spawn_mode = self.timer_mode.currentData() == TIMER_MODE_SPAWN
+        # QFormLayout owns the generated label widgets, so update them through
+        # the fields rather than depending on insertion row numbers.
+        form = self._timer_form
+        duration_label = form.labelForField(self.respawn)
+        if duration_label is not None:
+            duration_label.setText("Respawn time" if spawn_mode else "Duration")
+        for field in (
+                self.kill, self.smart, self.mob_pattern,
+                self.death_mob_panel):
+            field.setEnabled(spawn_mode)
+        kill_label = form.labelForField(self.kill)
+        smart_label = form.labelForField(self.smart)
+        for label in (
+                kill_label, smart_label,
+                getattr(self, "_death_mob_label", None)):
+            if label is not None:
+                label.setEnabled(spawn_mode)
+        self.respawn.setToolTip(
+            "Time until the next spawn: 3 means 3 minutes; 3:50 and "
+            "1:03:50 are also accepted" if spawn_mode else
+            "Length of this timer: 3 means 3 minutes; 3:50 and 1:03:50 "
+            "are also accepted")
+
+
+class TimerKeywordRulesDialog(UniformScaleDialog):
+    """Edit bounded, literal own-/say rules without exposing regex or code."""
+
+    ACTION_LABELS = {
+        "start": "Start if stopped",
+        "reset": "Reset full countdown",
+        "pause": "Pause",
+        "resume": "Resume",
+        "stop": "Stop to READY",
+        "create": "Create and start timer",
+    }
+
+    def __init__(self, timers, rules, parent=None):
+        super().__init__(
+            QSize(760, 540), parent, minimum_size=QSize(430, 390),
+            initial_size=QSize(680, 500))
+        self.setWindowTitle("Smart Timer keyword rules")
+        self._timers = sorted(
+            list(timers), key=lambda timer: (
+                str(timer.zone or "").casefold(), timer.name.casefold(),
+                timer.timer_id))
+        self._rules = normalize_keyword_rules(rules)
+        self._editing_index = -1
+
+        layout = QVBoxLayout(self.scaled_surface)
+        intro = QLabel(
+            "Optional and Off until you enable a rule. Vantage reads only "
+            "your own /say lines from the EQ log; it never reads game memory "
+            "or sends commands. Examples: killed %T, stop {timer}, or "
+            "$maketimer %T {duration}.")
+        intro.setWordWrap(True)
+        intro.setObjectName("TriggerTokenLegend")
+        intro.setAccessibleName("Keyword rule safety and examples")
+        layout.addWidget(intro)
+
+        self.table = QTableWidget(0, 4)
+        self.table.setObjectName("TimerKeywordRulesTable")
+        self.table.setHorizontalHeaderLabels(
+            ["On", "Phrase", "Action", "Target / scope"])
+        self.table.setAccessibleName("Smart Timer keyword rules")
+        self.table.setAccessibleDescription(
+            "Saved literal own-say rules. Arrow keys select rows; Tab leaves "
+            "the table; Shift+F10 opens column controls.")
+        self.table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setTabKeyNavigation(False)
+        self.table.installEventFilter(self)
+        self._table_viewport = self.table.viewport()
+        self._table_viewport.installEventFilter(self)
+        self.table.itemSelectionChanged.connect(self._selection_changed)
+        layout.addWidget(self.table, 1)
+
+        form = QFormLayout()
+        polish_form(form)
+        self.enabled = QCheckBox("Rule enabled")
+        self.enabled.setAccessibleName("Rule enabled")
+        self.enabled.setAccessibleDescription(
+            "Disabled rules remain saved but never act on log messages.")
+        form.addRow("State", self.enabled)
+
+        self.phrase = QLineEdit()
+        self.phrase.setMaxLength(160)
+        self.phrase.setPlaceholderText(
+            "killed %T  ·  stop {timer}  ·  $maketimer %T {duration}")
+        self.phrase.setAccessibleName("Literal own-say phrase")
+        self.phrase.setAccessibleDescription(
+            "Enter ordinary text with bounded placeholders. Existing-timer "
+            "actions accept %T or {timer}. Create accepts %T or {name}, plus "
+            "optional {duration}. Regular expressions and code are rejected.")
+        phrase_label = QLabel("Phrase")
+        phrase_label.setBuddy(self.phrase)
+        form.addRow(phrase_label, self.phrase)
+
+        self.action = QComboBox()
+        self.action.setAccessibleName("Timer action")
+        self.action.setAccessibleDescription(
+            "Reset restarts the full configured countdown. Stop clears the "
+            "timer to READY and never deletes it. Create makes and starts a "
+            "new timer without overwriting an existing timer.")
+        for action in KEYWORD_ACTIONS:
+            self.action.addItem(self.ACTION_LABELS[action], action)
+        action_label = QLabel("Action")
+        action_label.setBuddy(self.action)
+        form.addRow(action_label, self.action)
+
+        self.target = QComboBox()
+        self.target.setAccessibleName("Exact fixed timer")
+        self.target.setAccessibleDescription(
+            "Choose a stable saved timer for a phrase without a placeholder. "
+            "This explicit timer may be in another zone or window.")
+        self.target.addItem("Choose an exact timer…", "")
+        for timer in self._timers:
+            self.target.addItem(
+                f"{timer.name} · {timer.zone or 'Unassigned'}",
+                timer.timer_id)
+        target_label = QLabel("Fixed timer")
+        target_label.setBuddy(self.target)
+        form.addRow(target_label, self.target)
+
+        self.all_matches = QCheckBox("Apply to all matching timers")
+        self.all_matches.setAccessibleName("Apply to all matching timers")
+        self.all_matches.setAccessibleDescription(
+            "For %T, explicitly allow every matching saved spawn trigger in "
+            "the current EQ zone. For {timer}, allow every exact saved name. "
+            "Otherwise an ambiguous match is rejected.")
+        form.addRow("Dynamic scope", self.all_matches)
+        self.create_duration = QLineEdit("6:40")
+        self.create_duration.setMaxLength(16)
+        self.create_duration.setAccessibleName("Default created timer duration")
+        self.create_duration.setAccessibleDescription(
+            "Used only by Create when the phrase has no {duration} token. "
+            "Enter seconds, mm:ss, or hh:mm:ss.")
+        self.create_duration_label = QLabel("Create duration")
+        self.create_duration_label.setBuddy(self.create_duration)
+        form.addRow(self.create_duration_label, self.create_duration)
+        self.allow_unassigned = QCheckBox(
+            "Allow unassigned if current zone is unknown")
+        self.allow_unassigned.setAccessibleName(
+            "Allow unassigned created timer when current zone is unknown")
+        self.allow_unassigned.setAccessibleDescription(
+            "Off by default. When enabled, Create may save a timer under All "
+            "saved timers if Vantage cannot identify the current EQ zone.")
+        self.allow_unassigned_label = QLabel("Create zone")
+        self.allow_unassigned_label.setBuddy(self.allow_unassigned)
+        form.addRow(self.allow_unassigned_label, self.allow_unassigned)
+        # Connect only after every dependent field exists. QComboBox emits as
+        # its first item is added, and an early callback would otherwise read
+        # controls that have not yet been constructed.
+        self.phrase.textChanged.connect(self._sync_scope_controls)
+        self.action.currentIndexChanged.connect(self._sync_scope_controls)
+        layout.addLayout(form)
+
+        actions = QHBoxLayout()
+        self.add_button = QPushButton("Add rule")
+        self.add_button.setObjectName("PrimaryAction")
+        self.add_button.setAccessibleName("Add keyword rule")
+        self.add_button.clicked.connect(self._add_rule)
+        actions.addWidget(self.add_button)
+        self.update_button = QPushButton("Update selected")
+        self.update_button.setAccessibleName("Update selected keyword rule")
+        self.update_button.clicked.connect(self._update_rule)
+        actions.addWidget(self.update_button)
+        self.remove_button = QPushButton("Remove selected…")
+        self.remove_button.setObjectName("DangerAction")
+        self.remove_button.setAccessibleName("Remove selected keyword rule")
+        self.remove_button.clicked.connect(self._remove_rule)
+        actions.addWidget(self.remove_button)
+        actions.addStretch(1)
+        layout.addLayout(actions)
+
+        self.status = QLabel("Add a literal own-say phrase to begin.")
+        self.status.setWordWrap(True)
+        self.status.setAccessibleName(self.status.text())
+        self.status.setAccessibleDescription(self.status.text())
+        layout.addWidget(self.status)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save |
+            QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        buttons.button(QDialogButtonBox.StandardButton.Save).setAccessibleName(
+            "Save keyword rules")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setAccessibleName(
+            "Cancel keyword rule changes")
+        layout.addWidget(buttons)
+        self._save_button = buttons.button(QDialogButtonBox.StandardButton.Save)
+        self._cancel_button = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+
+        self._refresh_table()
+        self._sync_scope_controls()
+        self._selection_changed()
+        app = QApplication.instance()
+        manager = getattr(app, "_column_widths", None)
+        if manager is not None:
+            QTimer.singleShot(0, lambda: manager._configure(self.table))
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.KeyPress and watched in (
+                self.table, self._table_viewport):
+            reverse = (
+                event.key() == Qt.Key.Key_Backtab or
+                (event.key() == Qt.Key.Key_Tab and
+                 event.modifiers() & Qt.KeyboardModifier.ShiftModifier))
+            if reverse:
+                self._move_focus_from_table(reverse=True)
+                return True
+            if event.key() == Qt.Key.Key_Tab:
+                self._move_focus_from_table(reverse=False)
+                return True
+        return super().eventFilter(watched, event)
+
+    def _move_focus_from_table(self, *, reverse):
+        candidate = self.table
+        for _index in range(256):
+            candidate = (
+                candidate.previousInFocusChain() if reverse else
+                candidate.nextInFocusChain())
+            if candidate is self.table or self.table.isAncestorOf(candidate):
+                continue
+            if (candidate.isEnabled() and
+                    candidate.isVisibleTo(self.scaled_surface) and
+                    candidate.focusPolicy() & Qt.FocusPolicy.TabFocus):
+                candidate.setFocus(
+                    Qt.FocusReason.BacktabFocusReason if reverse else
+                    Qt.FocusReason.TabFocusReason)
+                return True
+        return False
+
+    def _announce(self, text):
+        text = str(text)
+        self.status.setText(text)
+        self.status.setAccessibleName(text)
+        self.status.setAccessibleDescription(text)
+        try:
+            QAccessible.updateAccessibility(
+                QAccessibleAnnouncementEvent(self.status, text))
+        except (AttributeError, RuntimeError, TypeError):
+            pass
+
+    def _timer_label(self, timer_id):
+        timer = next((
+            item for item in self._timers if item.timer_id == timer_id), None)
+        return (
+            f"{timer.name} · {timer.zone or 'Unassigned'}"
+            if timer else "Missing fixed timer")
+
+    def _scope_text(self, rule):
+        phrase = rule["phrase"].casefold()
+        if rule["action"] == "create":
+            zone = "current zone or Unassigned" if rule.get(
+                "allow_unassigned") else "known current zone"
+            duration = (
+                "captured duration" if "{duration}" in phrase else
+                f"default {format_seconds(rule.get('create_seconds', 400))}")
+            return f"Create · {zone} · {duration}"
+        if "%t" in phrase:
+            return "All current-zone target matches" if rule["all_matches"] \
+                else "One current-zone target match"
+        if "{timer}" in phrase:
+            return "All current-zone name matches" if rule["all_matches"] \
+                else "One current-zone name match"
+        return self._timer_label(rule["timer_id"])
+
+    def _refresh_table(self, selected=-1):
+        self.table.setRowCount(len(self._rules))
+        for row, rule in enumerate(self._rules):
+            values = (
+                "On" if rule["enabled"] else "Off",
+                rule["phrase"],
+                self.ACTION_LABELS[rule["action"]],
+                self._scope_text(rule),
+            )
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setToolTip(value)
+                item.setData(Qt.ItemDataRole.UserRole, rule["id"])
+                self.table.setItem(row, column, item)
+        if 0 <= selected < self.table.rowCount():
+            self.table.selectRow(selected)
+            self.table.setCurrentCell(selected, 1)
+
+    def _selection_changed(self):
+        row = self.table.currentRow()
+        valid = 0 <= row < len(self._rules)
+        self.update_button.setEnabled(valid)
+        self.remove_button.setEnabled(valid)
+        if not valid:
+            self._editing_index = -1
+            return
+        self._editing_index = row
+        rule = self._rules[row]
+        self.enabled.setChecked(rule["enabled"])
+        self.phrase.setText(rule["phrase"])
+        self.action.setCurrentIndex(
+            max(0, self.action.findData(rule["action"])))
+        self.target.setCurrentIndex(
+            max(0, self.target.findData(rule["timer_id"])))
+        self.all_matches.setChecked(rule["all_matches"])
+        self.create_duration.setText(format_seconds(
+            int(rule.get("create_seconds", 400))))
+        self.allow_unassigned.setChecked(bool(
+            rule.get("allow_unassigned", False)))
+        self._sync_scope_controls()
+
+    def _sync_scope_controls(self):
+        phrase = self.phrase.text().casefold()
+        create = self.action.currentData() == "create"
+        captured_duration = "{duration}" in phrase
+        dynamic = any(token in phrase for token in (
+            "%t", "{timer}", "{name}", "{duration}"))
+        self.target.setEnabled(not dynamic and not create)
+        self.all_matches.setEnabled(dynamic and not create)
+        self.create_duration.setVisible(create and not captured_duration)
+        self.create_duration_label.setVisible(create and not captured_duration)
+        self.allow_unassigned.setVisible(create)
+        self.allow_unassigned_label.setVisible(create)
+        self.create_duration.setEnabled(create and not captured_duration)
+        self.allow_unassigned.setEnabled(create)
+        if not dynamic or create:
+            self.all_matches.setChecked(False)
+
+    def _candidate(self, existing_id=""):
+        action = self.action.currentData()
+        capture_duration = "{duration}" in self.phrase.text().casefold()
+        duration = 400
+        if action == "create" and not capture_duration:
+            duration = parse_duration_input(
+                self.create_duration.text(), single_unit="seconds")
+        return validate_keyword_rule({
+            "id": existing_id,
+            "enabled": self.enabled.isChecked(),
+            "phrase": self.phrase.text(),
+            "action": action,
+            "timer_id": self.target.currentData(),
+            "all_matches": self.all_matches.isChecked(),
+            "create_seconds": duration,
+            "allow_unassigned": self.allow_unassigned.isChecked(),
+        }, known_timer_ids={timer.timer_id for timer in self._timers})
+
+    def _collision(self, candidate, skip=-1):
+        key = normalize_keyword_phrase(candidate["phrase"]).casefold()
+        return any(
+            index != skip and
+            normalize_keyword_phrase(rule["phrase"]).casefold() == key
+            for index, rule in enumerate(self._rules))
+
+    def _add_rule(self):
+        if len(self._rules) >= MAX_KEYWORD_RULES:
+            self._announce("Maximum 64 keyword rules reached.")
+            return
+        try:
+            rule = self._candidate()
+        except ValueError as error:
+            self._announce(str(error))
+            self.phrase.setFocus(Qt.FocusReason.OtherFocusReason)
+            return
+        if self._collision(rule):
+            self._announce("That phrase already has a rule; update it instead.")
+            return
+        self._rules.append(rule)
+        row = len(self._rules) - 1
+        self._refresh_table(row)
+        self._announce(f"Added · {rule['phrase']} · {self.ACTION_LABELS[rule['action']]}")
+        self.table.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _update_rule(self):
+        row = self._editing_index
+        if not 0 <= row < len(self._rules):
+            self._announce("Select a rule to update.")
+            return
+        try:
+            rule = self._candidate(self._rules[row]["id"])
+        except ValueError as error:
+            self._announce(str(error))
+            self.phrase.setFocus(Qt.FocusReason.OtherFocusReason)
+            return
+        if self._collision(rule, row):
+            self._announce("That phrase already belongs to another rule.")
+            return
+        self._rules[row] = rule
+        self._refresh_table(row)
+        self._announce(f"Updated · {rule['phrase']}")
+        self.table.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _remove_rule(self):
+        row = self._editing_index
+        if not 0 <= row < len(self._rules):
+            self._announce("Select a rule to remove.")
+            return
+        phrase = self._rules[row]["phrase"]
+        if not self._confirm_remove_rule(phrase):
+            self._announce("Remove cancelled; the selected rule was kept.")
+            self.table.setFocus(Qt.FocusReason.OtherFocusReason)
+            return
+        self._rules.pop(row)
+        next_row = min(row, len(self._rules) - 1)
+        self._refresh_table(next_row)
+        self._announce(f"Removed · {phrase}")
+        (self.table if next_row >= 0 else self.add_button).setFocus(
+            Qt.FocusReason.OtherFocusReason)
+
+    def _confirm_remove_rule(self, phrase):
+        message = QMessageBox(self)
+        message.setIcon(QMessageBox.Icon.Question)
+        message.setWindowTitle("Remove keyword rule")
+        message.setText(
+            f"Remove the rule “{phrase}”?\n\nNo timer is deleted or changed.")
+        remove_button = message.addButton(
+            "Remove", QMessageBox.ButtonRole.DestructiveRole)
+        cancel_button = message.addButton(QMessageBox.StandardButton.Cancel)
+        remove_button.setAccessibleName("Remove keyword rule")
+        cancel_button.setAccessibleName("Cancel removing keyword rule")
+        message.setDefaultButton(cancel_button)
+        message.setEscapeButton(cancel_button)
+        message.exec()
+        return message.clickedButton() is remove_button
+
+    def rules(self):
+        return [dict(rule) for rule in self._rules]
+
+
+class TimerWatchDialog(UniformScaleDialog):
+    """Choose explicit cross-zone timer rows for one timer window."""
+
+    def __init__(
+            self, timers, selected_zone, watched_timer_ids=(), parent=None):
+        super().__init__(
+            QSize(560, 470), parent, minimum_size=QSize(224, 188))
+        self.setWindowTitle("Watch Timers in This Window")
+        self.selected_zone = str(selected_zone or "").strip()
+        self._timers = tuple(sorted(
+            (timer for timer in timers if timer is not None),
+            key=lambda timer: (
+                str(timer.zone or "").casefold(), timer.name.casefold())))
+        known_ids = {timer.timer_id for timer in self._timers}
+        self._checked_ids = {
+            str(timer_id) for timer_id in watched_timer_ids
+            if str(timer_id) in known_ids}
+
+        layout = QVBoxLayout(self.scaled_surface)
+        layout.setContentsMargins(10, 9, 10, 9)
+        layout.setSpacing(7)
+
+        zone_label = self.selected_zone or "All saved timers"
+        instructions_text = (
+            f"Showing {zone_label}. Check timers from other zones to keep "
+            "them visible in this window. Their saved zone and timer state "
+            "do not change.")
+        instructions = QLabel(instructions_text)
+        instructions.setWordWrap(True)
+        instructions.setAccessibleDescription(instructions_text)
+        instructions.setToolTip(
+            "A watch changes only this window's visible rows; it never copies "
+            "or moves a timer")
+        layout.addWidget(instructions)
+
+        search_label = QLabel("Search saved timers")
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Timer name, origin zone, or source")
+        self.search.setAccessibleName("Search all saved timers")
+        self.search.setAccessibleDescription(
+            "Filters timers from every saved zone without changing which "
+            "timers are checked")
+        self.search.setToolTip(
+            "Filter the complete saved-timer list by name, origin zone, or "
+            "source")
+        search_label.setBuddy(self.search)
+        layout.addWidget(search_label)
+        layout.addWidget(self.search)
+
+        self.timer_list = QListWidget()
+        self.timer_list.setMinimumHeight(250)
+        self.timer_list.setAccessibleName(
+            "Saved timers available to watch in this window")
+        self.timer_list.setAccessibleDescription(
+            "Check external-zone timers with Space. Timers already included "
+            "by the selected zone remain selectable for review, but their "
+            "checked state is read-only because no watch is needed.")
+        self.timer_list.setToolTip(
+            "Origin zone is shown on every row. Press Space to watch or stop "
+            "watching an enabled row in this window.")
+        self.timer_list.itemChanged.connect(self._item_changed)
+        layout.addWidget(self.timer_list, 1)
+
+        self.status = QLabel()
+        self.status.setAccessibleName("Cross-zone watch status")
+        self.status.setAccessibleDescription(
+            "Reports search results and the number of explicitly watched "
+            "external timers")
+        self.status.setToolTip(
+            "Current saved-timer search and watch-selection summary")
+        layout.addWidget(self.status)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Apply |
+            QDialogButtonBox.StandardButton.Cancel)
+        apply_button = buttons.button(QDialogButtonBox.StandardButton.Apply)
+        cancel_button = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        apply_button.setText("Apply")
+        apply_button.setObjectName("PrimaryAction")
+        apply_button.setToolTip(
+            "Apply these watched timers to this timer window only")
+        cancel_button.setText("Cancel")
+        cancel_button.setToolTip(
+            "Discard watch changes and return to the timer window")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self._search_announce_timer = QTimer(self)
+        self._search_announce_timer.setSingleShot(True)
+        self._search_announce_timer.setInterval(350)
+        self._search_announce_timer.timeout.connect(
+            self._announce_current_status)
+        self.finished.connect(
+            lambda _result: self._search_announce_timer.stop())
+        self.search.textChanged.connect(self._search_changed)
+        self._rebuild_list()
+        QTimer.singleShot(
+            0, lambda: self.search.setFocus(
+                Qt.FocusReason.OtherFocusReason))
+
+    def _is_included_by_zone(self, timer):
+        return zone_timer_visible(timer.zone, self.selected_zone)
+
+    def _matches_search(self, timer, query):
+        if not query:
+            return True
+        return query in " ".join((
+            timer.name,
+            str(timer.zone or "Unassigned"),
+            str(timer.source or "User-created"))).casefold()
+
+    def _search_changed(self, *_args):
+        self._rebuild_list()
+        self._search_announce_timer.start()
+
+    def _announce_current_status(self):
+        message = self.status.text()
+        if message:
+            try:
+                QAccessible.updateAccessibility(
+                    QAccessibleAnnouncementEvent(self.status, message))
+            except (AttributeError, RuntimeError, TypeError):
+                pass
+
+    def _rebuild_list(self, *_args):
+        query = self.search.text().strip().casefold()
+        matches = [
+            timer for timer in self._timers
+            if self._matches_search(timer, query)]
+        self.timer_list.blockSignals(True)
+        self.timer_list.clear()
+        for timer in matches:
+            origin_zone = str(timer.zone or "").strip() or "Unassigned"
+            included = self._is_included_by_zone(timer)
+            suffix = " · Included by selected zone" if included else ""
+            text = f"{timer.name} · {origin_zone}{suffix}"
+            item = QListWidgetItem(text)
+            item.setData(Qt.ItemDataRole.UserRole, timer.timer_id)
+            item.setData(Qt.ItemDataRole.AccessibleTextRole, text)
+            item.setData(
+                Qt.ItemDataRole.AccessibleDescriptionRole,
+                f"{timer.name}, origin zone {origin_zone}. " + (
+                    "Already included by the selected zone; no watch is "
+                    "needed." if included else
+                    "Press Space to toggle Watch in this window."))
+            item.setToolTip(
+                f"Origin zone: {origin_zone}\n" + (
+                    "Already visible because it belongs to the selected zone"
+                    if included else
+                    "Check to watch this timer in this window"))
+            item.setCheckState(
+                Qt.CheckState.Checked if (
+                    included or timer.timer_id in self._checked_ids) else
+                Qt.CheckState.Unchecked)
+            if included:
+                item.setFlags(
+                    (item.flags() | Qt.ItemFlag.ItemIsEnabled |
+                     Qt.ItemFlag.ItemIsSelectable) &
+                    ~Qt.ItemFlag.ItemIsUserCheckable)
+            else:
+                item.setFlags(
+                    item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            self.timer_list.addItem(item)
+        self.timer_list.blockSignals(False)
+        self._set_status(
+            f"{len(matches)} of {len(self._timers)} saved timers shown · "
+            f"{len(self._checked_ids)} explicitly watched")
+
+    def _item_changed(self, item):
+        timer_id = str(item.data(Qt.ItemDataRole.UserRole) or "")
+        if not timer_id:
+            return
+        if item.checkState() == Qt.CheckState.Checked:
+            if (timer_id not in self._checked_ids and
+                    len(self._checked_ids) >= MAX_CROSS_ZONE_WATCHES):
+                self.timer_list.blockSignals(True)
+                item.setCheckState(Qt.CheckState.Unchecked)
+                self.timer_list.blockSignals(False)
+                self._set_status(
+                    f"Watch limit reached · remove one of "
+                    f"{MAX_CROSS_ZONE_WATCHES} selections", announce=True)
+                return
+            self._checked_ids.add(timer_id)
+        else:
+            self._checked_ids.discard(timer_id)
+        self._set_status(
+            f"{len(self._checked_ids)} timer"
+            f"{'s' if len(self._checked_ids) != 1 else ''} explicitly "
+            "watched in this window", announce=True)
+
+    def _set_status(self, message, announce=False):
+        self.status.setText(message)
+        self.status.setAccessibleDescription(message)
+        if announce:
+            try:
+                QAccessible.updateAccessibility(
+                    QAccessibleAnnouncementEvent(self.status, message))
+            except (AttributeError, RuntimeError, TypeError):
+                pass
+
+    def selected_timer_ids(self):
+        """Return a stable, bounded selection in saved-timer order."""
+        return [
+            timer.timer_id for timer in self._timers
+            if timer.timer_id in self._checked_ids
+        ][:MAX_CROSS_ZONE_WATCHES]
 
 
 class TimerRow(QFrame):
     COMPACT_MINIMUM_HEIGHT = 40
     DETAILED_MINIMUM_HEIGHT = 82
-    CONTROLS_SIZE = QSize(184, 28)
+    CONTROLS_SIZE = QSize(210, 28)
 
     def __init__(self, timer, owner):
         super().__init__()
@@ -620,23 +1888,37 @@ class TimerRow(QFrame):
         self.clear_button.clicked.connect(self._clear)
         controls_layout.addWidget(self.clear_button)
 
-        killed = QPushButton()
-        self._polish_action(killed, "warning")
-        killed.setIcon(game_icon("kill"))
-        killed.setObjectName("WarningAction")
-        killed.setAccessibleName(f"Confirm death of {timer.name}")
-        killed.setToolTip("Mob killed: start respawn")
-        killed.clicked.connect(self._killed)
-        controls_layout.addWidget(killed)
+        self.killed_button = QPushButton()
+        self._polish_action(self.killed_button, "warning")
+        self.killed_button.setIcon(game_icon("kill"))
+        self.killed_button.setObjectName("WarningAction")
+        self.killed_button.setAccessibleName(f"Confirm death of {timer.name}")
+        self.killed_button.setToolTip("Mob killed: start respawn")
+        self.killed_button.clicked.connect(self._killed)
+        controls_layout.addWidget(self.killed_button)
 
-        spawned = QPushButton()
-        self._polish_action(spawned, "primary")
-        spawned.setIcon(game_icon("spawn"))
-        spawned.setObjectName("PrimaryAction")
-        spawned.setAccessibleName(f"Confirm spawn of {timer.name}")
-        spawned.setToolTip("Mob spawned: start estimated kill time")
-        spawned.clicked.connect(self._spawned)
-        controls_layout.addWidget(spawned)
+        self.spawned_button = QPushButton()
+        self._polish_action(self.spawned_button, "primary")
+        self.spawned_button.setIcon(game_icon("spawn"))
+        self.spawned_button.setObjectName("PrimaryAction")
+        self.spawned_button.setAccessibleName(f"Confirm spawn of {timer.name}")
+        self.spawned_button.setToolTip("Mob spawned: start estimated kill time")
+        self.spawned_button.clicked.connect(self._spawned)
+        controls_layout.addWidget(self.spawned_button)
+
+        self.clone_button = QPushButton()
+        self._polish_action(self.clone_button)
+        self.clone_button.setIcon(game_icon("copy"))
+        self.clone_button.setAccessibleName(f"Clone {timer.name}")
+        self.clone_button.setAccessibleDescription(
+            "Opens a new independent timer prefilled from this timer. Change "
+            "the timer name or death match before saving; the original is "
+            "never overwritten.")
+        self.clone_button.setToolTip(
+            f"Clone {timer.name} into a new READY timer with its own identity")
+        self.clone_button.clicked.connect(
+            lambda: owner.clone_timer(timer.timer_id))
+        controls_layout.addWidget(self.clone_button)
 
         edit = QPushButton()
         self._polish_action(edit)
@@ -675,7 +1957,10 @@ class TimerRow(QFrame):
         button.setFixedSize(26, 26)
 
     def _toggle(self):
-        if self.timer.running:
+        if (self.timer.timer_mode != TIMER_MODE_SPAWN and
+                self.timer.phase == PHASE_AVAILABLE):
+            self.timer.start()
+        elif self.timer.running:
             self.timer.pause()
         elif self.timer.phase == PHASE_IDLE:
             self.timer.start()
@@ -691,7 +1976,10 @@ class TimerRow(QFrame):
     def _restart(self):
         self.timer.restart()
         self.owner.announce(
-            f"{self.timer.name}: respawn countdown restarted")
+            f"{self.timer.name}: " + (
+                "respawn countdown restarted"
+                if self.timer.timer_mode == TIMER_MODE_SPAWN else
+                "timer restarted"))
         self.owner.state_changed()
 
     def _clear(self):
@@ -706,19 +1994,50 @@ class TimerRow(QFrame):
 
     def refresh(self):
         timer = self.timer
-        self.name_label.setText(timer.name)
-        self.phase_label.setText(PHASE_TEXT.get(timer.phase, timer.phase.upper()))
+        watched_elsewhere = bool(
+            getattr(self.owner, "_is_cross_zone_watch", lambda _timer: False)(
+                timer))
+        origin_zone = str(timer.zone or "").strip() or "Unassigned"
+        self.name_label.setText(
+            f"{timer.name} · {origin_zone}" if watched_elsewhere else
+            timer.name)
+        self.name_label.setToolTip(
+            f"Watched from origin zone: {origin_zone}"
+            if watched_elsewhere else
+            "Timer name; edit the timer to change it")
+        self.setAccessibleName(
+            f"Watched timer {timer.name} from {origin_zone}"
+            if watched_elsewhere else f"Timer for {timer.name}")
+        self.setAccessibleDescription(
+            f"Shown by an explicit cross-zone watch in this window; saved "
+            f"origin zone {origin_zone}."
+            if watched_elsewhere else
+            f"Timer included in the "
+            f"{getattr(self.owner, '_selected_zone', '') or 'all saved'} "
+            "timer view.")
+        phase_text = PHASE_TEXT.get(timer.phase, timer.phase.upper())
+        if timer.timer_mode == TIMER_MODE_COUNTDOWN:
+            phase_text = (
+                "DONE" if timer.phase == PHASE_AVAILABLE else
+                "COUNTDOWN" if timer.phase == PHASE_RESPAWN else phase_text)
+        elif timer.timer_mode == TIMER_MODE_COOLDOWN:
+            phase_text = (
+                "READY" if timer.phase == PHASE_AVAILABLE else
+                "COOLDOWN" if timer.phase == PHASE_RESPAWN else phase_text)
+        self.phase_label.setText(phase_text)
         if timer.source == RING_WAR_SCHEDULE_SOURCE:
             self.phase_label.setText("EVENT")
         self.phase_label.setProperty("Phase", timer.phase)
         self.phase_label.setStyle(self.phase_label.style())
         remaining = timer.remaining()
-        if not timer.running and timer.phase != PHASE_IDLE:
+        if (not timer.running and timer.phase != PHASE_IDLE and not (
+                timer.timer_mode != TIMER_MODE_SPAWN and
+                timer.phase == PHASE_AVAILABLE)):
             self.phase_label.setText("PAUSED")
         self.time_label.setText("--:--" if remaining is None else format_seconds(remaining))
         self.progress.setValue(timer.progress_percent())
         self.progress.setAccessibleDescription(
-            f"{PHASE_TEXT.get(timer.phase, timer.phase)}, {self.time_label.text()} remaining"
+            f"{self.phase_label.text()}, {self.time_label.text()} remaining"
         )
         smart = "AUTO-KILL" if timer.smart else "LOG KILL"
         zone = f" · {timer.zone}" if timer.zone else ""
@@ -726,6 +2045,13 @@ class TimerRow(QFrame):
         if timer.source == RING_WAR_SCHEDULE_SOURCE:
             self.detail_label.setText(
                 f"LOCAL LOG · RING WAR · {timer.source}")
+        elif timer.timer_mode != TIMER_MODE_SPAWN:
+            mode_label = (
+                "COUNTDOWN" if timer.timer_mode == TIMER_MODE_COUNTDOWN
+                else "REUSABLE COOLDOWN")
+            self.detail_label.setText(
+                f"{mode_label} · duration {format_seconds(timer.respawn_seconds)} · "
+                f"completed {timer.cycles}{zone}{source}")
         elif timer.automatic:
             self.detail_label.setText(
                 f"AUTO LOG · {smart} · cycle {timer.cycles}{zone}{source}")
@@ -745,10 +2071,21 @@ class TimerRow(QFrame):
         self.play_button.setToolTip(
             f"Pause {timer.name} and preserve its remaining time"
             if timer.running else
+            f"Start {timer.name} again"
+            if (timer.timer_mode != TIMER_MODE_SPAWN and
+                timer.phase == PHASE_AVAILABLE) else
             f"Start {timer.name} from READY"
             if timer.phase == PHASE_IDLE else
             f"Resume {timer.name} from its preserved remaining time")
-        compact = bool(config.data['timers']['compact'])
+        self.killed_button.setVisible(
+            timer.timer_mode == TIMER_MODE_SPAWN)
+        self.spawned_button.setVisible(
+            timer.timer_mode == TIMER_MODE_SPAWN)
+        control_count = 8 if timer.timer_mode == TIMER_MODE_SPAWN else 6
+        self.controls.setFixedSize(control_count * 26 + 2, 28)
+        compact = bool(getattr(
+            self.owner, "is_compact",
+            config.data['timers']['compact']))
         self.detail_label.setVisible(not compact)
         self._root_layout.setDirection(
             QBoxLayout.Direction.LeftToRight
@@ -821,33 +2158,72 @@ class TimerRow(QFrame):
 
 
 class SpawnTimers(ParserWindow):
-    _keep_header_readable = True
-    _minimum_readable_width = 300
 
-    def __init__(self):
-        self.name = "timers"
+    MAX_SECONDARY_WINDOWS = 16
+
+    def __init__(self, controller=None, instance_id=None):
+        self._controller = controller or self
+        self._is_primary = controller is None
+        self.instance_id = "primary" if self._is_primary else str(instance_id)
+        if self._is_primary:
+            self.name = "timers"
+            self._views = [self]
+            self._secondary_views = {}
+        else:
+            self.name = f"timer_view_{self.instance_id}"
+            self._ensure_secondary_settings()
         super().__init__()
         # This panel is commonly downscaled over the game.  Its local style
         # deliberately replaces bevel stacks with antialiased, border-light
         # geometry without changing any other Vantage window.
         self.setStyleSheet(SPAWN_TIMER_WINDOW_STYLE)
-        self.setWindowTitle("Smart Spawn Timers")
+        window_number = (
+            1 if self._is_primary else
+            len(self._controller._secondary_views) + 2)
+        self.setWindowTitle(
+            "Smart Timers" if self._is_primary else
+            f"Smart Timers · Window {window_number}")
+        self._title.setText(
+            "Timers" if self._is_primary else f"Timers {window_number}")
         timer_scroll = self._scale_view.verticalScrollBar()
         timer_scroll.setAccessibleName("Scroll Smart Timer rows")
         timer_scroll.setToolTip(
             "Scroll saved timer rows when the complete zone list is taller "
             "than the available screen")
-        self._current_zone = config.data['maps'].get('last_zone', '')
+        # QGraphicsView recalculates its scrollbar range after proxy/layout
+        # updates.  A single queued ensureVisible() can therefore run before
+        # the new range exists, or be undone by a later range reset.  Keep one
+        # bounded reveal cycle for the currently focused timer action so the
+        # final settled viewport, rather than the first layout pass, wins.
+        self._active_timer_focus_control = None
+        self._pending_timer_focus_control = None
+        self._manual_timer_scroll_value = None
+        self._setting_timer_scroll_value = False
+        self._timer_focus_reveal_passes = 0
+        self._timer_focus_reveal_timer = QTimer(self)
+        self._timer_focus_reveal_timer.setSingleShot(True)
+        self._timer_focus_reveal_timer.timeout.connect(
+            self._reveal_pending_timer_control)
+        timer_scroll.rangeChanged.connect(self._timer_scroll_range_changed)
+        timer_scroll.valueChanged.connect(self._timer_scroll_value_changed)
+        timer_scroll.actionTriggered.connect(
+            self._timer_scroll_action_triggered)
+        self._current_zone = (
+            config.data['maps'].get('last_zone', '') if self._is_primary else
+            self._controller._current_zone)
         self._selected_zone = str(
-            config.data['timers'].get('view_zone') or
+            self._view_settings().get('view_zone') or
             self._current_zone or '').strip()
         self._missing_zone_notified = None
         self._required_timer_height = 360
-        self._states = {}
+        self._states = {} if self._is_primary else self._controller._states
         self._rows = {}
-        self._safety = SafetyAlertState(
-            config.data['timers'].get('death_loop_deaths', 4),
-            config.data['timers'].get('death_loop_seconds', 120))
+        self._safety = (
+            SafetyAlertState(
+                config.data['timers'].get('death_loop_deaths', 4),
+                config.data['timers'].get('death_loop_seconds', 120))
+            if self._is_primary else None)
+        self._keyword_seen = deque(maxlen=512) if self._is_primary else None
 
         add = QPushButton()
         add.setIcon(game_icon("add"))
@@ -858,10 +2234,41 @@ class SpawnTimers(ParserWindow):
         add.clicked.connect(self.add_timer)
         self.menu_area.addWidget(add)
 
+        self.keyword_rules_button = QPushButton("0/0")
+        self.keyword_rules_button.setIcon(game_icon("trigger"))
+        self.keyword_rules_button.setProperty('HeaderPriority', 75)
+        self.keyword_rules_button.setAccessibleDescription(
+            "Opens editable, optional own-/say keyword rules for Start, Reset, "
+            "Pause, Resume, Stop, and Create timer actions.")
+        self.keyword_rules_button.clicked.connect(self.edit_keyword_rules)
+        self.menu_area.addWidget(self.keyword_rules_button)
+        self.keyword_rules_button.setVisible(self._is_primary)
+
+        self.new_window_button = QPushButton()
+        self.new_window_button.setIcon(game_icon("ph-stack"))
+        self.new_window_button.setProperty('HeaderAlwaysVisible', True)
+        self.new_window_button.setAccessibleName("Open another timer window")
+        self.new_window_button.setAccessibleDescription(
+            "Opens another independent view of the same saved timers. Each "
+            "window keeps its own size, position, zone filter, and compact mode.")
+        self.new_window_button.setToolTip(
+            "Open another Smart Timer window (Ctrl+Shift+N)\n"
+            "Use separate views for spawns, cooldowns, events, or any other "
+            "timers. All views share the same timer state.")
+        self.new_window_button.clicked.connect(
+            self._controller.create_secondary_window)
+        self.menu_area.addWidget(self.new_window_button)
+        self._new_window_shortcut = QShortcut(
+            QKeySequence("Ctrl+Shift+N"), self)
+        self._new_window_shortcut.setContext(
+            Qt.ShortcutContext.WindowShortcut)
+        self._new_window_shortcut.activated.connect(
+            self._controller.create_secondary_window)
+
         self.compact = QPushButton()
         self.compact.setIcon(game_icon("compact"))
         self.compact.setCheckable(True)
-        self.compact.setChecked(config.data['timers']['compact'])
+        self.compact.setChecked(bool(self._view_settings()['compact']))
         self.compact.setAccessibleName("Toggle compact mode")
         self.compact.setToolTip(
             "Switch timer rows between detailed and minimum-space presentations")
@@ -875,13 +2282,31 @@ class SpawnTimers(ParserWindow):
         # minimum supported width; secondary actions can use header overflow.
         self.zone_filter.setProperty('HeaderAlwaysVisible', True)
         self.zone_filter.setAccessibleName('Timer zone view')
+        self.zone_filter.setAccessibleDescription(
+            "Choose one exact origin zone, or All saved timers. Unassigned "
+            "and other-zone timers only appear in a named view when explicitly "
+            "watched for this window.")
         self.zone_filter.setToolTip(
-            'Show the saved timer rows for one zone; global timers appear in '
-            'every zone and rows remain saved until you delete them')
+            'Show only timers assigned to one exact zone, or choose All saved '
+            'timers. Use Watch timers to add explicit cross-zone rows.')
         self.zone_filter.setMinimumContentsLength(8)
         self.zone_filter.currentIndexChanged.connect(
             self._zone_filter_changed)
         self.menu_area.addWidget(self.zone_filter)
+
+        self.watch_button = QPushButton()
+        self.watch_button.setIcon(game_icon("follow"))
+        self.watch_button.setAccessibleName(
+            "Watch timers from other zones in this window")
+        self.watch_button.setAccessibleDescription(
+            "Opens a searchable checklist of every saved timer and its origin "
+            "zone. Checked external timers appear only in this timer window.")
+        self.watch_button.setToolTip(
+            "Watch timers from other zones in this window\n"
+            "Search all saved timers, check external rows, and keep their "
+            "original zones and shared timer state unchanged.")
+        self.watch_button.clicked.connect(self.edit_cross_zone_watches)
+        self.menu_area.addWidget(self.watch_button)
 
         self.share_button = QPushButton()
         self.share_button.setIcon(game_icon("export"))
@@ -895,7 +2320,8 @@ class SpawnTimers(ParserWindow):
             "logging enabled, their app detects the codes in the log, adjusts "
             "for elapsed time, and automatically adds or refreshes the timers "
             "in the correct zone without an import dialog. Codes expire after "
-            "24 hours.")
+            "24 hours. Ordinary one-name codes remain compatible with older "
+            "Vantage releases; multi-name death lists require current Vantage.")
         self.share_button.setToolTip(
             "Copy this zone's visible timers as one or more compact codes "
             "(Ctrl+Shift+S).\n"
@@ -904,7 +2330,8 @@ class SpawnTimers(ParserWindow):
             "Their Vantage detects the codes in the log—no import dialog—then "
             "uses the creation time to adjust elapsed time and automatically "
             "adds or refreshes the timers in the correct zone. Codes expire "
-            "after 24 hours.")
+            "after 24 hours. Multi-name death lists require current Vantage; "
+            "ordinary one-name codes remain compatible with older releases.")
         self.share_button.clicked.connect(self.share_visible_timers)
         self.menu_area.addWidget(self.share_button)
         self._share_shortcut = QShortcut(
@@ -921,6 +2348,21 @@ class SpawnTimers(ParserWindow):
         self.mobile_button.clicked.connect(
             lambda: QApplication.instance().show_mobile_share())
         self.menu_area.addWidget(self.mobile_button)
+        self.mobile_button.setVisible(self._is_primary)
+
+        self.remove_window_button = QPushButton()
+        self.remove_window_button.setIcon(game_icon("delete"))
+        self.remove_window_button.setObjectName("DangerAction")
+        self.remove_window_button.setAccessibleName(
+            "Close and remove this extra timer window")
+        self.remove_window_button.setToolTip(
+            "Remove only this extra view. Saved timers remain available in "
+            "the other Smart Timer windows.")
+        self.remove_window_button.clicked.connect(
+            lambda: self._controller.remove_secondary_window(
+                self.instance_id))
+        self.remove_window_button.setVisible(not self._is_primary)
+        self.menu_area.addWidget(self.remove_window_button)
 
         host = QWidget()
         host.setObjectName("SpawnTimerCanvas")
@@ -931,6 +2373,37 @@ class SpawnTimers(ParserWindow):
         self._layout = QVBoxLayout(host)
         self._layout.setContentsMargins(3, 3, 3, 3)
         self._layout.setSpacing(3)
+        self.empty_state = QFrame()
+        self.empty_state.setObjectName("SpawnTimerEmptyState")
+        self.empty_state.setAccessibleName("No timers in this zone")
+        self.empty_state.setAccessibleDescription(
+            "Add a timer, choose All saved timers, or watch a timer from "
+            "another zone")
+        empty_layout = QVBoxLayout(self.empty_state)
+        empty_layout.setContentsMargins(12, 10, 12, 10)
+        empty_layout.setSpacing(7)
+        self.empty_message = QLabel()
+        self.empty_message.setObjectName("SpawnTimerEmptyMessage")
+        self.empty_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_message.setWordWrap(True)
+        # Honor QLabel's height-for-width hint instead of letting the centered
+        # empty card shrink below its wrapped text at compact panel widths.
+        self.empty_message.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        empty_layout.addWidget(self.empty_message)
+        self.empty_add_button = QPushButton("Add timer…")
+        self.empty_add_button.setObjectName("PrimaryAction")
+        self.empty_add_button.setIcon(game_icon("add"))
+        self.empty_add_button.setAccessibleName("Add a Smart Timer")
+        self.empty_add_button.setAccessibleDescription(
+            "Opens the timer editor with the current zone already selected")
+        self.empty_add_button.setToolTip(
+            "Create a timer in the current zone view")
+        self.empty_add_button.clicked.connect(self.add_timer)
+        empty_layout.addWidget(
+            self.empty_add_button, 0, Qt.AlignmentFlag.AlignHCenter)
+        self._layout.addWidget(
+            self.empty_state, 0, Qt.AlignmentFlag.AlignCenter)
         self._layout.addStretch(1)
         # Keep one logical timer canvas. The surrounding graphics view only
         # scrolls when the complete zone list is physically taller than the
@@ -952,23 +2425,178 @@ class SpawnTimers(ParserWindow):
         self._viewport_rows_timer.timeout.connect(
             self._apply_viewport_capacity)
 
-        self._load()
+        if self._is_primary:
+            self._load()
+        else:
+            for timer in self._states.values():
+                self._add_row(timer)
+        self._refresh_keyword_rules_button()
         self._refresh_zone_filter(self._selected_zone)
-        QApplication.instance().aboutToQuit.connect(
-            self.record_session_closed)
-        QApplication.instance()._signals["maps"].new_zone.connect(
-            self._zone_changed)
+        if self._is_primary:
+            QApplication.instance().aboutToQuit.connect(
+                self.record_session_closed)
+            QApplication.instance()._signals["maps"].new_zone.connect(
+                self._zone_changed)
         self._ticker = QTimer(self)
         # Second precision is enough for P99 spawns and avoids needless repaints.
         self._ticker.setInterval(1000)
         self._ticker.timeout.connect(self._tick)
-        self._ticker.start()
+        if self._is_primary:
+            self._ticker.start()
+            self._restore_secondary_windows()
+        else:
+            self._controller._register_secondary_view(self)
+
+    def _view_settings(self):
+        return config.data['timers' if self._is_primary else self.name]
+
+    def _ensure_secondary_settings(self):
+        """Seed a normal ParserWindow settings section for one extra view."""
+        if self._is_primary:
+            return config.data['timers']
+        settings = config.data.get(self.name)
+        if isinstance(settings, dict):
+            return settings
+        primary = config.data.get('timers', {})
+        existing_views = tuple(self._controller._secondary_views.values())
+        anchor = (
+            existing_views[-1]._view_settings() if existing_views else
+            primary)
+        geometry = list(anchor.get('geometry', [620, 0, 520, 360]))
+        geometry[0] = int(geometry[0]) + 28
+        geometry[1] = int(geometry[1]) + 28
+        settings = {
+            'geometry': geometry,
+            'toggled': True,
+            'opacity': int(primary.get('opacity', 92)),
+            'clickthrough': False,
+            'auto_hide_menu': bool(primary.get('auto_hide_menu', False)),
+            'always_on_top': bool(primary.get('always_on_top', True)),
+            'frameless': bool(primary.get('frameless', True)),
+            'collapsed': False,
+            'compact': bool(primary.get('compact', False)),
+            'view_zone': str(primary.get('view_zone', '') or ''),
+            'watch_timer_ids': [],
+        }
+        config.data[self.name] = settings
+        return settings
+
+    def _register_secondary_view(self, view):
+        if not self._is_primary:
+            return self._controller._register_secondary_view(view)
+        self._secondary_views[view.instance_id] = view
+        if view not in self._views:
+            self._views.append(view)
+
+    def _restore_secondary_windows(self):
+        if not self._is_primary:
+            return []
+        restored = []
+        for record in config.data['timers'].get('instances', []):
+            instance_id = str(
+                record.get('id') if isinstance(record, dict) else record)
+            if not instance_id or instance_id in self._secondary_views:
+                continue
+            restored.append(SpawnTimers(self, instance_id))
+        return restored
+
+    def create_secondary_window(self):
+        """Create a view only; the primary remains the sole log parser."""
+        if not self._is_primary:
+            return self._controller.create_secondary_window()
+        if len(self._secondary_views) >= self.MAX_SECONDARY_WINDOWS:
+            self.announce(
+                f"SMART TIMERS · maximum {self.MAX_SECONDARY_WINDOWS} extra "
+                "windows reached")
+            return None
+        instance_id = uuid.uuid4().hex[:12]
+        while instance_id in self._secondary_views:
+            instance_id = uuid.uuid4().hex[:12]
+        config.data['timers'].setdefault('instances', []).append(
+            {'id': instance_id})
+        view = SpawnTimers(self, instance_id)
+        view.finish_startup(show_on_launch=True)
+        view.raise_()
+        view.activateWindow()
+        QTimer.singleShot(
+            0, lambda: view.zone_filter.setFocus(
+                Qt.FocusReason.OtherFocusReason))
+        config.save()
+        self.announce(
+            f"SMART TIMERS · Window {len(self._views)} opened · shared "
+            "timers, independent layout and filter")
+        return view
+
+    def remove_secondary_window(self, instance_id):
+        """Remove one extra view without deleting or changing timer state."""
+        if not self._is_primary:
+            return self._controller.remove_secondary_window(instance_id)
+        instance_id = str(instance_id or '')
+        view = self._secondary_views.pop(instance_id, None)
+        if view is None:
+            return False
+        view._geometry_save_timer.stop()
+        view.hide()
+        if view in self._views:
+            self._views.remove(view)
+        config.data['timers']['instances'] = [
+            record for record in config.data['timers'].get('instances', [])
+            if str(record.get('id') if isinstance(record, dict) else record)
+            != instance_id]
+        config.data.pop(view.name, None)
+        view.deleteLater()
+        if not self.isVisible():
+            self._fit_to_available_screen()
+            self.show()
+            self._toggled = True
+            config.data['timers']['toggled'] = True
+        self.raise_()
+        self.activateWindow()
+        self._set_header_revealed(True)
+        QTimer.singleShot(
+            0, lambda: self.new_window_button.setFocus(
+                Qt.FocusReason.OtherFocusReason))
+        config.save()
+        self.announce(
+            "SMART TIMERS · extra window removed; saved timers kept")
+        return True
+
+    @property
+    def secondary_windows(self):
+        controller = self if self._is_primary else self._controller
+        return tuple(controller._secondary_views.values())
+
+    @property
+    def is_compact(self):
+        return bool(self._view_settings().get('compact', False))
+
+    def _settings_section(self):
+        return "Smart Timers"
+
+    def finish_startup(self, show_on_launch=None):
+        super().finish_startup(show_on_launch=show_on_launch)
+        if self._is_primary:
+            for view in self.secondary_windows:
+                view.finish_startup(show_on_launch=bool(
+                    view._view_settings().get('toggled', False)))
+
+    def closeEvent(self, event):
+        if not self._is_primary:
+            # QApplication closes tool windows during update/restart even
+            # when config.APP_EXIT has not been set, and Qt does not expose a
+            # dependable distinction from a native framed-window close here.
+            # Preserve the open state; the explicit header button is the clear
+            # and durable way to remove an extra view.
+            self._save_geometry()
+            event.accept()
+            return
+        super().closeEvent(event)
 
     def mobile_snapshot(self):
         """Small immutable shape consumed by the isolated mobile server."""
         timers = []
         for timer in self._states.values():
-            if not zone_timer_visible(timer.zone, self._selected_zone):
+            if not self._row_matches_zone(timer):
                 continue
             remaining = timer.remaining()
             timers.append({
@@ -985,6 +2613,8 @@ class SpawnTimers(ParserWindow):
                 "zone": timer.zone,
                 "source": timer.source,
                 "automatic": timer.automatic,
+                "timer_mode": timer.timer_mode,
+                "duration": format_seconds(timer.respawn_seconds),
             })
         zones = [
             str(self.zone_filter.itemData(index) or "")
@@ -1015,7 +2645,11 @@ class SpawnTimers(ParserWindow):
         if timer is None:
             return
         if action == "toggle":
-            if timer.running:
+            if (timer.timer_mode != TIMER_MODE_SPAWN and
+                    timer.phase == PHASE_AVAILABLE):
+                timer.start()
+                verb = "started"
+            elif timer.running:
                 timer.pause()
                 verb = "paused"
             elif timer.phase == PHASE_IDLE:
@@ -1043,6 +2677,10 @@ class SpawnTimers(ParserWindow):
                 timer = SpawnTimerState.from_dict(values)
             except (TypeError, ValueError):
                 continue
+            if (timer.source == 'Log command' and
+                    'timer_mode' not in values):
+                timer.timer_mode = TIMER_MODE_COUNTDOWN
+                migrated = True
             if timer.automatic and timer.source == CATALOG_SOURCE:
                 named, _entry = self._named_respawn_entry(
                     timer.name, timer.zone)
@@ -1059,6 +2697,46 @@ class SpawnTimers(ParserWindow):
         # crash then preserves rows instead of reusing an older clean-close
         # timestamp and resetting them by mistake.
         self._save()
+
+    def refresh_synced_content(self):
+        """Replace the live rows after Device Sync applies a newer snapshot."""
+        if not self._is_primary:
+            return self._controller.refresh_synced_content()
+        incoming = config.data.get('timers', {}).get('items', [])
+        if not isinstance(incoming, list):
+            incoming = []
+        current = [timer.to_dict() for timer in self._states.values()]
+        if incoming == current:
+            self._reload_synced_view_preferences()
+            return 0
+        for timer_id in list(self._states):
+            self._remove_timer(timer_id, clean_watches=False)
+        restored = 0
+        cleaned = []
+        for values in incoming:
+            try:
+                timer = SpawnTimerState.from_dict(values)
+            except (TypeError, ValueError):
+                continue
+            self._register_timer(timer)
+            cleaned.append(timer.to_dict())
+            restored += 1
+        config.data['timers']['items'] = cleaned
+        self._reload_synced_view_preferences()
+        self.status.setText(
+            f"DEVICE SYNC · {restored} Smart Timer"
+            f"{'s' if restored != 1 else ''} loaded")
+        return restored
+
+    def _reload_synced_view_preferences(self):
+        """Apply synced per-window filters without touching shared timers."""
+        controller = self if self._is_primary else self._controller
+        for view in tuple(controller._views):
+            settings = view._view_settings()
+            view._selected_zone = str(
+                settings.get('view_zone') or '').strip()
+            view.compact.setChecked(bool(settings.get('compact', False)))
+            view._refresh_zone_filter(view._selected_zone)
 
     def record_session_closed(self):
         """Anchor the next startup's offline-age check to a clean exit."""
@@ -1080,7 +2758,7 @@ class SpawnTimers(ParserWindow):
 
         self.zone_filter.blockSignals(True)
         self.zone_filter.clear()
-        self.zone_filter.addItem('All zones', '')
+        self.zone_filter.addItem('All saved timers', '')
         for zone in sorted(zones.values(), key=str.casefold):
             self.zone_filter.addItem(zone, zone)
         selected = 0
@@ -1093,34 +2771,116 @@ class SpawnTimers(ParserWindow):
         self.zone_filter.blockSignals(False)
         self._selected_zone = str(
             self.zone_filter.currentData() or '').strip()
-        config.data['timers']['view_zone'] = self._selected_zone
+        self._view_settings()['view_zone'] = self._selected_zone
         self._apply_zone_filter()
+
+    def _clean_watched_timer_ids(self, save=False):
+        settings = self._view_settings()
+        raw = settings.get('watch_timer_ids', [])
+        if not isinstance(raw, list):
+            raw = []
+        valid_ids = set(self._states)
+        cleaned = []
+        seen = set()
+        for raw_timer_id in raw:
+            timer_id = str(raw_timer_id or '').strip()[:96]
+            if (not timer_id or timer_id not in valid_ids or
+                    timer_id in seen):
+                continue
+            seen.add(timer_id)
+            cleaned.append(timer_id)
+            if len(cleaned) >= MAX_CROSS_ZONE_WATCHES:
+                break
+        changed = settings.get('watch_timer_ids') != cleaned
+        settings['watch_timer_ids'] = cleaned
+        if changed and save:
+            config.save()
+        return tuple(cleaned)
+
+    def _is_cross_zone_watch(self, timer):
+        return bool(
+            timer and self._selected_zone and
+            not zone_timer_visible(timer.zone, self._selected_zone) and
+            timer.timer_id in self._clean_watched_timer_ids())
+
+    def edit_cross_zone_watches(self):
+        """Edit this view's explicit external timer selection."""
+        current = self._clean_watched_timer_ids(save=True)
+        dialog = TimerWatchDialog(
+            self._states.values(), self._selected_zone, current, self)
+        accepted = dialog.exec()
+        if accepted:
+            self._view_settings()['watch_timer_ids'] = \
+                dialog.selected_timer_ids()
+            config.save()
+            self._apply_zone_filter()
+            watched = sum(
+                self._is_cross_zone_watch(timer)
+                for timer in self._states.values())
+            self.announce(
+                f"WATCH VIEW · {watched} external timer"
+                f"{'s' if watched != 1 else ''} shown with "
+                f"{self._selected_zone or 'All saved timers'}")
+        self.raise_()
+        self.activateWindow()
+        QTimer.singleShot(
+            0, lambda: self.watch_button.setFocus(
+                Qt.FocusReason.OtherFocusReason))
+        return bool(accepted)
 
     def _zone_filter_changed(self, _index):
         self._selected_zone = str(
             self.zone_filter.currentData() or '').strip()
-        config.data['timers']['view_zone'] = self._selected_zone
+        self._view_settings()['view_zone'] = self._selected_zone
         config.save()
         self._apply_zone_filter()
         visible = sum(
             self._row_matches_zone(timer)
             for timer in self._states.values())
         self.status.setText(
-            f"ZONE VIEW · {self._selected_zone or 'All zones'} · "
+            f"ZONE VIEW · {self._selected_zone or 'All saved timers'} · "
             f"{visible} saved timer{'s' if visible != 1 else ''}")
 
     def _apply_zone_filter(self):
+        self._clean_watched_timer_ids(save=True)
         for timer_id, row in self._rows.items():
             timer = self._states.get(timer_id)
             row.setVisible(self._row_matches_zone(timer))
+            if timer is not None:
+                row.refresh()
         self._schedule_timer_canvas()
 
+    def _sync_empty_state(self):
+        """Explain the current empty view without changing timer data."""
+        visible = sum(
+            self._row_matches_zone(timer)
+            for timer in self._states.values())
+        empty = visible == 0
+        scope = self._selected_zone.strip() or "All saved timers"
+        self.empty_message.setText(
+            f"No timers in {scope}.\n"
+            "Add one here, choose another zone, or watch an existing timer.")
+        required = self.empty_message.heightForWidth(
+            max(1, self.empty_message.width()))
+        if required > 0:
+            self.empty_message.setMinimumHeight(required)
+            margins = self.empty_state.layout().contentsMargins()
+            self.empty_state.setMinimumHeight(
+                required + self.empty_add_button.sizeHint().height() +
+                margins.top() + margins.bottom() +
+                self.empty_state.layout().spacing())
+        self.empty_state.setAccessibleName(f"No timers in {scope}")
+        self.empty_state.setVisible(empty)
+        return empty
+
     def _row_matches_zone(self, timer):
-        return bool(
-            timer and zone_timer_visible(
-                timer.zone, self._selected_zone))
+        return bool(timer and (
+            zone_timer_visible(timer.zone, self._selected_zone) or
+            timer.timer_id in self._clean_watched_timer_ids()))
 
     def _add_row(self, timer):
+        if timer.timer_id in self._rows:
+            return self._rows[timer.timer_id]
         row = TimerRow(timer, self)
         self._rows[timer.timer_id] = row
         self._layout.insertWidget(self._layout.count() - 1, row)
@@ -1128,6 +2888,28 @@ class SpawnTimers(ParserWindow):
             button.installEventFilter(self)
         row.setVisible(self._row_matches_zone(timer))
         self._schedule_timer_canvas()
+        return row
+
+    def _register_timer(self, timer):
+        controller = self if self._is_primary else self._controller
+        controller._states[timer.timer_id] = timer
+        for view in tuple(controller._views):
+            view._add_row(timer)
+        return timer
+
+    def _refresh_all_view_filters(self):
+        controller = self if self._is_primary else self._controller
+        for view in tuple(controller._views):
+            view._refresh_zone_filter(view._selected_zone)
+
+    def _refresh_all_rows(self, layout_changed=False):
+        """Repaint shared timer state without needlessly rebuilding layout."""
+        controller = self if self._is_primary else self._controller
+        for view in tuple(controller._views):
+            for row in view._rows.values():
+                row.refresh()
+            if layout_changed:
+                view._schedule_timer_canvas()
 
     def _schedule_timer_canvas(self):
         if hasattr(self, "_canvas_update_timer"):
@@ -1139,6 +2921,7 @@ class SpawnTimers(ParserWindow):
         rows = tuple(
             row for timer_id, row in self._rows.items()
             if self._row_matches_zone(self._states.get(timer_id)))
+        self._sync_empty_state()
         rows_height = sum(max(
             row.minimumHeight(), row.minimumSizeHint().height(),
             row.sizeHint().height()) for row in rows)
@@ -1207,27 +2990,158 @@ class SpawnTimers(ParserWindow):
         if (event.type() == QEvent.Type.FocusIn
                 and isinstance(watched, QPushButton)
                 and self._timer_host.isAncestorOf(watched)):
+            new_timer_focus = watched is not self._active_timer_focus_control
+            self._active_timer_focus_control = watched
+            if (new_timer_focus or
+                    self._pending_timer_focus_control is watched):
+                if new_timer_focus:
+                    self._manual_timer_scroll_value = None
+                # Reveal synchronously too: a full-suite/offscreen event loop
+                # can stop a qWait immediately after a late scale pass, before
+                # even a zero-delay timer receives its turn.
+                self._ensure_timer_control_visible(watched)
+                self._schedule_timer_control_reveal(watched)
+        elif (event.type() == QEvent.Type.FocusOut and
+              watched is self._active_timer_focus_control):
+            # Scaling a QGraphicsProxyWidget can emit a transient FocusOut /
+            # FocusIn pair for the same logical button. Check after that event
+            # turn so only a real departure clears the navigation identity.
             QTimer.singleShot(
                 0, lambda control=watched:
-                self._ensure_timer_control_visible(control))
+                self._clear_inactive_timer_focus(control))
         return super().eventFilter(watched, event)
+
+    def _clear_inactive_timer_focus(self, control):
+        if self._active_timer_focus_control is not control:
+            return
+        try:
+            still_focused = (
+                control.hasFocus() or self._surface.focusWidget() is control)
+        except RuntimeError:
+            still_focused = False
+        if not still_focused:
+            self._active_timer_focus_control = None
+            self._manual_timer_scroll_value = None
+
+    def _schedule_timer_control_reveal(self, control):
+        """Keep a focused row revealed until proxy scrollbar layout settles."""
+        if control is None:
+            return
+        self._pending_timer_focus_control = control
+        self._timer_focus_reveal_passes = max(
+            self._timer_focus_reveal_passes, 7)
+        # The first pass runs after the FocusIn/layout event completes.  Later
+        # passes cover deferred QGraphicsProxyWidget geometry/range updates.
+        if not self._timer_focus_reveal_timer.isActive():
+            self._timer_focus_reveal_timer.start(0)
+
+    def _timer_scroll_range_changed(self, _minimum, _maximum):
+        if self._pending_timer_focus_control is not None:
+            self._timer_focus_reveal_passes = max(
+                self._timer_focus_reveal_passes, 2)
+            if not self._timer_focus_reveal_timer.isActive():
+                self._timer_focus_reveal_timer.start(0)
+
+    def _timer_scroll_value_changed(self, value):
+        if (self._pending_timer_focus_control is not None and
+                not self._timer_focus_reveal_timer.isActive()):
+            self._timer_focus_reveal_timer.start(0)
+        manual = self._manual_timer_scroll_value
+        if (manual is not None and not self._setting_timer_scroll_value and
+                int(value) != int(manual)):
+            # QGraphicsProxyWidget may auto-scroll its focused child well after
+            # the user's scrollbar action. Restore that explicit user choice
+            # synchronously so a late proxy event cannot win the event turn.
+            scroll = self._scale_view.verticalScrollBar()
+            self._setting_timer_scroll_value = True
+            try:
+                scroll.setValue(max(
+                    scroll.minimum(), min(scroll.maximum(), int(manual))))
+            finally:
+                self._setting_timer_scroll_value = False
+
+    def _timer_scroll_action_triggered(self, _action):
+        """Let an explicit scrollbar action override focus auto-reveal."""
+        scroll = self._scale_view.verticalScrollBar()
+        self._timer_focus_reveal_timer.stop()
+        self._pending_timer_focus_control = None
+        self._timer_focus_reveal_passes = 0
+        self._manual_timer_scroll_value = int(scroll.sliderPosition())
+
+    def _reveal_pending_timer_control(self):
+        control = self._pending_timer_focus_control
+        if control is None:
+            return
+        try:
+            valid = (
+                control.isVisibleTo(self._surface) and
+                self._timer_host.isAncestorOf(control))
+        except RuntimeError:
+            valid = False
+        if not valid:
+            self._pending_timer_focus_control = None
+            self._timer_focus_reveal_passes = 0
+            return
+        self._ensure_timer_control_visible(control)
+        self._timer_focus_reveal_passes -= 1
+        if self._timer_focus_reveal_passes > 0:
+            # A short bounded settling window is long enough for the deferred
+            # graphics-view range pass without creating a persistent snap-back
+            # when the user later scrolls manually.
+            self._timer_focus_reveal_timer.start(12)
+        else:
+            self._pending_timer_focus_control = None
 
     def _ensure_timer_control_visible(self, control):
         """Reveal a keyboard-focused row when the screen-height cap scrolls."""
-        if (not control or not control.isVisible()
+        if (not control or not control.isVisibleTo(self._surface)
                 or self._scale_view.verticalScrollBarPolicy() !=
                 Qt.ScrollBarPolicy.ScrollBarAsNeeded):
-            return
+            return False
         logical_rect = QRectF(
             control.mapTo(self._surface, control.rect().topLeft()),
             control.size())
         scene_rect = self._scale_proxy.mapRectToScene(logical_rect)
         self._scale_view.ensureVisible(scene_rect, 8, 8)
+        # ensureVisible() normally updates the bar synchronously.  On the
+        # offscreen backend and under a busy event loop its range can settle a
+        # turn later, so verify the mapped proxy rect and correct any residual
+        # vertical delta using the now-current scrollbar range.
+        viewport = self._scale_view.viewport().rect().adjusted(8, 8, -8, -8)
+        mapped = self._scale_view.mapFromScene(scene_rect).boundingRect()
+        scroll = self._scale_view.verticalScrollBar()
+        target = scroll.value()
+        if mapped.top() < viewport.top():
+            target += mapped.top() - viewport.top()
+        elif mapped.bottom() > viewport.bottom():
+            target += mapped.bottom() - viewport.bottom()
+        if target != scroll.value():
+            scroll.setValue(max(
+                scroll.minimum(), min(scroll.maximum(), int(round(target)))))
+            mapped = self._scale_view.mapFromScene(scene_rect).boundingRect()
+        return viewport.contains(mapped)
 
     def _update_uniform_scale(self):
+        scroll = self._scale_view.verticalScrollBar()
+        preserved_scroll = scroll.value()
+        pending_focus = getattr(
+            self, '_pending_timer_focus_control', None)
         self._set_scaled_minimum_size()
         super()._update_uniform_scale()
         self._schedule_viewport_rows()
+        if pending_focus is not None:
+            # ParserWindow pins the vertical range to its minimum while it
+            # applies the new transform. Correct that reset before returning;
+            # the bounded queued cycle then covers any later proxy relayout.
+            self._ensure_timer_control_visible(pending_focus)
+            self._schedule_timer_control_reveal(pending_focus)
+        else:
+            # A periodic row refresh is not a new keyboard navigation event.
+            # Preserve the user's chosen viewport instead of snapping back to
+            # either the focused row or the top once the FocusIn settle cycle
+            # has completed.
+            scroll.setValue(max(
+                scroll.minimum(), min(scroll.maximum(), preserved_scroll)))
 
     def _schedule_viewport_rows(self):
         timer = getattr(self, '_viewport_rows_timer', None)
@@ -1239,6 +3153,7 @@ class SpawnTimers(ParserWindow):
         for timer_id, row in self._rows.items():
             matches = self._row_matches_zone(self._states.get(timer_id))
             row.setVisible(matches)
+        self._sync_empty_state()
 
     def add_timer(self):
         dialog = TimerEditDialog(parent=self)
@@ -1246,19 +3161,83 @@ class SpawnTimers(ParserWindow):
             self._selected_zone or self._current_zone))
         if dialog.exec():
             timer = dialog.apply()
-            self._states[timer.timer_id] = timer
-            self._add_row(timer)
-            self._refresh_zone_filter(timer.zone)
-            self.state_changed()
+            self._register_timer(timer)
+            self._refresh_all_view_filters()
+            self.state_changed(layout_changed=True)
+
+    def _refresh_keyword_rules_button(self):
+        rules = config.data.get('timers', {}).get('keyword_rules', [])
+        enabled = sum(
+            1 for rule in rules
+            if isinstance(rule, dict) and rule.get('enabled'))
+        total = sum(1 for rule in rules if isinstance(rule, dict))
+        self.keyword_rules_button.setText(f"{enabled}/{total}")
+        label = f"Keyword timer rules, {enabled} enabled, {total} saved"
+        self.keyword_rules_button.setAccessibleName(label)
+        self.keyword_rules_button.setToolTip(
+            f"{label}\nOnly your own /say lines can run enabled rules.")
+
+    def edit_keyword_rules(self):
+        controller = self if self._is_primary else self._controller
+        dialog = TimerKeywordRulesDialog(
+            controller._states.values(),
+            config.data.get('timers', {}).get('keyword_rules', []), self)
+        if not dialog.exec():
+            self.announce("KEYWORD RULES · changes cancelled")
+            self.keyword_rules_button.setFocus(
+                Qt.FocusReason.OtherFocusReason)
+            return False
+        config.data['timers']['keyword_rules'] = dialog.rules()
+        controller.state_changed()
+        for view in controller._views:
+            view._refresh_keyword_rules_button()
+        enabled = sum(
+            1 for rule in dialog.rules() if rule.get('enabled'))
+        controller.announce(
+            f"KEYWORD RULES · saved · {enabled} enabled")
+        self.keyword_rules_button.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
 
     def edit_timer(self, timer_id):
         timer = self._states[timer_id]
         dialog = TimerEditDialog(timer, self)
         if dialog.exec():
             dialog.apply(timer)
-            self._rows[timer_id].progress.set_accent(timer.color)
-            self._refresh_zone_filter(timer.zone)
-            self.state_changed()
+            self._refresh_all_view_filters()
+            self.state_changed(layout_changed=True)
+
+    def clone_timer(self, timer_id):
+        """Create an independently editable copy without runtime state."""
+        controller = self if self._is_primary else self._controller
+        original = controller._states.get(timer_id)
+        if original is None:
+            return None
+        clone = clone_timer_configuration(original)
+        dialog = TimerEditDialog(
+            clone, self, clone_source=original)
+        if not dialog.exec():
+            return None
+        dialog.apply(clone)
+        # The clone helper supplies a fresh identity, but protect the original
+        # even if a future dialog/import path mutates that field.
+        while clone.timer_id in controller._states:
+            clone.timer_id = uuid.uuid4().hex
+        controller._register_timer(clone)
+
+        # An explicitly watched timer should produce a watched clone in the
+        # same view. Zone-filter visibility continues to work normally.
+        for view in tuple(controller._views):
+            settings = view._view_settings()
+            watched = settings.get("watch_timer_ids", [])
+            if (isinstance(watched, list) and timer_id in watched and
+                    clone.timer_id not in watched):
+                settings["watch_timer_ids"] = (
+                    watched + [clone.timer_id])[:MAX_CROSS_ZONE_WATCHES]
+        controller._refresh_all_view_filters()
+        controller.state_changed(layout_changed=True)
+        controller.announce(
+            f"CLONED · {original.name} → {clone.name} · new READY timer")
+        return clone
 
     def delete_timer(self, timer_id):
         timer = self._states[timer_id]
@@ -1269,28 +3248,31 @@ class SpawnTimers(ParserWindow):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if answer == QMessageBox.StandardButton.Yes:
-            row = self._rows.pop(timer_id)
-            row.setParent(None)
-            row.deleteLater()
-            self._states.pop(timer_id)
+            self._controller._remove_timer(timer_id)
             self.state_changed()
-            self._refresh_zone_filter(self._selected_zone)
-            self._schedule_timer_canvas()
+            self._refresh_all_view_filters()
 
-    def state_changed(self):
+    def state_changed(self, layout_changed=False):
+        if not self._is_primary:
+            return self._controller.state_changed(layout_changed)
         self._save()
-        for row in self._rows.values():
-            row.refresh()
-        self._schedule_timer_canvas()
+        self._refresh_all_rows(layout_changed)
 
     def _save(self):
         self.checkpoint_runtime_state()
 
     def checkpoint_runtime_state(self):
         """Synchronously preserve Smart Timers before an app handoff."""
+        if not self._is_primary:
+            return self._controller.checkpoint_runtime_state()
         config.data['timers']['items'] = [timer.to_dict() for timer in self._states.values()]
         config.save()
         return len(config.data['timers']['items'])
+
+    def checkpoint_view_geometries(self):
+        controller = self if self._is_primary else self._controller
+        for view in tuple(controller._views):
+            view._save_geometry()
 
     @staticmethod
     def _share_time_label(epoch):
@@ -1325,7 +3307,7 @@ class SpawnTimers(ParserWindow):
         for packet_id in exported.packet_ids:
             self._remember_share_packet(packet_id)
         config.save()
-        zone = self._selected_zone or "All zones"
+        zone = self._selected_zone or "All saved timers"
         line_text = (
             "1 chat code" if len(exported.codes) == 1 else
             f"{len(exported.codes)} chat-code lines; send each line")
@@ -1342,13 +3324,13 @@ class SpawnTimers(ParserWindow):
             if (timer.zone.strip().casefold(), timer.name.casefold()) == key),
             None)
         if existing is None:
-            self._states[incoming.timer_id] = incoming
-            self._add_row(incoming)
+            self._register_timer(incoming)
             return "added"
         # Timing is handed off, while the receiver keeps local alert choices.
         for field in (
                 "name", "respawn_seconds", "kill_seconds", "warning_seconds",
-                "smart", "zone", "mob_pattern", "source", "automatic",
+                "smart", "zone", "mob_pattern", "death_mobs", "source",
+                "automatic",
                 "phase", "running", "phase_started_at", "deadline",
                 "paused_remaining", "cycles", "warning_sent"):
             setattr(existing, field, getattr(incoming, field))
@@ -1393,8 +3375,46 @@ class SpawnTimers(ParserWindow):
         return True
 
     def _toggle_compact(self):
-        config.data['timers']['compact'] = self.compact.isChecked()
-        self.state_changed()
+        self._view_settings()['compact'] = self.compact.isChecked()
+        config.save()
+        for row in self._rows.values():
+            row.refresh()
+        self._schedule_timer_canvas()
+
+    def _deliver_timer_event(self, timer, event, message, route, repeat):
+        """Register one visual event and deliver the timer's selected audio."""
+        app = QApplication.instance()
+        common = {
+            "title": "Vantage",
+            "overlay_id": "timers",
+            "volume": timer.volume,
+            "repeat": repeat,
+            "character": getattr(self, "_active_character", ""),
+            "server": getattr(self, "_active_server", ""),
+            "channel": "timers",
+        }
+        delivery = str(getattr(timer, "delivery", "legacy") or "legacy")
+        if delivery == "tts":
+            # notify_event owns the single visual/rail entry; the per-timer
+            # voice settings then bypass the global route's voice selection.
+            app.notify_event(
+                route, message, delivery_override="off", **common)
+            speech = render_timer_notification_text(
+                timer.tts_text, timer, event.kind, timer.remaining())
+            return speak_text(
+                speech, timer.volume, source=f"Smart Timer · {message}",
+                character=common["character"], server=common["server"],
+                channel="timers", allow_hidden=False,
+                voice_name=timer.tts_voice, pitch=timer.tts_pitch,
+                replace_pending=True, visual_registered=True)
+        if delivery == "off":
+            return app.notify_event(
+                route, message, delivery_override="off", **common)
+        return app.notify_event(
+            route, message,
+            sound_override=timer.sound_path,
+            delivery_override=("sound" if delivery == "sound" else None),
+            **common)
 
     def _tick(self):
         changed = False
@@ -1414,26 +3434,28 @@ class SpawnTimers(ParserWindow):
                     f"{timer.name}: due now" if schedule_due else
                     f"{timer.name}: due in {remaining} s"
                     if schedule_warning else event.message)
-                if event.kind in ("spawn", "warning"):
+                if event.kind in ("spawn", "warning", "complete", "ready"):
                     route = (
                         "raid_encounter" if
                         timer.source == RING_WAR_SCHEDULE_SOURCE else
                         "smart_timer")
-                    QApplication.instance().notify_event(
-                        route, message, title="Vantage",
-                        overlay_id="timers",
-                        sound_override=timer.sound_path,
-                        volume=timer.volume,
-                        repeat=2 if event.kind == "spawn" else 1,
-                        channel="timers")
+                    SpawnTimers._deliver_timer_event(
+                        self,
+                        timer, event, message, route,
+                        2 if event.kind in (
+                            "spawn", "complete", "ready") else 1)
                 else:
                     self.announce(message)
                 if schedule_due:
                     completed_schedule_ids.append(timer.timer_id)
         for timer_id in completed_schedule_ids:
             self._remove_timer(timer_id)
-        for row in self._rows.values():
-            row.refresh()
+        refresh_all = getattr(self, '_refresh_all_rows', None)
+        if callable(refresh_all):
+            refresh_all()
+        else:
+            for row in self._rows.values():
+                row.refresh()
         if changed:
             self._save()
 
@@ -1464,13 +3486,20 @@ class SpawnTimers(ParserWindow):
             volume=config.data['timers']['volume'], repeat=2,
             channel="timers")
 
-    def _remove_timer(self, timer_id):
-        row = self._rows.pop(timer_id, None)
-        if row is not None:
-            row.setParent(None)
-            row.deleteLater()
+    def _remove_timer(self, timer_id, clean_watches=True):
+        if not self._is_primary:
+            return self._controller._remove_timer(
+                timer_id, clean_watches=clean_watches)
+        for view in tuple(self._views):
+            row = view._rows.pop(timer_id, None)
+            if row is not None:
+                row.setParent(None)
+                row.deleteLater()
+            view._schedule_timer_canvas()
         removed = self._states.pop(timer_id, None)
-        self._schedule_timer_canvas()
+        if clean_watches:
+            for view in tuple(self._views):
+                view._clean_watched_timer_ids()
         return removed
 
     def _start_ring_war_schedule(self, event_time):
@@ -1492,8 +3521,7 @@ class SpawnTimers(ParserWindow):
                 source=RING_WAR_SCHEDULE_SOURCE,
                 automatic=True)
             timer.start(event_time)
-            self._states[timer.timer_id] = timer
-            self._add_row(timer)
+            self._register_timer(timer)
         self._encounter_alert(
             f"Ring War schedule started · {len(milestones)} milestones",
             "Ring War")
@@ -1503,6 +3531,9 @@ class SpawnTimers(ParserWindow):
         self._current_zone = str(zone or '').strip()
         self._missing_zone_notified = None
         self._refresh_zone_filter(self._current_zone)
+        for view in self.secondary_windows:
+            view._current_zone = self._current_zone
+            view._refresh_zone_filter(view._selected_zone)
         config.save()
         entry = self._respawn_entry()
         if entry and entry.seconds:
@@ -1551,7 +3582,8 @@ class SpawnTimers(ParserWindow):
             color=automatic_timer_color(self._current_zone, mob),
             smart=False,
             zone=string.capwords(self._current_zone),
-            mob_pattern=rf"^{re.escape(mob)}$",
+            mob_pattern="",
+            death_mobs=[mob],
             sound_path=None,
             volume=config.data['timers']['volume'],
             source=NAMED_CATALOG_SOURCE,
@@ -1560,8 +3592,7 @@ class SpawnTimers(ParserWindow):
         # A death line is the anchor: the newly created timer is running from
         # this exact log timestamp, never left idle in READY.
         timer.mark_killed(event_time)
-        self._states[timer.timer_id] = timer
-        self._add_row(timer)
+        self._register_timer(timer)
         detail = f" · {entry.note}" if entry.note else ""
         self.announce(
             f"{mob}: named timer {format_seconds(respawn_seconds)} started · "
@@ -1586,9 +3617,9 @@ class SpawnTimers(ParserWindow):
                 zone=string.capwords(self._current_zone),
                 sound_path=None,
                 volume=config.data['timers']['volume'],
-                source='Log command')
-            self._states[timer.timer_id] = timer
-            self._add_row(timer)
+                source='Log command',
+                timer_mode=TIMER_MODE_COUNTDOWN)
+            self._register_timer(timer)
         else:
             timer.respawn_seconds = duration
             timer.warning_seconds = min(30, max(1, duration // 10))
@@ -1597,13 +3628,165 @@ class SpawnTimers(ParserWindow):
             f'{label}: log command timer started · {format_seconds(duration)}')
         self.state_changed()
 
+    def _keyword_status(self, message):
+        self.announce(message)
+        for view in self.secondary_windows:
+            view.status.setText(message)
+            view.status.setAccessibleName(str(message))
+            view.status.setAccessibleDescription(message)
+            if not view.isVisible():
+                continue
+            try:
+                QAccessible.updateAccessibility(
+                    QAccessibleAnnouncementEvent(view.status, str(message)))
+            except (AttributeError, RuntimeError, TypeError):
+                pass
+
+    def _keyword_candidates(self, rule, captures):
+        timer_id = str(rule.get("timer_id") or "")
+        if timer_id:
+            timer = self._states.get(timer_id)
+            return [timer] if timer is not None else []
+        current_zone = str(self._current_zone or "").strip()
+        if not current_zone:
+            return []
+        if captures.get("target"):
+            return [
+                timer for timer in self._states.values()
+                if timer.matches_kill(captures["target"], current_zone)]
+        captured_name = str(captures.get("timer") or "").strip().casefold()
+        return [
+            timer for timer in self._states.values()
+            if timer.name.casefold() == captured_name and
+            str(timer.zone or "").strip().casefold() ==
+            current_zone.casefold()]
+
+    def _create_keyword_timer(self, rule, captures, event_time):
+        name = str(captures.get("target") or captures.get("name") or "").strip()
+        if not name or len(name) > 128:
+            self._keyword_status(
+                "KEYWORD · Create rejected · captured timer name is invalid")
+            return False
+        duration_text = captures.get("duration")
+        duration = (
+            parse_duration_input(duration_text, single_unit="seconds")
+            if duration_text else int(rule.get("create_seconds", 0)))
+        if not 1 <= duration <= 30 * 24 * 60 * 60:
+            self._keyword_status(
+                f"KEYWORD · Create rejected · invalid duration for {name}")
+            return False
+        zone = string.capwords(str(self._current_zone or "").strip())
+        if not zone and not rule.get("allow_unassigned"):
+            self._keyword_status(
+                f"KEYWORD · Create rejected · current EQ zone is unknown · {name}")
+            return False
+        duplicate = next((
+            timer for timer in self._states.values()
+            if timer.name.casefold() == name.casefold() and
+            str(timer.zone or "").strip().casefold() == zone.casefold()), None)
+        if duplicate is not None:
+            self._keyword_status(
+                f"KEYWORD · Create skipped · {name} already exists · "
+                f"{zone or 'Unassigned'}")
+            return False
+        timer = SpawnTimerState(
+            name=name, respawn_seconds=duration, kill_seconds=60,
+            warning_seconds=min(30, max(1, duration // 10)),
+            color=automatic_timer_color(zone, name), smart=False, zone=zone,
+            sound_path=None, volume=config.data['timers']['volume'],
+            source="Keyword rule", automatic=False,
+            timer_mode=TIMER_MODE_COUNTDOWN)
+        timer.start(event_time)
+        self._register_timer(timer)
+        self._refresh_all_view_filters()
+        self.state_changed(layout_changed=True)
+        self._keyword_status(
+            f"KEYWORD · Created and started in shared timer list · {name} · "
+            f"{zone or 'Unassigned'} · {format_seconds(duration)}")
+        return True
+
+    def _apply_keyword_action(self, rule, timer, event_time):
+        action = rule["action"]
+        changed = False
+        if action == "start":
+            if timer.phase in (PHASE_IDLE, PHASE_AVAILABLE) and not timer.running:
+                timer.start(event_time)
+                changed = True
+        elif action == "reset":
+            timer.restart(event_time)
+            changed = True
+        elif action == "pause":
+            if timer.running:
+                timer.pause(event_time)
+                changed = True
+        elif action == "resume":
+            if not timer.running and timer.paused_remaining is not None:
+                timer.resume(event_time)
+                changed = True
+        elif action == "stop":
+            if timer.phase != PHASE_IDLE or timer.running:
+                timer.reset()
+                changed = True
+        return changed
+
+    def _apply_keyword_rules(self, timestamp, text, event_time):
+        message = own_say_message(text)
+        if not message:
+            return False
+        stamp = (
+            int(timestamp.timestamp()) if isinstance(
+                timestamp, datetime.datetime) else int(event_time))
+        replay_key = (stamp, " ".join(message.split()).casefold())
+        if replay_key in self._keyword_seen:
+            return True
+        rules = config.data.get('timers', {}).get('keyword_rules', [])
+        for rule in rules if isinstance(rules, list) else ():
+            if not isinstance(rule, dict) or not rule.get("enabled"):
+                continue
+            captures = match_keyword_phrase(rule.get("phrase"), message)
+            if captures is None:
+                continue
+            self._keyword_seen.append(replay_key)
+            if rule.get("action") == "create":
+                self._create_keyword_timer(rule, captures, event_time)
+                return True
+            candidates = self._keyword_candidates(rule, captures)
+            if not candidates:
+                self._keyword_status(
+                    f"KEYWORD · {rule.get('action', 'Action').title()} skipped · "
+                    "no timer matched in the allowed scope")
+                return True
+            if len(candidates) > 1 and not rule.get("all_matches"):
+                self._keyword_status(
+                    f"KEYWORD · {rule['action'].title()} rejected · "
+                    f"{len(candidates)} timers matched; enable all matching timers")
+                return True
+            selected = candidates if rule.get("all_matches") else candidates[:1]
+            changed = [
+                timer for timer in selected
+                if self._apply_keyword_action(rule, timer, event_time)]
+            if changed:
+                self.state_changed()
+            zones = sorted({timer.zone or "Unassigned" for timer in selected})
+            names = ", ".join(timer.name for timer in selected[:3])
+            if len(selected) > 3:
+                names += f" +{len(selected) - 3}"
+            outcome = "applied" if changed else "no state change"
+            self._keyword_status(
+                f"KEYWORD · {rule['action'].title()} · {names} · "
+                f"{', '.join(zones)} · {outcome}")
+            return True
+        return False
+
     def parse(self, timestamp, text):
+        if not self._is_primary:
+            return
         if text.startswith("You have entered "):
             self._zone_changed(text[17:].rstrip('.'))
         event_time = (
             timestamp.timestamp()
             if isinstance(timestamp, datetime.datetime) else time.time())
-        if TIMER_SHARE_PREFIX in text:
+        if any(prefix in text for prefix in TIMER_SHARE_PREFIXES):
             codes = extract_timer_share_codes(text)
             if not codes:
                 self.announce(
@@ -1633,6 +3816,8 @@ class SpawnTimers(ParserWindow):
                         encounter.message,
                         'FTE' if encounter.kind == 'fte' else 'server quake')
                 return
+        if self._apply_keyword_rules(timestamp, text, event_time):
+            return
         command = extract_log_timer_command(text)
         if command:
             self._start_log_command_timer(*command, event_time)

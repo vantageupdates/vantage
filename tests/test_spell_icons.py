@@ -19,7 +19,8 @@ from vantage.parsers.spells import (
     _spell_icon_coordinates, _spell_target_sort_key,
     _spell_widget_sort_key,
     create_spell_book, spell_progress_palette, spell_progress_stylesheet,
-    spell_school_name, spell_warning_state)
+    spell_school_name, spell_semantic_progress_palettes,
+    spell_warning_state)
 
 
 def test_velious_zero_based_sheet_mapping():
@@ -182,7 +183,8 @@ def test_spell_progress_palette_is_stable_colorful_and_icon_driven():
     assert f"stop:1 {spell_progress_palette(beneficial)[2]}" in style
     assert "Pulse" in style
     assert 'QProgressBar[Faded="true"]' in style
-    assert "#D13E48" in style
+    semantic = spell_semantic_progress_palettes()
+    assert semantic['faded']['pulse'][1] in style
     assert "min-height: 20px" in style
     assert "max-height: 20px" in style
     assert "padding: 0px" in style
@@ -191,13 +193,51 @@ def test_spell_progress_palette_is_stable_colorful_and_icon_driven():
         for line in style.splitlines() if "border-radius:" in line]
     assert radius_values.count("0px") == 2
     assert all(value == "0px" for value in radius_values)
-    assert "#9A6515" in style
-    assert "#BC353C" in style
+    assert semantic['warning']['pulse'][1] in style
+    assert semantic['critical']['pulse'][1] in style
     assert "box-shadow" not in style
 
 
+def test_semantic_state_palettes_meet_exact_text_contrast_on_all_stops():
+    palettes = spell_semantic_progress_palettes()
+    expected = {
+        'warning': {
+            'foreground': '#FFF0C2',
+            'normal': ('#98611A', '#855312', '#593509'),
+            'pulse': ('#936423', '#966215', '#68410B'),
+            'normal_ratios': (4.5556, 5.7025, 9.5436),
+            'pulse_ratios': (4.5245, 4.5614, 7.8717),
+        },
+        'critical': {
+            'foreground': '#FFFFFF',
+            'normal': ('#C64E54', '#B3363C', '#772329'),
+            'pulse': ('#C64F57', '#BC353C', '#812229'),
+            'normal_ratios': (4.5465, 5.9835, 10.2099),
+            'pulse_ratios': (4.5092, 5.6562, 9.5704),
+        },
+        'faded': {
+            'foreground': '#F7F8F8',
+            'normal': ('#BF414A', '#9B2831', '#671A22'),
+            'pulse': ('#BC4E55', '#CD3D49', '#8D232C'),
+            'normal_ratios': (4.8491, 7.1992, 11.2941),
+            'pulse_ratios': (4.5277, 4.5274, 8.1920),
+        },
+    }
+
+    for state, state_palette in palettes.items():
+        foreground = QColor(expected[state]['foreground'])
+        assert state_palette['foreground'] == expected[state]['foreground']
+        for mode in ('normal', 'pulse'):
+            assert state_palette[mode] == expected[state][mode]
+            ratios = tuple(round(
+                _spell_bar_contrast(foreground, QColor(stop)), 4)
+                for stop in state_palette[mode])
+            assert ratios == expected[state][f'{mode}_ratios']
+            assert min(ratios) >= 4.5, (state, mode, ratios)
+
+
 def test_icon_palette_chroma_depth_and_text_contrast_are_bounded():
-    foreground = QColor('#F7F8F8')
+    light_foreground = QColor('#F7F8F8')
     distinct_hues = set()
     for icon_index in range(216):
         spell = SimpleNamespace(spell_icon=icon_index)
@@ -206,8 +246,8 @@ def test_icon_palette_chroma_depth_and_text_contrast_are_bounded():
         highlight, body, depth, border = colors
         distinct_hues.add(round(body.hue() / 15) if body.hue() >= 0 else -1)
 
-        # The icon hue is clearly saturated, but value stays in the dark
-        # overlay range. Hex serialization can shift HSV by one point.
+        # Every icon family remains in the dark overlay range so one light
+        # label stays readable across the complete filled chunk.
         assert 155 <= body.saturation() <= 249
         assert 110 <= body.value() <= 130
         assert 147 <= highlight.saturation() <= 241
@@ -219,11 +259,23 @@ def test_icon_palette_chroma_depth_and_text_contrast_are_bounded():
         assert 0 <= highlight.value() - body.value() <= 18
         assert 0 <= body.value() - depth.value() <= 16
         for stop in (highlight, body, depth):
-            assert _spell_bar_contrast(foreground, stop) >= 4.5
+            assert _spell_bar_contrast(light_foreground, stop) >= 4.5
 
     # Icon art, rather than a uniform teal/green override, still determines
     # visibly distinct spell families.
     assert len(distinct_hues) >= 6
+
+
+def test_icon_yellow_palette_uses_one_light_label_with_measured_aa_stops():
+    spell = SimpleNamespace(spell_icon=0)
+    palette = spell_progress_palette(spell)
+    ratios = tuple(round(
+        _spell_bar_contrast(QColor('#F7F8F8'), QColor(stop)), 4)
+        for stop in palette[:3])
+
+    assert palette[:3] == ('#837037', '#826E32', '#725F28')
+    assert ratios == (4.5500, 4.6709, 5.8342)
+    assert min(ratios) >= 4.5
 
 
 def test_spell_row_is_two_pixels_shorter_without_clipping_the_progress_bar():

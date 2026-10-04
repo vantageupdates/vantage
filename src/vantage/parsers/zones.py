@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
-from urllib.parse import quote
+import html
+import re
+from urllib.parse import quote, unquote
 import webbrowser
 
 from PySide6.QtCore import QEvent, QSignalBlocker, Qt, QTimer, QUrl
@@ -26,16 +28,86 @@ from vantage.parsers.market import (
     parse_wiki_zone_payload)
 
 
+ZONE_NETWORK_TIMEOUT_MS = 15000
+ZONE_NETWORK_RETRIES = 1
+MOB_SEARCH_LIMIT = 24
+P99_WIKI_MOB_SEARCH_API = (
+    "https://wiki.project1999.com/api.php?action=query&list=search"
+    "&srnamespace=0&srlimit={limit}&format=json&srsearch={query}")
+P99_WIKI_MOB_PAGES_API = (
+    "https://wiki.project1999.com/api.php?action=query&prop=revisions"
+    "&rvprop=content&redirects=1&format=json&titles={titles}")
+
+
+def _wiki_revision_text(page):
+    """Read legacy or modern MediaWiki revision content safely."""
+    revisions = page.get("revisions") if isinstance(page, dict) else None
+    revision = revisions[0] if isinstance(revisions, list) and revisions else {}
+    if not isinstance(revision, dict):
+        return ""
+    if isinstance(revision.get("*"), str):
+        return revision["*"]
+    slots = revision.get("slots")
+    main = slots.get("main", {}) if isinstance(slots, dict) else {}
+    return str(main.get("*") or main.get("content") or "")
+
+
+def parse_global_mob_pages(payload, query=""):
+    """Return only real P99 NPC pages from one batched Wiki response."""
+    pages = (payload.get("query", {}).get("pages", {})
+             if isinstance(payload, dict) else {})
+    rows = []
+    for page in pages.values() if isinstance(pages, dict) else ():
+        source = _wiki_revision_text(page)
+        template = re.search(
+            r"\{\{\s*(?P<named>Namedmobpage|Mobpage)\b",
+            source, re.IGNORECASE)
+        if not template:
+            continue
+        target = str(page.get("title") or "").strip()
+        entity = parse_wiki_entity_wikitext(
+            source, fallback_name=target, kind="npc")
+        facts = {str(label): str(value) for label, value in
+                 (entity.get("facts") or ())}
+        zone = facts.get("Zone", "")
+        location = facts.get("Location", "")
+        if zone and location:
+            location = f"{zone} · {location}"
+        elif zone:
+            location = zone
+        drops = list(entity.get("drops") or ())
+        rows.append({
+            "name": entity.get("name") or target,
+            "target": target,
+            "named": template.group("named").casefold().startswith("named"),
+            "level": facts.get("Level", ""),
+            "class": facts.get("Class", ""),
+            "race": facts.get("Race", ""),
+            "zone": zone,
+            "location": location,
+            "drops": drops,
+            "loot": ", ".join(drops),
+            "description": entity.get("summary", ""),
+            "related_quests": list(entity.get("related_quests") or ()),
+            "_entity_loaded": True,
+        })
+    wanted = str(query or "").strip().casefold()
+    return sorted(rows, key=lambda mob: (
+        str(mob.get("name") or "").casefold() != wanted,
+        not str(mob.get("name") or "").casefold().startswith(wanted),
+        str(mob.get("name") or "").casefold()))
+
+
 class Zones(ParserWindow):
     """Search P99 zone content without coupling the workflow to Market."""
 
     name = "zones"
     _allow_clickthrough = False
-    _minimum_scale = 0.80
     COLUMN_DEFAULTS = {
         "items": (320, 240),
         "mobs": (220, 65, 90, 105, 280, 180),
         "nameds": (220, 65, 90, 105, 280, 180),
+        "all_mobs": (220, 65, 90, 105, 280, 220),
     }
 
     def __init__(self):
@@ -52,6 +124,10 @@ class Zones(ParserWindow):
         self._zone_reply = None
         self._zone_request_id = 0
         self._drop_reply_contexts = {}
+        self._mob_search_reply = None
+        self._mob_pages_reply = None
+        self._mob_search_request_id = 0
+        self._global_mob_results = []
         self._suppress_zone_selection = True
         self._zone_tables = {}
         self._column_width_save_timer = QTimer(self)
@@ -138,6 +214,10 @@ class Zones(ParserWindow):
             "nameds",
             ("Named NPC", "Level", "Class", "Race", "Drops", "Location"),
             "Named NPCs in selected zone")
+        self.all_mob_table = self._table(
+            "all_mobs",
+            ("NPC", "Level", "Class", "Race", "Drops", "Zone · Location"),
+            "NPC search results across every zone")
         # Compatibility name for integrations that previously inspected the
         # Market tab's mixed NPC table.
         self.zone_table = self.mob_table
@@ -149,10 +229,79 @@ class Zones(ParserWindow):
             layout.setContentsMargins(0, 0, 0, 0)
             layout.addWidget(table)
             self.tabs.addTab(page, label)
+
+        all_mobs_page = QWidget()
+        all_mobs_layout = QVBoxLayout(all_mobs_page)
+        all_mobs_layout.setContentsMargins(0, 0, 0, 0)
+        all_mobs_layout.setSpacing(4)
+        mob_search_bar = QFrame()
+        mob_search_bar.setObjectName("ZoneMobSearchBar")
+        mob_search_layout = QHBoxLayout(mob_search_bar)
+        mob_search_layout.setContentsMargins(6, 5, 6, 5)
+        mob_search_layout.setSpacing(5)
+        mob_search_label = QLabel("&Find any mob")
+        self.all_mob_search = QLineEdit()
+        self.all_mob_search.setPlaceholderText(
+            "Mob name across all Project 1999 zones…")
+        self.all_mob_search.setClearButtonEnabled(True)
+        self.all_mob_search.setAccessibleName(
+            "Search mobs across every Project 1999 zone")
+        self.all_mob_search.setAccessibleDescription(
+            "Enter at least two characters. Results are not limited by the "
+            "zone selected above")
+        self.all_mob_search.setToolTip(
+            "Search every P99 Wiki zone for a mob · press Enter to search")
+        mob_clear_button = self.all_mob_search.findChild(QToolButton)
+        if mob_clear_button:
+            mob_clear_button.setAccessibleName("Clear all-zone mob search")
+            mob_clear_button.setToolTip("Clear results and return to an empty search")
+        self.all_mob_search.textChanged.connect(
+            self._all_mob_query_changed)
+        mob_search_label.setBuddy(self.all_mob_search)
+        mob_search_layout.addWidget(mob_search_label)
+        mob_search_layout.addWidget(self.all_mob_search, 1)
+        self.all_mob_search_button = QPushButton("Search all zones")
+        self.all_mob_search_button.setIcon(game_icon("ph-file-search"))
+        self.all_mob_search_button.setAccessibleName(
+            "Search for this mob across all zones")
+        self.all_mob_search_button.setToolTip(
+            "Find matching NPC pages across every Project 1999 zone")
+        self.all_mob_search_button.clicked.connect(self._search_all_mobs)
+        self.all_mob_search.returnPressed.connect(self._search_all_mobs)
+        mob_search_layout.addWidget(self.all_mob_search_button)
+        all_mobs_layout.addWidget(mob_search_bar)
+        self.all_mob_search_status = QLabel(
+            "Enter at least two characters. Search is independent of the "
+            "selected zone.")
+        self.all_mob_search_status.setObjectName("ZoneMobSearchStatus")
+        self.all_mob_search_status.setWordWrap(True)
+        self.all_mob_search_status.setAccessibleName(
+            self.all_mob_search_status.text())
+        all_mobs_layout.addWidget(self.all_mob_search_status)
+        all_mobs_layout.addWidget(self.all_mob_table, 1)
+        self.all_mob_relations = QLabel("")
+        self.all_mob_relations.setObjectName("ZoneMobRelations")
+        self.all_mob_relations.setWordWrap(True)
+        self.all_mob_relations.setTextFormat(Qt.TextFormat.RichText)
+        self.all_mob_relations.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextBrowserInteraction)
+        self.all_mob_relations.setOpenExternalLinks(False)
+        self.all_mob_relations.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.all_mob_relations.setAccessibleName(
+            "Selected mob drops and related quests")
+        self.all_mob_relations.setToolTip(
+            "Select any linked item or quest to open it inside Vantage")
+        self.all_mob_relations.linkActivated.connect(
+            self._open_mob_relation)
+        self.all_mob_relations.hide()
+        all_mobs_layout.addWidget(self.all_mob_relations)
+        self.tabs.addTab(all_mobs_page, "Any Mob")
         ensure_tab_tooltips(self.tabs, {
             "Items": "Unique items and known drops found in this zone",
             "Mobs": "Every NPC parsed from this zone's Project 1999 Wiki table",
             "Nameds": "Only notable or named NPCs in this zone",
+            "Any Mob": "Search NPCs across all Project 1999 zones, with "
+                       "clickable drops and related quests",
         })
         self.tabs.currentChanged.connect(self._selection_changed)
         self.content.addWidget(self.tabs, 1)
@@ -225,6 +374,7 @@ class Zones(ParserWindow):
         self.zone_drop_selector.setMinimumContentsLength(14)
         self.zone_drop_selector.setAccessibleName("Drop from selected NPC")
         self.zone_drop_selector.setToolTip("Choose a known drop from the selected NPC")
+        self.zone_drop_selector.addItem("Select an NPC to see its drops")
         self.zone_drop_selector.setEnabled(False)
         action_layout.addWidget(self.zone_drop_selector)
 
@@ -383,7 +533,8 @@ class Zones(ParserWindow):
 
     def eventFilter(self, watched, event):
         zone_tables = tuple(
-            table for name in ("item_table", "mob_table", "named_table")
+            table for name in (
+                "item_table", "mob_table", "named_table", "all_mob_table")
             if (table := getattr(self, name, None)) is not None)
         if (watched in zone_tables
                 and event.type() == QEvent.Type.KeyPress
@@ -477,25 +628,46 @@ class Zones(ParserWindow):
         if announce:
             _announce_accessible(self, self.zone_summary.text())
         cache_path = _wiki_zone_cache_path(requested)
+        loaded_cache = False
         try:
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
-            if isinstance(cached, dict) and cached.get("mobs"):
+            if isinstance(cached, dict) and cached.get("name"):
                 self._set_zone_data(cached, cached=True, announce=announce)
+                loaded_cache = True
         except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
             pass
+        if not loaded_cache:
+            self._set_zone_data({
+                "name": self._selected_zone_name() or requested.title(),
+                "summary": (
+                    "Bundled Vantage zone reference. The map and Wiki link "
+                    "are ready while mobs, nameds, and drops update."),
+                "mobs": [], "unique_items": [], "local_reference": True,
+            }, cached=True, announce=False)
+            self.zone_summary.setText(
+                f"{self._selected_zone_name() or requested.title()} · "
+                "local reference ready · updating Wiki details…")
+            self.zone_summary.setAccessibleName(self.zone_summary.text())
+        self._start_zone_request(requested, cache_path, announce, 0)
+        return True
+
+    def _start_zone_request(self, requested, cache_path, announce, attempt):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(requested.replace(" ", "_"), safe="")) +
             "&redirects=1"))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
+        request.setTransferTimeout(ZONE_NETWORK_TIMEOUT_MS)
+        request.setHeader(
+            QNetworkRequest.KnownHeaders.UserAgentHeader,
+            "Vantage/1.44.125 (vantagecompanion@gmail.com)")
         reply = self._network.get(request)
         self._zone_request_id += 1
         reply.setProperty("zoneRequestId", self._zone_request_id)
         reply.setProperty("zoneRequested", requested)
         reply.setProperty("zoneCachePath", str(cache_path))
         reply.setProperty("zoneAnnounce", bool(announce))
+        reply.setProperty("zoneAttempt", int(attempt))
         self._zone_reply = reply
         reply.finished.connect(self._zone_finished)
-        return True
 
     def _zone_finished(self):
         reply = self.sender()
@@ -504,10 +676,12 @@ class Zones(ParserWindow):
         requested = str(reply.property("zoneRequested") or "")
         cache_path = _wiki_zone_cache_path(requested)
         announce = bool(reply.property("zoneAnnounce"))
+        attempt = int(reply.property("zoneAttempt") or 0)
         current = bool(
             reply is self._zone_reply and
             int(reply.property("zoneRequestId") or -1) ==
             self._zone_request_id)
+        retrying = False
         try:
             if not current:
                 return
@@ -516,7 +690,7 @@ class Zones(ParserWindow):
             payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
             parsed = payload.get("parse")
             if not isinstance(parsed, dict):
-                raise ValueError("zone not found on Project 1999 Wiki")
+                raise ValueError("Wiki page unavailable")
             wikitext = parsed.get("wikitext", {})
             rendered = parsed.get("text", {})
             if isinstance(wikitext, dict):
@@ -525,20 +699,34 @@ class Zones(ParserWindow):
                 rendered = rendered.get("*", "")
             data = parse_wiki_zone_payload(
                 wikitext, rendered, parsed.get("title") or requested)
-            if not data.get("mobs"):
-                raise ValueError("the Wiki page has no recognized zone mob table")
+            if not data.get("name"):
+                raise ValueError("Wiki returned no readable zone details")
             self._set_zone_data(data, announce=announce)
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
             cache_path.write_text(json.dumps(data), encoding="utf-8")
         except (OSError, RuntimeError, UnicodeError, ValueError,
                 json.JSONDecodeError) as error:
-            if current and not self._zone_mobs:
-                self.zone_summary.setText(f"Could not load {requested.title()} · {error}")
+            if current and attempt < ZONE_NETWORK_RETRIES:
+                retrying = True
+                self._zone_reply = None
+                self.zone_summary.setText(
+                    f"{requested.title()} did not load · retrying automatically…")
+                self.zone_summary.setAccessibleName(self.zone_summary.text())
+                QTimer.singleShot(
+                    250, lambda name=requested, path=cache_path,
+                    say=announce, next_attempt=attempt + 1:
+                    self._start_zone_request(name, path, say, next_attempt))
+            elif current:
+                name = str(self._zone_data.get("name") or requested.title())
+                self.zone_summary.setText(
+                    f"{name} · local/cached reference · live Wiki details "
+                    "temporarily unavailable · Reload zone to retry")
                 self.zone_summary.setAccessibleName(self.zone_summary.text())
                 if announce:
                     _announce_accessible(
-                        self, self.zone_summary.text(), assertive=True)
+                        self, self.zone_summary.text())
         finally:
-            if current:
+            if current and not retrying:
                 self._zone_reply = None
                 self.zone_load_button.setEnabled(True)
                 self.zone_load_button.setText("Reload zone")
@@ -617,6 +805,197 @@ class Zones(ParserWindow):
     def _schedule_filter_refresh(self, *_args):
         self._filter_announce_timer.start()
 
+    def _set_all_mob_status(self, text, announce=False, assertive=False):
+        text = str(text)
+        self.all_mob_search_status.setText(text)
+        self.all_mob_search_status.setAccessibleName(text)
+        if announce:
+            _announce_accessible(self, text, assertive=assertive)
+
+    def _all_mob_query_changed(self, text):
+        query = str(text).strip()
+        pending = self._mob_search_reply or self._mob_pages_reply
+        submitted = str(
+            pending.property("mobSearchQuery") or "").strip() \
+            if pending is not None else ""
+        if query:
+            if (pending is not None and
+                    query.casefold() != submitted.casefold()):
+                self._cancel_mob_search_requests()
+                self._set_all_mob_status(
+                    "Search text changed · press Enter or Search all zones "
+                    "for the new mob name.")
+            return
+        self._cancel_mob_search_requests()
+        self._global_mob_results = []
+        self._fill_mobs(self.all_mob_table, ())
+        self.all_mob_relations.clear()
+        self.all_mob_relations.hide()
+        self._set_all_mob_status(
+            "Enter at least two characters. Search is independent of the "
+            "selected zone.")
+        self._selection_changed()
+
+    def _search_all_mobs(self, *_args):
+        query = self.all_mob_search.text().strip()
+        if len(query) < 2:
+            self._set_all_mob_status(
+                "Enter at least two characters of the mob name.",
+                announce=True, assertive=True)
+            self.all_mob_search.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        self._cancel_mob_search_requests()
+        self._global_mob_results = []
+        self._fill_mobs(self.all_mob_table, ())
+        self.all_mob_relations.clear()
+        self.all_mob_relations.hide()
+        self._mob_search_request_id += 1
+        request_id = self._mob_search_request_id
+        if self.all_mob_search_button.hasFocus():
+            self.all_mob_search.setFocus(Qt.FocusReason.OtherFocusReason)
+        self.all_mob_search_button.setEnabled(False)
+        self._set_all_mob_status(
+            f"Searching every zone for {query}…", announce=True)
+        request = QNetworkRequest(QUrl(P99_WIKI_MOB_SEARCH_API.format(
+            limit=MOB_SEARCH_LIMIT, query=quote(query, safe=""))))
+        request.setTransferTimeout(ZONE_NETWORK_TIMEOUT_MS)
+        request.setHeader(
+            QNetworkRequest.KnownHeaders.UserAgentHeader,
+            "Vantage/1.44.125 (vantagecompanion@gmail.com)")
+        reply = self._network.get(request)
+        reply.setProperty("mobSearchRequestId", request_id)
+        reply.setProperty("mobSearchQuery", query)
+        self._mob_search_reply = reply
+        reply.finished.connect(self._mob_search_finished)
+        return True
+
+    def _mob_search_finished(self):
+        reply = self.sender()
+        if reply is None:
+            return
+        request_id = int(reply.property("mobSearchRequestId") or -1)
+        query = str(reply.property("mobSearchQuery") or "")
+        current = bool(
+            reply is self._mob_search_reply and
+            request_id == self._mob_search_request_id and
+            self.all_mob_search.text().strip().casefold() ==
+            query.strip().casefold())
+        try:
+            if not current:
+                return
+            if reply.error() != QNetworkReply.NetworkError.NoError:
+                raise ValueError(reply.errorString())
+            payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
+            entries = payload.get("query", {}).get("search", [])
+            titles = []
+            for entry in entries if isinstance(entries, list) else ():
+                title = str(entry.get("title") or "").strip()
+                if title and title.casefold() not in {
+                        value.casefold() for value in titles}:
+                    titles.append(title)
+            if not titles:
+                self._finish_empty_mob_search(query)
+                return
+            self._set_all_mob_status(
+                f"Checking {len(titles)} matching Wiki pages for NPC data…")
+            request = QNetworkRequest(QUrl(P99_WIKI_MOB_PAGES_API.format(
+                titles=quote("|".join(titles), safe=""))))
+            request.setTransferTimeout(ZONE_NETWORK_TIMEOUT_MS)
+            request.setHeader(
+                QNetworkRequest.KnownHeaders.UserAgentHeader,
+                "Vantage/1.44.125 (vantagecompanion@gmail.com)")
+            pages_reply = self._network.get(request)
+            pages_reply.setProperty("mobSearchRequestId", request_id)
+            pages_reply.setProperty("mobSearchQuery", query)
+            self._mob_pages_reply = pages_reply
+            pages_reply.finished.connect(self._mob_pages_finished)
+        except (RuntimeError, UnicodeError, ValueError,
+                json.JSONDecodeError) as error:
+            if current:
+                self._finish_mob_search_error(query, error)
+        finally:
+            if current:
+                self._mob_search_reply = None
+            reply.deleteLater()
+
+    def _mob_pages_finished(self):
+        reply = self.sender()
+        if reply is None:
+            return
+        request_id = int(reply.property("mobSearchRequestId") or -1)
+        query = str(reply.property("mobSearchQuery") or "")
+        current = bool(
+            reply is self._mob_pages_reply and
+            request_id == self._mob_search_request_id and
+            self.all_mob_search.text().strip().casefold() ==
+            query.strip().casefold())
+        try:
+            if not current:
+                return
+            if reply.error() != QNetworkReply.NetworkError.NoError:
+                raise ValueError(reply.errorString())
+            payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
+            self._global_mob_results = parse_global_mob_pages(payload, query)
+            self._fill_mobs(self.all_mob_table, self._global_mob_results)
+            count = len(self._global_mob_results)
+            if not count:
+                self._finish_empty_mob_search(query)
+                return
+            self.all_mob_table.selectRow(0)
+            self.all_mob_table.setFocus(Qt.FocusReason.OtherFocusReason)
+            message = (
+                f"{count} mob{'s' if count != 1 else ''} found across all "
+                "zones · select a row for every linked drop and quest")
+            self._set_all_mob_status(message, announce=True)
+            self._selection_changed()
+        except (RuntimeError, UnicodeError, ValueError,
+                json.JSONDecodeError) as error:
+            if current:
+                self._finish_mob_search_error(query, error)
+        finally:
+            if current:
+                self._mob_pages_reply = None
+                self.all_mob_search_button.setEnabled(True)
+            reply.deleteLater()
+
+    def _finish_empty_mob_search(self, query):
+        self._global_mob_results = []
+        self._fill_mobs(self.all_mob_table, ())
+        self.all_mob_search_button.setEnabled(True)
+        self._set_all_mob_status(
+            f"No P99 NPC pages matched {query}. Try a shorter mob name.",
+            announce=True)
+
+    def _finish_mob_search_error(self, query, error):
+        self.all_mob_search_button.setEnabled(True)
+        self._set_all_mob_status(
+            f"Could not search all zones for {query} · {error} · try again",
+            announce=True, assertive=True)
+
+    def _cancel_mob_search_requests(self):
+        self._mob_search_request_id += 1
+        for attribute, handler in (
+                ("_mob_search_reply", self._mob_search_finished),
+                ("_mob_pages_reply", self._mob_pages_finished)):
+            reply = getattr(self, attribute, None)
+            setattr(self, attribute, None)
+            if reply is None:
+                continue
+            try:
+                reply.finished.disconnect(handler)
+            except (RuntimeError, TypeError):
+                pass
+            try:
+                reply.abort()
+            except RuntimeError:
+                pass
+            try:
+                reply.deleteLater()
+            except RuntimeError:
+                pass
+        if hasattr(self, "all_mob_search_button"):
+            self.all_mob_search_button.setEnabled(True)
+
     @staticmethod
     def _fill_simple(table, rows):
         blocker = QSignalBlocker(table)
@@ -651,7 +1030,8 @@ class Zones(ParserWindow):
 
     def _current_table(self):
         return (self.item_table, self.mob_table,
-                self.named_table)[self.tabs.currentIndex()]
+                self.named_table, self.all_mob_table)[
+                    self.tabs.currentIndex()]
 
     def _selected_value(self):
         table = self._current_table()
@@ -664,13 +1044,79 @@ class Zones(ParserWindow):
         self.zone_detail_button.setEnabled(bool(value))
         mob = value if isinstance(value, dict) else None
         self.zone_drop_selector.clear()
-        for drop in (mob or {}).get("drops", []):
+        drops = (mob or {}).get("drops", [])
+        for drop in drops:
             self.zone_drop_selector.addItem(str(drop))
         has_drops = self.zone_drop_selector.count() > 0
+        if not has_drops:
+            self.zone_drop_selector.addItem(
+                "No known drops" if mob else
+                "Select an NPC to see its drops")
         self.zone_drop_selector.setEnabled(has_drops)
         self.zone_drop_button.setEnabled(has_drops)
-        if mob and not has_drops and str(mob.get("loot") or "").casefold() == "various":
+        self._render_all_mob_relations(
+            mob if self.tabs.currentIndex() == 3 else None)
+        if (mob and self.tabs.currentIndex() in (1, 2)
+                and not mob.get("_entity_loaded")):
             self._load_selected_drops(mob)
+
+    def _render_all_mob_relations(self, mob):
+        if not mob:
+            self.all_mob_relations.clear()
+            self.all_mob_relations.hide()
+            return
+        drops = [str(value).strip() for value in mob.get("drops", ())
+                 if str(value).strip()]
+        quests = []
+        for entry in mob.get("related_quests", ()):
+            if isinstance(entry, dict):
+                name = str(
+                    entry.get("name") or entry.get("target") or "").strip()
+                target = str(entry.get("target") or name).strip()
+            else:
+                name = target = str(entry).strip()
+            if name:
+                quests.append((name, target))
+
+        def linked(kind, target, label):
+            return (
+                f'<a href="vantage://{kind}/{quote(target, safe="")}">'
+                f'{html.escape(label)}</a>')
+
+        drop_links = ", ".join(
+            linked("item", name, name) for name in drops) or "None listed"
+        quest_links = ", ".join(
+            linked("quest", target, name) for name, target in quests) or \
+            "None listed"
+        mob_name = str(mob.get("name") or "Selected mob")
+        self.all_mob_relations.setText(
+            f"<b>{html.escape(mob_name)}</b><br>"
+            f"<b>Drops:</b> {drop_links}<br>"
+            f"<b>Related quests:</b> {quest_links}")
+        accessible = (
+            f"{mob_name}. Drops: " +
+            (", ".join(drops) if drops else "none listed") +
+            ". Related quests: " +
+            (", ".join(name for name, _target in quests)
+             if quests else "none listed"))
+        self.all_mob_relations.setAccessibleName(accessible)
+        self.all_mob_relations.show()
+
+    def _open_mob_relation(self, link):
+        url = QUrl(str(link))
+        kind = url.host().casefold()
+        target = unquote(url.path().lstrip("/")).strip()
+        if not target:
+            return False
+        market = self._market()
+        if kind == "item" and market:
+            market._show_wiki_item_name(target)
+            return True
+        if kind == "quest" and market:
+            market._show_wiki_entity(
+                target, target.replace("_", " "), "quest")
+            return True
+        return bool(webbrowser.open(_wiki_target_url(target)))
 
     def _market(self):
         return getattr(QApplication.instance(), "_parsers_dict", {}).get("market")
@@ -680,7 +1126,7 @@ class Zones(ParserWindow):
         if not value:
             return False
         market = self._market()
-        if self.tabs.currentIndex() in (1, 2):
+        if self.tabs.currentIndex() in (1, 2, 3):
             if market:
                 market._show_wiki_entity(
                     value.get("target") or value.get("name"), value.get("name"), "npc")
@@ -709,15 +1155,14 @@ class Zones(ParserWindow):
         cache_path = _wiki_entity_cache_path(target, "npc")
         try:
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
-            drops = list(cached.get("drops") or [])
-            if drops:
-                return self._apply_drops(mob, drops)
+            if isinstance(cached, dict) and cached.get("kind") == "NPC":
+                return self._apply_mob_entity(mob, cached)
         except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
             pass
         self._zone_drop_requests.add(key)
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(target.replace(" ", "_"), safe=""))))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.125")
         reply = self._network.get(request)
         self._drop_reply_contexts[reply] = (mob, target, key, cache_path)
         reply.finished.connect(self._drops_finished)
@@ -743,8 +1188,9 @@ class Zones(ParserWindow):
             if isinstance(wikitext, dict):
                 wikitext = wikitext.get("*", "")
             entity = parse_wiki_entity_wikitext(wikitext, fallback_name=target, kind="npc")
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
             cache_path.write_text(json.dumps(entity), encoding="utf-8")
-            self._apply_drops(mob, entity.get("drops") or [])
+            self._apply_mob_entity(mob, entity)
         except (OSError, RuntimeError, UnicodeError, ValueError, json.JSONDecodeError):
             pass
         finally:
@@ -753,6 +1199,7 @@ class Zones(ParserWindow):
 
     def _cancel_network_requests(self):
         """Make every late network completion harmless during app teardown."""
+        self._cancel_mob_search_requests()
         zone_reply = self._zone_reply
         self._zone_reply = None
         self._zone_request_id += 1
@@ -786,19 +1233,21 @@ class Zones(ParserWindow):
             except RuntimeError:
                 pass
 
-    def _apply_drops(self, mob, drops):
-        drops = [str(value).strip() for value in drops if str(value).strip()]
-        if not drops:
-            return False
+    def _apply_mob_entity(self, mob, entity):
+        drops = [str(value).strip() for value in entity.get("drops", ())
+                 if str(value).strip()]
         mob["drops"] = drops
-        mob["loot"] = ", ".join(drops)
+        if drops:
+            mob["loot"] = ", ".join(drops)
+        mob["related_quests"] = list(entity.get("related_quests") or ())
+        mob["_entity_loaded"] = True
         self._refresh_views(announce=False)
         return True
 
     def _open_zone_map(self):
         name = str(self._zone_data.get("name") or self._selected_zone_name())
         maps = getattr(QApplication.instance(), "_parsers_dict", {}).get("maps")
-        if not maps or not maps._load_zone(name):
+        if not maps or not maps._preview_zone(name):
             self.zone_summary.setText(f"No bundled Vantage map matches {name}.")
             self.zone_summary.setAccessibleName(self.zone_summary.text())
             _announce_accessible(self, self.zone_summary.text(), assertive=True)
@@ -813,6 +1262,26 @@ class Zones(ParserWindow):
     def _open_zone_wiki(self):
         name = str(self._zone_data.get("name") or self._selected_zone_name()).strip()
         return bool(name and webbrowser.open(_wiki_target_url(name)))
+
+    def mobile_snapshot(self):
+        """Return the selected zone and its parsed, cached Wiki content."""
+        return {
+            "selected": self._selected_zone_name(),
+            "zones": tuple(
+                {"name": self.zone_selector.itemText(index),
+                 "value": str(self.zone_selector.itemData(index) or "")}
+                for index in range(1, self.zone_selector.count())),
+            "loading": self._zone_reply is not None,
+            "status": self.zone_summary.text(),
+            "data": dict(self._zone_data),
+        }
+
+    def mobile_select(self, name):
+        """Load a zone selected from the private mobile companion."""
+        if not self._select_zone(name):
+            return False
+        self._clear_zone_results()
+        return self._load_zone(announce=False)
 
     def parse(self, _timestamp, text):
         prefix = "You have entered "

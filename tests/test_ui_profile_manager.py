@@ -1,0 +1,293 @@
+import json
+from pathlib import Path
+import subprocess
+
+import pytest
+
+from vantage.helpers import ui_profile_manager as profiles
+
+
+def _profile(character, server, skin, marker):
+    return (
+        "[Main]\r\n"
+        f"UISkin={skin}\r\n"
+        "AtlasSkin=Default\r\n"
+        "[ChatWindow]\r\n"
+        f"XPos={marker}\r\n").encode("cp1252")
+
+
+@pytest.fixture
+def eq_install(tmp_path, monkeypatch):
+    root = tmp_path / "EverQuest"
+    root.mkdir()
+    (root / "eqgame.exe").write_bytes(b"game")
+    skin = "VantageUI-v1.44.70"
+    (root / "uifiles" / skin).mkdir(parents=True)
+    (root / "UI_Alpha_P1999Green.ini").write_bytes(
+        _profile("Alpha", "P1999Green", "velious", 11))
+    (root / "UI_Beta_P1999Blue.ini").write_bytes(
+        _profile("Beta", "P1999Blue", "rustle2", 99))
+    (root / "Alpha_P1999Green.ini").write_bytes(
+        b"[Socials]\r\nPage1Button1Name=WTS\r\n")
+    (root / "eqclient.ini").write_bytes(
+        b"[Main]\r\nUISkin=velious\r\nSound=TRUE\r\n")
+    monkeypatch.setattr(profiles.ui_skin_updater, "game_running", lambda: False)
+    monkeypatch.setattr(
+        profiles.ui_skin_updater, "installed_folder", lambda _root: skin)
+    return root, skin, tmp_path / "backups"
+
+
+def test_discovery_only_returns_character_ui_profiles(eq_install):
+    root, _skin, _state = eq_install
+    found = profiles.discover_character_profiles(root)
+    assert [(item.filename, item.label, item.skin) for item in found] == [
+        ("UI_Alpha_P1999Green.ini", "Alpha · Green", "velious"),
+        ("UI_Beta_P1999Blue.ini", "Beta · Blue", "rustle2"),
+    ]
+
+
+def test_uiskin_parser_accepts_spacing_case_and_update_removes_duplicates(
+        eq_install):
+    root, skin, state = eq_install
+    alpha = root / "UI_Alpha_P1999Green.ini"
+    alpha.write_bytes(
+        b"[Main]\r\n  uIsKiN = velious  \r\nUISkin=rustle2\r\n"
+        b"AtlasSkin=Default\r\n[ChatWindow]\r\nXPos=11\r\n")
+
+    discovered = profiles.discover_character_profiles(root)
+    found = next(item for item in discovered if item.character == "Alpha")
+    assert found.skin == "velious"
+    profiles.apply_skin_to_profiles(root, skin, [alpha.name], state)
+
+    payload = alpha.read_text(encoding="cp1252")
+    assert payload.casefold().count("uiskin") == 1
+    assert f"uIsKiN = {skin}" in payload
+    assert "AtlasSkin=Default" in payload
+    assert "XPos=11" in payload
+
+
+def test_set_skin_handles_missing_main_and_preserves_matching_payload(eq_install):
+    _root, skin, _state = eq_install
+    missing = b"[ChatWindow]\nXPos=42\n"
+    updated = profiles._set_skin(missing, skin)
+    assert updated.startswith(f"[Main]\nUISkin={skin}\n".encode("cp1252"))
+    matching = f"[Main]\r\nUISkin = {skin}\r\nSound=TRUE\r\n".encode("cp1252")
+    assert profiles._set_skin(matching, skin) == matching
+
+
+def test_audit_distinguishes_current_different_missing_and_available(eq_install):
+    root, skin, _state = eq_install
+    (root / "uifiles" / "velious").mkdir()
+    (root / "UI_Current_P1999Green.ini").write_bytes(
+        _profile("Current", "P1999Green", skin, 42))
+
+    audited = profiles.audit_character_profiles(
+        root, installed_folder=skin, available_version="1.44.71")
+    by_name = {item.profile.character: item for item in audited}
+
+    assert by_name["Current"].status == "Current installed"
+    assert by_name["Current"].current is True
+    assert "newer release 1.44.71 available, not installed" in (
+        by_name["Current"].detail)
+    assert "verified installed selection" in by_name["Current"].detail
+    assert "newest" not in by_name["Current"].detail.casefold()
+    assert by_name["Alpha"].status == "Different installed skin"
+    assert by_name["Alpha"].referenced_folder_exists is True
+    assert by_name["Beta"].status == "Referenced folder missing"
+    assert by_name["Beta"].referenced_folder_exists is False
+
+
+def test_apply_skin_to_selected_profiles_preserves_unselected_and_defaults(
+        eq_install):
+    root, skin, state = eq_install
+    alpha = root / "UI_Alpha_P1999Green.ini"
+    beta = root / "UI_Beta_P1999Blue.ini"
+    eqclient = root / "eqclient.ini"
+    before = {path: path.read_bytes() for path in (alpha, beta, eqclient)}
+
+    result = profiles.apply_skin_to_profiles(
+        root, skin, [beta.name], state, include_eqclient=False)
+
+    assert result.filenames == (beta.name,)
+    assert alpha.read_bytes() == before[alpha]
+    assert eqclient.read_bytes() == before[eqclient]
+    assert f"UISkin={skin}" in beta.read_text(encoding="cp1252")
+
+
+def test_apply_skin_changes_only_uiskin_and_creates_restore_point(eq_install):
+    root, skin, state = eq_install
+    alpha_path = root / "UI_Alpha_P1999Green.ini"
+    character_settings = root / "Alpha_P1999Green.ini"
+    settings_before = character_settings.read_bytes()
+
+    result = profiles.apply_skin_to_all(root, skin, state)
+
+    assert result.action == "skin"
+    assert result.changed == 3
+    assert f"UISkin={skin}" in alpha_path.read_text(encoding="cp1252")
+    assert "XPos=11" in alpha_path.read_text(encoding="cp1252")
+    assert "Sound=TRUE" in (root / "eqclient.ini").read_text(encoding="cp1252")
+    assert character_settings.read_bytes() == settings_before
+    backups = profiles.list_backups(state, root)
+    assert len(backups) == 1
+    assert backups[0].backup_id == result.backup_id
+    assert backups[0].file_count == 3
+
+
+def test_automatic_skin_sync_can_report_already_current_without_empty_backup(
+        eq_install):
+    root, skin, state = eq_install
+    first = profiles.apply_skin_to_all(root, skin, state)
+    second = profiles.apply_skin_to_all(
+        root, skin, state, allow_no_changes=True)
+
+    assert first.changed == 3
+    assert second == profiles.ProfileOperationResult("skin", 0, "", ())
+    assert len(profiles.list_backups(state, root)) == 1
+
+
+def test_copy_layout_copies_only_ui_file_and_restore_is_reversible(eq_install):
+    root, skin, state = eq_install
+    beta = root / "UI_Beta_P1999Blue.ini"
+    beta_before = beta.read_bytes()
+    character_settings = root / "Alpha_P1999Green.ini"
+    target_settings = root / "Beta_P1999Blue.ini"
+    target_settings.write_bytes(
+        b"[Inventory]\r\nSlot1=Fine Steel Sword\r\n"
+        b"[Socials]\r\nPage1=WTB\r\n"
+        b"[Hotkeys]\r\nHot1=/assist\r\n"
+        b"[Macros]\r\nMacro1=camp\r\n"
+        b"[Friends]\r\nFriend1=Alpha\r\n")
+    settings_before = character_settings.read_bytes()
+    target_settings_before = target_settings.read_bytes()
+
+    copied = profiles.copy_layout(
+        root, skin, "UI_Alpha_P1999Green.ini",
+        ["UI_Beta_P1999Blue.ini"], state)
+
+    copied_text = beta.read_text(encoding="cp1252")
+    assert copied.changed == 1
+    assert "XPos=11" in copied_text
+    assert f"UISkin={skin}" in copied_text
+    assert character_settings.read_bytes() == settings_before
+    assert target_settings.read_bytes() == target_settings_before
+    assert beta.name == "UI_Beta_P1999Blue.ini"
+    assert (root / "UI_Alpha_P1999Green.ini").is_file()
+
+    restored = profiles.restore_backup(root, state, copied.backup_id)
+    assert restored.action == "restore"
+    assert beta.read_bytes() == beta_before
+    assert len(profiles.list_backups(state, root)) == 2
+
+
+def test_copy_layout_skips_identical_targets_and_creates_no_empty_backup(
+        eq_install):
+    root, skin, state = eq_install
+    first = profiles.copy_layout(
+        root, skin, "UI_Alpha_P1999Green.ini",
+        ["UI_Beta_P1999Blue.ini"], state)
+    backups_before = profiles.list_backups(state, root)
+
+    second = profiles.copy_layout(
+        root, skin, "UI_Alpha_P1999Green.ini",
+        ["UI_Beta_P1999Blue.ini"], state)
+
+    assert first.changed == 1
+    assert second == profiles.ProfileOperationResult("layout", 0, "", ())
+    assert profiles.list_backups(state, root) == backups_before
+
+
+def test_partial_write_failure_rolls_back_every_changed_file(
+        eq_install, monkeypatch):
+    root, skin, state = eq_install
+    paths = [
+        root / "UI_Alpha_P1999Green.ini",
+        root / "UI_Beta_P1999Blue.ini",
+        root / "eqclient.ini",
+    ]
+    before = {path: path.read_bytes() for path in paths}
+    original_write = profiles._atomic_write
+    calls = 0
+
+    def fail_second(path, payload):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise PermissionError("locked")
+        return original_write(path, payload)
+
+    monkeypatch.setattr(profiles, "_atomic_write", fail_second)
+    with pytest.raises(PermissionError, match="locked"):
+        profiles.apply_skin_to_all(root, skin, state)
+
+    assert {path: path.read_bytes() for path in paths} == before
+    assert profiles.list_backups(state, root) == ()
+
+
+def test_profile_changes_wait_while_everquest_is_running(
+        eq_install, monkeypatch):
+    root, skin, state = eq_install
+    monkeypatch.setattr(profiles.ui_skin_updater, "game_running", lambda: True)
+    with pytest.raises(profiles.UIProfileError, match="Close EverQuest"):
+        profiles.apply_skin_to_all(root, skin, state)
+
+
+@pytest.mark.parametrize("source, targets", [
+    ("missing.ini", ["UI_Beta_P1999Blue.ini"]),
+    ("UI_Alpha_P1999Green.ini", ["UI_Alpha_P1999Green.ini"]),
+])
+def test_copy_layout_rejects_invalid_source_or_empty_targets(
+        eq_install, source, targets):
+    root, skin, state = eq_install
+    with pytest.raises(profiles.UIProfileError):
+        profiles.copy_layout(root, skin, source, targets, state)
+
+
+def test_elevated_command_reuses_current_one_file_companion(tmp_path):
+    companion = tmp_path / "Vantage.exe"
+    companion.touch()
+    request = tmp_path / "ui-profile-requests" / (
+        "ui-profile-" + "a" * 32 + ".json")
+    request.parent.mkdir()
+    request.touch()
+
+    program, arguments = profiles.elevated_profile_command(
+        request, "nonce", current_executable=companion, frozen=True)
+
+    assert Path(program) == companion
+    assert arguments == subprocess.list2cmdline([
+        "--manage-ui-profiles", str(request.resolve()), "nonce"])
+
+
+def test_elevated_request_processes_only_declared_profile_action(
+        eq_install, monkeypatch, tmp_path):
+    root, skin, _state = eq_install
+    requests = tmp_path / "ui-profile-requests"
+    requests.mkdir()
+    request = requests / ("ui-profile-" + "b" * 32 + ".json")
+    nonce = "verified-nonce"
+    request.write_text(json.dumps({
+        "schema": 1, "nonce": nonce, "action": "skin",
+        "eq_root": str(root),
+        "options": {"skin_folder": skin, "include_eqclient": True},
+    }), encoding="utf-8")
+    calls = []
+    monkeypatch.setattr(
+        profiles, "data_dir", lambda *_parts: tmp_path / "backups")
+    monkeypatch.setattr(
+        profiles, "apply_skin_to_all",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or
+        profiles.ProfileOperationResult(
+            "skin", 3, "c" * 32,
+            ("UI_Alpha_P1999Green.ini", "UI_Beta_P1999Blue.ini",
+             "eqclient.ini")))
+
+    assert profiles.process_elevated_profile_request(request, nonce) == 0
+
+    result = json.loads(request.with_suffix(".result.json").read_text())
+    assert result["ok"] is True
+    assert result["changed"] == 3
+    assert calls[0][0][0] == str(root)
+    assert calls[0][0][1] == skin
+    assert calls[0][1]["include_eqclient"] is True
+    assert not request.exists()

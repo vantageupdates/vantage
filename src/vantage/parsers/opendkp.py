@@ -2,29 +2,43 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+import re
 import statistics
+import threading
+from urllib.parse import quote
 import uuid
 import webbrowser
 
-from PySide6.QtCore import Qt, QTimer, QUrl
-from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
+from PySide6.QtCore import QDate, QObject, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent, QColor
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QComboBox, QDialog, QDialogButtonBox,
-    QFormLayout, QFrame, QGridLayout, QHeaderView, QLabel, QLineEdit,
-    QListWidget, QMessageBox, QProgressBar, QPushButton, QSpinBox, QSplitter,
-    QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QHBoxLayout,
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QDateEdit, QDialog, QDialogButtonBox,
+    QFormLayout, QFrame, QGridLayout, QGroupBox, QHeaderView, QLabel, QLineEdit,
+    QListWidget, QListWidgetItem, QMessageBox, QProgressBar, QPushButton, QSpinBox, QSplitter,
+    QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout, QHBoxLayout,
     QToolButton, QWidget)
 
 from vantage.helpers import config
 from vantage.helpers.icons import game_icon
+from vantage.helpers.log_search_cache import (
+    LogSearchCache, SearchResult, cache_path_for_log_root,
+    linked_logs_directory)
 from vantage.helpers.guild_spreadsheet import (
     MAX_DOWNLOAD_BYTES, normalize_google_sheet_url, parse_spreadsheet_csv)
 from vantage.helpers.opendkp import (
     OpenDkpClient, auction_bids, auction_id, auction_item_name,
     normalize_guild_slug, rows_from_payload, watch_matches)
 from vantage.helpers.parser import ParserWindow
+from vantage.helpers.raid_ledger import (
+    MISSING, NOT_CHECKED, PENDING, VERIFIED, RaidLedger,
+    parse_timestamp, raid_time_matches, remote_raid_id, remote_raid_name,
+    remote_raid_timestamp,
+    remote_tick_evidence, character_raid_attendance)
+from vantage.helpers.raid_attendance import (
+    sanitize_attendance_alts, pool_raid_attendance, pooled_tick_evidence)
 from vantage.helpers.responsive import (
     ensure_tab_tooltips, ensure_table_header_tooltips)
 
@@ -44,6 +58,14 @@ def _number(value, digits=0):
     return f"{amount:,.0f}"
 
 
+def _attendance_event_name(raid):
+    """Keep event names readable; raw evidence remains in the tooltip/filter."""
+    text = re.sub(r"https?://\S+", "", remote_raid_name(raid))
+    text = re.sub(r"^\d{1,2}-\d{1,2}\s+\d{1,2}:\d{2}\s+", "", text)
+    text = re.sub(r"^\d{1,2}-\d{1,2}\s+", "", text)
+    return _clean(text, remote_raid_name(raid))
+
+
 def _percent(value):
     try:
         amount = float(value)
@@ -61,6 +83,45 @@ def _date_text(value, with_time=False):
         return local.strftime("%b %d, %Y · %I:%M %p" if with_time else "%b %d, %Y")
     raw = str(value or "").strip()
     return raw[:24] if raw else "—"
+
+
+def _raid_tick_phrases():
+    """Return the bounded user-configured phrases that announce a raid tick."""
+    values = config.data.get("opendkp", {}).get(
+        "raid_tick_phrases", ["RAID TICK"])
+    if not isinstance(values, list):
+        values = []
+    phrases = []
+    for value in values:
+        phrase = " ".join(str(value or "").split())[:96]
+        if phrase and phrase.casefold() not in {
+                item.casefold() for item in phrases}:
+            phrases.append(phrase)
+    return phrases[:16] or ["RAID TICK"]
+
+
+def _raid_request_context(operation):
+    """Return ``(kind, token, raid_id)`` for legacy and correlated requests."""
+    value = str(operation or "")
+    if value == "raid_ledger":
+        return "list", "", ""
+    if value.startswith("raid_ledger|"):
+        return "list", value.partition("|")[2], ""
+    if value.startswith("raid_ledger_detail|"):
+        parts = value.split("|", 2)
+        return "detail", parts[1] if len(parts) > 1 else "", (
+            parts[2] if len(parts) > 2 else "")
+    if value.startswith("raid_ledger_detail:"):
+        return "detail", "", value.partition(":")[2]
+    return "", "", ""
+
+
+class _RaidLogSignals(QObject):
+    """Marshal background log-index and search results onto the Qt thread."""
+
+    index_progress = Signal(str, int, int, str)
+    index_done = Signal(str, object, str, str)
+    search_done = Signal(str, object, bool, str)
 
 
 def _parse_date(value):
@@ -215,12 +276,121 @@ class OpenDKP(ParserWindow):
 
     name = "opendkp"
     _allow_clickthrough = False
-    _minimum_scale = 0.80
     MAX_TABLE_ROWS = 2000
     MAX_SHEET_TABLE_ROWS = 3000
 
-    def parse(self, _timestamp, _text):
-        """OpenDKP is network-driven and intentionally ignores EQ log lines."""
+    WHO_HEADER = re.compile(r"^Players in (?P<zone>.+?):$", re.IGNORECASE)
+    WHO_ROW = re.compile(
+        r"^\[[^\]]+\]\s+(?:(?:<AFK>|\*GM\*)\s+)*"
+        r"(?P<name>[A-Za-z][A-Za-z'`-]{1,63})\b")
+    WHO_END = re.compile(
+        r"^There (?:are (?P<count>\d+|no) players|is (?P<one>1) player) "
+        r"in (?P<zone>.+?)\.$", re.IGNORECASE)
+    ZONE_LINE = re.compile(
+        r"^You have entered (?P<zone>.+?)\.$", re.IGNORECASE)
+    RAID_CHAT = re.compile(
+        r"^(?P<speaker>.+?) (?:(?:tells|tell) "
+        r"(?:the raid|the guild|the group|your raid|your guild|you)|"
+        r"(?:says|say) to (?:your|the) (?:raid|guild|group)), "
+        r"['\"](?P<message>.+)['\"]$", re.IGNORECASE)
+
+    def parse(self, timestamp, text):
+        """Capture local raid evidence for the active EQ log identity."""
+        line = str(text or "").strip()
+        character, server, context_zone = self._raid_identity()
+        if not character:
+            return None
+        key = (server.casefold(), character.casefold())
+        previous_key = getattr(self, "_last_raid_identity", None)
+        if key != previous_key:
+            if previous_key is not None:
+                # A complete /who belongs to one log identity. Never resume a
+                # partial capture after another toon/server becomes active.
+                self._who_captures.pop(previous_key, None)
+            self._last_raid_identity = key
+            self._schedule_my_raids_refresh()
+        zone_match = self.ZONE_LINE.match(line)
+        if zone_match:
+            zone = zone_match.group("zone").strip()
+            active = self.raid_ledger.active_session(character, server)
+            if active is not None:
+                self.raid_ledger.update_session(active["id"], zone=zone)
+                self._schedule_my_raids_refresh()
+            context_zone = zone
+
+        header = self.WHO_HEADER.match(line)
+        if header:
+            self._who_captures[key] = {
+                "identity": key, "zone": header.group("zone").strip(),
+                "members": [], "lines": 0}
+            active = self.raid_ledger.active_session(character, server)
+            if active is not None:
+                self._set_my_raids_status(
+                    f"Reading /who for {character}…", "loading", announce=True)
+            return None
+
+        capture = self._who_captures.get(key)
+        if capture is not None:
+            if capture.get("identity") != key:
+                self._who_captures.pop(key, None)
+                return None
+            capture["lines"] += 1
+            row = self.WHO_ROW.match(line)
+            if row:
+                capture["members"].append(row.group("name"))
+            end = self.WHO_END.match(line)
+            if end:
+                self._who_captures.pop(key, None)
+                expected = 1 if end.group("one") else (
+                    0 if str(end.group("count")).casefold() == "no"
+                    else int(end.group("count")))
+                members = capture["members"]
+                unique_members = {member.casefold() for member in members}
+                active = self.raid_ledger.active_session(character, server)
+                if (active is not None and len(members) == expected and
+                        len(unique_members) == expected):
+                    # The footer is the authoritative completion record for
+                    # both result count and zone.
+                    footer_zone = end.group("zone").strip()
+                    roster_zone = footer_zone
+                    self.raid_ledger.add_roster(
+                        active["id"], timestamp,
+                        roster_zone, members)
+                    if roster_zone:
+                        self.raid_ledger.update_session(
+                            active["id"], zone=roster_zone)
+                    self._set_my_raids_status(
+                        f"Saved complete /who snapshot with {expected} players",
+                        "ready", announce=True)
+                    self._schedule_my_raids_refresh()
+                elif active is not None:
+                    self._set_my_raids_status(
+                        f"Waiting for /who: read {len(members)} of {expected} players",
+                        "warning", announce=True)
+                return None
+            if capture["lines"] >= 500:
+                self._who_captures.pop(key, None)
+
+        chat = self.RAID_CHAT.match(line)
+        tick_message = chat.group("message").strip() if chat else line
+        if any(phrase.casefold() in tick_message.casefold()
+               for phrase in _raid_tick_phrases()):
+            active = self.raid_ledger.active_session(character, server)
+            if active is None:
+                return None
+            speaker, message = "", line
+            if chat:
+                speaker = chat.group("speaker").strip()
+                if speaker.casefold() == "you":
+                    speaker = character
+                message = chat.group("message").strip()
+            if self.raid_ledger.add_tick(
+                    active["id"], timestamp, speaker, message, "log",
+                    character, server):
+                who = f" from {speaker}" if speaker else ""
+                self._set_my_raids_status(
+                    f"Saved RAID TICK{who} for {character}", "ready", announce=True)
+                self._schedule_my_raids_refresh()
         return None
 
     def __init__(self):
@@ -230,6 +400,29 @@ class OpenDKP(ParserWindow):
         self._title.setToolTip(
             "OpenDKP plus independent public Google Sheets panels for any guild")
         self.client = OpenDkpClient(self)
+        self.raid_ledger = RaidLedger()
+        self._who_captures = {}
+        self._last_raid_identity = None
+        self._raid_check_sessions = {}
+        self._raid_check_details = {}
+        self._raid_check_slug = self.client.slug
+        self._raid_check_token = ""
+        self._raid_refresh_scheduled = False
+        self._raid_log_signals = _RaidLogSignals(self)
+        self._raid_log_signals.index_progress.connect(
+            self._raid_log_index_progress)
+        self._raid_log_signals.index_done.connect(
+            self._raid_log_index_complete)
+        self._raid_log_signals.search_done.connect(
+            self._raid_log_search_complete)
+        self._raid_log_cache = None
+        self._raid_log_cache_directory = ""
+        self._raid_log_index_token = ""
+        self._raid_log_search_token = ""
+        self._raid_log_search_directory = ""
+        self._raid_log_index_focus = None
+        self._raid_log_index_fallback_focus = None
+        self._raid_log_results = ()
         self.sheet_network = QNetworkAccessManager(self)
         self._sheet_views = {}
         self._sheet_replies = {}
@@ -259,6 +452,7 @@ class OpenDKP(ParserWindow):
         app = QApplication.instance()
         if app is not None:
             app.aboutToQuit.connect(self.client.close)
+            app.aboutToQuit.connect(self.raid_ledger.close)
         QTimer.singleShot(0, self._restore_active_guild)
 
     # ----- construction -------------------------------------------------
@@ -340,6 +534,7 @@ class OpenDKP(ParserWindow):
         self.tabs.addTab(self._build_auctions(), "Auctions")
         self.tabs.addTab(self._build_loot(), "Loot")
         self.tabs.addTab(self._build_raids(), "Raids")
+        self.tabs.addTab(self._build_my_raids(), "My raids")
         self.tabs.addTab(self._build_adjustments(), "Adjustments")
         self.tabs.addTab(self._build_sheets(), "Guild Sheets")
         ensure_tab_tooltips(self.tabs, {
@@ -348,6 +543,8 @@ class OpenDKP(ParserWindow):
             "Auctions": "Watch live auctions, bid manually, and review results",
             "Loot": "Search recorded loot and DKP prices",
             "Raids": "Browse recent guild raids and totals",
+            "My raids": (
+                "Record local raid evidence and verify your toon against OpenDKP"),
             "Adjustments": "Search DKP additions and deductions",
             "Guild Sheets": (
                 "Add public Google Sheets as separate searchable guild panels"),
@@ -429,8 +626,11 @@ class OpenDKP(ParserWindow):
         self.character_loot = self._table(
             ("Date", "Item", "DKP", "Raid / event"),
             "Selected character loot", (0, Qt.SortOrder.DescendingOrder))
+        self.character_loot.cellClicked.connect(
+            lambda row, column: self._open_loot_item(
+                self.character_loot, row, column))
         self.character_raids = self._table(
-            ("Date", "Raid / event", "Awarded", "Spent"),
+            ("Date", "Raid / event", "Attended ticks", "Awarded DKP"),
             "Selected character raids", (0, Qt.SortOrder.DescendingOrder))
         split.addWidget(self._titled_table("Recent loot", self.character_loot))
         split.addWidget(self._titled_table("Recent raids", self.character_raids))
@@ -588,6 +788,9 @@ class OpenDKP(ParserWindow):
         self.loot_table = self._table(
             ("Date", "Item", "Character", "DKP", "Raid / event"),
             "OpenDKP loot history", (0, Qt.SortOrder.DescendingOrder))
+        self.loot_table.cellClicked.connect(
+            lambda row, column: self._open_loot_item(
+                self.loot_table, row, column))
         layout.addWidget(self.loot_table, 1)
         return page
 
@@ -599,6 +802,1696 @@ class OpenDKP(ParserWindow):
             "OpenDKP raid history", (0, Qt.SortOrder.DescendingOrder))
         layout.addWidget(self.raids_table, 1)
         return page
+
+    def _build_my_raids(self):
+        self._ensure_raid_log_state()
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(7, 6, 7, 6)
+        layout.setSpacing(5)
+
+        intro = QLabel(
+            "Search recorded OpenDKP attendance by character and date, or capture "
+            "private raid evidence. All OpenDKP checks are read-only.")
+        intro.setWordWrap(True)
+        intro.setObjectName("OpenDkpPanelHelp")
+        intro.setAccessibleName("How My raids verification works")
+        layout.addWidget(intro)
+
+        actions = QGroupBox("Current raid")
+        actions.setObjectName("OpenDkpGuildBar")
+        action_layout = QHBoxLayout(actions)
+        action_layout.setContentsMargins(7, 5, 7, 5)
+        self.my_raids_status = QLabel("No local raid is active")
+        self.my_raids_status.setObjectName("OpenDkpInlineSummary")
+        self.my_raids_status.setAccessibleName(
+            "My raids status: No local raid is active")
+        self.my_raids_status.setAccessibleDescription(
+            "Text status for local evidence capture and OpenDKP verification")
+        action_layout.addWidget(self.my_raids_status, 1)
+        self.raid_start_button = self._make_button(
+            "Start raid", "add", self._start_raid,
+            "Start a local raid session for the active EverQuest character")
+        self.raid_start_button.setAccessibleDescription(
+            "Starts private evidence capture and waits for a complete slash-who result")
+        self.raid_end_button = self._make_button(
+            "End raid", "ph-mute", self._end_raid,
+            "End the active local raid session for this character")
+        self.raid_tick_button = self._make_button(
+            "Add tick", "ph-gavel", self._manual_raid_tick,
+            "Add manual RAID TICK evidence to the active local session")
+        self.raid_refresh_button = self._make_button(
+            "Check OpenDKP", "refresh", self._refresh_my_raids,
+            "Read public OpenDKP raids and check this toon's tick membership")
+        for button in (self.raid_start_button, self.raid_end_button,
+                       self.raid_tick_button, self.raid_refresh_button):
+            action_layout.addWidget(button)
+        layout.addWidget(actions)
+
+        self.raid_workspace_tabs = QTabWidget()
+        self.raid_workspace_tabs.setAccessibleName("My raids workspaces")
+        self.raid_workspace_tabs.setAccessibleDescription(
+            "Choose recorded attendance, local raid history, log tick search, or detection phrases")
+
+        history = QWidget()
+        history_layout = QVBoxLayout(history)
+        history_layout.setContentsMargins(0, 5, 0, 0)
+        history_layout.setSpacing(5)
+
+        sort_row = QHBoxLayout()
+        sort_label = QLabel("Sort raids")
+        self.raid_sort_column = QComboBox()
+        self.raid_sort_column.addItems((
+            "Started", "Ended", "Toon", "Server", "Zone", "Local evidence",
+            "OpenDKP status", "Ticks", "DKP", "Remote raid", "Last checked"))
+        self.raid_sort_column.setAccessibleName("My raids sort column")
+        sort_label.setBuddy(self.raid_sort_column)
+        self.raid_sort_button = self._make_button(
+            "Sort ascending", "refresh", self._sort_my_raids,
+            "Sort My raids by the selected column; activate again to reverse order")
+        self.raid_sort_column.currentIndexChanged.connect(
+            lambda _index: self._update_sort_action_label(
+                self.my_raids_table, self.raid_sort_column,
+                self.raid_sort_button))
+        sort_row.addWidget(sort_label)
+        sort_row.addWidget(self.raid_sort_column)
+        sort_row.addWidget(self.raid_sort_button)
+        sort_row.addStretch(1)
+        history_layout.addLayout(sort_row)
+
+        split = QSplitter(Qt.Orientation.Vertical)
+        self.my_raids_table = self._table(
+            ("Started", "Ended", "Toon", "Server", "Zone", "Local evidence",
+             "OpenDKP status", "Ticks", "DKP", "Remote raid", "Last checked"),
+            "My local raids and OpenDKP verification results",
+            (0, Qt.SortOrder.DescendingOrder))
+        self.my_raids_table.setAccessibleDescription(
+            "Sortable raid verification table. Status is always written as text. "
+            "Missing means review needed, not misconduct.")
+        self.my_raids_table.horizontalHeader().sortIndicatorChanged.connect(
+            lambda _section, _order: self._update_sort_action_label(
+                self.my_raids_table, self.raid_sort_column,
+                self.raid_sort_button))
+        self.my_raids_table.itemSelectionChanged.connect(
+            self._my_raid_selected)
+        split.addWidget(self.my_raids_table)
+
+        editor = QGroupBox("Selected raid details")
+        editor.setObjectName("OpenDkpGuildBar")
+        editor.setAccessibleName("Selected raid details")
+        editor.setAccessibleDescription(
+            "Edit private mobs, targets, notes, or the linked OpenDKP raid ID")
+        editor_layout = QGridLayout(editor)
+        editor_layout.setContentsMargins(7, 5, 7, 5)
+        mobs_label = QLabel("Mobs / targets")
+        self.raid_mobs = QLineEdit()
+        self.raid_mobs.setAccessibleName("Raid mobs or targets")
+        self.raid_mobs.setAccessibleDescription(
+            "Optional private text you can edit for the selected local raid")
+        self.raid_mobs.setPlaceholderText("Vulak, Statue, Ring War…")
+        mobs_label.setBuddy(self.raid_mobs)
+        editor_layout.addWidget(mobs_label, 0, 0)
+        editor_layout.addWidget(self.raid_mobs, 0, 1, 1, 3)
+        notes_label = QLabel("Notes")
+        self.raid_notes = QTextEdit()
+        self.raid_notes.setAcceptRichText(False)
+        self.raid_notes.setTabChangesFocus(True)
+        self.raid_notes.setMaximumHeight(72)
+        self.raid_notes.setAccessibleName("Raid notes")
+        self.raid_notes.setAccessibleDescription(
+            "Optional private notes for the selected local raid")
+        self.raid_notes.setPlaceholderText("Attendance details or follow-up notes…")
+        notes_label.setBuddy(self.raid_notes)
+        editor_layout.addWidget(notes_label, 1, 0)
+        editor_layout.addWidget(self.raid_notes, 1, 1, 1, 3)
+        remote_label = QLabel("Remote raid ID")
+        self.raid_remote_id = QLineEdit()
+        self.raid_remote_id.setAccessibleName("OpenDKP remote raid ID")
+        self.raid_remote_id.setAccessibleDescription(
+            "Optional manual link when automatic date matching needs help")
+        self.raid_remote_id.setPlaceholderText("Optional OpenDKP raid ID")
+        remote_label.setBuddy(self.raid_remote_id)
+        editor_layout.addWidget(remote_label, 2, 0)
+        editor_layout.addWidget(self.raid_remote_id, 2, 1)
+        self.raid_save_button = self._make_button(
+            "Save notes", "ph-download", self._save_raid_notes,
+            "Save mobs and notes for the selected local raid")
+        self.raid_link_button = self._make_button(
+            "Link and check", "refresh", self._link_remote_raid,
+            "Save this remote raid ID and refresh its OpenDKP verification")
+        editor_layout.addWidget(self.raid_save_button, 2, 2)
+        editor_layout.addWidget(self.raid_link_button, 2, 3)
+        self.raid_selected_summary = QLabel("No local raid selected")
+        self.raid_selected_summary.setObjectName("CombatDataNotice")
+        self.raid_selected_summary.setWordWrap(True)
+        self.raid_selected_summary.setAccessibleName(
+            "Selected raid summary: No local raid selected")
+        self.raid_selected_summary.setAccessibleDescription(
+            "Identifies the private local raid affected by the adjacent action")
+        editor_layout.addWidget(self.raid_selected_summary, 3, 0, 1, 3)
+        self.raid_delete_button = self._make_button(
+            "Delete local raid…", "trash", self._delete_selected_raid,
+            "Select a private local raid to review before deletion")
+        self.raid_delete_button.setObjectName("DangerAction")
+        self.raid_delete_button.setAccessibleName("Delete local raid…")
+        self.raid_delete_button.setAccessibleDescription(
+            "Select a private local raid to review before deletion")
+        self.raid_delete_button.setEnabled(False)
+        editor_layout.addWidget(self.raid_delete_button, 3, 3)
+        editor_layout.setColumnStretch(1, 1)
+        for widget in (self.raid_mobs, self.raid_notes, self.raid_remote_id):
+            widget.setEnabled(False)
+        split.addWidget(editor)
+        split.setSizes([330, 150])
+        history_layout.addWidget(split, 1)
+        self.raid_workspace_tabs.addTab(history, "History & evidence")
+
+        finder = QWidget()
+        finder_layout = QVBoxLayout(finder)
+        finder_layout.setContentsMargins(0, 5, 0, 0)
+        finder_layout.setSpacing(5)
+        finder_intro = QLabel(
+            "Search every linked eqlog file using Vantage's shared local cache. "
+            "A match is evidence to review, not proof of OpenDKP membership.")
+        finder_intro.setWordWrap(True)
+        finder_intro.setObjectName("OpenDkpPanelHelp")
+        finder_layout.addWidget(finder_intro)
+
+        self.raid_log_source = QLabel("No EverQuest Logs folder linked")
+        self.raid_log_source.setObjectName("CombatDataNotice")
+        self.raid_log_source.setWordWrap(True)
+        self.raid_log_source.setAccessibleName("Raid tick log source folder")
+        finder_layout.addWidget(self.raid_log_source)
+
+        search_controls = QGridLayout()
+        search_controls.setHorizontalSpacing(6)
+        search_controls.setVerticalSpacing(5)
+        keyword_label = QLabel("Keyword or phrase")
+        self.raid_log_query = QComboBox()
+        self.raid_log_query.setEditable(True)
+        self.raid_log_query.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.raid_log_query.addItems(_raid_tick_phrases())
+        self.raid_log_query.setCurrentText(_raid_tick_phrases()[0])
+        self.raid_log_query.setAccessibleName("Raid tick keyword or phrase")
+        self.raid_log_query.setAccessibleDescription(
+            "Choose a configured phrase or type any text to search every linked log")
+        self.raid_log_query.setToolTip(
+            "Choose a configured RAID TICK phrase or type any text")
+        self.raid_log_query.lineEdit().setPlaceholderText(
+            "RAID TICK or another exact phrase")
+        self.raid_log_query.lineEdit().setToolTip(
+            "Enter the keyword or phrase to find in every linked log")
+        self.raid_log_query.lineEdit().returnPressed.connect(
+            self._search_raid_logs)
+        keyword_label.setBuddy(self.raid_log_query)
+        search_controls.addWidget(keyword_label, 0, 0)
+        search_controls.addWidget(self.raid_log_query, 0, 1, 1, 5)
+
+        profile_label = QLabel("Character and server")
+        self.raid_log_profile = QComboBox()
+        self.raid_log_profile.addItem("All characters and servers", "")
+        self.raid_log_profile.setAccessibleName(
+            "Raid tick character and server profile")
+        self.raid_log_profile.setAccessibleDescription(
+            "Restrict results to one EverQuest log owner, or search all profiles")
+        profile_label.setBuddy(self.raid_log_profile)
+        search_controls.addWidget(profile_label, 1, 0)
+        search_controls.addWidget(self.raid_log_profile, 1, 1, 1, 2)
+
+        range_label = QLabel("Date range")
+        self.raid_log_range = QComboBox()
+        for label, hours in (
+                ("All time", 0), ("Past 24 hours", 24),
+                ("Past 7 days", 168), ("Past 30 days", 720),
+                ("Past 90 days", 2160)):
+            self.raid_log_range.addItem(label, hours)
+        self.raid_log_range.setAccessibleName("Raid tick date range")
+        range_label.setBuddy(self.raid_log_range)
+        search_controls.addWidget(range_label, 1, 3)
+        search_controls.addWidget(self.raid_log_range, 1, 4, 1, 2)
+
+        self.raid_log_refresh_button = self._make_button(
+            "Refresh logs", "refresh", self._refresh_raid_logs,
+            "Index new complete lines from every linked EverQuest log")
+        self.raid_log_search_button = self._make_button(
+            "Search", "search", self._search_raid_logs,
+            "Search the shared local cache with these filters")
+        search_controls.addWidget(self.raid_log_refresh_button, 2, 1)
+        search_controls.addWidget(self.raid_log_search_button, 2, 2)
+        search_controls.setColumnStretch(2, 1)
+        search_controls.setColumnStretch(5, 1)
+        finder_layout.addLayout(search_controls)
+
+        self.raid_log_progress = QProgressBar()
+        self.raid_log_progress.setRange(0, 1)
+        self.raid_log_progress.setValue(0)
+        self.raid_log_progress.setTextVisible(True)
+        self.raid_log_progress.setFormat("Log cache idle")
+        self.raid_log_progress.setAccessibleName("Raid tick log cache progress")
+        finder_layout.addWidget(self.raid_log_progress)
+        self.raid_log_status = QLabel("Refresh logs, then search for a tick phrase")
+        self.raid_log_status.setObjectName("OpenDkpInlineSummary")
+        self.raid_log_status.setWordWrap(True)
+        self.raid_log_status.setAccessibleName("Raid tick finder status")
+        finder_layout.addWidget(self.raid_log_status)
+
+        result_tools = QHBoxLayout()
+        result_sort_label = QLabel("Sort results")
+        self.raid_log_sort_column = QComboBox()
+        self.raid_log_sort_column.addItems(
+            ("Date and time", "Toon", "Server", "Message and speaker", "Source"))
+        self.raid_log_sort_column.setAccessibleName("Raid tick result sort column")
+        result_sort_label.setBuddy(self.raid_log_sort_column)
+        self.raid_log_sort_button = self._make_button(
+            "Sort ascending", "refresh", self._sort_raid_log_results,
+            "Sort raid tick results by the selected column; activate again to reverse")
+        self.raid_log_sort_column.currentIndexChanged.connect(
+            lambda _index: self._update_sort_action_label(
+                self.raid_log_table, self.raid_log_sort_column,
+                self.raid_log_sort_button))
+        result_tools.addWidget(result_sort_label)
+        result_tools.addWidget(self.raid_log_sort_column)
+        result_tools.addWidget(self.raid_log_sort_button)
+        result_tools.addStretch(1)
+        finder_layout.addLayout(result_tools)
+
+        self.raid_log_table = self._table(
+            ("Date / time", "Toon", "Server", "Message / speaker", "Source"),
+            "Raid tick log search results",
+            (0, Qt.SortOrder.DescendingOrder))
+        self.raid_log_table.setAccessibleDescription(
+            "Sortable results from every linked log. Drag heading dividers to resize columns.")
+        self.raid_log_table.horizontalHeader().sortIndicatorChanged.connect(
+            lambda _section, _order: self._update_sort_action_label(
+                self.raid_log_table, self.raid_log_sort_column,
+                self.raid_log_sort_button))
+        self.raid_log_table.horizontalHeader().setStretchLastSection(False)
+        for column, width in enumerate((155, 105, 105, 470, 210)):
+            self.raid_log_table.setColumnWidth(column, width)
+        self.raid_log_table.itemSelectionChanged.connect(
+            self._raid_log_selection_changed)
+        finder_layout.addWidget(self.raid_log_table, 1)
+
+        result_actions = QHBoxLayout()
+        self.raid_log_attach_button = self._make_button(
+            "Attach to selected raid", "add", self._attach_selected_raid_tick,
+            "Save the selected log line as private evidence for the selected local raid")
+        self.raid_log_attach_button.setEnabled(False)
+        self.raid_log_copy_button = self._make_button(
+            "Copy selected row", "copy", self._copy_selected_raid_log,
+            "Copy the selected result with its date, toon, server, message, and source")
+        self.raid_log_copy_button.setEnabled(False)
+        result_actions.addWidget(self.raid_log_attach_button)
+        result_actions.addWidget(self.raid_log_copy_button)
+        result_actions.addStretch(1)
+        finder_layout.addLayout(result_actions)
+        self.raid_workspace_tabs.addTab(finder, "Find raid ticks")
+
+        detection = QWidget()
+        detection_layout = QGridLayout(detection)
+        detection_layout.setContentsMargins(7, 8, 7, 7)
+        detection_help = QLabel(
+            "These phrases detect future tick announcements in the active log and "
+            "also appear as suggestions in Find raid ticks.")
+        detection_help.setWordWrap(True)
+        detection_help.setObjectName("OpenDkpPanelHelp")
+        detection_layout.addWidget(detection_help, 0, 0, 1, 3)
+        tick_phrases_label = QLabel("RAID TICK phrases")
+        self.raid_tick_phrases = QLineEdit()
+        self.raid_tick_phrases.setText("; ".join(_raid_tick_phrases()))
+        self.raid_tick_phrases.setPlaceholderText("RAID TICK; ATTENDANCE TICK")
+        self.raid_tick_phrases.setAccessibleName("RAID TICK detection phrases")
+        self.raid_tick_phrases.setAccessibleDescription(
+            "Semicolon-separated phrases that identify raid tick announcements")
+        tick_phrases_label.setBuddy(self.raid_tick_phrases)
+        self.raid_tick_save_button = self._make_button(
+            "Save phrases", "ph-download", self._save_raid_tick_phrases,
+            "Save the phrases used to detect RAID TICK announcements")
+        detection_layout.addWidget(tick_phrases_label, 1, 0)
+        detection_layout.addWidget(self.raid_tick_phrases, 1, 1)
+        detection_layout.addWidget(self.raid_tick_save_button, 1, 2)
+        detection_layout.setColumnStretch(1, 1)
+        detection_layout.setRowStretch(2, 1)
+        self.raid_workspace_tabs.addTab(detection, "Tick phrases")
+
+        self._build_attendance_workspace()
+
+        ensure_tab_tooltips(self.raid_workspace_tabs, {
+            "Recorded attendance": "Find a character's public attendance without creating a local raid",
+            "History & evidence": "Review local raid sessions and edit private evidence",
+            "Find raid ticks": "Search every linked EverQuest log for past tick messages",
+            "Tick phrases": "Choose phrases that detect future raid tick announcements",
+        })
+        for before, after in zip((
+                self.raid_start_button, self.raid_end_button,
+                self.raid_tick_button, self.raid_refresh_button), (
+                self.raid_end_button, self.raid_tick_button,
+                self.raid_refresh_button, self.raid_workspace_tabs)):
+            QWidget.setTabOrder(before, after)
+        for before, after in zip((
+                self.raid_log_query, self.raid_log_profile,
+                self.raid_log_range, self.raid_log_refresh_button,
+                self.raid_log_search_button, self.raid_log_sort_column,
+                self.raid_log_sort_button, self.raid_log_table,
+                self.raid_log_attach_button), (
+                self.raid_log_profile, self.raid_log_range,
+                self.raid_log_refresh_button, self.raid_log_search_button,
+                self.raid_log_sort_column, self.raid_log_sort_button,
+                self.raid_log_table, self.raid_log_attach_button,
+                self.raid_log_copy_button)):
+            QWidget.setTabOrder(before, after)
+        layout.addWidget(self.raid_workspace_tabs, 1)
+        self._populate_my_raids()
+        self._update_raid_log_source()
+        return page
+
+    def _build_attendance_workspace(self):
+        self._attendance_rows = []
+        self._attendance_token = ""
+        self._attendance_slug = ""
+        self._attendance_page = 0
+        self._attendance_alts = []
+        self._attendance_pending = set()
+        self._attendance_inflight = set()
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        help_text = QLabel(
+            "Find recorded attendance for any guild character. No local raid or "
+            "sign-in needed. Only ticks marked attended count; unavailable DKP stays unknown.")
+        help_text.setWordWrap(True)
+        layout.addWidget(help_text)
+        form = QFormLayout()
+        self.attendance_character = QComboBox()
+        self.attendance_character.setEditable(True)
+        self.attendance_character.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.attendance_character.setAccessibleName("Attendance character")
+        self.attendance_character.setToolTip("Choose or type an exact character from the guild directory")
+        self.attendance_character.lineEdit().setToolTip(self.attendance_character.toolTip())
+        self.attendance_character.lineEdit().setAccessibleName("Type an attendance character name")
+        self.attendance_character.currentIndexChanged.connect(self._invalidate_attendance)
+        self.attendance_character.editTextChanged.connect(self._invalidate_attendance)
+        form.addRow("Character", self.attendance_character)
+        alt_row = QHBoxLayout()
+        self.attendance_include_alts = QCheckBox("Include alts")
+        self.attendance_include_alts.setChecked(True)
+        self.attendance_include_alts.setToolTip("Combine this character and the saved alts; shared raids and ticks count once")
+        self.attendance_include_alts.setAccessibleName("Include saved alts in raid attendance")
+        self.attendance_include_alts.toggled.connect(self._attendance_alt_mode_changed)
+        self.attendance_alt_summary = QLabel("No alts added")
+        self.attendance_alt_summary.setWordWrap(True)
+        self.attendance_alt_button = self._make_button(
+            "Manage alts…", "add", self._edit_attendance_alts,
+            "Add or remove guild characters from your saved attendance group")
+        alt_row.addWidget(self.attendance_include_alts)
+        alt_row.addWidget(self.attendance_alt_summary, 1)
+        alt_row.addWidget(self.attendance_alt_button)
+        form.addRow("Alt group", alt_row)
+        dates = QHBoxLayout()
+        self.attendance_from = QDateEdit(QDate.currentDate().addDays(-90))
+        self.attendance_to = QDateEdit(QDate.currentDate())
+        for widget, name in ((self.attendance_from, "Attendance start date"),
+                             (self.attendance_to, "Attendance end date")):
+            widget.setCalendarPopup(True)
+            widget.setAccessibleName(name)
+            widget.setToolTip(name + "; open the calendar or type a date")
+            dates.addWidget(widget)
+        form.addRow("From / through", dates)
+        layout.addLayout(form)
+        row = QHBoxLayout()
+        self.attendance_search = self._make_button(
+            "Search attendance", "refresh", self._search_attendance,
+            "Read public character raid attendance for the selected date range")
+        self.attendance_query = QLineEdit()
+        self.attendance_query.setPlaceholderText("Filter event, date, pool or raid ID…")
+        self.attendance_query.setAccessibleName("Filter recorded attendance")
+        self.attendance_query.setToolTip("Search all loaded attended raids by event, date, pool or raid ID")
+        self.attendance_query.textChanged.connect(self._filter_attendance)
+        row.addWidget(self.attendance_search)
+        row.addWidget(self.attendance_query, 1)
+        layout.addLayout(row)
+        self.attendance_status = QLabel("Choose a guild character and search attendance.")
+        self.attendance_status.setWordWrap(True)
+        layout.addWidget(self.attendance_status)
+        self.attendance_table = self._table(
+            ("Date", "Raid / event", "Pool", "Attended ticks", "Awarded DKP", "Characters"),
+            "Recorded OpenDKP attendance", (0, Qt.SortOrder.DescendingOrder))
+        self.attendance_table.horizontalHeader().setStretchLastSection(False)
+        for column, width in enumerate((185, 320, 80, 110, 110, 210)):
+            self.attendance_table.setColumnWidth(column, width)
+        layout.addWidget(self.attendance_table, 1)
+        self.attendance_detail = self._make_button(
+            "Check selected raid DKP", "refresh", self._check_attendance_detail,
+            "Read this raid's public tick details to calculate the character's awarded DKP")
+        layout.addWidget(self.attendance_detail)
+        nav = QHBoxLayout()
+        self.attendance_previous = QPushButton("Previous page")
+        self.attendance_next = QPushButton("Next page")
+        self.attendance_previous.setToolTip("Show the previous 250 matching attended raids")
+        self.attendance_next.setToolTip("Show the next 250 matching attended raids")
+        self.attendance_previous.clicked.connect(lambda: self._attendance_move(-1))
+        self.attendance_next.clicked.connect(lambda: self._attendance_move(1))
+        self.attendance_page_label = QLabel()
+        nav.addWidget(self.attendance_previous)
+        nav.addWidget(self.attendance_page_label, 1)
+        nav.addWidget(self.attendance_next)
+        layout.addLayout(nav)
+        self.raid_workspace_tabs.addTab(page, "Recorded attendance")
+        self.raid_workspace_tabs.setCurrentWidget(page)
+        self._render_attendance()
+
+    def _attendance_alt_mode_changed(self, *_args):
+        self._save_profile(attendance_include_alts=self.attendance_include_alts.isChecked())
+        self._invalidate_attendance()
+
+    def _restore_attendance_alts(self):
+        profile = self._profile() or {}
+        self._attendance_alts = sanitize_attendance_alts(profile.get("attendance_alts", []))
+        self.attendance_include_alts.blockSignals(True)
+        self.attendance_include_alts.setChecked(profile.get("attendance_include_alts", True))
+        self.attendance_include_alts.blockSignals(False)
+        self._update_attendance_alt_summary()
+
+    def _update_attendance_alt_summary(self):
+        text = ", ".join(alt["name"] for alt in self._attendance_alts) or "No alts added"
+        self.attendance_alt_summary.setText(text)
+        self.attendance_alt_summary.setToolTip(text)
+
+    def _edit_attendance_alts(self):
+        if not self.client.slug or not any(self.attendance_character.itemData(i)
+                                           for i in range(self.attendance_character.count())):
+            self.attendance_status.setText("Load a guild's character directory before adding alts.")
+            return False
+        dialog = QDialog(self)
+        dialog.setWindowTitle("My raid alts")
+        dialog.resize(440, 360)
+        layout = QVBoxLayout(dialog)
+        help_text = QLabel("Saved for this guild. Shared raids and tick IDs count once, even when several alts attended.")
+        help_text.setWordWrap(True)
+        layout.addWidget(help_text)
+        chooser = QComboBox()
+        chooser.setEditable(True)
+        chooser.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        chooser.setAccessibleName("Choose an alt character")
+        chooser.setToolTip("Choose or type an exact character from this guild's directory")
+        chooser.lineEdit().setToolTip(chooser.toolTip())
+        chooser.lineEdit().setAccessibleName("Type an alt character name")
+        for index in range(self.attendance_character.count()):
+            if self.attendance_character.itemData(index):
+                chooser.addItem(self.attendance_character.itemText(index), self.attendance_character.itemData(index))
+        layout.addWidget(chooser)
+        saved = QListWidget()
+        saved.setAccessibleName("Saved raid alts")
+        saved.setToolTip("Select an alt to remove it from the group")
+        for alt in self._attendance_alts:
+            item = QListWidgetItem(alt["name"])
+            item.setData(Qt.ItemDataRole.UserRole, alt["character_id"])
+            saved.addItem(item)
+        layout.addWidget(saved, 1)
+        feedback = QLabel("Choose a character, then Add alt.")
+        feedback.setWordWrap(True)
+        layout.addWidget(feedback)
+        actions = QHBoxLayout()
+        add = QPushButton("Add alt")
+        remove = QPushButton("Remove selected")
+        add.setToolTip("Add the chosen character; duplicates are ignored")
+        remove.setToolTip("Remove the selected character from this local saved group")
+
+        def add_alt():
+            index = next((i for i in range(chooser.count()) if chooser.itemText(i).casefold() ==
+                          chooser.currentText().strip().casefold()), -1)
+            char_id = chooser.itemData(index) if index >= 0 else None
+            if not char_id:
+                feedback.setText("Choose an exact character from the guild directory.")
+            elif any(saved.item(i).data(Qt.ItemDataRole.UserRole) == char_id for i in range(saved.count())):
+                feedback.setText("That character is already in the group.")
+            elif saved.count() >= 24:
+                feedback.setText("A group can contain up to 24 saved alts.")
+            else:
+                item = QListWidgetItem(chooser.itemText(index))
+                item.setData(Qt.ItemDataRole.UserRole, char_id)
+                saved.addItem(item)
+                feedback.setText(f"Added {item.text()}. Choose Save to keep changes.")
+
+        def remove_alt():
+            item = saved.takeItem(saved.currentRow()) if saved.currentRow() >= 0 else None
+            feedback.setText(f"Removed {item.text()}. Choose Save to keep changes." if item else "Select an alt to remove.")
+
+        add.clicked.connect(add_alt)
+        remove.clicked.connect(remove_alt)
+        actions.addWidget(add)
+        actions.addWidget(remove)
+        layout.addLayout(actions)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return False
+        self._attendance_alts = sanitize_attendance_alts([
+            {"character_id": saved.item(i).data(Qt.ItemDataRole.UserRole), "name": saved.item(i).text()}
+            for i in range(saved.count())])
+        self._save_profile(attendance_alts=self._attendance_alts)
+        self._update_attendance_alt_summary()
+        self._invalidate_attendance()
+        return True
+
+    def _check_attendance_detail(self):
+        items = self.attendance_table.selectedItems()
+        raid = self.attendance_table.item(items[0].row(), 0).data(Qt.ItemDataRole.UserRole) if items else None
+        if not raid or not self._attendance_token:
+            self.attendance_status.setText("Select an attended raid before checking its DKP.")
+            return False
+        self.attendance_status.setText(f"Checking tick details: {remote_raid_name(raid)}…")
+        return self.client.fetch_attendance_detail(remote_raid_id(raid), self._attendance_token)
+
+    def _invalidate_attendance(self, *_args):
+        self._attendance_token = ""
+        self._attendance_rows = []
+        self._attendance_pending = set()
+        self._attendance_inflight = set()
+        self.attendance_search.setEnabled(True)
+        self.attendance_status.setText("Choose a guild character and search attendance.")
+        self._filter_attendance()
+
+    def _search_attendance(self):
+        name = self.attendance_character.currentText().strip().casefold()
+        index = next((i for i in range(self.attendance_character.count())
+                      if self.attendance_character.itemText(i).casefold() == name), -1)
+        char_id = self.attendance_character.itemData(index) if index >= 0 else None
+        start, end = self.attendance_from.date(), self.attendance_to.date()
+        days = start.daysTo(QDate.currentDate()) + 1
+        if not self.client.slug or not char_id:
+            self.attendance_status.setText("Load a guild and choose a character from its list.")
+            return False
+        if start > end or end > QDate.currentDate() or not 1 <= days <= 3650:
+            self.attendance_status.setText("Choose a valid past date range within the last 10 years.")
+            return False
+        self._attendance_rows = []
+        self._filter_attendance()
+        self._attendance_token = uuid.uuid4().hex
+        self._attendance_slug = self.client.slug
+        self._attendance_range = (start.toPython(), end.toPython())
+        self._attendance_name = self.attendance_character.itemText(index)
+        members = {char_id: self._attendance_name}
+        if self.attendance_include_alts.isChecked():
+            directory = {self.attendance_character.itemData(i): self.attendance_character.itemText(i)
+                         for i in range(self.attendance_character.count()) if self.attendance_character.itemData(i)}
+            for alt in self._attendance_alts:
+                if alt["character_id"] not in directory:
+                    self.attendance_status.setText(f"{alt['name']} is not in this guild's loaded directory. Update Manage alts and try again.")
+                    self._attendance_token = ""
+                    return False
+                members[alt["character_id"]] = directory[alt["character_id"]]
+        self._attendance_members = members
+        self._attendance_days = days
+        self._attendance_data = {}
+        self._attendance_failures = []
+        self._attendance_unknown = 0
+        self._attendance_queue = list(members)
+        self._attendance_pending = set(members)
+        self._attendance_inflight = set()
+        self.attendance_search.setEnabled(False)
+        self._pump_attendance()
+        return True
+
+    def _pump_attendance(self):
+        while self._attendance_queue and len(self._attendance_inflight) < 2:
+            char_id = self._attendance_queue.pop(0)
+            self._attendance_inflight.add(char_id)
+            args = (char_id, self._attendance_days, self._attendance_token)
+            if len(self._attendance_members) > 1:
+                args += (True,)
+            if not self.client.fetch_attendance(*args):
+                self._settle_attendance(char_id, "Request could not start")
+        self._update_attendance_result_status()
+
+    def _attendance_request_member(self, operation):
+        parts = operation.split("|", 2)
+        if (parts[1] != self._attendance_token or not self._attendance_token or
+                self._attendance_slug != self.client.slug):
+            return None
+        if len(parts) == 2:
+            return next(iter(self._attendance_pending), None) if len(self._attendance_members) == 1 else None
+        try:
+            char_id = int(parts[2])
+        except ValueError:
+            return None
+        return char_id if char_id in self._attendance_inflight else None
+
+    def _settle_attendance(self, char_id, error=""):
+        self._attendance_pending.discard(char_id)
+        self._attendance_inflight.discard(char_id)
+        if error:
+            self._attendance_failures.append(f"{self._attendance_members[char_id]} ({error})")
+        self._attendance_rows = pool_raid_attendance({
+            self._attendance_members[member_id]: rows for member_id, rows in self._attendance_data.items()})
+        self._filter_attendance()
+        self._pump_attendance()
+
+    def _update_attendance_result_status(self):
+        self.attendance_search.setEnabled(not self._attendance_pending)
+        if self._attendance_pending:
+            complete = len(self._attendance_members) - len(self._attendance_pending)
+            text = f"Loading attendance: {complete}/{len(self._attendance_members)} characters complete · {len(self._attendance_rows)} raids so far…"
+        else:
+            ticks = sum(raid.get("_attendance_tick_count") or 0 for raid in self._attendance_rows)
+            label = self._attendance_name if len(self._attendance_members) == 1 else f"{len(self._attendance_members)} characters"
+            text = f"{label}: {len(self._attendance_rows):,} attended raids · {ticks:,} unique ticks."
+            if any(raid.get("_attendance_tick_count") is None for raid in self._attendance_rows):
+                text += " Some tick IDs were missing; those unique totals are unknown."
+        if self._attendance_unknown:
+            text += f" {self._attendance_unknown:,} records had no attendance evidence and were not counted."
+        if self._attendance_failures:
+            text += " Partial results; attendance unavailable: " + "; ".join(self._attendance_failures) + ". Try Search attendance again."
+        self.attendance_status.setText(text)
+
+    def _receive_attendance(self, payload, char_id):
+        rows = rows_from_payload(payload, "Raids", "Models")
+        if not isinstance(payload, list) and not (
+                isinstance(payload, dict) and any(isinstance(payload.get(key), list)
+                                                  for key in ("Raids", "Models"))):
+            self._settle_attendance(char_id, "response unavailable")
+            return
+        filtered = []
+        seen = set()
+        for raid in rows:
+            count, amount = character_raid_attendance(raid)
+            if count is None:
+                self._attendance_unknown += 1
+                continue
+            stamp = remote_raid_timestamp(raid)
+            if not count or stamp is None or not (
+                    self._attendance_range[0] <= stamp.astimezone().date() <= self._attendance_range[1]):
+                continue
+            marker = remote_raid_id(raid) or (remote_raid_name(raid), stamp.isoformat())
+            if marker in seen:
+                continue
+            seen.add(marker)
+            filtered.append(raid)
+        self._attendance_data[char_id] = filtered
+        self._settle_attendance(char_id)
+
+    def _filter_attendance(self, *_args):
+        self._attendance_page = 0
+        self._render_attendance()
+
+    def _attendance_move(self, direction):
+        self._attendance_page = max(0, self._attendance_page + direction)
+        self._render_attendance()
+
+    def _render_attendance(self):
+        query = self.attendance_query.text().strip().casefold()
+        rows = sorted(self._attendance_rows, key=lambda raid: str(raid.get("Timestamp") or ""), reverse=True)
+        rows = [raid for raid in rows if query in " ".join((
+            str(raid.get("Timestamp") or ""), remote_raid_name(raid),
+            str(raid.get("PoolName") or ""), remote_raid_id(raid),
+            " ".join(raid.get("_attendance_members", {})),
+            _date_text(raid.get("Timestamp")))).casefold()]
+        pages = max(1, (len(rows) + 249) // 250)
+        self._attendance_page = min(self._attendance_page, pages - 1)
+        start = self._attendance_page * 250
+        cells = []
+        for raid in rows[start:start + 250]:
+            count, amount = character_raid_attendance(raid)
+            count = raid.get("_attendance_tick_count", count)
+            amount = raid.get("_attendance_dkp", amount)
+            cells.append((_date_cell(raid.get("Timestamp"), raid, True),
+                          (_attendance_event_name(raid), raid), _clean(raid.get("PoolName")),
+                          (_number(count), None, count), (_number(amount, 1), None, amount),
+                          ", ".join(raid.get("_attendance_members", {}))))
+        self._set_rows(self.attendance_table, cells)
+        for row in range(self.attendance_table.rowCount()):
+            item = self.attendance_table.item(row, 1)
+            item.setToolTip(remote_raid_name(item.data(Qt.ItemDataRole.UserRole)))
+        self.attendance_previous.setEnabled(self._attendance_page > 0)
+        self.attendance_next.setEnabled(self._attendance_page + 1 < pages)
+        self.attendance_detail.setEnabled(bool(rows) and not self._attendance_pending)
+        self.attendance_page_label.setText(
+            f"Page {self._attendance_page + 1} of {pages} · {len(rows):,} matching raids")
+
+    # ----- private local raid ledger ----------------------------------
+    def _raid_identity(self):
+        context = getattr(self, "_character_context", None)
+        character = str(
+            getattr(self, "_active_character", "") or
+            getattr(context, "character", "") or "").strip()
+        server = str(
+            getattr(self, "_active_server", "") or
+            getattr(context, "server", "") or "").strip()
+        zone = str(getattr(context, "zone", "") or "").strip()
+        return character, server, zone
+
+    def _schedule_my_raids_refresh(self):
+        if self._raid_refresh_scheduled:
+            return
+        self._raid_refresh_scheduled = True
+
+        def refresh():
+            self._raid_refresh_scheduled = False
+            if hasattr(self, "my_raids_table"):
+                self._populate_my_raids()
+
+        QTimer.singleShot(0, refresh)
+
+    def _set_my_raids_status(self, text, state="idle", announce=False):
+        if not hasattr(self, "my_raids_status"):
+            return
+        message = str(text)
+        self.my_raids_status.setText(message)
+        self.my_raids_status.setProperty("state", state)
+        self.my_raids_status.style().unpolish(self.my_raids_status)
+        self.my_raids_status.style().polish(self.my_raids_status)
+        self.my_raids_status.setAccessibleName(f"My raids status: {message}")
+        if (announce and message != getattr(
+                self, "_last_my_raids_announcement", "")):
+            self._last_my_raids_announcement = message
+            # Raid progress is informative and should not interrupt another
+            # screen-reader announcement, including warnings and failures.
+            self._announce(message, False)
+
+    def _ensure_raid_log_state(self):
+        """Initialize the finder for focused UI harnesses and the full window."""
+        if hasattr(self, "_raid_log_signals"):
+            return
+        self._raid_log_signals = _RaidLogSignals(self)
+        self._raid_log_signals.index_progress.connect(
+            self._raid_log_index_progress)
+        self._raid_log_signals.index_done.connect(
+            self._raid_log_index_complete)
+        self._raid_log_signals.search_done.connect(
+            self._raid_log_search_complete)
+        self._raid_log_cache = None
+        self._raid_log_cache_directory = ""
+        self._raid_log_index_token = ""
+        self._raid_log_search_token = ""
+        self._raid_log_search_directory = ""
+        self._raid_log_index_focus = None
+        self._raid_log_index_fallback_focus = None
+        self._raid_log_results = ()
+
+    def _raid_logs_directory(self):
+        return linked_logs_directory(
+            config.data.get("general", {}).get("eq_log_dir"),
+            config.data.get("vantage_ui", {}).get("eq_dir"))
+
+    def _raid_log_cache_for(self, directory):
+        normalized = str(Path(directory).resolve())
+        if (self._raid_log_cache is None or
+                normalized.casefold() !=
+                self._raid_log_cache_directory.casefold()):
+            self._raid_log_cache = LogSearchCache(
+                cache_path_for_log_root(normalized))
+            self._raid_log_cache_directory = normalized
+        return self._raid_log_cache
+
+    def _update_raid_log_source(self):
+        if not hasattr(self, "raid_log_source"):
+            return ""
+        directory = self._raid_logs_directory()
+        if not directory:
+            self.raid_log_source.setText("No EverQuest Logs folder linked")
+            self.raid_log_source.setAccessibleDescription(
+                "Link the EverQuest Logs folder from the Quick Bar before searching")
+            return ""
+        self.raid_log_source.setText(f"Source · {directory}")
+        self.raid_log_source.setAccessibleDescription(
+            f"Searches every eqlog text file recursively below {directory}")
+        cache = self._raid_log_cache_for(directory)
+        try:
+            self._populate_raid_log_profiles(cache.profiles())
+        except (OSError, ValueError):
+            pass
+        return directory
+
+    def _set_raid_log_status(self, text, state="idle", announce=True):
+        if not hasattr(self, "raid_log_status"):
+            return
+        message = str(text)
+        changed = self.raid_log_status.text() != message
+        self.raid_log_status.setText(message)
+        self.raid_log_status.setProperty("state", state)
+        self.raid_log_status.style().unpolish(self.raid_log_status)
+        self.raid_log_status.style().polish(self.raid_log_status)
+        self.raid_log_status.setAccessibleDescription(message)
+        if (announce and changed and message != getattr(
+                self, "_last_raid_log_announcement", "")):
+            self._last_raid_log_announcement = message
+            self._announce(message, False)
+
+    def _populate_raid_log_profiles(self, profiles):
+        if not hasattr(self, "raid_log_profile"):
+            return
+        current = str(self.raid_log_profile.currentData() or "")
+        self.raid_log_profile.blockSignals(True)
+        self.raid_log_profile.clear()
+        self.raid_log_profile.addItem("All characters and servers", "")
+        for character, server in profiles:
+            key = f"{character}\0{server}"
+            self.raid_log_profile.addItem(f"{character} · {server}", key)
+        index = self.raid_log_profile.findData(current)
+        self.raid_log_profile.setCurrentIndex(max(0, index))
+        self.raid_log_profile.blockSignals(False)
+
+    def _refresh_raid_logs(self, _checked=False):
+        directory = self._update_raid_log_source()
+        if not directory:
+            self._set_raid_log_status(
+                "Link the EverQuest Logs folder from the Quick Bar first.",
+                "warning")
+            return False
+        token = uuid.uuid4().hex
+        self._raid_log_index_token = token
+        cache = self._raid_log_cache_for(directory)
+        self._raid_log_index_focus = self._raid_current_focus_widget()
+        self.raid_log_refresh_button.setEnabled(False)
+        self._raid_log_index_fallback_focus = self._raid_current_focus_widget()
+        self.raid_log_progress.setRange(0, 0)
+        self.raid_log_progress.setFormat("Discovering linked logs…")
+        self._set_raid_log_status(
+            "Updating the shared local log cache…", "loading")
+
+        def worker():
+            try:
+                summary = cache.index_directory(
+                    directory,
+                    lambda current, total, source:
+                    self._raid_log_signals.index_progress.emit(
+                        token, current, total, source))
+            except (OSError, ValueError) as error:
+                self._raid_log_signals.index_done.emit(
+                    token, None, str(error), directory)
+            else:
+                self._raid_log_signals.index_done.emit(
+                    token, summary, "", directory)
+
+        threading.Thread(
+            target=worker, name="Vantage-Raid-Log-Indexer", daemon=True).start()
+        return True
+
+    def _raid_log_index_progress(self, token, current, total, source):
+        if token != getattr(self, "_raid_log_index_token", ""):
+            return
+        self.raid_log_progress.setRange(0, max(1, total))
+        self.raid_log_progress.setValue(current)
+        self.raid_log_progress.setFormat(
+            f"Caching {current:,} of {max(1, total):,} logs")
+        self._set_raid_log_status(
+            f"Reading {source}", "loading", announce=False)
+
+    def _raid_log_index_complete(self, token, summary, error, directory):
+        if token != getattr(self, "_raid_log_index_token", ""):
+            return
+        self._raid_log_index_token = ""
+        current_directory = self._raid_logs_directory()
+        self.raid_log_refresh_button.setEnabled(True)
+        self.raid_log_progress.setRange(0, 1)
+        self.raid_log_progress.setValue(1 if summary is not None else 0)
+        if (not current_directory or
+                directory.casefold() != current_directory.casefold()):
+            self._update_raid_log_source()
+            self.raid_log_progress.setValue(0)
+            if current_directory:
+                self.raid_log_progress.setFormat("Logs folder changed")
+                self._set_raid_log_status(
+                    "The linked EverQuest Logs folder changed. Refresh logs "
+                    "before searching.", "warning")
+            else:
+                self.raid_log_progress.setFormat("Logs folder unavailable")
+                self._set_raid_log_status(
+                    "The linked EverQuest Logs folder is no longer available.",
+                    "error")
+            self._restore_raid_operation_focus()
+            return
+        if error:
+            self.raid_log_progress.setFormat("Cache update failed")
+            self._set_raid_log_status(
+                f"Log cache could not update · {error}", "error")
+            self._restore_raid_operation_focus()
+            return
+        self.raid_log_progress.setFormat("Log cache ready")
+        self._populate_raid_log_profiles(summary.characters)
+        self._set_raid_log_status(
+            f"Cached {summary.indexed_lines:,} lines from {summary.files:,} logs "
+            f"· {summary.added_lines:,} new", "ready")
+        self._restore_raid_operation_focus()
+
+    def _raid_current_focus_widget(self):
+        surface = getattr(self, "_surface", None)
+        return surface.focusWidget() if surface is not None else QApplication.focusWidget()
+
+    def _restore_raid_operation_focus(self):
+        target = getattr(self, "_raid_log_index_focus", None)
+        fallback = getattr(self, "_raid_log_index_fallback_focus", None)
+        self._raid_log_index_focus = None
+        self._raid_log_index_fallback_focus = None
+        if target is None:
+            return False
+        current = self._raid_current_focus_widget()
+        if current not in (None, target, fallback):
+            return False
+        if not target.isEnabled() or not target.isVisible():
+            return False
+        target.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
+
+    def _search_raid_logs(self, _checked=False):
+        directory = self._update_raid_log_source()
+        if not directory:
+            self._set_raid_log_status(
+                "Link the EverQuest Logs folder from the Quick Bar first.",
+                "warning")
+            return False
+        query = self.raid_log_query.currentText().strip()
+        if not query:
+            self._set_raid_log_status(
+                "Enter a raid tick keyword or phrase to search.", "warning")
+            self.raid_log_query.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        owner = str(self.raid_log_profile.currentData() or "")
+        character, separator, server = owner.partition("\0")
+        if not separator:
+            character = server = ""
+        hours = int(self.raid_log_range.currentData() or 0)
+        since = (datetime.now() - timedelta(hours=hours)).timestamp() \
+            if hours else 0.0
+        token = uuid.uuid4().hex
+        self._raid_log_search_token = token
+        self._raid_log_search_directory = directory
+        cache = self._raid_log_cache_for(directory)
+        self._set_raid_log_status(
+            f"Searching every linked log for “{query}”…", "loading")
+
+        def worker():
+            try:
+                results, truncated = cache.search(
+                    query, character=character, server=server,
+                    since_epoch=since, limit=2000)
+            except (OSError, ValueError) as error:
+                self._raid_log_signals.search_done.emit(
+                    token, (), False, str(error))
+            else:
+                self._raid_log_signals.search_done.emit(
+                    token, results, truncated, "")
+
+        threading.Thread(
+            target=worker, name="Vantage-Raid-Log-Search", daemon=True).start()
+        return True
+
+    @staticmethod
+    def _raid_log_display_time(value):
+        try:
+            return datetime.fromisoformat(str(value)).strftime(
+                "%Y-%m-%d %H:%M:%S")
+        except (TypeError, ValueError):
+            return str(value or "Unknown")
+
+    def _raid_log_message_parts(self, result):
+        message = str(result.message or "").strip()
+        match = self.RAID_CHAT.match(message)
+        if not match:
+            return "", message
+        speaker = match.group("speaker").strip()
+        if speaker.casefold() == "you":
+            speaker = result.character
+        return speaker, match.group("message").strip()
+
+    def _raid_log_search_complete(self, token, results, truncated, error):
+        if token != getattr(self, "_raid_log_search_token", ""):
+            return
+        self._raid_log_search_token = ""
+        current_directory = self._raid_logs_directory()
+        searched_directory = getattr(self, "_raid_log_search_directory", "")
+        self.raid_log_search_button.setEnabled(True)
+        if (not current_directory or
+                searched_directory.casefold() != current_directory.casefold()):
+            self._raid_log_search_directory = current_directory
+            self._update_raid_log_source()
+            if current_directory:
+                self._set_raid_log_status(
+                    "The linked EverQuest Logs folder changed. Search again "
+                    "to use the new folder.", "warning")
+            else:
+                self._set_raid_log_status(
+                    "The linked EverQuest Logs folder is no longer available.",
+                    "error")
+            return
+        self._raid_log_results = tuple(results)
+        rows = []
+        for result in self._raid_log_results:
+            speaker, message = self._raid_log_message_parts(result)
+            combined = f"{speaker} — {message}" if speaker else message
+            try:
+                sort_time = datetime.fromisoformat(result.timestamp).timestamp()
+            except (TypeError, ValueError):
+                sort_time = 0.0
+            rows.append((
+                (self._raid_log_display_time(result.timestamp), result,
+                 sort_time, result.timestamp),
+                result.character, result.server, combined, result.source))
+        self._set_rows(self.raid_log_table, rows)
+        if error:
+            self._set_raid_log_status(f"Raid tick search failed · {error}", "error")
+        elif not rows:
+            self._set_raid_log_status(
+                "No matching raid tick messages were found. Refresh logs or "
+                "try another phrase or date range.", "ready")
+        else:
+            suffix = " · first 2,000 shown" if truncated else ""
+            self._set_raid_log_status(
+                f"Found {len(rows):,} matching raid tick message"
+                f"{'s' if len(rows) != 1 else ''}{suffix}", "ready")
+            self.raid_log_table.selectRow(0)
+        self._raid_log_selection_changed()
+
+    def _selected_raid_log_result(self):
+        if not hasattr(self, "raid_log_table"):
+            return None
+        row = self.raid_log_table.currentRow()
+        item = self.raid_log_table.item(row, 0) if row >= 0 else None
+        result = item.data(Qt.ItemDataRole.UserRole) if item else None
+        return result if isinstance(result, SearchResult) else None
+
+    def _raid_log_selection_changed(self):
+        result = self._selected_raid_log_result()
+        raid = self._selected_my_raid()
+        if hasattr(self, "raid_log_attach_button"):
+            self.raid_log_attach_button.setEnabled(result is not None and raid is not None)
+            self.raid_log_copy_button.setEnabled(result is not None)
+
+    def _attach_selected_raid_tick(self):
+        session = self._selected_my_raid()
+        if session is None:
+            self._set_raid_log_status(
+                "Select a local raid in History & evidence before attaching a tick.",
+                "warning")
+            return False
+        result = self._selected_raid_log_result()
+        if result is None:
+            self._set_raid_log_status(
+                "Select a raid tick search result to attach.", "warning")
+            return False
+        speaker, message = self._raid_log_message_parts(result)
+        added = self.raid_ledger.add_tick(
+            session["id"], result.timestamp, speaker, message,
+            f"log-search:{result.source}", result.character, result.server)
+        if not added:
+            if self.raid_ledger.error:
+                self._set_raid_log_status(
+                    f"Tick evidence could not be attached · {self.raid_ledger.error}",
+                    "error")
+            else:
+                self._set_raid_log_status(
+                    "This exact tick evidence is already attached to the selected raid.",
+                    "warning")
+            self.raid_log_attach_button.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        self._populate_my_raids(select_id=session["id"])
+        evidence_count = len(self.raid_ledger.evidence(session["id"])["ticks"])
+        self._set_raid_log_status(
+            f"Attached tick evidence to {session['character']} · "
+            f"{evidence_count} local tick{'s' if evidence_count != 1 else ''}",
+            "ready")
+        self.raid_log_attach_button.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
+
+    def _copy_selected_raid_log(self):
+        result = self._selected_raid_log_result()
+        if result is None:
+            self._set_raid_log_status(
+                "Select a raid tick search result to copy.", "warning")
+            return False
+        speaker, message = self._raid_log_message_parts(result)
+        QApplication.clipboard().setText("\t".join((
+            self._raid_log_display_time(result.timestamp), result.character,
+            result.server, speaker, message, result.source)))
+        self._set_raid_log_status("Copied the selected raid tick result.", "ready")
+        self.raid_log_copy_button.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
+
+    def _sort_raid_log_results(self):
+        column = self.raid_log_sort_column.currentIndex()
+        order = self._next_sort_order(self.raid_log_table, column)
+        self.raid_log_table.sortItems(column, order)
+        direction = "ascending" if order == Qt.SortOrder.AscendingOrder else "descending"
+        self._update_sort_action_label(
+            self.raid_log_table, self.raid_log_sort_column,
+            self.raid_log_sort_button)
+        self._set_raid_log_status(
+            f"Raid tick results sorted by "
+            f"{self.raid_log_sort_column.currentText()}, {direction}", "ready")
+        self.raid_log_table.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
+
+    def _save_raid_tick_phrases(self):
+        phrases = []
+        for raw in re.split(r"[;\n]+", self.raid_tick_phrases.text()):
+            phrase = " ".join(raw.split())[:96]
+            if phrase and phrase.casefold() not in {
+                    item.casefold() for item in phrases}:
+                phrases.append(phrase)
+        if not phrases:
+            self._set_my_raids_status(
+                "Enter at least one RAID TICK phrase", "warning", announce=True)
+            self.raid_tick_phrases.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        config.data.setdefault("opendkp", {})["raid_tick_phrases"] = phrases[:16]
+        config.save()
+        self.raid_tick_phrases.setText("; ".join(phrases[:16]))
+        if hasattr(self, "raid_log_query"):
+            current = self.raid_log_query.currentText().strip()
+            self.raid_log_query.clear()
+            self.raid_log_query.addItems(phrases[:16])
+            self.raid_log_query.setCurrentText(current or phrases[0])
+        self._set_my_raids_status(
+            f"Saved {len(phrases[:16])} RAID TICK detection phrase"
+            f"{'s' if len(phrases[:16]) != 1 else ''}",
+            "ready", announce=True)
+        return True
+
+    @staticmethod
+    def _next_sort_order(table, column):
+        header = table.horizontalHeader()
+        if header.sortIndicatorSection() != column:
+            return Qt.SortOrder.AscendingOrder
+        return (Qt.SortOrder.AscendingOrder
+                if header.sortIndicatorOrder() == Qt.SortOrder.DescendingOrder
+                else Qt.SortOrder.DescendingOrder)
+
+    def _update_sort_action_label(self, table, combo, button):
+        order = self._next_sort_order(table, combo.currentIndex())
+        text = ("Sort ascending" if order == Qt.SortOrder.AscendingOrder
+                else "Sort descending")
+        button.setText(text)
+        button.setAccessibleName(text)
+        return order
+
+    def _sort_my_raids(self):
+        column = self.raid_sort_column.currentIndex()
+        order = self._next_sort_order(self.my_raids_table, column)
+        self.my_raids_table.sortItems(column, order)
+        direction = "ascending" if order == Qt.SortOrder.AscendingOrder else "descending"
+        self._update_sort_action_label(
+            self.my_raids_table, self.raid_sort_column,
+            self.raid_sort_button)
+        self._set_my_raids_status(
+            f"My raids sorted by {self.raid_sort_column.currentText()}, {direction}",
+            "ready", announce=True)
+        self.my_raids_table.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
+
+    def _start_raid(self):
+        character, server, zone = self._raid_identity()
+        if not character:
+            self._set_my_raids_status(
+                "Open an EverQuest character log before starting a raid",
+                "error", announce=True)
+            return False
+        existed = self.raid_ledger.active_session(character, server)
+        session = self.raid_ledger.start_session(
+            datetime.now().astimezone(), character, server, zone)
+        if session is None:
+            self._set_my_raids_status(
+                f"Could not start the local raid ledger: {self.raid_ledger.error}",
+                "error", announce=True)
+            return False
+        if existed is not None:
+            started = _date_text(existed.get("started_at"), with_time=True)
+            message = (
+                f"{character}'s raid from {started} is already active; "
+                "selected it below")
+        else:
+            message = (
+                f"Raid started for {character}. Waiting for /who; "
+                "run /who in EverQuest when ready")
+        self._populate_my_raids(select_id=session["id"])
+        self._set_my_raids_status(message, "waiting", announce=True)
+        if existed is not None:
+            self.raid_workspace_tabs.setCurrentIndex(0)
+            self.my_raids_table.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
+
+    def _end_raid(self):
+        character, server, _zone = self._raid_identity()
+        active = self.raid_ledger.active_session(character, server)
+        if active is None:
+            self._set_my_raids_status(
+                "No active raid for the current EverQuest character",
+                "warning", announce=True)
+            return False
+        self.raid_ledger.end_session(
+            active["id"], datetime.now().astimezone())
+        self._set_my_raids_status(
+            f"Raid ended for {character}; local evidence is saved privately",
+            "ready", announce=True)
+        self._populate_my_raids(select_id=active["id"])
+        self.raid_start_button.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
+
+    def _manual_raid_tick(self):
+        character, server, _zone = self._raid_identity()
+        active = self.raid_ledger.active_session(character, server)
+        if active is None:
+            self._set_my_raids_status(
+                "Start a raid before adding manual tick evidence",
+                "warning", announce=True)
+            return False
+        added = self.raid_ledger.add_tick(
+            active["id"], datetime.now().astimezone(), character,
+            "Manual RAID TICK", "manual", character, server)
+        if added:
+            self._set_my_raids_status(
+                f"Manual RAID TICK saved for {character}",
+                "ready", announce=True)
+            self._populate_my_raids(select_id=active["id"])
+        return added
+
+    def _selected_my_raid(self):
+        if not hasattr(self, "my_raids_table"):
+            return None
+        return self._my_raid_at_row(self.my_raids_table.currentRow())
+
+    def _my_raid_at_row(self, row):
+        if not hasattr(self, "my_raids_table"):
+            return None
+        item = self.my_raids_table.item(row, 0) if row >= 0 else None
+        source = item.data(Qt.ItemDataRole.UserRole) if item is not None else None
+        return source if isinstance(source, dict) else None
+
+    def _populate_my_raids(self, select_id=None):
+        if not hasattr(self, "my_raids_table"):
+            return
+        if select_id is None:
+            selected = self._selected_my_raid()
+            select_id = selected.get("id") if selected else None
+        sessions = self.raid_ledger.sessions(limit=500)
+        rows = []
+        for session in sessions:
+            evidence = self.raid_ledger.evidence(session["id"])
+            local_ticks = len(evidence["ticks"])
+            roster_counts = [item["member_count"] for item in evidence["rosters"]]
+            local_parts = []
+            if not session.get("ended_at"):
+                local_parts.append("Active")
+            local_parts.append(
+                f"{local_ticks} local tick{'s' if local_ticks != 1 else ''}")
+            if roster_counts:
+                local_parts.append(f"/who {roster_counts[-1]} players")
+            elif session.get("waiting_for_who"):
+                local_parts.append("Waiting for /who")
+            status = str(session.get("verification_status") or NOT_CHECKED)
+            status_text = {
+                MISSING: "Missing — review needed",
+                PENDING: "Pending — needs review",
+            }.get(status, status)
+            remote_label = " · ".join(part for part in (
+                str(session.get("remote_raid_id") or ""),
+                str(session.get("remote_name") or "")) if part) or "—"
+            dkp = session.get("dkp_total")
+            rows.append((
+                _date_cell(session.get("started_at"), session, with_time=True),
+                (_date_cell(session.get("ended_at"), with_time=True)
+                 if session.get("ended_at") else "Active"),
+                _clean(session.get("character")),
+                _clean(session.get("server")),
+                _clean(session.get("zone")),
+                " · ".join(local_parts), status_text,
+                (_number(session.get("tick_count")), None,
+                 float(session.get("tick_count") or 0)),
+                ((_number(dkp, 1), None, float(dkp))
+                 if dkp is not None else "—"),
+                remote_label,
+                _date_text(session.get("last_checked"), with_time=True)
+                if session.get("last_checked") else "—",
+            ))
+        self._set_rows(self.my_raids_table, rows)
+        if select_id is not None:
+            for row in range(self.my_raids_table.rowCount()):
+                item = self.my_raids_table.item(row, 0)
+                source = item.data(Qt.ItemDataRole.UserRole) if item else None
+                if isinstance(source, dict) and source.get("id") == select_id:
+                    self.my_raids_table.selectRow(row)
+                    break
+        self._update_raid_action_state()
+
+    def _update_raid_action_state(self):
+        character, server, _zone = self._raid_identity()
+        active = self.raid_ledger.active_session(character, server)
+        if hasattr(self, "raid_start_button"):
+            self.raid_start_button.setEnabled(bool(character))
+            start_label = "View active raid" if active is not None else "Start raid"
+            start_description = (
+                "Select the active private raid session in raid history" if
+                active is not None else
+                "Start a private local raid session for the active EverQuest character")
+            self.raid_start_button.setText(start_label)
+            self.raid_start_button.setAccessibleName(start_label)
+            self.raid_start_button.setToolTip(start_description)
+            self.raid_start_button.setAccessibleDescription(start_description)
+            self.raid_end_button.setEnabled(active is not None)
+            self.raid_tick_button.setEnabled(active is not None)
+            self.raid_refresh_button.setEnabled(
+                bool(self.client.slug) and not self._busy)
+        selected = self._selected_my_raid()
+        if hasattr(self, "raid_save_button"):
+            self.raid_save_button.setEnabled(selected is not None)
+            self.raid_link_button.setEnabled(
+                selected is not None and bool(self.client.slug))
+            self._update_raid_delete_action(selected)
+        if hasattr(self, "raid_log_attach_button"):
+            self._raid_log_selection_changed()
+
+    def _my_raid_selected(self):
+        session = self._selected_my_raid()
+        enabled = session is not None
+        for widget in (self.raid_mobs, self.raid_notes, self.raid_remote_id):
+            widget.setEnabled(enabled)
+        if session is None:
+            self.raid_mobs.clear()
+            self.raid_notes.clear()
+            self.raid_remote_id.clear()
+            self.raid_selected_summary.setText("No local raid selected")
+            self.raid_selected_summary.setAccessibleName(
+                "Selected raid summary: No local raid selected")
+        else:
+            self.raid_mobs.setText(str(session.get("mobs") or ""))
+            self.raid_notes.setPlainText(str(session.get("notes") or ""))
+            self.raid_remote_id.setText(str(session.get("remote_raid_id") or ""))
+            evidence = self.raid_ledger.evidence(session["id"])
+            summary = self._raid_selection_summary(session, evidence)
+            self.raid_selected_summary.setText(summary)
+            self.raid_selected_summary.setAccessibleName(
+                f"Selected raid summary: {summary}")
+            roster_text = (
+                f"{evidence['rosters'][-1]['member_count']} players in latest /who"
+                if evidence["rosters"] else "waiting for /who")
+            self._set_my_raids_status(
+                f"Selected {session['character']} · {len(evidence['ticks'])} "
+                f"local ticks · {roster_text}", "ready", announce=not bool(
+                    getattr(self, "_suppress_raid_selection_announcement", False)))
+        self._update_raid_action_state()
+
+    def _raid_delete_details(self, session):
+        evidence = self.raid_ledger.evidence(session["id"])
+        ticks = len(evidence["ticks"])
+        rosters = len(evidence["rosters"])
+        mobs = bool(str(session.get("mobs") or "").strip())
+        notes = bool(str(session.get("notes") or "").strip())
+        remote = bool(str(session.get("remote_raid_id") or "").strip())
+        return {
+            "evidence": evidence, "ticks": ticks, "rosters": rosters,
+            "mobs": mobs, "notes": notes, "remote": remote,
+            "empty": not any((ticks, rosters, mobs, notes, remote)),
+        }
+
+    def _raid_selection_summary(self, session, evidence=None):
+        details = self._raid_delete_details(session) if evidence is None else {
+            "ticks": len(evidence["ticks"]),
+            "rosters": len(evidence["rosters"]),
+            "mobs": bool(str(session.get("mobs") or "").strip()),
+            "notes": bool(str(session.get("notes") or "").strip()),
+            "remote": bool(str(session.get("remote_raid_id") or "").strip()),
+        }
+        state = "Active" if not session.get("ended_at") else "Ended"
+        parts = [
+            str(session.get("character") or "Unknown toon"),
+            _date_text(session.get("started_at"), with_time=True), state,
+            f"{details['ticks']} tick{'s' if details['ticks'] != 1 else ''}",
+            f"{details['rosters']} /who snapshot"
+            f"{'s' if details['rosters'] != 1 else ''}",
+        ]
+        if details["mobs"]:
+            parts.append("mobs saved")
+        if details["notes"]:
+            parts.append("notes saved")
+        if details["remote"]:
+            parts.append("OpenDKP linked")
+        return " · ".join(parts)
+
+    def _update_raid_delete_action(self, session):
+        if not hasattr(self, "raid_delete_button"):
+            return
+        enabled = session is not None
+        label = "Delete local raid…"
+        description = "Select a private local raid to review before deletion"
+        if enabled and self._raid_delete_details(session)["empty"]:
+            label = "Discard empty raid"
+            description = (
+                "Discard the selected empty private local raid after confirmation")
+        elif enabled:
+            label = "Delete local raid…"
+            description = (
+                "Delete only the selected private Vantage raid record after "
+                "reviewing its evidence counts")
+        self.raid_delete_button.setEnabled(enabled)
+        self.raid_delete_button.setText(label)
+        self.raid_delete_button.setAccessibleName(label)
+        self.raid_delete_button.setToolTip(description)
+        self.raid_delete_button.setAccessibleDescription(description)
+
+    def _delete_selected_raid(self):
+        session = self._selected_my_raid()
+        if session is None:
+            self._set_my_raids_status(
+                "Select a local raid before deleting it", "warning", announce=True)
+            self.my_raids_table.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        details = self._raid_delete_details(session)
+        empty = details["empty"]
+        title = "Discard empty raid" if empty else "Delete local raid"
+        identity = " · ".join(part for part in (
+            str(session.get("character") or "Unknown toon"),
+            str(session.get("server") or "Unknown server"),
+            _date_text(session.get("started_at"), with_time=True)) if part)
+        if empty:
+            prompt = (
+                f"Discard this empty local raid?\n\n{identity}\n\n"
+                "This removes only Vantage's private local record. It does not "
+                "change OpenDKP or EverQuest logs.")
+        else:
+            prompt = (
+                f"Delete this local raid and its saved evidence?\n\n{identity}\n"
+                f"{details['ticks']} tick{'s' if details['ticks'] != 1 else ''} · "
+                f"{details['rosters']} /who snapshot"
+                f"{'s' if details['rosters'] != 1 else ''} · "
+                f"mobs {'yes' if details['mobs'] else 'no'} · "
+                f"notes {'yes' if details['notes'] else 'no'} · "
+                f"OpenDKP link {'yes' if details['remote'] else 'no'}\n\n"
+                "This removes only Vantage's private local record. It does not "
+                "change OpenDKP or EverQuest logs.")
+        answer = QMessageBox.question(
+            self, title, prompt,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel)
+        if answer != QMessageBox.StandardButton.Yes:
+            self._set_my_raids_status(
+                f"Deletion canceled; {session['character']}'s local raid is unchanged",
+                "ready", announce=True)
+            self.raid_delete_button.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        old_row = self.my_raids_table.currentRow()
+        adjacent = self._my_raid_at_row(old_row + 1)
+        if adjacent is None:
+            adjacent = self._my_raid_at_row(old_row - 1)
+        adjacent_id = adjacent.get("id") if adjacent is not None else None
+        was_active = not bool(session.get("ended_at"))
+        if not self.raid_ledger.delete_session(session["id"]):
+            detail = self.raid_ledger.error or "database write failed"
+            self._set_my_raids_status(
+                f"Could not delete the local raid: {detail}",
+                "error", announce=True)
+            self.raid_delete_button.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        next_session = (
+            self.raid_ledger.session(adjacent_id)
+            if adjacent_id is not None else None)
+        self._suppress_raid_selection_announcement = True
+        try:
+            self._populate_my_raids(
+                select_id=next_session["id"] if next_session else None)
+            if next_session is None:
+                self.my_raids_table.clearSelection()
+            self._my_raid_selected()
+        finally:
+            self._suppress_raid_selection_announcement = False
+        verb = "Discarded empty" if empty else "Deleted"
+        self._set_my_raids_status(
+            f"{verb} local raid for {session['character']}; OpenDKP and "
+            "EverQuest logs were not changed", "ready", announce=True)
+        if was_active or next_session is None:
+            self.raid_start_button.setFocus(Qt.FocusReason.OtherFocusReason)
+        else:
+            self.my_raids_table.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
+
+    def _save_raid_notes(self):
+        session = self._selected_my_raid()
+        if session is None:
+            self._set_my_raids_status(
+                "Select a local raid before saving notes", "warning", announce=True)
+            return False
+        saved = self.raid_ledger.update_session(
+            session["id"], mobs=self.raid_mobs.text(),
+            notes=self.raid_notes.toPlainText())
+        if saved:
+            self._set_my_raids_status(
+                "Raid mobs and notes saved privately", "ready", announce=True)
+            self._populate_my_raids(select_id=session["id"])
+        return saved
+
+    def _link_remote_raid(self):
+        session = self._selected_my_raid()
+        if session is None:
+            self._set_my_raids_status(
+                "Select a local raid before linking OpenDKP",
+                "warning", announce=True)
+            return False
+        remote_id = " ".join(self.raid_remote_id.text().split())
+        if not remote_id:
+            self._set_my_raids_status(
+                "Enter an OpenDKP remote raid ID", "warning", announce=True)
+            self.raid_remote_id.setFocus(Qt.FocusReason.OtherFocusReason)
+            return False
+        self.raid_ledger.link_remote(session["id"], remote_id)
+        self._populate_my_raids(select_id=session["id"])
+        return self._refresh_my_raids()
+
+    def _refresh_my_raids(self):
+        sessions = self.raid_ledger.sessions(limit=500)
+        if not sessions:
+            self._set_my_raids_status(
+                "Start a local raid before checking OpenDKP", "warning", announce=True)
+            return False
+        if not self.client.slug:
+            for session in sessions:
+                self.raid_ledger.set_check(session["id"], NOT_CHECKED)
+            self._set_my_raids_status(
+                "Load an OpenDKP guild before checking My raids",
+                "warning", announce=True)
+            self._populate_my_raids()
+            return False
+        self._raid_check_sessions = {}
+        self._raid_check_details = {}
+        self._raid_check_slug = self.client.slug
+        self._raid_check_token = uuid.uuid4().hex
+        for session in sessions:
+            self.raid_ledger.set_check(
+                session["id"], PENDING,
+                remote_id=str(session.get("remote_raid_id") or ""))
+        self._set_my_raids_status(
+            f"Checking {len(sessions)} local raids against public OpenDKP data…",
+            "loading", announce=True)
+        self._populate_my_raids()
+        return self.client.fetch_raid_ledger(self._raid_check_token)
+
+    def _receive_raid_list(self, payload):
+        raids = rows_from_payload(payload, "Raids", "Models", "Items")
+        sessions = self.raid_ledger.sessions(limit=500)
+        summary_by_id = {
+            remote_raid_id(raid): raid for raid in raids
+            if remote_raid_id(raid)}
+        self._raid_check_summaries = summary_by_id
+        wanted_ids = set()
+        for session in sessions:
+            linked = str(session.get("remote_raid_id") or "").strip()
+            if linked and session.get("manual_remote"):
+                candidates = [linked]
+            else:
+                started = parse_timestamp(session.get("started_at"))
+                ranked = []
+                for raid in raids:
+                    raid_id = remote_raid_id(raid)
+                    remote_time = remote_raid_timestamp(raid)
+                    if not raid_id or not raid_time_matches(session, raid):
+                        continue
+                    distance = (abs((remote_time - started).total_seconds())
+                                if started is not None and
+                                remote_time is not None else float("inf"))
+                    ranked.append((distance, raid_id))
+                candidates = [raid_id for _distance, raid_id in sorted(ranked)]
+            candidates = list(dict.fromkeys(candidates))[:12]
+            self._raid_check_sessions[session["id"]] = candidates
+            if not candidates:
+                self.raid_ledger.set_check(session["id"], MISSING)
+            wanted_ids.update(candidates)
+        if not wanted_ids:
+            self._finish_raid_checks()
+            return
+        for raid_id in sorted(wanted_ids):
+            if not self.client.fetch_raid_details(
+                    raid_id, self._raid_check_token):
+                self._raid_check_details[raid_id] = None
+        self._finalize_ready_raid_checks()
+
+    def _receive_raid_detail(self, raid_id, payload):
+        rows = rows_from_payload(payload, "Raids", "Models")
+        detail = rows[0] if rows else (
+            payload.get("Raid") if isinstance(payload, dict) and
+            isinstance(payload.get("Raid"), dict) else
+            (payload if isinstance(payload, dict) else {}))
+        summary = getattr(self, "_raid_check_summaries", {}).get(raid_id, {})
+        merged = dict(summary) if isinstance(summary, dict) else {}
+        if isinstance(detail, dict):
+            merged.update(detail)
+        self._raid_check_details[str(raid_id)] = merged
+        self._finalize_ready_raid_checks()
+
+    def _finalize_ready_raid_checks(self):
+        for session_id, candidate_ids in tuple(self._raid_check_sessions.items()):
+            if not all(candidate in self._raid_check_details
+                       for candidate in candidate_ids):
+                continue
+            session = self.raid_ledger.session(session_id)
+            if session is None:
+                self._raid_check_sessions.pop(session_id, None)
+                continue
+            details = [self._raid_check_details[candidate]
+                       for candidate in candidate_ids
+                       if isinstance(self._raid_check_details[candidate], dict)]
+            verified = None
+            verified_matches = []
+            verified_dkp = None
+            for detail in details:
+                matches, dkp = remote_tick_evidence(
+                    detail, session.get("character"))
+                if matches:
+                    verified, verified_matches, verified_dkp = detail, matches, dkp
+                    break
+            if verified is not None:
+                self.raid_ledger.set_check(
+                    session_id, VERIFIED,
+                    remote_id=remote_raid_id(verified),
+                    remote_name=remote_raid_name(verified),
+                    tick_count=len(verified_matches), dkp_total=verified_dkp)
+            elif len(details) != len(candidate_ids):
+                self.raid_ledger.set_check(session_id, NOT_CHECKED)
+            else:
+                closest = details[0] if details else {}
+                self.raid_ledger.set_check(
+                    session_id, MISSING,
+                    remote_id=remote_raid_id(closest),
+                    remote_name=remote_raid_name(closest) if closest else "",
+                    tick_count=0)
+            self._raid_check_sessions.pop(session_id, None)
+        if not self._raid_check_sessions:
+            self._finish_raid_checks()
+
+    def _finish_raid_checks(self):
+        sessions = self.raid_ledger.sessions(limit=500)
+        verified = sum(
+            session.get("verification_status") == VERIFIED
+            for session in sessions)
+        missing = sum(
+            session.get("verification_status") == MISSING
+            for session in sessions)
+        unchecked = sum(
+            session.get("verification_status") == NOT_CHECKED
+            for session in sessions)
+        message = (
+            f"OpenDKP check complete: {verified} verified, {missing} review needed")
+        if unchecked:
+            message += f", {unchecked} not checked"
+        self._set_my_raids_status(message, "ready", announce=True)
+        self._populate_my_raids()
 
     def _build_adjustments(self):
         page, layout, self.adjustments_search = self._search_page(
@@ -801,6 +2694,7 @@ class OpenDKP(ParserWindow):
             panel_layout.addWidget(status)
             table = self._table(
                 ("Waiting for data",), f"{source['name']} spreadsheet")
+            table.setProperty("vantageColumnKey", f"guild-sheet-{source_id}")
             panel_layout.addWidget(table, 1)
             self._sheet_views[source_id] = {
                 "panel": panel, "search": search, "status": status,
@@ -871,7 +2765,7 @@ class OpenDKP(ParserWindow):
             return False
         request = QNetworkRequest(QUrl(csv_url))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.68")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.125")
         request.setAttribute(
             QNetworkRequest.Attribute.RedirectPolicyAttribute,
             QNetworkRequest.RedirectPolicy.NoLessSafeRedirectPolicy)
@@ -994,6 +2888,7 @@ class OpenDKP(ParserWindow):
         button = QPushButton(text)
         button.setIcon(game_icon(icon))
         button.setAccessibleName(text)
+        button.setAccessibleDescription(tooltip)
         button.setToolTip(tooltip)
         button.clicked.connect(callback)
         return button
@@ -1099,6 +2994,9 @@ class OpenDKP(ParserWindow):
                 "Enter a valid guild subdomain or guild.opendkp.com address", "error", announce=True)
             return False
         self._session_restore_slug = ""
+        self._raid_check_slug = ""
+        self._raid_check_sessions.clear()
+        self._raid_check_details.clear()
         self._adjustments_loaded = False
         self._notified_auctions.clear()
         self._clear_views()
@@ -1164,6 +3062,38 @@ class OpenDKP(ParserWindow):
 
     # ----- responses ----------------------------------------------------
     def _response(self, operation, payload):
+        if operation.startswith("attendance_detail|"):
+            _, token, raid_id = operation.split("|", 2)
+            if token != self._attendance_token or self._attendance_slug != self.client.slug or not token:
+                return
+            count, amount, members = pooled_tick_evidence(payload, self._attendance_members.values())
+            for raid in self._attendance_rows:
+                if remote_raid_id(raid) == raid_id and count:
+                    raid["_attendance_dkp"] = amount
+            self.attendance_status.setText(
+                f"{count} verified ticks · awarded DKP {_number(amount, 1)}. "
+                + ", ".join(f"{name}: {ticks}" for name, ticks in members.items())
+                + ". Shared ticks counted once; read-only check." if count else
+                "No matching tick details were supplied. Recorded attendance was not changed.")
+            self._render_attendance()
+            return
+        if operation.startswith("attendance|"):
+            char_id = self._attendance_request_member(operation)
+            if char_id is not None:
+                self._receive_attendance(payload, char_id)
+            return
+        raid_kind, raid_token, raid_id = _raid_request_context(operation)
+        if raid_kind:
+            current_token = getattr(self, "_raid_check_token", "")
+            current_slug = getattr(self, "_raid_check_slug", "")
+            if (current_slug != self.client.slug or
+                    raid_token != current_token):
+                return
+            if raid_kind == "list":
+                self._receive_raid_list(payload)
+            else:
+                self._receive_raid_detail(raid_id, payload)
+            return
         if operation == "client":
             self._guild_details = payload if isinstance(payload, dict) else {}
             name = _clean(self._guild_details.get("Name"), self.client.slug)
@@ -1221,13 +3151,43 @@ class OpenDKP(ParserWindow):
             self._set_result(message, announce=True)
             self.client.fetch_active_auctions()
         elif operation == "login":
-            self._set_result("Secure OpenDKP session connected", announce=True)
+            self._set_result(
+                "Secure OpenDKP session connected and saved in Windows",
+                announce=True)
         if operation in {"dkp", "characters", "raids", "items", "auctions"}:
             self._set_status(f"{self._guild_name()} · public data ready", "ready")
 
     def _failed(self, operation, message, status):
+        if operation.startswith("attendance_detail|"):
+            _, token, _raid_id = operation.split("|", 2)
+            if token == self._attendance_token and self._attendance_slug == self.client.slug and token:
+                self.attendance_status.setText(f"Raid details unavailable: {_clean(message)}. You can try again.")
+            return
+        if operation.startswith("attendance|"):
+            char_id = self._attendance_request_member(operation)
+            if char_id is not None:
+                self._settle_attendance(char_id, _clean(message, f"HTTP {status}"))
+            return
+        raid_kind, raid_token, raid_id = _raid_request_context(operation)
+        if raid_kind:
+            if (getattr(self, "_raid_check_slug", "") != self.client.slug or
+                    raid_token != getattr(self, "_raid_check_token", "")):
+                return
+            if raid_kind == "list":
+                for session_id in tuple(self._raid_check_sessions):
+                    self.raid_ledger.set_check(session_id, NOT_CHECKED)
+                self._raid_check_sessions.clear()
+                self._set_my_raids_status(
+                    f"OpenDKP check unavailable: {_clean(message, f'HTTP {status}')}",
+                    "error", announce=True)
+                self._populate_my_raids()
+            else:
+                self._raid_check_details[raid_id] = None
+                self._finalize_ready_raid_checks()
+            return
         prefix = {
             "auth": "Sign-in required", "login": "Sign-in failed",
+            "session": "Saved sign-in temporarily unavailable",
             "client": "Guild not found"}.get(operation, "OpenDKP request failed")
         detail = f"{prefix}: {_clean(message, f'HTTP {status}')}"
         self._set_status(detail, "error", announce=True)
@@ -1238,6 +3198,7 @@ class OpenDKP(ParserWindow):
         self._busy = bool(busy)
         self.progress.setVisible(self._busy)
         self.refresh_button.setEnabled(bool(self.client.slug) and not self._busy)
+        self._update_raid_action_state()
         self.progress.setAccessibleName(
             f"OpenDKP loading {operation}" if busy else "OpenDKP loading complete")
 
@@ -1313,6 +3274,27 @@ class OpenDKP(ParserWindow):
         if table.columnCount() and table.columnWidth(0) < 150:
             table.setColumnWidth(0, 170)
 
+    @staticmethod
+    def _loot_item_cell(name, source=None):
+        item = SortItem(
+            _clean(name), source, search_text=_clean(name).casefold())
+        font = item.font()
+        font.setUnderline(True)
+        item.setFont(font)
+        item.setForeground(QColor("#D8BE78"))
+        item.setToolTip(f"Open {_clean(name)} item details")
+        item.setData(Qt.ItemDataRole.UserRole + 2, "item-link")
+        return item
+
+    def _open_loot_item(self, table, row, column):
+        if column != 1:
+            return False
+        item = table.item(row, column)
+        if item is None or item.data(Qt.ItemDataRole.UserRole + 2) != "item-link":
+            return False
+        market = getattr(QApplication.instance(), "_parsers_dict", {}).get("market")
+        return bool(market and market._show_wiki_item_name(item.text()))
+
     def _populate_standings(self):
         rows = []
         for entry in self._datasets["dkp"]:
@@ -1352,6 +3334,24 @@ class OpenDKP(ParserWindow):
         index = self.character_selector.findData(preferred)
         self.character_selector.setCurrentIndex(max(0, index))
         self.character_selector.blockSignals(False)
+        if hasattr(self, "attendance_character"):
+            selected = self.attendance_character.currentText()
+            self.attendance_character.blockSignals(True)
+            self.attendance_character.clear()
+            self.attendance_character.addItem("Choose a character…", 0)
+            # The full character directory, not only characters with DKP.
+            attendance_choices = {int(row.get("CharacterId") or row.get("Id") or 0):
+                                  _clean(row.get("CharacterName") or row.get("Name"))
+                                  for row in self._datasets["characters"] + choices}
+            for char_id, name in sorted(attendance_choices.items(), key=lambda pair: pair[1].casefold()):
+                if char_id:
+                    self.attendance_character.addItem(name, char_id)
+            selected_index = self.attendance_character.findText(selected)
+            if selected_index < 0:
+                selected_index = self.attendance_character.findData(preferred)
+            self.attendance_character.setCurrentIndex(max(0, selected_index))
+            self.attendance_character.blockSignals(False)
+            self._restore_attendance_alts()
         self._update_overview()
 
     def _character_selected(self):
@@ -1402,20 +3402,18 @@ class OpenDKP(ParserWindow):
                 _clean(item.get("CharacterName"), "").casefold() == name.casefold()]
         loot.sort(key=lambda item: str(item.get("Timestamp") or ""), reverse=True)
         self._set_rows(self.character_loot, [
-            (_date_cell(item.get("Timestamp")), _clean(item.get("ItemName")),
+            (_date_cell(item.get("Timestamp")),
+             self._loot_item_cell(item.get("ItemName"), item),
              (_number(item.get("DKP"), 1), None, float(item.get("DKP") or 0)),
              _clean(item.get("Raid"))) for item in loot[:100]])
-        raids = self._datasets["character_raids"][:100]
-        if not raids:
-            # Keep useful guild context visible when a tenant does not expose
-            # the optional character-raids route.
-            raids = self._datasets["raids"][:100]
+        raids = [raid for raid in self._datasets["character_raids"]
+                 if character_raid_attendance(raid)[0]]
         self._set_rows(self.character_raids, [
-            (_date_cell(raid.get("Timestamp")), _clean(raid.get("Name")),
-             (_number(raid.get("DKPAwarded"), 1), None,
-              float(raid.get("DKPAwarded") or 0)),
-             (_number(raid.get("DKPSpent"), 1), None,
-              float(raid.get("DKPSpent") or 0)))
+            (_date_cell(raid.get("Timestamp")), _attendance_event_name(raid),
+             (_number(character_raid_attendance(raid)[0]), None,
+              character_raid_attendance(raid)[0]),
+             (_number(character_raid_attendance(raid)[1], 1), None,
+              character_raid_attendance(raid)[1]))
             for raid in raids])
 
     def _populate_items(self):
@@ -1423,7 +3421,7 @@ class OpenDKP(ParserWindow):
                        key=lambda item: str(item.get("Timestamp") or ""), reverse=True)
         self._set_rows(self.loot_table, [
             (_date_cell(item.get("Timestamp")),
-             (_clean(item.get("ItemName")), item, _clean(item.get("ItemName")).casefold()),
+             self._loot_item_cell(item.get("ItemName"), item),
              _clean(item.get("CharacterName")),
              (_number(item.get("DKP"), 1), None, float(item.get("DKP") or 0)),
              _clean(item.get("Raid"))) for item in items])
@@ -1434,6 +3432,91 @@ class OpenDKP(ParserWindow):
             summary += f" · median {statistics.median(prices):,.1f} DKP"
         self.loot_summary.setText(summary)
         self._filter_loot()
+
+    def mobile_snapshot(self):
+        """Return bounded, display-ready public guild data for mobile."""
+        selected_slug = str(
+            self.client.slug or
+            config.data.get("opendkp", {}).get("active_guild", "") or "")
+        profile = self._profile(selected_slug) or {}
+        guild = self._guild_details if isinstance(self._guild_details, dict) else {}
+        standings = sorted(
+            self._datasets.get("dkp", ()),
+            key=lambda row: _clean(row.get("CharacterName")).casefold())
+        loot = sorted(
+            self._datasets.get("items", ()),
+            key=lambda row: str(row.get("Timestamp") or ""), reverse=True)
+        raids = sorted(
+            self._datasets.get("raids", ()),
+            key=lambda row: str(row.get("Timestamp") or ""), reverse=True)
+        auctions = self._datasets.get("active_auctions", ())
+        status = str(
+            self.guild_status.text() or self.result_status.text() or
+            "Public guild data")
+        return {
+            "guild": _clean(
+                guild.get("Name") or profile.get("name") or
+                profile.get("slug"), "No guild selected"),
+            "slug": selected_slug,
+            "profiles": [{
+                "slug": str(saved.get("slug") or ""),
+                "name": _clean(
+                    saved.get("name") or saved.get("slug"), "Saved guild"),
+            } for saved in self._profiles() if saved.get("slug")][:12],
+            "connected": bool(self.client.slug),
+            "authenticated": bool(self.client.authenticated),
+            "loading": self.guild_status.property("state") == "loading",
+            "status": status,
+            # A guild roster is the searchable source, not a first-page
+            # preview. Keep every public standing here so Mobile can find a
+            # character even when they sort beyond the first 500 names. The
+            # phone still renders a bounded visible slice after filtering.
+            "standings": [{
+                "name": _clean(row.get("CharacterName")),
+                "class": _clean(row.get("CharacterClass")),
+                "level": _number(row.get("CharacterLevel")),
+                "rank": _clean(row.get("CharacterRank")),
+                "dkp": _number(row.get("CurrentDKP"), 1),
+                "attendance": _percent(row.get("Calculated_30")),
+            } for row in standings],
+            "standings_total": len(standings),
+            "loot": [{
+                "date": _date_text(row.get("Timestamp")),
+                "item": _clean(row.get("ItemName")),
+                "character": _clean(row.get("CharacterName")),
+                "dkp": _number(row.get("DKP"), 1),
+                "raid": _clean(row.get("Raid")),
+                "wiki_url": "https://wiki.project1999.com/" + quote(
+                    _clean(row.get("ItemName"), "").replace(" ", "_"),
+                    safe=""),
+            } for row in loot[:500]],
+            "raids": [{
+                "date": _date_text(row.get("Timestamp")),
+                "name": _clean(row.get("Name")),
+                "items": _number(row.get("ItemCount")),
+                "awarded": _number(row.get("DKPAwarded"), 1),
+                "spent": _number(row.get("DKPSpent"), 1),
+            } for row in raids[:300]],
+            "auctions": [{
+                "item": auction_item_name(row),
+                "remaining": _remaining_text(row),
+                "bids": len(auction_bids(row)),
+            } for row in auctions[:200]],
+            "sheets": [{
+                "name": str(row.get("name") or "Guild sheet"),
+                "url": str(row.get("url") or ""),
+            } for row in config.data.get("opendkp", {}).get("sheets", [])[:32]],
+        }
+
+    def mobile_select(self, value):
+        """Switch to one already-saved guild from the private mobile view."""
+        slug = normalize_guild_slug(value)
+        if not slug or not any(
+                str(profile.get("slug") or "") == slug
+                for profile in self._profiles()):
+            return False
+        self._fill_guild_profiles(slug)
+        return self._load_guild(slug)
 
     def _populate_raids(self):
         raids = sorted(self._datasets["raids"],
@@ -1700,7 +3783,10 @@ class OpenDKP(ParserWindow):
         self._filter_table(self.adjustments_table, self.adjustments_search.text())
 
     def _tab_changed(self, index):
-        if self.tabs.tabText(index) == "Adjustments" and self.client.slug \
+        tab = self.tabs.tabText(index)
+        if tab == "My raids":
+            self._populate_my_raids()
+        if tab == "Adjustments" and self.client.slug \
                 and not self._adjustments_loaded:
             self._adjustments_loaded = True
             self.client.fetch_adjustments()
@@ -1733,6 +3819,10 @@ class OpenDKP(ParserWindow):
         QAccessible.updateAccessibility(event)
 
     def _clear_views(self):
+        self._invalidate_attendance()
+        self._attendance_alts = []
+        self._update_attendance_alt_summary()
+        self.attendance_character.clear()
         self._guild_details = {}
         for key in self._datasets:
             self._datasets[key] = []

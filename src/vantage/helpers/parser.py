@@ -8,9 +8,9 @@ from PySide6.QtCore import QEvent, QObject, QPoint, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import QCursor, QPainter, QPainterPath, QRegion
 from PySide6.QtWidgets import (
     QAbstractButton, QAbstractSpinBox, QApplication, QComboBox, QHBoxLayout,
-    QLabel, QLineEdit, QMenu, QPushButton, QFrame, QGraphicsItem,
+    QLabel, QLineEdit, QMenu, QPlainTextEdit, QPushButton, QFrame, QGraphicsItem,
     QGraphicsOpacityEffect, QGraphicsScene, QGraphicsView, QSizePolicy,
-    QToolButton, QVBoxLayout, QWidget)
+    QTextEdit, QToolButton, QVBoxLayout, QWidget)
 
 from vantage.helpers import config
 from vantage.helpers.icons import WINDOW_ICONS, game_icon, game_pixmap
@@ -24,6 +24,7 @@ DESIGN_SIZES = {
     # The 260 px logical width fits every authored header control. Physical
     # resizing still scales the entire replica down uniformly.
     "spells": QSize(260, 400),
+    "vitals": QSize(560, 460),
     "tick": QSize(260, 142),
     "timers": QSize(520, 360),
     "combat": QSize(520, 300),
@@ -35,6 +36,8 @@ DESIGN_SIZES = {
     # size. Doing so enlarged/cropped its contents after reopening a small
     # saved window and then resizing it back to 900x580.
     "quests": QSize(900, 580),
+    "items_notes": QSize(900, 570),
+    "log_searcher": QSize(960, 560),
     "vantage_ui": QSize(700, 540),
 }
 
@@ -110,10 +113,36 @@ class ParserContextMenuRouter(QObject):
         if not isinstance(watched, QWidget):
             return False
         event_type = event.type()
+        if event_type == QEvent.Type.ContextMenu:
+            editor = _text_editor_ancestor(watched)
+            if editor is not None:
+                # Explicitly open Qt's familiar Undo/Cut/Copy/Paste/Delete/
+                # Select All menu. This avoids the frameless panel menu
+                # swallowing editor context events inside a scaled surface.
+                _show_standard_text_menu(editor, event.globalPos())
+                return True
         self._windows = [window for window in self._windows if window]
         for window in self._windows:
             if not window._is_window_descendant(watched):
                 continue
+            if event_type == QEvent.Type.ContextMenu:
+                # Parser content is rendered through QGraphicsProxyWidget.
+                # Windows therefore delivers the physical right-click to the
+                # graphics viewport instead of the logical line/text editor.
+                # Resolve the editor under the pointer before the panel menu
+                # can consume the event.
+                editor = window._scaled_text_editor_at_global(
+                    event.globalPos())
+                if editor is not None:
+                    _show_standard_text_menu(editor, event.globalPos())
+                    return True
+                logical_child = window._scaled_child_at_global(
+                    event.globalPos())
+                if (logical_child is not None and
+                        window._preserve_child_context_menu(logical_child)):
+                    # Let QGraphicsProxyWidget deliver the event to the
+                    # logical map, buff, or table control that owns it.
+                    return False
             # An invisible auto-hide header cannot receive Tab focus. Reveal it
             # before Qt calculates the next focus target so every header action
             # remains keyboard reachable without changing pointer behavior.
@@ -128,6 +157,32 @@ class ParserContextMenuRouter(QObject):
                 window._show_window_context_menu(event.globalPos())
                 return True
         return False
+
+
+def _text_editor_ancestor(widget):
+    """Find the native Qt text editor that owns a context-menu event."""
+    current = widget
+    while current is not None:
+        if isinstance(current, (QLineEdit, QPlainTextEdit, QTextEdit)):
+            return current
+        if isinstance(current, QAbstractSpinBox):
+            return current.lineEdit()
+        if isinstance(current, QComboBox) and current.isEditable():
+            return current.lineEdit()
+        current = current.parentWidget()
+    return None
+
+
+def _show_standard_text_menu(editor, global_position):
+    """Open Qt's complete native editing menu at a physical screen point."""
+    position = editor.mapFromGlobal(global_position)
+    menu = (editor.createStandardContextMenu()
+            if isinstance(editor, QLineEdit) else
+            editor.createStandardContextMenu(position))
+    menu.setAccessibleName("Text editing actions")
+    menu.setToolTipsVisible(True)
+    menu.exec(global_position)
+    menu.deleteLater()
 
 
 class ParserResizeHandle(QWidget):
@@ -182,6 +237,90 @@ class ParserResizeHandle(QWidget):
         super().mouseReleaseEvent(event)
 
 
+class ScreenGeometryWatcher(QObject):
+    """Queue one recovery after screen changes without watching window moves."""
+
+    def __init__(self, parent, recover):
+        super().__init__(parent)
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(recover)
+        parent.installEventFilter(self)
+        application = QApplication.instance()
+        application.screenAdded.connect(self._screen_added)
+        application.screenRemoved.connect(self.schedule)
+        for screen in application.screens():
+            self._watch_screen(screen)
+
+    def _watch_screen(self, screen):
+        screen.availableGeometryChanged.connect(self.schedule)
+        screen.geometryChanged.connect(self.schedule)
+
+    def _screen_added(self, screen):
+        self._watch_screen(screen)
+        self.schedule()
+
+    def schedule(self, *_args):
+        self._timer.start(0)
+
+    def defer(self, milliseconds=50):
+        self._timer.start(milliseconds)
+
+    def eventFilter(self, watched, event):
+        if event.type() in (
+                QEvent.Type.DevicePixelRatioChange,
+                QEvent.Type.ScreenChangeInternal):
+            self.schedule()
+        return False
+
+
+class _HeaderTitleLabel(QLabel):
+    """Elide only painted text; retain the complete caption for all callers."""
+
+    def __init__(self):
+        super().__init__()
+        self._full_text = ""
+        self._help_text = ""
+
+    def text(self):
+        return self._full_text
+
+    def setText(self, text):
+        self._full_text = str(text)
+        self.setAccessibleName(f"{self._full_text}; window title; drag to move")
+        self._refresh_elision()
+        caption_changed = getattr(self, "_caption_changed", None)
+        if caption_changed is not None:
+            caption_changed()
+
+    def setToolTip(self, text):
+        self._help_text = str(text)
+        self._refresh_elision()
+
+    def _refresh_elision(self):
+        # Match the shared title's 2 px horizontal QSS padding. Do not change
+        # the logical caption or let a long zone/server name widen the window.
+        available = max(0, self.contentsRect().width() - 4)
+        visible = self.fontMetrics().elidedText(
+            self._full_text, Qt.TextElideMode.ElideRight, available)
+        if QLabel.text(self) != visible:
+            QLabel.setText(self, visible)
+        tooltip = self._help_text
+        if visible != self._full_text:
+            tooltip = "\n".join(filter(None, (self._full_text, tooltip)))
+        QLabel.setToolTip(self, tooltip)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._refresh_elision()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if (hasattr(self, "_full_text") and event.type() in (
+                QEvent.Type.FontChange, QEvent.Type.StyleChange)):
+            self._refresh_elision()
+
+
 class ParserWindow(QWidget):
     content = None
     menu_area = None
@@ -216,8 +355,8 @@ class ParserWindow(QWidget):
     # The complete logical surface can be reduced to one quarter size.  This
     # is deliberately a uniform transform: controls, text, rows and spacing
     # all remain in the same places instead of switching to a compact/reflowed
-    # layout.  A small physical floor keeps a rolled or resized panel possible
-    # to recover with the mouse.
+    # layout. The context-menu percentages are an exact contract, so parser
+    # subclasses must not silently clamp several named presets to one size.
     _minimum_scale = 0.25
 
     def __init__(self, **kwargs):
@@ -246,16 +385,15 @@ class ParserWindow(QWidget):
         # Setup UI
         self._button = QPushButton()
         self._button.setIcon(game_icon("frame"))
-        self._button.setIconSize(QSize(13, 13))
+        self._button.setIconSize(QSize(14, 14))
         self._button.setObjectName("ParserWindowMoveButton")
         self._button.setAccessibleName("Toggle window frame")
         self._button.setToolTip("Show or hide the Windows frame")
         self._button.clicked.connect(self._toggle_frame)
 
-        self._title = QLabel()
+        self._title = _HeaderTitleLabel()
         self._title.setText(self.name.title())
         self._title.setObjectName("ParserWindowTitle")
-        self._title.setAccessibleName("Window title; drag to move")
         self._title.setToolTip("Drag this bar to move the window")
         self._title.setMinimumWidth(0)
         self._title.setSizePolicy(
@@ -268,22 +406,22 @@ class ParserWindow(QWidget):
         self._title_icon.setAccessibleName("")
 
         self.menu_area = QHBoxLayout()
-        self.menu_area.setContentsMargins(1, 0, 1, 0)
-        self.menu_area.setSpacing(2)
-        self._header_menu_base_margins = (1, 0, 1, 0)
-        self._header_menu_base_spacing = 2
+        self.menu_area.setContentsMargins(2, 0, 2, 0)
+        self.menu_area.setSpacing(3)
+        self._header_menu_base_margins = (2, 0, 2, 0)
+        self._header_menu_base_spacing = 3
 
         self._parser_menu_area = QWidget()
         self._parser_menu_area.setObjectName("ParserWindowMenu")
         self._parser_menu_area.setLayout(self.menu_area)
 
         self._menu_content = QHBoxLayout()
-        self._menu_content.setSpacing(2)
+        self._menu_content.setSpacing(3)
         # Keep controls clear of the 9 px rounded window mask. This margin is
         # part of the logical replica, so it remains proportional when scaled.
-        self._menu_content.setContentsMargins(6, 0, 6, 0)
-        self._header_root_base_margins = (6, 0, 6, 0)
-        self._header_root_base_spacing = 2
+        self._menu_content.setContentsMargins(8, 3, 8, 3)
+        self._header_root_base_margins = (8, 3, 8, 3)
+        self._header_root_base_spacing = 3
         self._header_widget_metrics = {}
         self._header_metric_factor = 1.0
         self._menu_content.addWidget(self._button, 0)
@@ -296,7 +434,7 @@ class ParserWindow(QWidget):
         self._header_overflow_button.setObjectName(
             "ParserWindowSettingsButton")
         self._header_overflow_button.setIcon(game_icon("ph-stack"))
-        self._header_overflow_button.setIconSize(QSize(13, 13))
+        self._header_overflow_button.setIconSize(QSize(14, 14))
         self._header_overflow_button.setPopupMode(
             QToolButton.ToolButtonPopupMode.InstantPopup)
         self._header_overflow_button.setAccessibleName(
@@ -313,7 +451,7 @@ class ParserWindow(QWidget):
         self._settings_button = QToolButton()
         self._settings_button.setObjectName("ParserWindowSettingsButton")
         self._settings_button.setIcon(game_icon("settings"))
-        self._settings_button.setIconSize(QSize(13, 13))
+        self._settings_button.setIconSize(QSize(14, 14))
         self._settings_button.setAccessibleName("Settings for this window")
         self._settings_button.setToolTip(
             "Adjust this window here, or open all settings for this tool")
@@ -322,14 +460,14 @@ class ParserWindow(QWidget):
         self._roll_button = QPushButton()
         self._roll_button.setObjectName("ParserWindowRollButton")
         self._roll_button.setIcon(game_icon("roll"))
-        self._roll_button.setIconSize(QSize(13, 13))
+        self._roll_button.setIconSize(QSize(14, 14))
         self._roll_button.setAccessibleName("Roll up panel")
         self._roll_button.setToolTip("Roll up the panel and keep only its header")
         self._roll_button.clicked.connect(self._toggle_rollup)
         self._menu_content.addWidget(self._roll_button)
         self._minimize_button = QPushButton()
         self._minimize_button.setIcon(game_icon("minimize"))
-        self._minimize_button.setIconSize(QSize(13, 13))
+        self._minimize_button.setIconSize(QSize(14, 14))
         self._minimize_button.setObjectName("ParserWindowMinimizeButton")
         self._minimize_button.setAccessibleName("Hide in system tray")
         self._minimize_button.setToolTip("Hide this window in the system tray")
@@ -424,9 +562,13 @@ class ParserWindow(QWidget):
         self._header_pack_timer = QTimer(self)
         self._header_pack_timer.setSingleShot(True)
         self._header_pack_timer.timeout.connect(self._pack_header_controls)
+        self._title._caption_changed = self._schedule_header_pack
         self._header_overflowed = []
         self._header_focus_restore = None
         self._packing_header = False
+
+        self._screen_geometry_watcher = ScreenGeometryWatcher(
+            self, self._recover_screen_geometry)
 
         self._set_flags()
 
@@ -477,8 +619,11 @@ class ParserWindow(QWidget):
         if not self._parser_menu_area:
             return
         for control in self._parser_menu_area.findChildren(QAbstractButton):
-            if not control.icon().isNull():
-                control.setIconSize(QSize(13, 13))
+            # Quick Bar's master mute has its own authored 24 px target and
+            # icon. Shared chrome must not overwrite that local contract.
+            if (not control.icon().isNull() and
+                    control.objectName() != "QuickBarMuteToggle"):
+                control.setIconSize(QSize(14, 14))
         self._schedule_header_pack()
 
     @staticmethod
@@ -615,6 +760,8 @@ class ParserWindow(QWidget):
             timer.start(0)
 
     def _header_menu_widgets(self):
+        if self._parser_menu_area.isHidden():
+            return []
         widgets = []
         for index in range(self.menu_area.count()):
             widget = self.menu_area.itemAt(index).widget()
@@ -632,6 +779,8 @@ class ParserWindow(QWidget):
             minimum_hint.width() if minimum_hint.isValid() else 0)
 
     def _header_menu_required_width(self, widgets):
+        if self._parser_menu_area.isHidden():
+            return 0
         visible = [widget for widget in widgets if not widget.isHidden()]
         margins = self.menu_area.contentsMargins()
         width = margins.left() + margins.right()
@@ -646,17 +795,20 @@ class ParserWindow(QWidget):
             1, getattr(self, "_logical_surface_width", 0),
             self._design_size.width())
         margins = self._menu_content.contentsMargins()
-        fixed = (
+        fixed = [widget for widget in (
             self._button, self._title_icon, self._settings_button,
             self._roll_button, self._minimize_button)
+            if not widget.isHidden()]
         fixed_width = sum(self._header_widget_width(widget) for widget in fixed)
         title_pixels = self._title.fontMetrics().horizontalAdvance(
-            self._title.text()) + 5
-        title_reserve = max(36, min(
-            title_pixels, max(36, round(logical_width * 0.34))))
+            self._title.text()) + 8
+        title_reserve = (0 if self._title.isHidden() else max(36, min(
+            title_pixels, max(36, round(logical_width * 0.45)))))
         self._title.setMinimumWidth(title_reserve)
-        root_widgets = 7 + int(overflow_visible)
-        root_spacing = self._menu_content.spacing() * (root_widgets - 1)
+        root_widgets = (len(fixed) + int(not self._title.isHidden()) +
+                        int(not self._parser_menu_area.isHidden()) +
+                        int(overflow_visible))
+        root_spacing = self._menu_content.spacing() * max(0, root_widgets - 1)
         overflow_width = (
             self._header_widget_width(self._header_overflow_button)
             if overflow_visible else 0)
@@ -697,6 +849,50 @@ class ParserWindow(QWidget):
         return [item[2] for item in sorted(
             candidates, key=lambda item: (item[0], item[1]), reverse=True)]
 
+    @staticmethod
+    def _is_header_focus_target(widget, surface):
+        """Return whether a restored header target can safely take focus."""
+        if widget is None:
+            return False
+        try:
+            return bool(
+                widget.isVisibleTo(surface) and widget.isEnabled() and
+                widget.focusPolicy() != Qt.FocusPolicy.NoFocus)
+        except RuntimeError:
+            return False
+
+    def _header_restore_focus_target(self, preferred):
+        """Find the closest usable target after closing header overflow."""
+        if self._is_header_focus_target(preferred, self._surface):
+            return preferred
+
+        # Composite controls can contain several real keyboard targets. If
+        # the remembered child became disabled while its parent was hidden,
+        # prefer an enabled sibling before leaving that logical control.
+        try:
+            parent = (
+                preferred.parentWidget() if preferred is not None else None)
+        except RuntimeError:
+            parent = None
+        if parent is not None:
+            layout = parent.layout()
+            if layout is not None:
+                for index in range(layout.count()):
+                    candidate = layout.itemAt(index).widget()
+                    if (candidate is not preferred and
+                            self._is_header_focus_target(
+                                candidate, self._surface)):
+                        return candidate
+
+        # The permanent chrome controls are a stable final destination when
+        # an overflowed action was removed, deleted, or has no usable sibling.
+        for candidate in (
+                self._settings_button, self._roll_button,
+                self._minimize_button, self._button):
+            if self._is_header_focus_target(candidate, self._surface):
+                return candidate
+        return None
+
     def _pack_header_controls(self):
         """Move lower-priority actions into one menu before any collision."""
         if self._packing_header or not hasattr(self, "_header_overflow_button"):
@@ -728,18 +924,37 @@ class ParserWindow(QWidget):
             newly_hidden_focus = None
             if required > self._header_menu_available_width(False):
                 available = self._header_menu_available_width(True)
-                for widget in self._header_overflow_candidates(widgets):
+                candidates = self._header_overflow_candidates(widgets)
+                # When persistent readouts/inputs need the remaining room,
+                # fold secondary chrome into the same accessible menu. Keep
+                # roll-up beside the title until every other action is packed.
+                candidates.extend(widget for widget in (
+                    self._button, self._minimize_button,
+                    self._settings_button, self._roll_button)
+                    if not widget.isHidden())
+                for widget in candidates:
                     contains_focus = bool(
                         focused is widget or
                         (focused is not None and widget.isAncestorOf(focused)))
                     if contains_focus:
                         focus_to_overflow = True
-                        newly_hidden_focus = widget
+                        # Preserve the actual keyboard target inside a
+                        # composite header control. Restoring the container
+                        # itself can drop focus when that container is a
+                        # non-focusable frame (for example Quick Bar volume).
+                        newly_hidden_focus = focused
                     widget.hide()
                     self._header_overflowed.append(widget)
                     required = self._header_menu_required_width(widgets)
+                    available = self._header_menu_available_width(True)
                     if required <= available:
                         break
+                if required > available and not self._title.isHidden():
+                    # Inputs/readouts are never overflowed. If a long caption
+                    # still competes with them after all optional actions have
+                    # moved, shorten its painted viewport, not its full text.
+                    self._title.setMinimumWidth(max(
+                        36, self._title.minimumWidth() - required + available))
             self._header_overflow_button.setVisible(
                 bool(self._header_overflowed))
             if focus_to_overflow and self._header_overflowed:
@@ -748,11 +963,14 @@ class ParserWindow(QWidget):
                 self._header_overflow_button.setFocus(
                     Qt.FocusReason.TabFocusReason)
             elif (not self._header_overflowed and
-                    restore_from_overflow is not None and
-                    restore_from_overflow.isVisibleTo(self._surface)):
+                  focused is self._header_overflow_button):
+                restore_target = self._header_restore_focus_target(
+                    restore_from_overflow)
                 self._header_focus_restore = None
-                self._scale_scene.setFocusItem(self._scale_proxy)
-                restore_from_overflow.setFocus(Qt.FocusReason.TabFocusReason)
+                if restore_target is not None:
+                    self._scale_scene.setFocusItem(self._scale_proxy)
+                    restore_target.setFocus(
+                        Qt.FocusReason.TabFocusReason)
             elif not self._header_overflowed:
                 self._header_focus_restore = None
             self._rebuild_header_overflow_menu()
@@ -873,6 +1091,7 @@ class ParserWindow(QWidget):
         self.setWindowOpacity(self._window_opacity / 100)
         self.setGeometry(*self._geometry)
         self._fit_to_available_screen()
+        fitted_geometry = self.geometry()
         self._set_header_revealed(
             self._collapsed or not self._auto_hide_menu)
         self._update_uniform_scale()
@@ -880,9 +1099,10 @@ class ParserWindow(QWidget):
         if self._toggled:
             self.show()
             # Windows may apply invisible tool-window frame margins while the
-            # native handle is recreated. Reassert the configured client rect
-            # after show so live and durable geometry agree.
-            self.setGeometry(*self._geometry)
+            # native handle is recreated. Reassert the fitted client rect, not
+            # an obsolete position from a larger or disconnected monitor.
+            self.setGeometry(fitted_geometry)
+            self._fit_to_available_screen()
             self._update_uniform_scale()
         else:
             self.hide()
@@ -998,10 +1218,18 @@ class ParserWindow(QWidget):
             self._focus_scaled_line_edit(event.position().toPoint())
         if (event.type() == QEvent.Type.ContextMenu
                 and isinstance(watched, QWidget)
-                and self._is_window_descendant(watched)
-                and not self._preserve_child_context_menu(watched)):
-            self._show_window_context_menu(event.globalPos())
-            return True
+                and self._is_window_descendant(watched)):
+            editor = self._scaled_text_editor_at_global(event.globalPos())
+            if editor is not None:
+                _show_standard_text_menu(editor, event.globalPos())
+                return True
+            logical_child = self._scaled_child_at_global(event.globalPos())
+            if (logical_child is not None and
+                    self._preserve_child_context_menu(logical_child)):
+                return super().eventFilter(watched, event)
+            if not self._preserve_child_context_menu(watched):
+                self._show_window_context_menu(event.globalPos())
+                return True
         return super().eventFilter(watched, event)
 
     def event(self, event):
@@ -1033,14 +1261,27 @@ class ParserWindow(QWidget):
         scene_position = self._scale_view.mapToScene(viewport_position)
         logical_position = self._scale_proxy.mapFromScene(scene_position)
         child = self._surface.childAt(logical_position.toPoint())
-        while child and child is not self._surface:
-            if isinstance(child, QLineEdit):
-                self._restore_scaled_input_focus(child)
-                QTimer.singleShot(
-                    0, lambda editor=child:
-                    self._restore_scaled_input_focus(editor))
-                return
-            child = child.parentWidget()
+        editor = _text_editor_ancestor(child)
+        if isinstance(editor, QLineEdit):
+            self._restore_scaled_input_focus(editor)
+            QTimer.singleShot(
+                0, lambda current=editor:
+                self._restore_scaled_input_focus(current))
+
+    def _scaled_text_editor_at_global(self, global_position):
+        """Return the logical editor below a scaled panel screen position."""
+        return _text_editor_ancestor(
+            self._scaled_child_at_global(global_position))
+
+    def _scaled_child_at_global(self, global_position):
+        """Map a physical panel point back to its logical child control."""
+        viewport = self._scale_view.viewport()
+        viewport_position = viewport.mapFromGlobal(global_position)
+        if not viewport.rect().contains(viewport_position):
+            return None
+        scene_position = self._scale_view.mapToScene(viewport_position)
+        logical_position = self._scale_proxy.mapFromScene(scene_position)
+        return self._surface.childAt(logical_position.toPoint())
 
     def _restore_scaled_input_focus(self, editor):
         if not editor or not editor.isVisibleTo(self._surface):
@@ -1062,7 +1303,7 @@ class ParserWindow(QWidget):
         """Leave editing, buff-audio and map-specific menus untouched."""
         current = widget
         while current and current is not self:
-            if isinstance(current, QLineEdit):
+            if _text_editor_ancestor(current) is not None:
                 return True
             if current.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu:
                 return True
@@ -1121,8 +1362,20 @@ class ParserWindow(QWidget):
                 ("Comfortable · 75%", 0.75),
                 ("Original · 100%", 1.00)):
             size_action = size_menu.addAction(label)
+            size_action.setCheckable(True)
+            # Responsive panels keep a readable width and reflow vertically.
+            # Their height still represents the selected replica preset even
+            # when the width is clamped, so use it to expose the correct
+            # checked state in the menu.
+            current_scale = (
+                self.height() / max(1, self._design_size.height())
+                if self._minimum_readable_width else
+                self.width() / max(1, self._design_size.width()))
+            size_action.setChecked(
+                not self._collapsed and abs(current_scale - scale) < 0.015)
             size_action.setToolTip(
-                "Scale the complete panel without moving or reflowing its controls")
+                f"Scale the complete panel to {round(scale * 100)}% without "
+                "moving or reflowing its controls")
             size_actions[size_action] = scale
         minimize = menu.addAction("Hide in System Tray")
         window_settings = menu.addAction("Settings for This Window…")
@@ -1201,11 +1454,11 @@ class ParserWindow(QWidget):
             clickthrough.setToolTip(
                 "Let mouse input pass through this window to EverQuest")
         background_audio = None
-        if self.name in {"spells", "timers"}:
+        if self.name in {"spells", "timers", "vitals"}:
             background_audio = menu.addAction("Sound while Window Is Hidden")
             background_audio.setCheckable(True)
             background_audio.setChecked(bool(
-                config.data[self.name].get("sounds_when_hidden", False)))
+                config.data[self.name].get("sounds_when_hidden", True)))
             background_audio.setToolTip(
                 "Allow this tool's attributed alerts when its panel is hidden; "
                 "master mute still blocks every sound")
@@ -1218,10 +1471,10 @@ class ParserWindow(QWidget):
             opacity_actions[action] = opacity
         menu.addSeparator()
         section = self._settings_section()
-        full_settings = menu.addAction(f"All {section} Settings…")
+        full_settings = menu.addAction(f"Open {section} Settings…")
         full_settings.setIcon(game_icon("settings"))
         full_settings.setToolTip(
-            f"Open the complete {section} settings page")
+            f"Open the dedicated {section} settings window")
         selected = menu.exec(
             self._settings_button.mapToGlobal(
                 self._settings_button.rect().bottomLeft()))
@@ -1250,7 +1503,7 @@ class ParserWindow(QWidget):
         elif selected in opacity_actions:
             self._set_window_opacity(opacity_actions[selected])
         elif selected == full_settings:
-            QApplication.instance().show_settings(section)
+            QApplication.instance().show_feature_settings(section, owner=self)
 
     def _set_always_on_top(self, enabled):
         geometry = self.geometry()
@@ -1302,13 +1555,9 @@ class ParserWindow(QWidget):
         if self._collapsed:
             self._set_collapsed(False)
         scale = max(self._effective_minimum_scale(), min(1.0, float(scale)))
-        if self._minimum_readable_width:
-            scale = max(scale, min(
-                1.0,
-                self._minimum_readable_width /
-                max(1, self._design_size.width())))
         self.resize(
-            round(self._design_size.width() * scale),
+            max(round(self._design_size.width() * scale),
+                int(self._minimum_readable_width)),
             round(self._design_size.height() * scale))
         self._fit_to_available_screen()
         self._save_geometry()
@@ -1459,10 +1708,11 @@ class ParserWindow(QWidget):
             self._update_header_scale_compensation(1.0)
         if collapsed:
             self._pack_header_controls()
-            self._expanded_width = max(
-                getattr(self, "_expanded_width", 0), self.width())
-            self._expanded_height = max(
-                getattr(self, "_expanded_height", 0), self.height())
+            # Restore the exact size the user just chose. Keeping the largest
+            # historical dimensions made a Mini/Compact panel jump back to a
+            # previous larger size every time it was rolled up and expanded.
+            self._expanded_width = self.width()
+            self._expanded_height = self.height()
             self._expanded_minimum_width = self.minimumWidth()
             self._expanded_minimum_height = self.minimumHeight()
             for index in range(1, self.content.count()):
@@ -1495,6 +1745,12 @@ class ParserWindow(QWidget):
             self.setMaximumWidth(16777215)
             self.setMinimumWidth(getattr(
                 self, "_expanded_minimum_width", 1))
+            # Restore width while the rolled height constraint is still in
+            # place. Dashboard resize hooks must not enqueue a body-height
+            # minimum using the transient (usually wider) rolled-strip width.
+            self.resize(max(
+                getattr(self, "_expanded_width", 0), self.minimumWidth()),
+                self.height())
             self.setMaximumHeight(16777215)
             self.setMinimumHeight(getattr(self, "_expanded_minimum_height", 1))
             self._logical_surface_width = self._design_size.width()
@@ -1560,20 +1816,52 @@ class ParserWindow(QWidget):
 
     def _fit_to_available_screen(self):
         """Keep restored geometry usable after monitor or DPI changes."""
-        screen = QApplication.screenAt(self.frameGeometry().center()) \
-            or QApplication.primaryScreen()
+        client = self.geometry()
+        frame = self.frameGeometry()
+        screen = QApplication.screenAt(frame.center())
+        if screen is None:
+            # A saved frame can still overlap a secondary monitor even when
+            # its center falls in a gap between displays.
+            overlapping = []
+            for candidate in QApplication.screens():
+                overlap = frame.intersected(candidate.availableGeometry())
+                if not overlap.isEmpty():
+                    overlapping.append((
+                        overlap.width() * overlap.height(), candidate))
+            screen = max(overlapping, key=lambda item: item[0])[1] \
+                if overlapping else QApplication.primaryScreen()
         if not screen:
             return
         area = screen.availableGeometry()
+        if area.contains(frame):
+            return
+        chrome_width = max(0, frame.width() - client.width())
+        chrome_height = max(0, frame.height() - client.height())
+        available_width = max(1, area.width() - chrome_width)
+        available_height = max(1, area.height() - chrome_height)
         if self._collapsed:
-            width = min(max(96, self.width()), area.width())
-            height = min(max(22, self.height()), area.height())
+            width = min(max(96, client.width()), available_width)
+            height = min(max(22, client.height()), available_height)
         else:
-            width = min(max(self.minimumWidth(), self.width()), area.width())
-            height = min(max(self.minimumHeight(), self.height()), area.height())
-        left = min(max(area.left(), self.x()), area.right() - width + 1)
-        top = min(max(area.top(), self.y()), area.bottom() - height + 1)
-        self.setGeometry(left, top, width, height)
+            width = min(max(self.minimumWidth(), client.width()), available_width)
+            height = min(max(self.minimumHeight(), client.height()), available_height)
+        left = min(max(area.left(), frame.left()), max(
+            area.left(), area.right() - width - chrome_width + 1))
+        top = min(max(area.top(), frame.top()), max(
+            area.top(), area.bottom() - height - chrome_height + 1))
+        self.setGeometry(
+            left + client.left() - frame.left(),
+            top + client.top() - frame.top(), width, height)
+
+    def _recover_screen_geometry(self):
+        # Screen events may arrive during Windows' native move/resize loop.
+        # Wait until that interaction ends instead of pulling against a drag.
+        if self._native_resize_session or self._panel_resize_state is not None:
+            self._screen_geometry_watcher.defer()
+            return
+        self._fit_to_available_screen()
+        self._update_uniform_scale()
+        self._schedule_header_pack()
 
     def nativeEvent(self, event_type, message):
         """Constrain Windows' live drag rectangle before Qt lays it out."""
@@ -1628,11 +1916,26 @@ class ParserWindow(QWidget):
     def _update_uniform_scale(self):
         """Scale by width while making height a real list viewport."""
         if self._scale_view and self._scale_proxy:
-            logical_width = max(1, int(self._logical_surface_width))
             viewport = self._scale_view.viewport().size()
-            scale = max(
-                self._effective_minimum_scale(),
-                viewport.width() / logical_width)
+            design_width = max(1, int(self._design_size.width()))
+            if (self._native_surface and not self._collapsed and
+                    viewport.width() >= design_width):
+                # Native canvases (currently the map) must gain real drawing
+                # area when their window is widened. Scaling the authored
+                # 400 px surface above 100% enlarged the header and toolbar
+                # instead, which made an expanded map look as if it exploded.
+                logical_width = max(1, viewport.width())
+                scale = 1.0
+            else:
+                logical_width = max(1, int(self._logical_surface_width))
+                # A native surface that was previously wide returns to its
+                # authored width before scaling down at compact sizes.
+                if self._native_surface and not self._collapsed:
+                    logical_width = design_width
+                scale = max(
+                    self._effective_minimum_scale(),
+                    viewport.width() / logical_width)
+            self._logical_surface_width = logical_width
             self._update_header_scale_compensation(scale)
             logical_height = max(
                 self._minimum_logical_surface_height(),
@@ -1671,8 +1974,8 @@ class ParserWindow(QWidget):
     def _effective_minimum_scale(self):
         return max(
             self._minimum_scale,
-            72 / max(1, self._design_size.width()),
-            48 / max(1, self._design_size.height()))
+            48 / max(1, self._design_size.width()),
+            24 / max(1, self._design_size.height()))
 
     def _coerce_to_logical_aspect(self):
         """Compatibility no-op: windows intentionally support free height."""
@@ -1693,11 +1996,14 @@ class ParserWindow(QWidget):
             config.data[self.name]['toggled'] = False
         else:
             self._fit_to_available_screen()
+            # ``show()`` synchronously delivers showEvent.  Publish the new
+            # state first so feature-owned show handlers can drain work that
+            # accumulated while the panel was hidden.
+            self._toggled = True
+            config.data[self.name]['toggled'] = True
             self.show()
             self.raise_()
             self.activateWindow()
-            self._toggled = True
-            config.data[self.name]['toggled'] = True
         config.save()
 
     # Overrides QWidget to handle this event

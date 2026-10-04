@@ -1,0 +1,1573 @@
+# Vantage Companion 1.44.102 design QA
+
+## 1.44.119: simpler VantageUI updates
+
+- Applied Qt progressive disclosure to the Companion-only integration:
+  highlighted Install / Update, visible path and versions, opt-in automatic
+  updates, progress, and a completion /loadskin card. Restore, layouts,
+  versioned paths, and logs remain available under More options.
+- Eight isolated captures cover install, available update, completion, and
+  expanded options at 620×480 and 420×500. Corrected the new scroll area's
+  default light background, a long-path minimum-width overflow, a truncated
+  folder field, and unsupported disclosure glyphs. Evidence is in
+  `work/vantageui-simple-1.44.119/`.
+- Native keyboard order leads with the main action. Hidden controls leave
+  the normal tab path; expanded options retain native focusability and
+  accessible names. Existing progress announcements and external-focus
+  preservation are covered. No live screen-reader or in-game rendering claim.
+- Focused integration/Updates/heartbeat checks: 63 passed. The one-click action
+  survives the opening local-read race; failures clear it and duplicate
+  running installs are not queued. Folder editing no longer drops the click.
+- Single-file final candidate reports 1.44.119 and passed isolated portable
+  self-test (exit 0). Frozen-code checks confirm the new action, local-read
+  continuation, shared verified installer, options, theme, and 20 WAVs.
+- Skin, core updater, standalone updater, and profile helper are unchanged;
+  their existing safety and Windows permission flows remain. VantageUI chat
+  retains authority. Public ready UI 1.44.94 was verified independently.
+- Full suite: **1,697 passed, 2 platform skips, 839.24 seconds**. Candidate is
+  **75,841,487 bytes**, SHA-256
+  `06FD737B4BE804DE318B477CED8A3DEB984B79057EC29E827556A18D31BF766A`.
+  Final draft metadata is recorded in `docs/vantageui-simple-1.44.119.md`. Publication
+  remains pending the previous execution restriction; this is not yet an
+  update available to installed users.
+
+release verification: pending
+
+independent accessibility review: PASS
+
+## Brand reference
+
+- Selected source: `data/assets/vantage-companion-logo-source.png`
+- Runtime master: `data/ui/icon-master.png`
+- The same circular charcoal, antique-gold, teal-ring, faceted-diamond identity is used for the Windows executable, native splash/about surfaces, public site, favicon, and Companion PWA.
+- Transparent corners and the 16, 20, 24, 32, 40, 48, 64, 128, and 256 px Windows icon frames were verified.
+
+## Visual checks
+
+- Blank spell runtime keys now fall back to the spell name before widget,
+  persistence, recast, or update-handoff identity comparisons. Multiple real
+  P99 buffs such as Grim Aura, Focus of Spirit, Enlightenment, and Riotous
+  Health coexist after update restore; a same-name recast replaces only itself.
+- Numeric Vitals OCR now includes the complete compact EverQuest 0–9 alphabet,
+  `%`, and `/` at their native 3–5 px widths, independent of HUD color. My HP
+  and My Mana calibration detects a strict `current/max` pair, persists that
+  format, shows both values, and derives the percentage; Target/Mob, Group, and
+  custom bars remain percentage-only. Existing calibrated My HP/My Mana rows
+  without a format marker retain their legacy 0–100 percentage behavior.
+- Colored live-shaped 48/77 percentage glyphs and `1674/2595` or `967/3365`
+  current/max pairs passed with tight, padded, shifted, softly edged, and
+  one-row-clipped captures beside same-color bars. Bare or letter-prefixed
+  values, inverted or zero-maximum pairs, plain colored bars, and any ROI with
+  two plausible labels remain **NO READING** instead of being guessed.
+- The bounded percentage search measured 20.627 ms per compact fixture across
+  the complete 0–100 set. The six-fixture colored current/max benchmark measured
+  a 15.130 ms median and 16.330 ms maximum per fixture, both safely within the
+  500 ms polling interval.
+- Vitals calibration no longer persists the previous two-pixel tight crop,
+  which could validate on the frozen frame and then lose a shifted live glyph.
+  Its fitted ROI now keeps bounded minimum margins of 5 px horizontally and
+  4 px vertically. An end-to-end save/reload test retains the same reading
+  after a two-pixel shift, one missing capture pixel, and an adjacent
+  same-color bar, then verifies recalibration remains stable.
+- Text-to-speech now defaults centrally to the original local **Vantage
+  Adjutant** preset. It prefers the installed Microsoft Zira voice, then another
+  known or Windows-reported female voice, and finally the previous safe local
+  fallback; it never downloads or imitates a third-party character voice. Its
+  uncustomized local fallback uses a slight -0.05 rate and -0.08 pitch for a
+  calm command tone. Explicit trigger/profile voice, speed, and pitch choices
+  remain authoritative, while unavailable saved voices remain visible and
+  saved. Notification routes, custom triggers, Smart Timers, Vitals, and the
+  renamed preset passed final keyboard, status, and accessibility review with
+  no findings.
+- Text-to-speech now silently prewarms Qt/SAPI on the Qt application thread,
+  without speaking or taking focus. The measured Windows cold path was
+  291–311 ms and cached access was approximately 0.005 ms. A centralized Qt
+  scheduler now lets the active automatic phrase finish completely, preserves
+  FIFO order for distinct alerts, and inserts a 180 ms gap before the next
+  phrase. Exact automatic duplicates coalesce against the active or pending
+  copy; the queue accepts at most eight pending phrases without disturbing the
+  active phrase, and a refused overflow still retains its visible notification.
+  Master Mute and a custom trigger's explicit Interrupt option still stop and
+  flush speech immediately. Each queued phrase reapplies its own saved voice,
+  speed, pitch, and profile, then reads the live master volume when it actually
+  starts. Qt state polling and a conservative whole-phrase timer drain older
+  backends without truncation when their state signal is unavailable. Direct
+  Test and Replay actions remain serialized without automatic coalescing, and
+  an allowed background alert does not require Vantage focus.
+- Sounds adds one explicit app-wide **Starting notification style** selector
+  for **Beeps** or **Text to speech**, followed by **Apply to defaults**. It is
+  a preview, not a bulk overwrite: custom/portable WAVs, non-default gallery
+  sounds, explicit voices, and Off routes are preserved, while untouched routes
+  receive their semantic default beep or Vantage Adjutant speech. The visible
+  result reports changed and preserved counts; per-route editors still win,
+  Save persists the preview, and Cancel or close restores the prior state.
+- Vitals Monitor now keeps the title bar compact, places **Add monitor** in
+  the content area, and presents setup as three short steps. Each responsive
+  card prioritizes the current percentage, textual state, confidence, and next
+  action without a scrollbar-like progress bar. Calibration accepts a loosely
+  placed rectangle, finds one unambiguous percentage within it, and saves a
+  fitted ROI; padded, framed, ambiguous, 240 px, large-font, keyboard, focus,
+  and screen-reader states passed focused and accessibility review.
+- Existing Vitals overlays can now be renamed from the card's clearly labelled
+  **Edit overlay** action. The same dialog keeps alert-stop editing while
+  preserving the overlay ID, calibrated rectangle, thresholds, type, and
+  enabled state; saving immediately rebuilds the card and persists the new
+  name. Empty names remain in the dialog with a visible and announced error.
+- Every Vitals overlay now exposes **Mute sound and speech at 100%**. It
+  defaults On for Target/Mob HP so changing targets cannot repeatedly announce
+  full health, while the visible Quick Bar notice and every lower alert stop
+  remain active. The value is explicit after migration and persists through
+  editing, type changes, save/reload, and an intentional user opt-out.
+- Vitals now follows the shared parser replica contract: **Mini** produces the
+  true 35% scaled replica instead of reflowing into a forced 240 px surface.
+  Roll-up reduces the window to its header only, updates the accessible action
+  to **Expand panel**, and restores the exact prior expanded or Mini geometry.
+- Vitals Monitor now reads only the visible 0–100 HP/mana number, with an
+  optional percent sign and no external OCR executable. The removed fill/color
+  reader, direction, tolerance, and mode controls have no runtime or persisted
+  path. A 1.44.92 numeric ROI migrates intact; an older bar-fill ROI is cleared
+  so it requests safe recalibration instead of being misread as digits.
+  Unreadable pixels remain **NO READING**, never a false zero.
+- The single calibration flow is overlay over the number → announced valid
+  preview → Save → alert stops with Sound/WAV, Text to speech, or Off. Save
+  revalidates the number and ROI changes invalidate its preview. Keyboard focus
+  order, calibration replacement/cancel focus restoration, dynamic state, form
+  labels, and narrow layout passed final WCAG 2.4.3 and 4.1.2 review.
+- Vitals Monitor is a first-class Quick Bar window and reads only the compact
+  number pixels selected in EverQuest. My HP, My Mana, Target/Mob HP, Group
+  HP, and additional custom bars run simultaneously. Direct window capture
+  continues while Vantage or calibration has focus; only the safe screen
+  fallback requires foreground EQ. Minimized, unavailable, unreadable, or
+  low-confidence captures never become false zero values and never fire alerts.
+- Every vital bar supports multiple directional thresholds, quarter/every-10%
+  presets, hysteresis, cooldown, and independent Sound/WAV, Windows TTS, or Off
+  delivery. Calibration supports pointer, keyboard, and exact numeric geometry;
+  its temporary overlay closes safely and never controls EverQuest.
+- The built-in **Mob is casting** trigger recognizes the classic P99
+  `<actor> begins to cast a spell.` line conservatively, excludes the player's
+  own cast form, rate-limits each actor, and exposes the same Sound/WAV, TTS,
+  voice, volume, pitch, and Test controls as other Basic triggers.
+- The enabled **Insufficient mana** Basic trigger matches only the complete P99
+  client line `Insufficient Mana to cast this spell!` or its period variant,
+  case-insensitively. Missing or different punctuation, prefixes, suffixes,
+  chat quotes, and unrelated text are rejected. Its v3-to-v4 migration adds one
+  serialized row, is idempotent, and preserves a customized same-name row
+  case-insensitively.
+- **Insufficient mana** displays its canonical visual alert and defaults to the
+  soft-tick sound with canonical TTS available. It inherits the common
+  Sound/WAV, Text to speech, Off, voice, volume, pitch, repeat-guard, and Test
+  controls rather than introducing a separate editor path.
+- Smart Timers now choose Sound/WAV, Text to speech, or Off per timer. Speech
+  templates support timer, state, zone, and remaining-time tokens; saved and
+  synced legacy timers retain their previous inherited sound behavior. The
+  editor uses scrolling/reflow rather than allowing death-detection and audio
+  controls to overlap.
+- Smart Timer zone views now isolate timers by their exact saved zone;
+  unassigned rows remain in **All saved timers** instead of leaking into every
+  zone. Each timer window adds a searchable **Watch timers** checklist for
+  explicitly showing selected timers from other zones without copying or
+  moving their shared state. External rows identify their origin zone, and
+  each primary or extra timer window persists its own selection through
+  restart and Device Sync. Keyboard, focus, accessible state, minimum-scale
+  layout, mobile snapshots, and visible-timer sharing were verified.
+- Death detection now accepts either a full NPC name or a distinctive partial
+  phrase of two or more contiguous words, so **Kennel Master** safely matches
+  **Kennel Master Al`ele** while a generic one-word entry such as **Master**
+  does not. The bundled named list now includes the missing Chardok hunter,
+  named, and raid NPCs, including the verified 20-minute Kennel Master entry.
+- Smart Timer death detection exposes a compact match list for each
+  spawn timer. Users can add or remove multiple named mobs and placeholders;
+  the field autocompletes from all 882 bundled P99 nameds while accepting
+  custom PH names. Device Sync, persistence, and Share Timers preserve the
+  list, and legacy regular-expression timers continue unchanged until edited.
+- Companion updates preserve the exact live buff set through a separate,
+  bounded atomic handoff. After the old process and its final config save have
+  completed, the verified executable swap atomically stamps that handoff. A
+  replacement process can therefore recover even if Windows drops its update
+  environment marker, while any later normal/user save remains authoritative.
+  Restoration is verified before the one-shot handoff is consumed, and a
+  failed updater launch resumes ordinary spell persistence.
+- Mobile item cards reuse the desktop P99 item cache and now expose complete
+  weapon DMG/DLY values as plain numbers alongside the existing stats, effects,
+  drops, quests, restrictions, and safe internal links.
+- Home Screen pairing keeps its token in the client-only URL fragment, retains
+  the last Companion host and offline cache, and automatically retries after
+  Companion closes or restarts. A new QR is requested only for a missing or
+  explicitly revoked link; the token is never placed in HTTP, manifests, or logs.
+- Maps adds one native POI selector containing every current map label. Any
+  selection centers the exact point; diamond entries and pointer-activated named
+  labels open a native cached-loot list whose item buttons reuse Market's full
+  card. Plain and uncached points retain clear states without parallel scraping.
+- Device Sync checkpoints the active PC's latest log-backed authority before
+  an update closes Vantage. Stale peers cannot erase the restored rows during
+  startup, while a genuinely newer authoritative removal still wins.
+- Spell timer persistence now follows landing-driven nParse semantics: a
+  partial refresh, profile switch, camp, or cross-device rebuild cannot be
+  mistaken for a worn-off event. Only confirmed expiry, worn-off, death, or
+  explicit removal retires a synced row; defective 1.44.83 removal clocks are
+  discarded while still-valid saved rows are retained.
+- Active buffs now follow the paired PC with the latest real EverQuest log
+  activity for each character. Its complete character-specific list replaces
+  older copies, including recasts and ended timers, without changing another
+  character's rows; stale PCs cannot merge or delete the current owner's data.
+- Buffs/Spells and Device Sync expose the same independent active-buff sync
+  opt-out. Turning it off prevents that PC from sending or receiving active
+  buffs while Smart Timers, zones, settings, notes, and buttons keep syncing.
+- Yellow and amber buff bars again use the same light label as every other
+  normal spell bar. Their fills remain icon-derived and saturated, but are
+  value-limited so the complete label stays readable without a black repaint.
+- Zones adds a separate **Any Mob** workflow that searches the complete P99
+  Wiki instead of the selected zone. Results keep a compact sortable table;
+  selecting a mob exposes every parsed drop and related quest as a labeled,
+  keyboard-accessible in-app link without replacing the selected-zone tabs.
+- Lavastorm and Nektulos now load the complete classic P99/nParse map sets
+  instead of mixing in revamped Live geometry. Source matching is
+  case-insensitive and deterministic, and known classic zone-line positions
+  validate that the live `/loc` marker stays inside both loaded maps.
+- External Regeneration-family landings no longer inherit the receiving
+  character's level. When another tailed character log names the cast, the
+  same row resolves to the exact spell and preserves the caster's level.
+  When EQ exposes only the shared recipient message, Vantage labels the rank
+  unknown, uses a safe P99 level-cap upper bound, and lets the authoritative
+  worn-off line end it. A short replacement guard prevents an older rank's
+  delayed worn-off line from immediately removing the new timer.
+- Mobile Guild exposes the saved-guild selector before its DKP views; Zones
+  keeps its selector stable across polling and provides an explicit reload.
+  Save to Home gives short platform-specific instructions and states the
+  session-link limitation before the user creates a shortcut.
+- Zones and Quests render their bundled local references before starting live
+  Wiki work. All 122 selectable zone aliases and 906 quest titles were
+  cross-checked against the packaged catalogs; a network failure preserves a
+  useful card instead of replacing it with an empty/not-found screen.
+- The Quick Bar exposes Sync My PCs as a first-class action. Notification
+  messages retain their semantic text and add a compact channel label for
+  Buffs/Spells, Combat/Timers, Market, Guild DKP, Chat, or System.
+- New Combat tables fit the nine primary metrics to the visible viewport so
+  the right edge ends on a complete heading; additional detail columns remain
+  full-width behind horizontal scrolling. Every section remains manually
+  resizable and any saved user widths continue to win.
+- Device Sync uses the same scaled-dialog surface as the rest of Vantage, so
+  resize presets and compact scaling manage every control instead of leaving a
+  second unmanaged layout. Pairing, approval, online/offline state and install
+  progress remain explicit at narrow and full sizes.
+- Device connection checks and Connect/Approve/Remove operations run outside
+  the visual thread. Peer-list selection and scroll position survive each
+  status refresh; changed status and new approval requests are announced only
+  while the dialog is visible.
+- Right-click on line edits, multiline editors, editable combos and spin boxes
+  now reaches the native Undo/Cut/Copy/Paste/Delete/Select All menu even inside
+  scaled parser windows. Existing map, buff and table context menus remain
+  routed to their owning controls.
+- Items & Notes uses a single Find dumps action which lists valid inventory
+  exports found recursively under the configured EverQuest root.
+- Every Vantage data table now keeps authored initial widths while exposing
+  each horizontal divider for direct resizing. Stretch, fixed, and automatic
+  modes no longer trap clipped text such as long auction seller names.
+- Column widths persist per surface and exact ordered header schema, so
+  dynamic comparison and guild spreadsheet tables never restore widths onto
+  unrelated data.
+- Items & Notes was checked at its 900x570 design size in both tabs. The item
+  filters, inventory table, action row, note list, editor, and linked preview
+  stay inside the window without clipping or overlapping.
+- A saved note can be converted in place to a 320x250 always-on-top Sticky
+  Note. Its title, editor, save state, Open and Unpin actions remain usable at
+  the 240x160 minimum; moving, resizing, closing, reopening and restarting do
+  not lose content or geometry. Device Sync replacement refreshes the open
+  editor and floating view as one record.
+- Borderless Sticky Notes use a real rounded translucent surface, a distinct
+  full-width move affordance and a visible resize grip anchored two pixels
+  from the lower-right corner. The grip does not overlap Open or Unpin at the
+  minimum size, and pointer plus keyboard geometry controls remain equivalent.
+- Connect Logs checks common Program Files and AppData locations immediately,
+  selects the folder with the newest EQ activity, and offers a bounded wider
+  scan plus an always-available manual folder picker without blocking the UI.
+- Log Searcher exposes one labelled filter row, an incremental-cache status,
+  adjustable result columns and multi-row copy without modifying EQ logs.
+- VantageUI account synchronization reports its pending state while EverQuest
+  is open and exposes normal Windows-permission recovery without changing ACLs.
+- The new Quick Bar backpack action uses the existing 24 px control lane and
+  the reset geometry was widened to include it without compressing neighbors.
+- Market's Discord copy actions use the established compact button treatment;
+  linked item effects use the same internal-link color and interaction as other
+  Market item links.
+- Size comparison: `work/v14469-brand-sizes.png`
+- Native splash: `work/v14469-brand-splash.png`
+- Native About window: `work/v14469-brand-about.png`
+- Mini replica captures: `work/v14469-spells-mini.png`, `work/v14469-timers-mini.png`, `work/v14469-market-mini.png`, and `work/v14469-combat-mini.png`
+- The selected logo remains identifiable from 16 through 256 px on dark and light backgrounds.
+- Exact 25%, 35%, 50%, and 75% panel presets were measured across every main
+  window. Standard overlays, including Vitals, preserve their authored replica
+  geometry instead of substituting a reflowed layout for a requested scale.
+- Roll-up uses a compact 1:1 header, and expanding or restoring from the tray returns to the exact previous replica size.
+- Self-buff rows are owned by the exact character and server that produced
+  them. Selecting a character hides unowned legacy rows, while a new verified
+  cast may safely claim its own legacy row without touching another profile.
+- Unanchored log text can create a self buff only when it explicitly addresses
+  the player. Short Bard twists from nearby players are ignored; locally cast
+  twists remain visible but transient, silent, and excluded from persistence
+  and device sync so normal song rotation cannot flood notifications.
+
+## Accessibility checks
+
+- Accessibility result for the new trigger and Vitals formats: **PASS**. The
+  trigger retains the common editor's labelled delivery, voice, pitch, repeat
+  guard, and sound/speech Test controls. Current/max calibration uses the
+  existing keyboard and screen-reader flow, with its visible status reporting
+  both the recognized pair and derived percentage; ambiguity remains an
+  explicit no-reading state.
+- Sounds Starting style passed focused WCAG 2.4.3, 2.4.6, 3.3.2, and 4.1.2
+  review. The native selector has a visible buddy label and a deterministic
+  keyboard path to Apply; its changed/preserved result is visible and announced
+  politely without moving focus. Save/Cancel semantics are stated before the
+  control, and protected custom choices remain exposed in their original route.
+- Vitals overlay editing passed focused WCAG 2.4.3, 2.4.6, 3.3.1, 3.3.2,
+  and 4.1.2 review. **Overlay name** is a visible buddy label and accessible
+  name; empty-name validation is visible, announced, and returns focus to the
+  field. **Edit overlay**, **Save overlay**, roll-up, and expand expose clear
+  accessible names, and card rebuilding restores keyboard focus.
+- The final accessibility-lead review passed WCAG 2.4.3 and 4.1.2 for Maps:
+  the graphic label is a non-focusable pointer shortcut, while the native POI
+  button/menu provides the complete named keyboard and screen-reader path.
+  Loot dialogs restore focus to that stable selector after Escape or Close.
+- One `#F7F8F8` label is used across every normal spell fill and its empty
+  track. All 216 icon palettes meet 4.5:1; the measured yellow-family minimum
+  is 4.5039:1, with no clipped black-text layer or focus/name changes.
+- Every table exposes Shift+F10 column controls for the focused column:
+  wider, narrower, auto-fit, and reset. Width changes are announced and focus
+  returns to the table after the menu closes.
+- Items & Notes controls have descriptive accessible names, descriptions, and
+  tooltips; item rows open by keyboard or double-click, and internal note links
+  remain keyboard-selectable.
+- Sticky Notes use native keyboard focus order, visible focus borders and
+  explicit accessible names. Escape hides without deleting; Open returns focus
+  to the same note, while Unpin removes only the floating presentation.
+- Log Searcher labels every filter and action, announces completed searches,
+  and supports keyboard row selection and copying.
+- Market effect links expose only the effect name as the action while casting
+  requirements remain readable plain text.
+- Decorative logos use empty alternative text where adjacent Vantage text already names the product; the README logo has a meaningful alternative.
+- The Companion item/spell dialog now has a valid `aria-labelledby` target.
+- External P99 Wiki actions identify that they open a new tab.
+- Context-menu presets expose descriptive action names, tooltips, a checked current state, and remain keyboard-selectable through the native Qt menu.
+- No information is communicated by logo color alone.
+- Suppressing repetitive Bard-twist warnings does not suppress ordinary spell
+  fading notices; those retain their visible semantic message and configured
+  audio route. Transient Bard rows use the normal readable timer before clean
+  removal and never flash a misleading Warning, Critical, or FADED state.
+
+## 1.44.100 release evidence (historical)
+
+- Focused Terms & Privacy and Vitals verification: **84 passed**.
+- Focused version, updater, and packaging verification: **25 passed**.
+- Independent accessibility review after responsive action-row and form reflow:
+  **PASS**. The Terms actions fit at 18 pt/200%, status changes are announced,
+  and the Vitals editor has no horizontal scrollbar at 18 pt after stacking
+  every form label above its field.
+- Mobile Host focused evidence: **31 passed**, **31 passed**, and **34 passed**
+  across three verification runs for local discovery, pairing persistence,
+  auto-start, and hostname/IP fallback behavior.
+- Final combined focused verification: **137 passed**.
+- Full automated test suite: **1,514 passed, 2 skipped**.
+- PyInstaller one-file `Vantage.exe` build: **PASS**. Portable self-test:
+  **PASS**, reporting version `1.44.100`.
+- Candidate size: **75,857,093 bytes**. SHA-256:
+  `3B63B26D46917A79151827FF2EA90A713D67591DF3AEA00807A6FAA1C66B4C12`.
+- Candidate archive inspection confirms `TERMS-AND-PRIVACY.md` and `zeroconf`
+  are included.
+- Public release verification: **PASS**. Stable release URL:
+  <https://github.com/vantageupdates/vantage/releases/tag/v1.44.100>.
+- Public `Vantage.exe` asset size: **75,857,093 bytes**. GitHub digest:
+  `sha256:3b63b26d46917a79151827ff2ea90a713d67591df3aea00807a6faa1c66b4c12`.
+- A freshly downloaded public asset matches the tested candidate hash and size
+  byte-for-byte.
+
+## 1.44.101 release evidence (historical)
+
+- Diagnosis: closely arriving alerts were submitted sentence-by-sentence with
+  `QTextToSpeech.say()` while voice, rate, pitch, and volume were reapplied.
+  That submission and backend-property churn could restart Windows speech and
+  produce stuttered or cut phrases.
+- Current Qt engines now use one persistent native `enqueue()` FIFO. Each
+  request receives its saved voice, rate, pitch, and live volume in
+  `aboutToSynthesize(id)` immediately before synthesis; unchanged properties
+  are not redundantly applied. Older engines keep the state-aware serial
+  fallback.
+- A real voice change invalidates and reapplies rate, pitch, and volume because
+  Qt backends may reset those dependent properties. Exact automatic duplicates
+  still coalesce, waiting work remains bounded, and only mute or an explicitly
+  configured interrupt stops queued speech. Bard-count speech queues normally.
+- Invalid native enqueue IDs fail without leaving stuck work. A native runtime
+  error atomically clears and reports every affected route, retires the failed
+  engine without replaying uncertain phrases, and lets the next alert create a
+  fresh backend.
+- Focused TTS and notification-route verification so far: **81 passed**.
+- Independent accessibility review of the accepted scheduler changes: **PASS**.
+- Full automated test suite: **1,523 passed, 2 skipped** in **701.62 seconds**.
+- PyInstaller **6.22.2** single-file build: **PASS**. Portable self-test:
+  **PASS**, reporting version `1.44.101`.
+- Candidate `dist/Vantage.exe` size: **75,860,174 bytes**. SHA-256:
+  `EF3E1DCEDC875D1C45EA6404E1260B4A8316DB1EC8D1E42D50B44AD15FD9C63C`.
+- Public release verification: **PASS**. The latest stable, non-draft,
+  non-prerelease release is
+  <https://github.com/vantageupdates/vantage/releases/tag/v1.44.101>.
+- Direct public asset:
+  <https://github.com/vantageupdates/vantage/releases/download/v1.44.101/Vantage.exe>.
+  Public size: **75,860,174 bytes**. GitHub digest:
+  `sha256:ef3e1dcedc875d1c45ea6404e1260b4a8316db1ec8d1e42d50b44ad15fd9c63c`.
+- A fresh public download matched the local candidate byte-for-byte with
+  SHA-256 `EF3E1DCEDC875D1C45EA6404E1260B4A8316DB1EC8D1E42D50B44AD15FD9C63C`.
+
+## 1.44.102 release evidence
+
+- Candidate scope: expose a compact notification-volume rocker directly in
+  Quick Bar, reduce map-label crowding while keeping every destination
+  available from the POI selector, and preserve the user's expanded Map size
+  through collapse/expand instead of letting header controls inflate it.
+- Focused integrated verification for Quick Bar, maps, responsive headers, and
+  settings: **26 passed**. Reset/minimum regression verification: **10 passed**.
+- Independent accessibility review: **PASS**, with no remaining findings after
+  boundary/overflow focus, 24x24 targets, tab order, dense-map, and native-scale
+  review.
+- Full automated test suite: **1,523 passed, 2 skipped** in **688.40 seconds**.
+- PyInstaller **6.22.2** one-file build: **PASS**. Portable self-test exited
+  `0`, reporting version `1.44.102`.
+- Candidate and public `Vantage.exe` size: **75,864,262 bytes**. SHA-256:
+  `7AB9386B52D9F01BECA9F419E60D13E484B4C927518AC549230DE888BBFCEC33`.
+- Public release verification: **PASS**. The latest stable, non-draft,
+  non-prerelease release is
+  <https://github.com/vantageupdates/vantage/releases/tag/v1.44.102>.
+- Direct public asset:
+  <https://github.com/vantageupdates/vantage/releases/download/v1.44.102/Vantage.exe>.
+  GitHub digest:
+  `sha256:7ab9386b52d9f01beca9f419e60d13e484b4c927518ac549230de888bbfcec33`.
+- A fresh public download matched the local candidate byte-for-byte.
+
+## 1.44.103 release evidence
+
+- Mobile Guild DKP now searches the complete standings roster instead of the
+  initial display slice. An unfiltered view remains bounded for responsive
+  rendering, while a name search displays every matching member.
+- Guild loading, empty, and result states are announced accessibly; search
+  announcements are debounced for 500 ms while visible filtering remains
+  immediate. Guild source links keep their visible label in the accessible
+  name, and input boundaries meet non-text contrast requirements.
+- Feature settings now live with their owning window. Heal Chain includes its
+  settings in the Heal Chain window, and the Quick Bar Sounds action opens the
+  dedicated sound center without changing mute state.
+- Quick Bar notification volume uses a native slider, combat notices expire,
+  scoped settings have a complete keyboard cycle, and closing Sounds restores
+  focus to the current launcher.
+- Independent accessibility review: **PASS**. Focused verification:
+  **40 passed**.
+- Full automated test suite: **1,524 passed, 2 skipped** in **695.72 seconds**.
+- PyInstaller **6.22.2** one-file build: **PASS**. Portable self-test exited
+  `0`, reporting version `1.44.103`.
+- Candidate `dist/Vantage.exe` size: **75,876,036 bytes**. SHA-256:
+  `2544ED5D8AFDC8C3C9E9B93FDE62BA2F5386EA85B6091A1D5003E3F815CA73E5`.
+- Public release verification: **PASS**. Stable release URL:
+  <https://github.com/vantageupdates/vantage/releases/tag/v1.44.103>.
+- Public `Vantage.exe` size: **75,876,036 bytes**. GitHub digest:
+  `sha256:2544ed5d8afdc8c3c9e9b93fde62ba2f5386ea85b6091a1d5003e3f815ca73e5`.
+- A fresh public download matched the tested candidate hash and size
+  byte-for-byte.
+
+## 1.44.104 release evidence
+
+- Quick Bar notification volume now uses a compact Vantage dark/gold control
+  instead of the generic native-looking presentation. The 4 px track, 10 px
+  thumb, muted surface, and percentage readout remain within **130×24 px**.
+- Sounds uses a clean speaker icon and continues to open the Sounds center
+  only. A separate slashed-speaker Master Mute toggle sits before the slider
+  with checked state, dynamic ON/OFF text, and a hollow/filled status dot.
+- The same mute and volume controls remain available in header overflow.
+  Keyboard, wheel guard, native slider semantics, focus restoration, and
+  large-font sizing are preserved.
+- Independent accessibility review: **PASS**. Measured component/focus
+  contrast ratios are 3.67, 3.88, 3.32, 11.21, and 9.07:1.
+- Focused Quick Bar, notification, settings, and update verification:
+  **11 passed**. Geometry regression verification: **4 passed**.
+- Full automated test suite: **1,524 passed, 2 skipped** in **679.17 seconds**.
+- PyInstaller **6.22.2** one-file build: **PASS**. Portable self-test exited
+  `0`, reporting version `1.44.104`.
+- Candidate `dist/Vantage.exe` size: **75,877,233 bytes**. SHA-256:
+  `44C5A63CFAD4D0B7BEC675CC07988FC94D9B7547BD794B7FE6A00887D0F00581`.
+- Public release verification: **PASS**. Stable release URL:
+  <https://github.com/vantageupdates/vantage/releases/tag/v1.44.104>.
+- Public `Vantage.exe` size: **75,877,233 bytes**. GitHub digest:
+  `sha256:44c5a63cfad4d0b7bec675cc07988fc94d9b7547bd794b7fe6a00887d0f00581`.
+- A fresh public download matched the tested candidate hash and size
+  byte-for-byte.
+
+## 1.44.105 release evidence
+
+- Quick Bar notification volume is now custom-painted in Vantage charcoal and
+  bronze, removing the white/ivory native slider block in normal, hover,
+  pressed, and focused states while preserving its compact **130×24 px** size.
+- Native slider semantics, keyboard control, click/drag behavior, wheel guard,
+  Master Mute integration, and the overflow copy remain intact.
+- Independent accessibility review: **PASS**. Measured rail, outline, fill,
+  thumb, and focus contrast ratios are 3.67, 3.88, 3.36, 6.73, and 7.80:1.
+- Focused Quick Bar verification: **7 passed**. Combined Quick Bar and update
+  heartbeat regression verification: **8 passed**.
+- Full automated test suite: **1,524 passed, 2 skipped** in **739.67 seconds**.
+- PyInstaller **6.22.2** one-file build: **PASS**. Portable self-test exited
+  `0`, reporting version `1.44.105`.
+- Candidate `dist/Vantage.exe` size: **75,881,061 bytes**. SHA-256:
+  `37BBCA38EAA75E00F1AE723C70605B66E3620E750764BC3B6AD857DAE31420ED`.
+- Public release verification: **PASS**. Stable release URL:
+  <https://github.com/vantageupdates/vantage/releases/tag/v1.44.105>.
+- Public `Vantage.exe` size: **75,881,061 bytes**. GitHub digest:
+  `sha256:37bbca38eaa75e00f1ae723c70605b66e3620e750764bc3b6ad857dae31420ed`.
+- A fresh public download matched the tested candidate hash and size
+  byte-for-byte.
+
+## 1.44.106 release evidence
+
+- Windows text-to-speech now explicitly prefers Qt's stable **SAPI** backend
+  instead of the WinRT/QAudioSink path that could stutter or cut phrases when
+  Vantage or EverQuest was running in the background.
+- The speech engine remains persistent, automatic alerts remain serialized in
+  FIFO order, and ordinary queued notifications never interrupt the phrase
+  already being spoken. Systems without a usable SAPI plugin safely retain
+  Qt's platform-default fallback.
+- If SAPI reports a delayed runtime error, it is quarantined for the remainder
+  of the session and the next new alert uses Qt's platform fallback. Active
+  and waiting requests are reported and discarded without retrying text that
+  may already have been spoken.
+- Real-host backend verification: **PASS**. SAPI initialized in the Ready
+  state with two installed voices and native enqueue/about-to-synthesize
+  support.
+- Independent accessibility re-review: **PASS**. The prior runtime-fallback
+  reliability finding is closed, with no remaining findings.
+- Focused audio-profile and speech-scheduler verification: **39 passed** in
+  **1.46 seconds**.
+- Full automated test suite: **1,529 passed, 2 skipped** in **665.16 seconds**.
+- PyInstaller **6.22.2** one-file build: **PASS**. Portable self-test exited
+  `0`, reporting version `1.44.106`.
+- Packaged archive verification: **PASS**. Both
+  `qtexttospeech_sapi.dll` and `qtexttospeech_winrt.dll` are included so the
+  preferred SAPI backend and its runtime fallback ship together.
+- Candidate `dist/Vantage.exe` size: **75,881,731 bytes**. SHA-256:
+  `29D214DCA4F1B507B69B33DBF0E748619282E164A509A8D987C916C9FDB219E4`.
+- Public release verification: **PASS**. Stable release URL:
+  <https://github.com/vantageupdates/vantage/releases/tag/v1.44.106>.
+- Public `Vantage.exe` size: **75,881,731 bytes**. GitHub digest:
+  `sha256:29d214dca4f1b507b69b33dbf0e748619282e164a509a8d987c916c9fdb219e4`.
+- A fresh public download matched the locally tested candidate hash and size
+  byte-for-byte.
+
+## 1.44.107 release evidence
+
+- Quick Bar notifications now move through bounded FIFO queues instead of a
+  single overwriteable slot. Bursts retain arrival order, temporary Qt layout
+  hides no longer consume notices, and intentionally hidden, vertical, or
+  disabled rails discard live events instead of replaying stale history.
+- Rail notices expire after **30 seconds** and accessibility announcements fire
+  exactly once, when the notice is actually presented. Combat dwell/fade and
+  reduced-motion behavior remain bounded.
+- The editable Vantage Basics catalog now includes exact, anchored Project
+  1999 failure triggers for target too far, target out of range, blocked line
+  of sight, no selected target, and spell recovery delay. Each uses the common
+  Sound / TTS / Off editor and a repeat guard; same-name user customizations
+  survive the catalog migration.
+- Random Parser is a separate Quick Bar window using the exact two-line EQ log
+  result format observed in local Project 1999 logs. Typed chat lookalikes,
+  malformed/stale pairs, nonzero lower bounds, and out-of-range results are
+  ignored.
+- Random Parser locks a round to the first accepted **0-N** range and accepts
+  one roll per case-insensitive player name. Mismatched ranges and rerolls are
+  rejected until Clear, Reset, or New Round. Winner and tied-winner states are
+  written in the table and summary in addition to gold/bold styling.
+- Independent accessibility review: **PASS**. Native controls remain keyboard
+  reachable with accessible names and tooltips; notification order is
+  announced once; Random Parser exposes winner, tie, round, and range in text
+  rather than relying on color.
+- Integrated Quick Bar, Random Parser, geometry/minimize persistence, update
+  heartbeat, and basic-trigger verification: **21 passed** in **70.56 seconds**.
+  A broader notification/audio-routing regression set also completed with
+  **40 passed** in **33.94 seconds**.
+- The first full-suite candidate audit completed with **1,529 passed, 2
+  skipped, and 4 failed** in **704.60 seconds**. The failures were all UI
+  integration regressions: Quick Bar reset visibility, its established 292 px
+  minimum, Random Parser table-header tooltips, and exact saved-width reload.
+  Remediation keeps every action target at 24 px while packing the authored
+  strip inside its existing 779 px design width, restores exact physical size
+  after deferred Qt layout work, records Random Parser's authored minimum, and
+  gives Player, Roll, and Result explicit header tooltips.
+- Post-remediation focused coverage for those four failures plus Quick Bar,
+  Random Parser, trigger routing/state, and Smart Timer cloning completed with
+  **51 passed** in **143.10 seconds**. The two exact-geometry regressions also
+  pass together (**2 passed** in **40.35 seconds**). The full suite has not yet
+  been rerun, so this entry does not claim a clean full-suite result.
+- Trigger-test audit found that the old per-control Test buttons only invoked
+  WAV/TTS primitives: they did not confirm the semantic Quick Bar/overlay
+  route or explain Master Mute, zero volume, or backend failure. The new
+  keyboard-reachable **Test trigger now** action tests Quick Bar, overlay, and
+  the selected Sound / TTS / Off route with a visible and announced result.
+  Individual triggers and groups now expose literal **On** or **Off** text in
+  the library, while the editor toggle reads **Trigger On/Off** and preserves
+  existing delivery data. Focused Sound, TTS, Off, persistence, and live
+  Mob-is-casting behavior are covered by the regression set above.
+- Smart Timers now offers a keyboard-reachable **Clone timer** action with an
+  accessible name, description, and tooltip. A clone deep-copies its zone,
+  duration, delivery, trigger/mob lists, and explicit watched/import placement,
+  while receiving a fresh identity and idle runtime state. Saving requires an
+  explicit name or trigger/mob change; cancel and validation failure never
+  mutate or overwrite the source. Focused clone/control coverage passed
+  **18 tests**.
+- Final complete-suite verification: **1,538 passed, 2 skipped** in **716.44
+  seconds**. This supersedes the earlier candidate-audit failures above; all
+  four integration regressions were remediated before the release build.
+- PyInstaller **6.22.2** one-file build: **PASS**. Portable self-test exited
+  `0`, reporting version `1.44.107` from an isolated temporary profile.
+- Packaged archive verification: **PASS**. Both
+  `qtexttospeech_sapi.dll` and `qtexttospeech_winrt.dll` are included.
+- Candidate `dist/Vantage.exe` size: **75,901,131 bytes**. SHA-256:
+  `828F5A1DFDBC08E19AC8BF7378AAA15BEAF824E8ED30240377BB3B0CB9C40E98`.
+- Public release verification: **PASS**. Stable release URL:
+  <https://github.com/vantageupdates/vantage/releases/tag/v1.44.107>.
+- The release is neither draft nor prerelease and contains exactly one named
+  asset, `Vantage.exe`. GitHub reports **75,901,131 bytes** and digest
+  `sha256:828f5a1dfdbc08e19ac8bf7378aaa15beaf824e8ed30240377bb3b0cb9c40e98`.
+- A fresh public download matched the tested candidate size and SHA-256
+  byte-for-byte. The stable tag and remote `main` both resolve to release
+  commit `11ffe6740125bdd579ff69d6293bf92c1b436785`.
+
+## 1.44.108 release evidence
+
+- Local diagnosis confirmed that Companion update discovery, download, and
+  checkpoint creation succeeded, but the final executable replacement did
+  not. The installed `D:\Vantage.exe` remained at **1.44.106** and matched the
+  published 1.44.106 size and SHA-256. Its handoff sidecar was created at
+  **02:51:38** without an `update_applied_at` stamp, and the unchanged old
+  executable relaunched about **37 seconds** later.
+- Root cause: the updater accepted `--wait-pid` but never waited on that PID.
+  The still-running parent kept the target executable locked through the old
+  35-second replacement timeout. The fix performs a read-only wait on the
+  exact handed-off Windows process handle, never closes or terminates a user
+  process, and retains a bounded **90-second** replacement/recovery window.
+- All verified-update exits now use one application shutdown path so the
+  heartbeat stops and Qt can release the executable cleanly. A failed handoff
+  shows actionable English text in the overlay and Quick Bar instead of
+  silently restarting into the old version.
+- Live no-cache discovery verification selected the newest stable exact
+  Companion `vX.Y.Z` release while independently identifying the newest
+  `vantage-ui-vX.Y.Z` release. Drafts, prereleases, UI releases, and stale
+  network cache cannot mask Companion discovery; VantageUI discovery remains
+  independent.
+- Focused updater, heartbeat, dialog, handoff, and recovery verification:
+  **82 passed** in **46.31 seconds**. The updated handoff module completed
+  **13 passed** in **22.07 seconds**, and the critical update cross-section
+  completed **5 passed** in **5.85 seconds**.
+- Real Windows wait probe: **PASS**. A hidden helper process was observed by
+  exact PID until exit in approximately **452 ms**, without termination or
+  modification of the process.
+- Accessibility review: **PASS**, with no findings. Failure status is visible
+  English text with an accessible name, is announced once through the bounded
+  Quick Bar rail, does not rely on color, and existing keyboard update paths
+  remain unchanged.
+- The first full-suite candidate audit completed with **1,542 passed, 2
+  skipped, and 1 failed** in **705.30 seconds**. The sole failure exposed an
+  event-ordering race in exact Quick Bar geometry reload: theme repolishing
+  rebuilt its content-derived logical height before the application's physical
+  rectangle restore, allowing a queued scale pass to reduce a saved
+  **608×56 px** bar to **608×52 px**.
+- Remediation records the exact live rectangle before the theme/settings
+  signal is emitted. Immediate and deferred Quick Bar scale passes therefore
+  recognize the rectangle as authored throughout the refresh rather than
+  racing the later restore. The formerly flaky exact-geometry test passed
+  **5 consecutive runs** (approximately 15 seconds each), and reset-layout,
+  replica-size, scaled-interaction, and Quick Bar regression coverage completed
+  with **10 passed** in **57.76 seconds**.
+- The second full-suite candidate audit completed with **1,542 passed, 2
+  skipped, and 1 failed** in **724.40 seconds**. The remediated Quick Bar
+  geometry test passed. The sole failure was instead a timer-resize test child
+  process exiting with Windows status **0xC0000005** and no assertion or JSON
+  output.
+- Windows Error Reporting identifies that incident at **03:40:38** as an
+  access violation in `python313.dll` during interpreter/native-extension
+  finalization; it does not identify the Timer parser or Qt Graphics View as
+  the faulting module. At the test's assertion boundary the bounded focus
+  reveal was settled and inactive, accessibility announcements were
+  synchronous, and Qt-owned timers retained normal QObject parents.
+- Bounded reproduction found no product failure: the timer-resize test passed
+  **15/15 isolated runs**; five stress sequences combining exact geometry,
+  scaled interaction, and timer resize passed **15/15 tests**; and a further
+  **10/10 shutdown-focused runs** passed. No assertion, resize, focus,
+  scrollbar, accessibility, or teardown failure reproduced. A speculative
+  cleanup prototype was discarded rather than changing product behavior
+  without causal evidence. The incident is classified as a native
+  interpreter/test-infrastructure finalization flake pending a clean suite.
+- The third full-suite candidate audit again completed with **1,542 passed, 2
+  skipped, and 1 failed**. Timer resize and exact Quick Bar geometry both
+  passed. The sole failure was the synthetic trigger-action child exiting with
+  **0xC0000005** before its flushed result or `os._exit(0)` boundary. Windows
+  Error Reporting records the **04:04:21** incident in `Qt6Widgets.dll` at
+  offset `0x34d590`.
+- Unlike the prior timer incident, this failure reproduced on the second
+  isolated run. Stage-level diagnostics localized it to checking a trigger
+  back On: the `itemChanged` handler synchronously persisted, cleared, and
+  rebuilt the `QTreeWidget`, deleting the signal-emitting item while native Qt
+  still owned the dispatch stack.
+- Remediation persists checkbox, rename, and drag/drop changes in the existing
+  tree. It updates visible **On/Off** text/tooltips and refreshes the editor
+  without deleting live items; explicit out-of-signal reload callers retain
+  the full rebuild path. The regression now also asserts that the same tree
+  item survives both Off and On transitions.
+- Post-remediation trigger-action verification passed **15 consecutive runs**.
+  A nearby trigger tree/group/runtime/TTS/basic-alert/settings stress set
+  completed with **20 passed** in **46.52 seconds**. Together with the full
+  suite and focused runs, every authored assertion has executed successfully;
+  the clean post-remediation suite below is the final test gate.
+- Final complete-suite verification: **1,543 passed, 2 skipped** in **730.81
+  seconds**. This supersedes all candidate-audit failures above: exact Quick
+  Bar geometry, timer resize, and trigger state/Test actions all passed in the
+  same clean run.
+- PyInstaller **6.22.2** one-file build: **PASS**. Portable self-test exited
+  `0`, reporting version `1.44.108` from an isolated temporary profile.
+- Packaged archive verification: **PASS**. Both
+  `qtexttospeech_sapi.dll` and `qtexttospeech_winrt.dll` are included.
+- Candidate `dist/Vantage.exe` Windows file/product version: **1.44.108**.
+  Size: **75,901,951 bytes**. SHA-256:
+  `2B15921006E5C87EAE1349C4E888B8D2269560A77B6B96A666471A76DEB9D286`.
+- Public release verification: **PASS**. Stable/latest release URL:
+  <https://github.com/vantageupdates/vantage/releases/tag/v1.44.108>.
+- The release is neither draft nor prerelease and contains exactly one named
+  asset, `Vantage.exe`. GitHub reports **75,901,951 bytes** and digest
+  `sha256:2b15921006e5c87eae1349c4e888b8d2269560a77b6b96a666471a76deb9d286`.
+- A fresh public download reports Windows file/product version **1.44.108**
+  and matched the tested candidate size and SHA-256 byte-for-byte. Annotated
+  tag `v1.44.108` dereferences to release commit
+  `057fc0d7e3982ca9e1a90fec331e88f969dd60f0`.
+
+## 1.44.109 release evidence
+
+- Added the private **My raids** journal inside **Guild DKP & More**. Local
+  SQLite sessions retain Start/End time, toon, server, zone, editable targets,
+  notes, RAID TICK evidence, and only complete identity-bound `/who` snapshots.
+  The `/who` footer is authoritative for both count and zone; incomplete,
+  duplicated, resumed-after-character-switch, or mixed-log captures are not
+  persisted.
+- Public OpenDKP comparison remains read-only. Each check is bound to the
+  selected guild and a unique request generation, so stale list, detail, and
+  failure responses cannot overwrite a newer check. Manual RaidId links take
+  precedence; otherwise candidate raids are restricted to the safe date/time
+  window and ranked by proximity.
+- OpenDKP tick credit uses the current API relationship exactly: the selected
+  toon must appear in each parent `Ticks[].Characters[]`, and only that parent
+  tick's `Value` contributes to the displayed total. Local evidence and private
+  notes survive every remote verification result and guild change.
+- Status is always explicit text: **Not checked**, **Pending — needs review**,
+  **Verified**, or **Missing — review needed**. Missing is also explained in
+  the interface as a review state that does not imply misconduct.
+- Accessibility review: **PASS**, with no remaining findings. The editor is a
+  named group with native labels and buddies; fields remain disabled until a
+  session is selected; Tab exits the notes editor; status announcements are
+  polite and deduplicated; End raid returns focus to Start raid; and the table
+  has keyboard sort controls whose visible and accessible action names match
+  the actual next sort direction. The specialist independently confirmed all
+  six remediation areas and ran the OpenDKP test file successfully.
+- The embedded VantageUI updater's user-facing interface was converted fully
+  to English. A case-insensitive source audit for Spanish UI vocabulary and
+  accented Spanish text returned no matches. Its isolated no-network self-test
+  returned `PASS`; `ui/**` remained unchanged because this is a Companion-only
+  release.
+- Focused raid-ledger, OpenDKP, guild spreadsheet, embedded updater, and update
+  heartbeat verification: **64 passed** in **11.29 seconds**. The narrower
+  raid-ledger/OpenDKP/spreadsheet set completed with **37 passed** in **0.72
+  seconds**. Python compilation and `git diff --check` also passed.
+- Complete-suite verification: **1,560 passed, 2 skipped** in **668.89
+  seconds**.
+- PyInstaller **6.22.2** one-file build: **PASS**. Portable self-test exited
+  `0` from an isolated profile and reported version **1.44.109**.
+- Packaged archive verification: **PASS**. The archive contains
+  `vantage.helpers.raid_ledger`, `vantage.parsers.opendkp`,
+  `vantage.ui_skin_app`, `qtexttospeech_sapi.dll`, and
+  `qtexttospeech_winrt.dll`.
+- Candidate `dist/Vantage.exe` Windows file/product version: **1.44.109**.
+  Size: **75,933,259 bytes**. SHA-256:
+  `9851AA34CA2A890320A8EDA42211AEBE4957E06AB3B8D9D44DAE754C8672CA42`.
+- Public release verification: **PASS**. Stable/latest release URL:
+  <https://github.com/vantageupdates/vantage/releases/tag/v1.44.109>.
+  The release is neither draft nor prerelease and contains exactly one asset,
+  `Vantage.exe`. GitHub reports **75,933,259 bytes** and digest
+  `sha256:9851aa34ca2a890320a8eda42211aebe4957e06ab3b8d9d44dae754c8672ca42`.
+- A fresh unauthenticated public download reports Windows file/product version
+  **1.44.109** and matched the tested candidate size and SHA-256 byte-for-byte.
+  Annotated tag `v1.44.109` dereferences to release commit
+  `d1a2afa53b1be3c81b25b55fbdc2c148771630d1`.
+
+## 1.44.110 release evidence
+
+- Master Mute is applied from every settings/config update, including synced
+  configuration changes. The centralized playback gate still covers the only
+  `QSoundEffect` and `QTextToSpeech` backend start calls, while muting stops
+  active WAV playback, disposes the speech engine, and clears queued speech.
+  Visual overlays and Quick Bar notices continue to dispatch while muted.
+- Built-in trigger enabled state is normalized before catalog migration.
+  Explicit boolean false and legacy textual `false` now remain Off through an
+  atomic save, real config reload, trigger reconstruction, and UI reopening.
+- The Quick Bar ticker is available in both orientations. Vertical mode gives
+  the enabled rail a compact readable width; temporarily closing the Quick Bar
+  retains its bounded notice queue, and only the ticker's own Off setting
+  discards and hides notifications. Muting has no effect on ticker delivery.
+- Focused sound, notification-route, trigger, timer, Spells, Quick Bar, and
+  update-heartbeat verification: **131 passed** in **53.40 seconds**. The
+  narrower new-regression set completed with **34 passed** in **13.75 seconds**.
+- Complete-suite verification: **1,563 passed, 2 skipped** in **624.10
+  seconds**. An earlier run completed **1,562 passed, 2 skipped** before one
+  unrelated offscreen Qt process exited natively during timer resize teardown;
+  that isolated test immediately passed, and the clean full rerun above is the
+  release gate.
+- `git diff --check`: **PASS**. English UI audit: **PASS**; the only accented
+  Spanish source match in the reviewed scope is the pre-existing legacy
+  migration token `Vantage · Básicos`, which is accepted only to translate old
+  saved data and is not displayed by the current UI.
+- Initial accessibility review found one minor duplicate announcement source:
+  the visual Master Mute state dot exposed a separate Border interface beside
+  the authoritative checkable button. The dot now has empty accessible text,
+  no focus, and a public Qt accessibility-factory interface that is invalid
+  and role-free; the button remains named, described, checkable, and keyboard
+  operable. Its accessible interface reports zero children. Focused Quick Bar
+  and notification-rail verification completed with **8 passed** in **25.38
+  seconds**; the direct semantics regression also passed independently.
+- Accessibility re-review: **PASS**, with no remaining findings. The reviewer
+  independently verified **35 focused tests** and confirmed that both header
+  and overflow dots are invalid, `NoRole`, unnamed, and non-focusable while
+  the authoritative Master Mute button retains its checked state, accessible
+  name/description, and keyboard behavior.
+- PyInstaller **6.22.2** one-file build: **PASS**. Portable self-test exited
+  `0` from an isolated temporary profile and reported version **1.44.110**.
+- Recursive archive inspection: **PASS**. The candidate contains the audio,
+  application, config, Quick Bar, Spells, Timers, Market, and embedded
+  VantageUI modules, both `qtexttospeech_sapi.dll` and
+  `qtexttospeech_winrt.dll`, and `TERMS-AND-PRIVACY.md`.
+- Candidate `dist/Vantage.exe` Windows file/product version: **1.44.110**.
+  Size: **75,741,322 bytes**. SHA-256:
+  `EABEAC655A11CC1348B9D7380ED28D781A6A7BF0377A07E92B8784B915C50614`.
+- Public release verification: **PASS**. Stable/latest release URL:
+  <https://github.com/vantageupdates/vantage/releases/tag/v1.44.110>.
+  The release is neither draft nor prerelease and contains exactly one asset,
+  `Vantage.exe`. GitHub reports **75,741,322 bytes** and digest
+  `sha256:eabeac655a11cc1348b9d7380ed28d781a6a7bf0377a07e92b8784b915c50614`.
+- A fresh unauthenticated download reports file/product version **1.44.110**
+  and matches the tested candidate size and SHA-256 byte-for-byte.
+- Annotated tag `v1.44.110` dereferences to release commit
+  `a30a7f7e135ca2360170d59b09786f8e2fbe6926`.
+
+## 1.44.111 pre-release UI and test evidence
+
+- My raids now presents one compact **Current raid** status/action group, then
+  uses native progressive-disclosure tabs for **History & evidence**, **Find
+  raid ticks**, and **Tick phrases**. Start, End, Add tick, and Check OpenDKP
+  remain visible as the primary workflow; detailed editing and phrase setup no
+  longer compete with those actions.
+- Find raid ticks reuses the same canonical per-log-root `LogSearchCache`
+  database as Log Searcher. It recursively indexes every linked `eqlog*.txt`
+  file without changing the originals, supports configured suggestions or
+  free text, character/server and All filters, and All/24-hour/7/30/90-day
+  ranges. Source folder, determinate indexing progress, empty/error/truncated
+  results, and completion states are explicit text.
+- Indexing and search run outside the GUI thread. Per-operation UUID generation
+  guards reject superseded callbacks; linked-root validation also rejects a
+  callback when the configured Logs folder changed during the operation.
+- Results retain exact timestamp, log owner toon/server, speaker/message, and
+  relative source log. Attach requires both a selected local raid and selected
+  result, never creates or changes a session implicitly, is duplicate-safe
+  across live-listener and log-search sources, refreshes the selected raid's
+  evidence count, and persists metadata through close/reopen. Existing ledgers
+  add the new toon/server metadata columns automatically.
+- Accessibility and keyboard implementation is ready for independent review:
+  native labels/buddies, explicit accessible names/descriptions and tooltips,
+  logical tab order, native adjustable table columns, keyboard sort controls
+  whose action label follows the next direction, visible textual state,
+  deduplicated polite announcements, and stable focus after search/attach.
+  The feature does not rely on color, hover, animation, or icon-only actions.
+- Offscreen visual evidence at **1280 × 820** was captured for both History &
+  evidence and Find raid ticks under `work/qa/`. The captures confirm the
+  compact action hierarchy, native nested tabs, non-overlapping controls,
+  full-width results table, and selected-evidence editor geometry. Final
+  UI/accessibility approval remains intentionally pending the independent gate.
+- Focused cache, raid-ledger, OpenDKP, update-heartbeat, scaled-panel and
+  tooltip-closure verification: **45 passed** in **28.69 seconds**. A broader
+  reproduction including the one unrelated initial Vitals timeout completed
+  with **45 passed** in **34.29 seconds**.
+- Final complete-suite verification after all implementation changes:
+  **1,570 passed, 2 skipped** in **743.21 seconds**. An earlier complete run
+  found the two new editable phrase controls missing tooltips and one unrelated
+  Vitals subprocess timeout; both tooltips were added, the isolated Vitals
+  case passed, and two subsequent complete runs finished cleanly.
+- Python compilation, `git diff --check`, English-only source audit, and
+  `ui/**` isolation: **PASS**. Companion version is **1.44.111**. Per the
+  requested review gate, no portable build, self-test, tag, or release has
+  been created yet.
+- Initial independent accessibility/UI review: **BLOCKED** on three major
+  interaction findings, all remediated for re-review. Background index
+  completion now restores its origin only when focus did not move elsewhere;
+  a visible enabled control chosen during indexing keeps focus. A current
+  operation whose linked Logs root changed now settles with an English status,
+  resets progress/active generation, and re-enables actions without rendering
+  stale results; superseded generations still remain silent. Both history and
+  finder sort selectors now derive their visible/accessibility action label
+  from the selected column and current header state, so a newly selected
+  column says and performs **Sort ascending** first.
+- Post-remediation focused feature, focus, dynamic-state, sort-semantics,
+  scaled-panel, and tooltip-closure verification: **46 passed** in **26.68
+  seconds**. Python compilation and `git diff --check` remain **PASS**. Final
+  independent re-review is pending; build and publication remain stopped.
+- Final re-review found that native heading sorting could change the active
+  direction without refreshing the adjacent keyboard sort action. Both raid
+  tables now listen to `sortIndicatorChanged` and recompute the visible text
+  and accessible name as the exact **next** action. This label-only update
+  does not initiate sorting, so header clicks, selector changes, and button
+  activation remain synchronized without recursive side effects. Explicit
+  offscreen regressions exercise ascending and descending native-header
+  changes for both History and Find raid ticks. The complete focused feature,
+  accessibility, scaled-panel, and tooltip set completed with **46 passed** in
+  **27.24 seconds**; Python compilation, diff validation, English-only source
+  audit, and `ui/**` isolation are **PASS**. Build, tag, and release remained
+  stopped until the independent approval recorded next.
+- Final independent accessibility/UI re-review at commit `305badd`:
+  **GENUINE PASS / UI-polish APPROVE**, with no remaining findings. Native
+  header sorting, combo selection, and keyboard sort-button activation remain
+  synchronized for both raid tables.
+- Exact release-candidate complete-suite verification after the final UI fix:
+  **1,571 passed, 2 skipped** in **698.70 seconds**. The candidate remained
+  unchanged during the run.
+- PyInstaller **6.22.2** one-file build: **PASS**. Portable self-test exited
+  `0` from an isolated profile and reported version **1.44.111**.
+- Recursive archive inspection: **PASS**. The candidate contains
+  `vantage.helpers.raid_ledger`, `vantage.helpers.log_search_cache`,
+  `vantage.parsers.opendkp`, `vantage.ui_skin_app`, both
+  `qtexttospeech_sapi.dll` and `qtexttospeech_winrt.dll`, and
+  `TERMS-AND-PRIVACY.md`.
+- Candidate `dist/Vantage.exe` Windows file/product version: **1.44.111**.
+  Size: **75,754,928 bytes**. SHA-256:
+  `BCE6DED346A4D22EF5FBB316FA33CD39A459D77E26391986AB94958744DD8688`.
+- Public release verification: **PASS**. Stable/latest release URL:
+  <https://github.com/vantageupdates/vantage/releases/tag/v1.44.111>.
+  The release is neither draft nor prerelease and contains exactly one asset,
+  `Vantage.exe`. GitHub reports **75,754,928 bytes** and digest
+  `sha256:bce6ded346a4d22ef5fbb316fa33cd39a459d77e26391986ab94958744dd8688`.
+- A fresh unauthenticated public download reports Windows file/product version
+  **1.44.111** and matches the tested candidate size and SHA-256 byte-for-byte.
+  Annotated tag `v1.44.111` dereferences to release commit
+  `e48114aa6ab3d3a18ba9742e13284b94e75e2199`.
+
+## 1.44.112 pre-release audio recovery evidence
+
+- Reproduction tests confirmed two independent regressions. First, the shared
+  playback gate treated every hidden feature window as an implicit background-
+  audio opt-out, including Market, Guild DKP, Quick Bar, combat, and heal-chain
+  routes that have no such setting. Second, a missing selected WAV silently
+  resolved to an unrelated built-in bell, hiding the broken selection.
+- Background notification audio is now on by default during gameplay. Master
+  Mute, Master Volume 0, a route set to Off, and an explicit feature-level
+  **Sound while Window Is Hidden** opt-out still win. Only Spells, Timers, and
+  Vitals apply that hidden-window preference because those are the features
+  that expose it. Missing legacy values normalize to on, while a stored false
+  remains false across save/reload and continues to block hidden runtime audio.
+- Route tests/previews bypass window visibility only; they still respect Master
+  Mute and Master Volume. Their dynamic status now truthfully distinguishes
+  queued playback, route Off, Master Mute, Master Volume 0, background audio
+  off, missing/invalid WAV selection, and an unavailable Windows audio/voice
+  backend. Status remains visible text with an accessible name/description and
+  the existing polite announcement path; no focus is moved.
+- Missing custom/portable WAV selections no longer substitute another sound.
+  The Sounds self-check validates file presence, WAV type, and readable WAV
+  structure before reporting a queued test. Unmuting recreates discarded TTS
+  and WAV backends on the next request; visual notifications remain independent
+  from all audio gates.
+- Backend audit found no direct playback bypasses: `QSoundEffect` and
+  `QTextToSpeech` construction remains centralized in
+  `vantage.helpers.audio`. Trigger, timer, market, spell, Vitals, preview, and
+  speech paths continue through the shared policy.
+- Focused audio/profile, notification-route, Sounds UI, trigger, timer, Vitals,
+  Market, spell, Quick Bar, and update-heartbeat verification: **194 passed**
+  in **130.38 seconds**.
+- Exact pre-release complete-suite verification: **1,583 passed, 2 skipped**
+  in **731.42 seconds**.
+- Python compilation, `git diff --check`, English-only current UI audit,
+  version audit, and `ui/**` isolation: **PASS**. Companion version is
+  **1.44.112**. Final independent accessibility review remains pending; no
+  portable build, self-test, tag, or release has been created.
+- The first independent accessibility gate blocked release on six ambiguous
+  audio-status/name findings. A shared structured preflight now distinguishes
+  Off, Master Mute, Master Volume 0%, an explicit hidden-audio opt-out,
+  missing/invalid WAV, empty voice text, and backend failure before Vitals,
+  Smart Timers, Sounds route tests, notification dispatch, or Last Sound replay
+  report an outcome. Successful asynchronous requests say **queued**, never
+  completed. Each result remains visible and re-readable through its current
+  accessible name/description before a polite announcement, and tests confirm
+  focus is preserved.
+- The visible checkbox labels **Sound while window hidden** and **Timer sounds
+  while hidden** are now their exact accessible names; their explanatory
+  tooltips are exposed as accessible descriptions. BLOCKED AUDIO help now
+  describes Master Mute, Master Volume, route Off, resource/backend failure,
+  and correctly limits hidden-window blocking to a feature whose explicit
+  hidden-audio setting is Off.
+- The same patch adds safe deletion to **Guild DKP & More > My raids**.
+  `RaidLedger.delete_session` uses one SQLite transaction and existing foreign-
+  key cascades for only that private local session's ticks and `/who` snapshots.
+  It never writes OpenDKP or original EQ logs. The compact selected-raid editor
+  now shows toon/date/state/evidence counts and one context-sensitive,
+  keyboard-accessible **Discard empty raid** or **Delete local raid…** action.
+  Confirmation defaults to Cancel, names the toon/date/counts, and explicitly
+  states the remote service and logs are unchanged. Cancel/error keep the row;
+  success selects the nearest row or moves focus to Start raid. An existing
+  active session changes Start to **View active raid**, selects the old session,
+  shows its date, and never auto-ends or deletes it.
+- Combined audio/accessibility and raid-ledger focused verification:
+  **243 passed** in **75.29 seconds**. Additional exact UI/accessibility/data
+  coverage completed with **117 passed** in **1.64 seconds**. This includes
+  runtime QAccessible name/description checks, focus preservation, every audio
+  reason, database cascade/reopen/rollback, no-selection/cancel/error paths,
+  active empty discard, evidence-bearing confirmation copy, nearest-row focus,
+  and an unchanged source-log sentinel.
+- Offscreen UI evidence at **1100 × 760** was captured under `work/qa/` and
+  confirms the existing compact table/editor hierarchy remains intact with the
+  summary and destructive action on one final editor row.
+- Final exact combined-candidate complete suite: **1,620 passed, 2 skipped** in
+  **767.15 seconds**. An earlier complete run had **1,619 passed, 2 skipped**
+  and one test-only failure caused by a new Settings accessibility test
+  inheriting deliberately malformed configuration from an earlier case; the
+  test now creates/restores its own normalized config and the clean rerun above
+  is the release-candidate result.
+- Final accessibility/UI re-review remains pending. No build, self-test, push,
+  tag, or release has been performed.
+- Raid deletion follow-up: every dynamic Start/View and Discard/Delete state now
+  derives its visible label, accessible name, tooltip, and accessible
+  description from the same state description. Runtime `QAccessible` checks
+  cover Start, View active raid, the disabled no-selection state, Discard empty
+  raid, and Delete local raid. The deletion workflow now captures the exact
+  next visible session (or previous visible session at the end) before the
+  database change, then reselects that ID after repopulation. This preserves the
+  user's visual context under custom ascending or descending table sorts and
+  refreshes the selected-raid summary without stale content.
+- Post-remediation combined raid/audio/accessibility verification:
+  **228 passed** in **59.65 seconds**. The focused visual-order and accessible
+  state subset passed **6 tests** in **7.52 seconds** before the final Start
+  state assertion was added; that exact subset was rerun afterward with
+  **6 passed** in **7.96 seconds**. Python
+  compilation, whitespace/diff validation, English-copy audit, version audit,
+  and `ui/**` isolation: **PASS**. Release remains
+  stopped for the final independent accessibility/UI re-review.
+- Final independent review at commit `fa98d3445529e35f48e84fd3298e9762391590a2`:
+  **Genuine accessibility PASS** and **UI-polish APPROVE**, with an independent
+  **228 focused tests passed**. The exact post-review release candidate then
+  completed a clean full suite: **1,621 passed, 2 skipped** in **742.47 seconds**.
+  These are the final pre-build results for Companion **1.44.112**.
+- The one-file `vantage.spec` build completed with PyInstaller **6.22.2**.
+  The isolated portable self-test exited **0**, wrote its marker only inside a
+  fresh `VANTAGE_DATA_DIR`, and reported **1.44.112**. Recursive archive checks
+  confirmed the application/audio/raid/OpenDKP modules, Windows SAPI and WinRT
+  Text-to-Speech plugins, built-in WAV gallery, and all four required legal
+  documents. Windows file and product versions both report **1.44.112**.
+  Candidate `Vantage.exe`: **75,776,656 bytes**, SHA-256
+  `26ED478046CB077D60B1408F4074444219209DE440C74BB16F1E7E6D991BE389`.
+- Public release verification: stable, non-draft, non-prerelease
+  [v1.44.112](https://github.com/vantageupdates/vantage/releases/tag/v1.44.112)
+  contains exactly one asset named `Vantage.exe`. GitHub reports **75,776,656
+  bytes** and digest
+  `sha256:26ed478046cb077d60b1408f4074444219209de440c74bb16f1e7e6d991be389`.
+  A fresh unauthenticated download matched the tested candidate byte-for-byte
+  and independently reported FileVersion/ProductVersion **1.44.112**.
+
+## 1.44.113 pre-release character UI and layout evidence
+
+- **Character UI & layouts** now audits every supported
+  `UI_<character>_<server>.ini` against the updater-verified installed
+  VantageUI folder. Each textual row distinguishes **Current installed**,
+  **Different installed skin**, **Referenced folder missing**, and **No UISkin
+  setting**. A newer available release is identified separately as not yet
+  installed, so it cannot make a correctly configured installed folder appear
+  broken.
+- The native table is sortable, has adjustable/movable columns, exposes a
+  labeled accessible table and per-row descriptions, and includes explicit
+  keyboard sort controls. Refresh/verify, Select outdated, Clear selection,
+  Apply to selected, and Apply to all preserve the compact existing workflow.
+  Every successful apply/copy/restore refreshes the audit and reports the exact
+  current/total count.
+- Selected-only application changes only `UISkin` in explicitly selected UI
+  files. Layout copy preserves target filenames/character identity, backs up
+  every target first, and never reads or writes character hotkey, macro,
+  social, friend, or inventory files. Existing transaction rollback, restore,
+  EverQuest-running deferral, and normal Windows UAC behavior remain intact.
+- Focused helper/UI/update verification: **58 passed** in **22.36 seconds**.
+  Python compilation, `git diff --check`, English-only changed-copy audit,
+  Companion **1.44.113** version audit, and `ui/**` isolation: **PASS**.
+- A broader 393-test updater sweep completed with **390 passed, 2 skipped** and
+  one unrelated Tk minimum-window geometry failure (Windows returned 712×625
+  instead of 720×650). The exact failing test passed immediately in isolation;
+  no standalone updater or `ui/**` source was changed. Full-suite and final
+  accessibility/UI review remain pending; no build, tag, push, or release has
+  been performed.
+- Final accessibility/UI review at commit
+  `00dd64bc2de15532f0be4d9161cb09d6015b376c`: **PASS**. The review remediation
+  keeps selection and focus stable across refresh/sort, exposes exact checkbox
+  row names/descriptions, uses truthful dynamic action state, and preserves the
+  existing compact layout.
+- The first complete-suite run reached **1,626 passed, 2 skipped** with one
+  test-harness timeout: a full offscreen VantageApp startup took just over the
+  test's fixed 30-second limit. No product assertion failed. The harness now
+  allows 60 seconds; the exact test passed in **30.11 seconds**. No product or
+  accessibility code changed for that stabilization.
+- Final clean complete suite on the exact release candidate:
+  **1,627 passed, 2 skipped** in **931.13 seconds**. This is the final pre-build
+  result for Companion **1.44.113**.
+- The one-file `vantage.spec` build completed with PyInstaller **6.22.2**.
+  The isolated portable self-test exited **0**, wrote its marker only inside a
+  fresh `VANTAGE_DATA_DIR`, and reported **1.44.113**. Recursive archive checks
+  confirmed the application, Character UI manager, audio, and VantageUI
+  integration modules; Windows SAPI and WinRT Text-to-Speech plugins; all 20
+  built-in WAV files; and the required terms, third-party, source, and license
+  documents. Windows file and product versions both report **1.44.113**.
+  Candidate `Vantage.exe`: **75,788,152 bytes**, SHA-256
+  `8A3E39543E68B21C92557E779B1B68E84F720C6D19903F36AEA38E2EB0BC15EB`.
+- Public release verification: stable, non-draft, non-prerelease
+  [v1.44.113](https://github.com/vantageupdates/vantage/releases/tag/v1.44.113)
+  contains exactly one asset named `Vantage.exe`. GitHub reports **75,788,152
+  bytes** and digest
+  `sha256:8a3e39543e68b21c92557e779b1b68e84f720c6d19903f36aea38e2eb0bc15eb`.
+  A fresh unauthenticated download matched the tested candidate byte-for-byte
+  and independently reported FileVersion/ProductVersion **1.44.113**.
+
+## 1.44.114 pre-release spell attribution evidence
+
+- Sanitized Spiritflux log sequences now require exact evidence before a
+  regeneration timer is created. An owned Regrowth of the Grove cast remains
+  correlatable across linked character logs even when an unrelated Focus of
+  Spirit cast intervenes; recipient-only ambiguous regeneration text no
+  longer becomes an authoritative active timer.
+- Item ownership is strict. A pending owned item glow cannot borrow a nearby
+  player's Petals landing, explicit other-target lines never become a self
+  buff, and foreign-log other-target lines are ignored while same-log owned
+  casts continue to track their confirmed targets.
+- The legacy `regeneration effect (rank unknown)` sentinel is removed from
+  runtime state, camp snapshots, timer sync, and exported device-sync
+  profiles. Exact Regrowth, Chloroplast, and Regrowth of the Grove rows remain
+  unchanged.
+- Fading and worn-off audio is claimed once per spell generation and rearms
+  only on a confirmed recast. Each spell row now owns one single-shot refresh
+  timer, preventing repeated fade/recast cycles from multiplying callback
+  chains.
+- Focused parser, persistence, sync, update-handoff, audio, Bard, item-click,
+  and sanitized Spiritflux verification: **104 passed** in **100.75 seconds**
+  in the implementation run. The exact versioned candidate passed an
+  additional **86 tests** in **141.91 seconds**. Python compilation,
+  `git diff --check`, English-copy audit, Companion **1.44.114** version audit,
+  and `ui/**` isolation: **PASS**. Build and publication remain stopped for
+  independent accessibility review.
+- Final independent accessibility/UI review at commit
+  `5d8c0f92f5161dd50cb4a47fd3971ab4daf7f1d4`: **PASS**. The reviewed
+  follow-up preserves exact self-target semantics for landing text with a
+  suffix and keeps a worn-off event visible in the activity stream even when
+  its audio was already claimed by the same spell generation.
+- Final clean complete suite on the exact approved release candidate:
+  **1,632 passed, 2 skipped** in **941.98 seconds**. This is the final
+  pre-build result for Companion **1.44.114**.
+- The one-file `vantage.spec` build completed with PyInstaller **6.22.2**.
+  The isolated portable self-test exited **0**, wrote its marker only inside a
+  fresh `VANTAGE_DATA_DIR`, and reported **1.44.114**. Recursive archive checks
+  confirmed the application, spell parser, timer-sync, character-context,
+  device-sync, and audio modules; Windows SAPI and WinRT Text-to-Speech
+  plugins; all 20 built-in WAV files; and the required terms, third-party,
+  source, and license documents. Windows file and product versions both report
+  **1.44.114**. Candidate `Vantage.exe`: **75,792,657 bytes**, SHA-256
+  `391721A96937B48C377B590EC2DBCE627A6AFD3EDB7AB5541F7CD46BDFD4A1E4`.
+- Public release verification: stable, non-draft, non-prerelease
+  [v1.44.114](https://github.com/vantageupdates/vantage/releases/tag/v1.44.114)
+  contains exactly one asset named `Vantage.exe`. GitHub reports **75,792,657
+  bytes** and digest
+  `sha256:391721a96937b48c377b590ec2dbce627a6afd3edb7ab5541f7cd46bdfd4a1e4`.
+  A fresh unauthenticated download matched the tested candidate byte-for-byte
+  and independently reported FileVersion/ProductVersion **1.44.114**.
+
+## 1.44.115 pre-release Quick Bar notification evidence
+
+- Root cause: direct legacy WAV and Text-to-Speech paths updated only the Last
+  Sound diagnostic and did not register the attributable written event in the
+  Quick Bar rail. The centralized audio-start callback now supplies that
+  written counterpart while `notify_event` explicitly marks already-owned
+  visual events to prevent duplicates.
+- Hidden, collapsed, transient-layout, vertical, reduced-motion, muted, and
+  burst cases preserve written counterparts until presentation. The ticker's
+  explicit Off preference remains the only discard action. A real toggle
+  reopen test retains a notice older than 30 seconds; a 75-event hidden burst
+  retains all 75 events in order.
+- Bard AE, spell outcomes, custom triggers, Smart Timers, Vitals, Market, and
+  direct sound/TTS paths use meaningful English event text and the correct
+  accessible Quick Bar lane. Bard overlay-on and overlay-off runtime tests both
+  expose `BUFFS / SPELLS` and the complete event through the accessible name.
+- Exact focused candidate verification: **202 passed** in **77.18 seconds**;
+  Python compilation and `git diff --check`: **PASS**.
+- Independent accessibility/live-region review of commit `1f652b6`: **PASS**.
+  No focus-stealing behavior, duplicate announcement, silent hidden-queue loss,
+  or incorrect SYSTEM-lane fallback remains in the reviewed scope.
+- Final clean complete suite on the exact versioned candidate: **1,636 passed,
+  2 skipped** in **721.78 seconds**. This is the final pre-build result for
+  Companion **1.44.115**.
+- PyInstaller **6.22.2** one-file build via `vantage.spec`: **PASS**. The
+  isolated portable self-test exited **0**, wrote only to a fresh
+  `VANTAGE_DATA_DIR`, and reported **1.44.115**. Recursive archive checks
+  confirmed the application, audio, Quick Bar and spell modules; Windows SAPI
+  and WinRT Text-to-Speech plugins; all **20** built-in WAV files; and required
+  legal/source documents. FileVersion and ProductVersion are **1.44.115**.
+  Candidate `Vantage.exe`: **75,793,337 bytes**, SHA-256
+  `CF332BC3ABBDE88C7708BD72A89C866E8F858DC3191C69BFD701CBE22DD131B8`.
+- Public verification: stable, non-draft, non-prerelease
+  [v1.44.115](https://github.com/vantageupdates/vantage/releases/tag/v1.44.115)
+  targets tested commit `ef2fc8f8e27c97f7c5bf96b296012d34200cbb78` and contains
+  exactly one asset named `Vantage.exe`. GitHub reports **75,793,337 bytes**
+  and digest
+  `sha256:cf332bc3abbde88c7708bd72a89c866e8f858dc3191c69bfd701cbe22dd131b8`.
+  A fresh unauthenticated download matched the candidate byte-for-byte and
+  independently reported FileVersion/ProductVersion **1.44.115**.
+
+## 1.44.116 pre-release painted notification evidence
+
+- Root cause reproduced through actual top-level pixels at the user's compact
+  Quick Bar scale: the proxy-hosted labels were logically visible, but their
+  nested `QGraphicsOpacityEffect` painted a blank rail. Removing that effect
+  paints the attributable category and message in the same surface. Evidence
+  and explicit audit limitations are recorded in
+  `docs/notification-audit-1.44.116.md`.
+- The 19 px authored rail height and 779×72 design geometry remain stable. Its
+  bounded live scheduler prioritizes recent events during a burst, while the
+  searchable, copyable Notification History retains the exact last 250 session
+  events with timestamp, category, and semantic text. Opening history never
+  replays audio.
+- A suite-wide `tests/conftest.py` now forces a fresh per-session profile before
+  application imports and offscreen Qt. Focused tests proved an inherited
+  protected profile sentinel retained identical bytes and nanosecond mtime;
+  the real Vantage profile likewise retained identical size, SHA-256, and
+  modification time through focused verification.
+- Focused verification: **98 notification/audio/isolation tests**, **10 Quick
+  Bar/settings/trigger tests**, and **12 responsive/table/scaled UI tests**
+  passed. Python compilation, English copy audit, and `git diff --check` passed.
+- Independent scoped accessibility/UI review of commit `726d476`: **PASS**.
+  It covered painted output, opening by keyboard, forward/reverse focus order,
+  fixed newest-first history, copy/filter/eviction safety, semantic audio copy,
+  compact geometry, and profile isolation. Dense shared headers and mobile
+  comfort sizing remain documented follow-up opportunities, not hidden claims
+  of a full-product WCAG certification.
+- Release hold regression: a delivered spell-fading claim previously lived
+  only on the current widget. An unrelated device-sync rebuild or camp/relog
+  could therefore restore the same unexpired generation with
+  `warning_played=false` and speak it again. The claim now schedules durable
+  state immediately, remains local-authoritative across same-identity and
+  same-deadline rebuilds, survives camp snapshots, and rearms only for a real
+  recast. Short restored effects defer their first warning until attached to
+  a named target. Spell voice copy now names the exact effect and recipient,
+  while the visible rail retains its precise countdown. A generation-scoped
+  voice key coalesces only that same spell warning; unrelated critical alerts
+  with identical words remain distinct.
+- Focused spell/audio/sync/camp/update/profile-isolation verification after
+  this release hold: **214 passed** in **60.75 seconds**; the tighter direct
+  regression group passed **101 tests** in **9.22 seconds**. The earlier
+  baseline full run reached **1,637 passed, 2 skipped** and exposed one test-
+  harness-only child import failure. `tests/conftest.py` now propagates the
+  isolated source/profile boundary to subprocess tests, and the portable UI
+  contract passes focused verification. A final clean complete suite remains
+  required on the frozen reviewed candidate before build.
+- Independent release-hold review of commit `9151cfc`: **PASS**. The reviewer
+  independently exercised the eight focused fade-generation cases and 42
+  Quick Bar/live-region regressions, including exact spell/recipient speech,
+  same-generation sync and camp restoration, true-recast rearming, and
+  preservation of unrelated critical alert ordering. The exact live Windows
+  utterance was not captured; approval covers the reproduced repeat mechanism
+  and isolated Qt/audio scheduling behavior.
+- Final clean complete suite on the exact reviewed **1.44.116** candidate:
+  **1,642 passed, 2 skipped** in **782.99 seconds**. The protected live profile
+  retained its exact 364-byte size, SHA-256, and nanosecond modification time
+  across the run. This is the final pre-build result.
+- PyInstaller **6.22.2** one-file build via `vantage.spec`: **PASS**. The
+  isolated portable self-test exited **0**, wrote only its marker plus the
+  empty recordings directory under a fresh `VANTAGE_DATA_DIR`, and reported
+  **1.44.116**. Recursive archive checks confirmed application, audio, Quick
+  Bar, spells, timer-sync, character-context, and device-sync modules; Windows
+  SAPI and WinRT Text-to-Speech plugins; all **20** built-in WAV files; and the
+  required terms, third-party, source, and license documents. FileVersion and
+  ProductVersion are **1.44.116**. Candidate `Vantage.exe`:
+  **75,803,221 bytes**, SHA-256
+  `AF071B8670177388D85E96E59FAF64D4C2D957ACEEE6D341B4531A02A8058B8F`.
+- Public verification: stable, non-draft, non-prerelease
+  [v1.44.116](https://github.com/vantageupdates/vantage/releases/tag/v1.44.116)
+  points through its annotated tag to tested commit
+  `e7eb204577a957a34853b1844f08a7bb83a9170c` and contains exactly one asset
+  named `Vantage.exe`. GitHub reports **75,803,221 bytes** and digest
+  `sha256:af071b8670177388d85e96e59faf64d4c2d957aceee6d341b4531a02a8058b8f`.
+  A fresh unauthenticated download matched the candidate byte-for-byte and
+  independently reported FileVersion/ProductVersion **1.44.116**.
+
+## 1.44.117 Companion polish and mobile item sheet
+
+- Fresh isolated screenshot inventory covered every major parser at normal,
+  narrow, and mini sizes plus available dialogs. The bounded fixes and visual
+  evidence are documented in `docs/polish-audit-1.44.117.md`.
+- The mobile item detail now follows a compact classic-EQ property-sheet
+  hierarchy with semantic definition lists, complete common weapon/stat/resist
+  parsing, data-backed flags and restrictions, linked effects/drops/quests, a
+  collapsed original-text fallback, and a secondary market reference. Fair
+  baseline/candidate screenshots use the same synthetic DTO at 319, 390, and
+  768 pixels. No horizontal overflow was observed; Close is at least 44 pixels.
+- Controlled delayed browser requests verify late success, late error,
+  close/reopen, and cross-kind item/spell/install races cannot overwrite the
+  current dialog or announce stale content. Entity links reject non-P99 origins
+  and correctly fall back to their named P99 Wiki path.
+- Adjustable tables now allow Tab and Backtab to leave the grid while arrow
+  keys retain cell navigation and Shift+F10 retains column controls. The policy
+  also applies when a table is first configured with zero columns and populated
+  later. Smart Timers and Zones show actionable textual empty states. Market
+  continues to reject mismatched signed item data and now offers a truthful,
+  accessible Refresh path without weakening digest validation.
+- Focused feature verification: **6 passed** in **13.68 seconds**. Broader
+  mobile, responsive/table, Market, Timers, Zones, and spawn-timer verification:
+  **193 passed** in **155.10 seconds**. Py-compile, English-copy audit, and
+  `git diff --check` passed; `ui/**` is unchanged.
+- Independent final UI/accessibility review of commit `d14591f`: **APPROVE**.
+  Review included actual proxy-hosted forward/reverse table focus, Shift+F10,
+  mobile request races and native Escape/focus return, item-sheet semantics and
+  links, 319/390/768 painted evidence, Timer/Zones after-state captures, and
+  Market verification failure/Refresh behavior.
+- The reviewer observed a pre-existing Log Indexer worker signal during
+  isolated app shutdown. It did not affect the frozen polish behavior; a later
+  bounded lifecycle remediation and regression evidence are recorded below.
+- Final complete suite, one-file build, portable self-test, and public artifact
+  verification are required below on the exact release candidate.
+- Late release hold, spell-fading timing: the user-configured early warning
+  threshold remains intact, but it now delivers a short sound cue rather than
+  premature speech. A Voice-configured fading route speaks the exact spell and
+  recipient once at five seconds. Sound-only and per-spell custom WAV choices
+  stay single-shot at the early threshold; Off, Master Mute, Master Volume 0,
+  and the existing background-audio policy still win. A real worn-off event
+  retains its distinct route and wording without replaying a consumed final
+  claim.
+- Early and final claims are stored separately through live runtime snapshots,
+  device reconciliation, camp/relog character snapshots, and verified-update
+  handoff. Same-generation rebuilds preserve both claims, while a real recast
+  rearms them. Focused runtime coverage exercised the 40/30/29/6/5/1/0-second
+  boundaries; Voice, Sound, custom WAV, Off, mute and zero-volume modes; route
+  changes between phases; final-then-worn suppression; exact written rail and
+  spoken spell/recipient text; same-generation sync/camp rebuilds; and update
+  handoff persistence. Focused result: **167 passed** in **42.21 seconds**;
+  Python compilation and `git diff --check` passed. Independent final review
+  and one clean complete suite remain required on the frozen candidate.
+
+### 1.44.117 Smart Timer keyword actions and Create timer
+
+- Smart Timers now expose a compact `enabled/saved` keyword-rule action in the
+  primary Timer header and a focused native editor. Rules are optional and Off
+  by default, read only the character's own `/say` log lines, and never read
+  game memory, send chat, or edit EverQuest files. Literal bounded templates
+  support Start, Reset, Pause, Resume, Stop-to-READY, and Create-and-start.
+- Fixed timer IDs retain their exact saved identity across zone filters. `%T`
+  uses the existing saved spawn-trigger matching in the current EQ zone;
+  `{timer}` uses an exact current-zone timer name. Ambiguous matches require an
+  explicit all-matching opt-in. Every action uses the existing shared Timer
+  state registry, so independent Timer windows see one state while their
+  existing zone/watch filters still decide whether its row is visible.
+- Create accepts one `%T` or `{name}` plus optional `{duration}`. The documented
+  `$maketimer %T {duration}` example converts `6:40` to exactly 400 seconds.
+  Without `{duration}`, a visible default is required. With it, that irrelevant
+  field is hidden, disabled, and not validated. Create rejects unknown zones by
+  default, invalid names/durations, and an existing exact name+zone; it never
+  overwrites a timer. Replay identity prevents one log line acting twice.
+- Persistence remains inside the existing `timers` settings document, so the
+  established Timer device-sync opt-in carries rules without a parallel store.
+  Reopen coverage verifies both rule data and the compact `enabled/saved`
+  header count.
+- Native accessibility evidence covers labels/buddies and descriptions,
+  progressive focus order, forward/reverse grid escape, Shift+F10 adjustable
+  columns, a default-Cancel `Remove` confirmation, predictable focus after
+  add/update/remove, Escape cancellation, visible textual status, and polite
+  secondary-window announcements without duplicate overlays.
+- Painted isolated evidence:
+  `work/polish-audit-1.44.117/timer-keyword-rules--normal--after.png`,
+  `timer-keyword-rules--narrow--after.png`, and Timer header
+  `timers-keyword-header--{normal,narrow,mini}--after.png`. The populated Create
+  editor and primary `1/2` count remain visible without crop or window growth.
+- Focused candidate verification: **122 passed in 83.67 seconds** across the
+  keyword/Create engine, Timer controls/share/multi-window/cross-zone/routes,
+  device sync, Log Searcher lifecycle, and the isolated Combat column case.
+  The earlier Combat child fast-fail did not reproduce in **10/10** isolated
+  repetitions; this is documented as a limitation rather than assigned a
+  speculative cause.
+- The previously documented Log Indexer shutdown race was reproduced directly:
+  a background producer could emit after Qt deleted its signal owner. Shutdown
+  now cooperatively stops pending producer work, suppresses only the two known
+  deleted-Qt-owner lifetime errors, and re-raises unrelated runtime failures.
+  Dedicated lifecycle regressions and a clean UI subprocess exit verify the
+  bounded fix.
+- Independent Timer keyword/UI/accessibility review of commit `4f1fd1b`:
+  **PASS**, with **122 passed in 79.74 seconds** in the reviewer's exact
+  feature/lifecycle gate. One clean complete suite remains required on the
+  combined frozen candidate before build or publication.
+
+### 1.44.117 Character UI and layout verification
+
+- The Character UI manager now audits every supported P99 character INI
+  against the updater's verified installed selection. It visibly distinguishes
+  that installed selection from a newer available release that is explicitly
+  **not installed**, rather than calling a restored older selection “newest.”
+- `UISkin` parsing accepts harmless whitespace and casing variants. Applying a
+  skin updates the effective key in `[Main]`, removes duplicate `UISkin`
+  entries defensively, and preserves line endings and unrelated INI content.
+- Full layout copy remains intentionally limited to supported
+  `UI_<character>_<server>.ini` files. The source stays unchanged, target
+  filenames/identities remain intact, and separate macro/social/friend/hotkey/
+  inventory INIs are not touched. Byte-identical targets are skipped and only
+  changed targets receive verified restore points.
+- The copy preview and confirmation identify the exact source toon and server,
+  target count/list, verified installed skin, unchanged source, backup scope,
+  and full-copy behavior. Clear stays clear across source changes; targets are
+  never silently reselected. Apply/Copy actions enable only for a valid current
+  selection. Restore exposes its dated label/file count through its visible
+  buddy, accessible description, tooltip, and confirmation.
+- The existing card hierarchy now uses a vertical-only native scroll surface.
+  Audit selection, apply, and sort controls have separate rows; the table and
+  following controls no longer overlap at 760×590 or the supported 620×500
+  minimum. The footer progress/status remain readable. Table Tab/Backtab exits
+  preserve the current cell, arrows/Space remain available, and focus traversal
+  scrolls Copy/Restore actions into view.
+- Fair isolated baseline evidence from `4f1fd1b`:
+  `work/polish-audit-1.44.117/character-ui-manager--normal--before.png` and
+  `character-ui-manager--minimum--before.png`. Candidate evidence with the same
+  synthetic profiles and available/installed versions:
+  `character-ui-manager--normal--after.png`,
+  `character-ui-manager--minimum--after.png`, and
+  `character-ui-manager--minimum-copy-restore--after.png`.
+- Focused helper/dialog verification: **63 passed in 7.60 seconds**. Broader
+  Character UI, updater, package, retention, Windows-permission, installer,
+  and English UI verification: **372 passed, 2 skipped in 52.01 seconds**.
+  Python compilation, English-copy scan, and `git diff --check` passed;
+  `ui/**` remains unchanged.
+- Independent Character UI/helper/accessibility review of commit
+  `98fb9ab0a0dd61d1b2df38412ca2e1b711ba2d63`: **PASS**, with **372 passed,
+  2 skipped in 54.25 seconds**. The reviewer verified whitespace/duplicate
+  `UISkin` handling, selected-versus-available wording, source/target/no-op and
+  restore semantics, exact accessible copy, forward/reverse table focus,
+  narrow focus scrolling, and the fair painted baseline/candidate comparison.
+- Final clean complete suite on the combined frozen source:
+  **1,666 passed, 2 skipped in 943.13 seconds (15:43)**. The expected skips
+  are the POSIX-mode test on Windows and a Windows symlink-collision test when
+  developer symlink privilege is unavailable; an adjacent real-font OCR test
+  passed. The previously intermittent Combat subprocess case passed this run.
+  The protected live profile and installed `D:\Vantage.exe` retained their
+  exact pre-run size, nanosecond modification time, and SHA-256.
+- PyInstaller **6.22.2** one-file build via `vantage.spec`: **PASS**. The
+  isolated portable self-test exited **0**, wrote only its marker plus the
+  empty recordings directory under a fresh `VANTAGE_DATA_DIR`, and reported
+  **1.44.117**. Recursive archive checks confirmed the application, audio,
+  Quick Bar, spells, Smart Timer keywords, Character UI manager, mobile,
+  Log Searcher, Windows SAPI and WinRT Text-to-Speech plugins, all **20**
+  built-in WAV files, and the required terms, third-party, source, and license
+  documents. FileVersion and ProductVersion are **1.44.117**. Candidate
+  `Vantage.exe`: **75,835,529 bytes**, SHA-256
+  `4252139FFD85DE604FCFED2FA8D03A59B42D091C7BA225A045748076B617CE3F`.
+- Public verification: stable, non-draft, non-prerelease
+  [v1.44.117](https://github.com/vantageupdates/vantage/releases/tag/v1.44.117)
+  resolves through its annotated tag to tested build commit
+  `6451379ae40f953926e3fd74138c63c5c8b96091` and contains exactly one asset,
+  `Vantage.exe`. GitHub reports **75,835,529 bytes** and digest
+  `sha256:4252139ffd85de604fcfed2fa8d03a59b42d091c7ba225a045748076b617ce3f`.
+  A fresh unauthenticated public download matched the candidate byte-for-byte,
+  independently reported FileVersion/ProductVersion **1.44.117**, and passed
+  the isolated portable self-test with exit **0**. The installed executable,
+  live profile, EverQuest, WinEQ, and the user's running Vantage processes were
+  not replaced or stopped.
+
+## 1.44.118 Trigger mute and fading stops
+
+- Scoped native Qt fix, retaining existing dark/gold styling and English labels.
+  Implementation and verification details: `docs/trigger-audio-1.44.118.md`.
+- Sounds now saves changed custom trigger audio by name, rather than requiring
+  the unrelated Buffs settings section. Clearing a WAV explicitly sets that
+  phase Off; unedited stale controls do not revert newer trigger changes.
+- Mute is independent of trigger On/Off and preserves saved voice/WAV settings.
+  It applies to all trigger phases, current timers, and their general buff
+  fading route, while retaining deadlines, detection, and configured visuals.
+- Auctions / Market sale and OpenDKP auction expose persistent Off. Written
+  notices remain. Spoken fading timing is configurable from 1–600 seconds,
+  default 5, separately from the early beep; each warning remains once per cast.
+- Isolated Qt evidence: `work/trigger-audio-1.44.118/trigger-mute.png`,
+  `auction-off.png`, and `fading-stops.png`. Keyboard-focusable controls use
+  explicit accessible names and descriptions. No physical screen reader,
+  live in-game utterance, or OS-large-font verification is claimed.
+- Complete final suite: **1,686 passed, 2 expected skips, 737.77 seconds**.
+  Single-file candidate, version **1.44.118**, portable self-test exit **0**;
+  **75,839,973 bytes**, SHA-256
+  `A9016029DA7F902BDE212E292983D1F2D700AB7F97DB41C0671477ADAA6E8C72`.
+- Tested source/tag is `28a0f28d9e59bdffe3bcaae3e2492c0d601ceb2b` on `main`.
+  GitHub draft release 399654138 has one asset with matching size/digest.
+  **Publication remains blocked:** the execution tool rejected the final
+  combined publish/download/public self-test command before execution.
+  Read-only verification still shows draft true; fresh public verification is
+  therefore outstanding. Do not report this release as publicly available.
+- VantageUI authority remained with its chat. No skin/updater/character INIs
+  changed. Installed Vantage, its live profile, EverQuest and WinEQ were not
+  replaced or stopped.
+
+## 1.44.120 Recorded OpenDKP attendance
+
+- My raids now opens a separate public recorded-attendance workspace with
+  a full guild character directory, dates, whole-history filtering, and
+  250-row pages. No local session, CSV, or sign-in is required.
+- Actual OpenDKP `RaidName` / `Ticks[].Attended` evidence determines attendance;
+  guild raids are not substituted as personal history. Missing awarded DKP
+  remains unknown, with optional read-only verification against a tick roster.
+- Qt design guidance influenced the separated local/public workflows, explicit
+  error and retry states, dark calendar/date controls, keyboard names/help,
+  readable event titles, and adjustable columns with narrow-window scrolling.
+- Live read-only Castle check: Mindflux **19 attended raids / 26 ticks** from
+  **757** returned records over 90 days. Native themed fixtures at 900×540 and
+  520×540 and the real ParserWindow shell were visually reviewed. No physical
+  screen-reader or OS-large-font test is claimed.
+- Focused verification **57 passed**; interaction/scaled verification **18
+  passed** (overlapping attendance coverage). Complete final suite **1,714
+  passed, 2 skipped, 816.95 seconds**. Details:
+  `docs/my-raids-attendance-1.44.120.md`.
+- Final portable version **1.44.120**, self-test exit **0**, **75,850,973 bytes**,
+  SHA-256 `F68A5E48AB6ADB77329E48618BB1D8301DB50556822951E2783BEA8DDFB5C8B1`.
+  Frozen attendance code and date theme verified. Installed executable and live
+  config hashes unchanged; VantageUI skin/shared updater/character INIs untouched.
+- Tested source/tag: `795fd02966cd660628b36e9953ef0d3eb570d248`, pushed to
+  `main`. Release **399721796** / exe asset **600042349** verified:
+  exactly one `Vantage.exe`, matching candidate size and GitHub SHA-256 digest,
+  draft false, prerelease false, **published stable/latest on 2026-09-30**.
+  Following the user's explicit renewed request, standard `gh release edit`
+  publication succeeded. The anonymous public release page and latest endpoint
+  confirm `v1.44.120`. The subsequent combined fresh public binary download /
+  self-test operation was rejected before execution; those extra verification
+  steps remain incomplete and were not retried through an alternative route.
+
+## 1.44.121 My raids alt groups
+
+- Recorded attendance adds a compact Manage alts editor, Add/Remove, Save/Cancel,
+  an explicit Include alts checkbox, and a Characters column. Groups and the
+  inclusion preference persist separately for each guild. The selected main
+  is always included; duplicate identities never issue duplicate requests.
+- Qt design guidance informed the visible editable list, written partial/retry
+  feedback, keyboard names/help, and narrow-window table scrolling. The themed
+  workspace was inspected at 1000×580 and 520×580; the editor at 440×360.
+  No physical screen-reader or OS-large-font testing is claimed.
+- Stable raid IDs and shared tick IDs are counted once. Unknown/conflicting
+  awards remain unknown. At most two character histories load concurrently;
+  failed members preserve successful results and stale responses are rejected.
+- Live read-only Castle verification for Mindflux, Wildflux, Fistflux and
+  Spiritflux: **39 unique raids / 53 unique ticks** over 90 days. These names
+  are fixtures, not production defaults or edits to the user's live profile.
+- Focused tests **70 passed**. Complete final suite **1,726 passed, 2 skipped,
+  798.78 seconds**. Details: `docs/raid-alts-1.44.121.md`.
+- Portable candidate **1.44.121**, **75,862,610 bytes**, SHA-256
+  `B5FA6C38C735A9EBB09849B6B13FC58C84014000F772429A3226F58CE75F7617`.
+  Isolated self-test exit **0**; frozen editor, saved preferences, bounded
+  lookup queue, union and pooled raid-DKP detail verified. VantageUI and user
+  installations/game processes remain untouched.
+- Tested source/tag `1c27fa55ec156d53a4986ec4e2b5df439b8e3ade` published as
+  stable/latest **v1.44.121**, release **399746700** / exe asset **600129160**,
+  2026-09-30 05:38:02 UTC. Public metadata confirms draft false, prerelease
+  false and one executable with the matching size/SHA-256 digest. The anonymous
+  public release page confirms Latest and source. The previously blocked
+  combined fresh public binary download/self-test was not attempted again;
+  no fresh-public-download self-test is claimed.

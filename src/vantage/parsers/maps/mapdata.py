@@ -17,23 +17,41 @@ MAP_KEY_FILE_WHO = resource_path('data/maps/map_keys_who.ini')
 MAP_SPAWNTIMES_FILE = resource_path('data/maps/map_timers.csv')
 MAP_FILES_LOCATION = resource_path('data/maps/map_files')
 MAP_FILES_PATHLIB = pathlib.Path(MAP_FILES_LOCATION)
+MAP_CLASSIC_FILES_LOCATION = resource_path('data/maps/classic_maps')
+MAP_CLASSIC_FILES_PATHLIB = pathlib.Path(MAP_CLASSIC_FILES_LOCATION)
 MAP_RECORDINGS_PATHLIB = data_dir('recordings')
 ICON_MAP = {'corpse': resource_path('data/maps/spawn.png')}
 
 
-def bundled_map_paths(map_file_name):
-    """Return only the zone geometry/labelling files for one exact short name."""
+def _zone_map_paths(root, map_file_name):
+    """Return deterministic matching map layers from one data directory."""
     base_name = str(map_file_name).casefold()
-    pattern = '**/{zone}*.txt'.format(zone=map_file_name)
     paths = [
-        map_path for map_path in MAP_FILES_PATHLIB.glob(pattern)
+        map_path for map_path in pathlib.Path(root).rglob('*.txt')
         if (map_path.stem.casefold() == base_name or
             re.fullmatch(
                 rf"{re.escape(base_name)}_\d+",
                 map_path.stem.casefold()))
     ]
-    return [map_path for map_path in paths
-            if not map_path.stem.casefold().endswith('_2')]
+    return sorted(
+        (map_path for map_path in paths
+         if map_path.stat().st_size > 0 and
+         not map_path.stem.casefold().endswith('_2')),
+        key=lambda map_path: map_path.name.casefold())
+
+
+def bundled_map_paths(map_file_name):
+    """Return the P99-compatible geometry/labelling layers for one zone."""
+    # Live EverQuest later replaced Lavastorm and Nektulos with entirely new
+    # geometry. Brewall correctly maps those Live revisions, but Project 1999
+    # uses the classic Titanium zones. nParse already ships GPL-compatible
+    # classic overrides for exactly these two zones; prefer an override as a
+    # complete set so modern geometry and labels can never be mixed into it.
+    classic_paths = _zone_map_paths(
+        MAP_CLASSIC_FILES_PATHLIB, map_file_name)
+    if classic_paths:
+        return classic_paths
+    return _zone_map_paths(MAP_FILES_PATHLIB, map_file_name)
 
 
 class MapData(dict):

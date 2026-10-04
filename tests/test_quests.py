@@ -13,14 +13,50 @@ from vantage.parsers.quests import (
 ROOT = Path(__file__).parents[1]
 
 
+def test_bundled_quest_catalog_is_large_and_never_network_empty():
+    payload = json.loads((
+        ROOT / "data" / "reference" / "quest_catalog.json"
+    ).read_text(encoding="utf-8"))
+    titles = payload["titles"]
+    assert payload["version"] == 1
+    assert len(titles) >= 900
+    assert titles == sorted(set(titles), key=str.casefold)
+
+
 ACCESSIBILITY_SCRIPT = r"""
 import json
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtNetwork import QNetworkReply
 from PySide6.QtTest import QTest
 from vantage.helpers import config
 from vantage.helpers.application import VantageApp
 import vantage.parsers.quests as quests_module
 
+# The native show handler refreshes the catalog. Complete that unrelated work
+# offline before testing focus and debounced checklist announcements; a live
+# Wiki response must never replace the seeded catalog during these checks.
+class OfflineReply(QObject):
+    finished = Signal()
+    def error(self):
+        return QNetworkReply.NetworkError.HostNotFoundError
+    def errorString(self):
+        return 'Controlled offline accessibility fixture'
+    def abort(self):
+        self.finished.emit()
+
+class OfflineNetwork(QObject):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.pending = []
+    def get(self, _request):
+        reply = OfflineReply(self)
+        self.pending.append(reply)
+        return reply
+    def settle(self):
+        while self.pending:
+            self.pending.pop(0).finished.emit()
+
+quests_module.QNetworkAccessManager = OfflineNetwork
 announcements = []
 quests_module._announce_accessible = (
     lambda _widget, text, assertive=False:
@@ -29,6 +65,9 @@ app = VantageApp([])
 window = app._parsers_dict['quests']
 window._set_catalog(['Zlandicar Quest', 'Aegis Quest'], 'test')
 window.show()
+window._network.settle()
+assert not window._catalog_loading
+assert window._catalog == ['Aegis Quest', 'Zlandicar Quest']
 app.processEvents()
 search_focus = window.search.hasFocus()
 
@@ -252,7 +291,8 @@ window._quest_timed_out(missing_first, missing_generation)
 missing_second = network.replies[-1]
 window._quest_timed_out(missing_second, missing_generation)
 detail_settled = (
-    'could not be loaded' in window.summary.toPlainText()
+    'offline catalog' in window.summary.toPlainText()
+    and 'temporarily unavailable' in window.summary.toPlainText()
     and window.retry_quest_button.isVisible())
 
 print(json.dumps({

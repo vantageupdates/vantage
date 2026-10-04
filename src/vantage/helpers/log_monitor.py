@@ -1,13 +1,14 @@
 """Compact per-character EverQuest log activity monitor."""
 
 from PySide6.QtCore import QSize, QTimer
+from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtWidgets import (
     QComboBox, QHeaderView, QLabel, QPushButton, QSpinBox, QTableWidget,
     QTableWidgetItem, QVBoxLayout)
 from vantage.helpers import config
 from vantage.helpers.audio import (
-    profile_audio_settings, save_profile_audio_settings, speak_text,
-    speech_voice_names)
+    audio_preflight, profile_audio_settings, save_profile_audio_settings,
+    speak_text, speech_voice_names, vantage_command_voice_label)
 from vantage.helpers.scaled_dialog import UniformScaleDialog
 
 
@@ -69,6 +70,11 @@ class LogMonitorDialog(UniformScaleDialog):
         self.table.horizontalHeader().setSectionResizeMode(
             8, QHeaderView.ResizeMode.Stretch)
         layout.addWidget(self.table, 1)
+        self.test_status = QLabel()
+        self.test_status.setObjectName('TriggerTestStatus')
+        self.test_status.setWordWrap(True)
+        self.test_status.hide()
+        layout.addWidget(self.test_status)
         close = QPushButton('Close')
         close.setToolTip('Close this monitor; log parsing continues in the tray')
         close.clicked.connect(self.accept)
@@ -117,7 +123,7 @@ class LogMonitorDialog(UniformScaleDialog):
             settings = profile_audio_settings(
                 profile['character'], profile['server'])
             voice = QComboBox()
-            voice.addItem('System default', '')
+            voice.addItem(vantage_command_voice_label(), '')
             for name in self._voices:
                 voice.addItem(name, name)
             selected = voice.findData(settings['voice_name'])
@@ -176,8 +182,31 @@ class LogMonitorDialog(UniformScaleDialog):
             test.clicked.connect(
                 lambda _checked=False, save=save,
                 character=profile['character'], server=profile['server']:
-                (save(), speak_text(
-                    f'Vantage voice test for {character}',
-                    config.data['spells']['fade_sound_volume'], True,
-                    source=f'Test · {character} · speech',
-                    character=character, server=server)))
+                (save(), self._test_profile(character, server)))
+
+    def _test_profile(self, character, server):
+        """Explicit previews bypass hidden-window gating, not mute or volume."""
+        text = f'Vantage voice test for {character}'
+        volume = config.data['spells']['fade_sound_volume']
+        check = audio_preflight(
+            'voice', text=text, volume=volume, character=character,
+            server=server, channel='spells', allow_hidden=True)
+        if not check.ready:
+            message = f'{character} voice test: {check.reason}'
+        else:
+            played = speak_text(
+                text, volume, source=f'Test · {character} · speech',
+                character=character, server=server, channel='spells',
+                allow_hidden=True)
+            message = (f'{character} voice test: voice queued' if played else
+                       f'{character} voice test: Windows voice unavailable')
+        self.test_status.setText(message)
+        self.test_status.setAccessibleName(message)
+        self.test_status.setAccessibleDescription('Latest character voice test result')
+        self.test_status.show()
+        try:
+            QAccessible.updateAccessibility(
+                QAccessibleAnnouncementEvent(self.test_status, message))
+        except (AttributeError, RuntimeError, TypeError):
+            pass
+        return message

@@ -9,10 +9,10 @@ from tests.test_ui_skin_versioned import _install, _registry, _folder, _tree
     ('','',[],[],set()),
     ('1.2.3','',['1.2.3'],[],{'1.2.3'}),
     ('1.2.4','1.2.3',['1.2.3','1.2.4'],[],{'1.2.3','1.2.4'}),
-    ('1.2.11','1.2.10',['1.2.9','1.2.8','1.2.11','1.2.10'],[],{'1.2.9','1.2.10','1.2.11'}),
-    ('1.2.11','1.2.8',['1.2.9','1.2.8','1.2.11','1.2.10'],[],{'1.2.8','1.2.10','1.2.11'}),
-    ('1.2.11','1.2.10',['1.2.9','1.2.8','1.2.11','1.2.10'],['1.2.9'],{'1.2.8','1.2.10','1.2.11'}),
-    ('1.2.9','1.2.11',['1.2.7','1.2.8','1.2.9','1.2.11'],[],{'1.2.7','1.2.8','1.2.9','1.2.11'}),
+    ('1.2.11','1.2.10',['1.2.9','1.2.8','1.2.11','1.2.10'],[],{'1.2.10','1.2.11'}),
+    ('1.2.11','1.2.8',['1.2.9','1.2.8','1.2.11','1.2.10'],[],{'1.2.8','1.2.11'}),
+    ('1.2.11','1.2.10',['1.2.9','1.2.8','1.2.11','1.2.10'],['1.2.9'],{'1.2.10','1.2.11'}),
+    ('1.2.9','1.2.11',['1.2.7','1.2.8','1.2.9','1.2.11'],[],{'1.2.9','1.2.11'}),
 ])
 def test_keep_plan_uses_numeric_registered_versions_without_filesystem_access(
         monkeypatch,active,previous,versions,retired,expected):
@@ -26,7 +26,8 @@ def test_keep_plan_uses_numeric_registered_versions_without_filesystem_access(
         monkeypatch.setattr(Path,method,forbidden)
     assert updater._retained_folders(registry)=={name(v) for v in expected}
 
-def test_deferred_backlog_cleans_to_three_and_is_idempotent(fixture,tmp_path,monkeypatch):
+def test_deferred_backlog_cleans_to_current_and_previous_and_is_idempotent(
+        fixture,tmp_path,monkeypatch):
     game,legacy,state=fixture
     untouched=game/'uifiles'/'VantageUI-v0.1.0'
     untouched.mkdir();(untouched/'private.xml').write_bytes(b'unmanaged data')
@@ -34,7 +35,7 @@ def test_deferred_backlog_cleans_to_three_and_is_idempotent(fixture,tmp_path,mon
     monkeypatch.setattr(updater,'game_running',lambda:True)
     for patch in range(3,11):
         _install(tmp_path,monkeypatch,game,state,f'1.2.{patch}',allow_game_running=True)
-    snapshots={v:_tree(_folder(game,v)) for v in ('1.2.8','1.2.9','1.2.10')}
+    snapshots={v:_tree(_folder(game,v)) for v in ('1.2.9','1.2.10')}
     assert len(_registry(game)['managed'])==8
     monkeypatch.setattr(updater,'game_running',lambda:False)
     logs=[]
@@ -42,8 +43,8 @@ def test_deferred_backlog_cleans_to_three_and_is_idempotent(fixture,tmp_path,mon
     assert set(_registry(game)['managed'])=={updater.folder_name(v) for v in snapshots}
     assert _registry(game)['active']=='VantageUI-v1.2.10'
     assert _registry(game)['previous']=='VantageUI-v1.2.9'
-    assert sum(line.startswith('Removed unchanged older managed folder') for line in logs)==5
-    assert all(not _folder(game,f'1.2.{v}').exists() for v in range(3,8))
+    assert sum(line.startswith('Removed unchanged unused managed folder') for line in logs)==6
+    assert all(not _folder(game,f'1.2.{v}').exists() for v in range(3,9))
     assert all(_tree(_folder(game,v))==data for v,data in snapshots.items())
     assert (untouched/'private.xml').read_bytes()==b'unmanaged data'
     assert ini.read_bytes()==b'personal layout' and legacy.is_dir()
@@ -51,13 +52,15 @@ def test_deferred_backlog_cleans_to_three_and_is_idempotent(fixture,tmp_path,mon
     updater.recover_pending(game,state,log=lambda _:None)
     assert _registry(game)==before
 
-def test_rollback_preserves_both_fallback_payloads(fixture,tmp_path,monkeypatch):
+def test_rollback_preserves_only_selected_and_its_restore_target(
+        fixture,tmp_path,monkeypatch):
     game,_,state=fixture
     for v in ('1.2.3','1.2.4','1.2.5','1.2.6'):
         _install(tmp_path,monkeypatch,game,state,v)
-    snapshots={v:_tree(_folder(game,v)) for v in ('1.2.4','1.2.5','1.2.6')}
+    snapshots={v:_tree(_folder(game,v)) for v in ('1.2.5','1.2.6')}
     updater.rollback_last(game,state,log=lambda _:None)
     updater.recover_pending(game,state,log=lambda _:None)
     assert updater.installed_version(game)=='1.2.5'
     assert _registry(game)['previous']=='VantageUI-v1.2.6'
     assert all(_tree(_folder(game,v))==data for v,data in snapshots.items())
+    assert not _folder(game,'1.2.4').exists()

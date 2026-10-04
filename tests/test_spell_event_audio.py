@@ -22,6 +22,9 @@ app = VantageApp([])
 spells = app._parsers_dict['spells']
 spells.show()
 app.processEvents()
+spells._character_context = None
+spells._active_character = 'Mindflux'
+spells._active_server = 'Green'
 config.data['general']['audio_muted'] = False
 config.data['spells']['fade_sound_enabled'] = True
 config.data['spells']['sounds_when_hidden'] = False
@@ -50,6 +53,7 @@ print(json.dumps({
     'tray_visible': spells._event_tray.isVisible(),
     'pill_count': len(spells._event_pills),
     'quickbar_notice': app._quickbar_notice,
+    'quickbar_channel': app._quickbar_notice_channel,
 }))
 app.quit()
 """
@@ -73,3 +77,4 @@ def test_worn_off_uses_visible_pill_and_only_one_audio_owner(tmp_path):
     assert result['pill_count'] == 1
     assert result['quickbar_notice'] == (
         'Fetter worn off · A Blizzard Hunter')
+    assert result['quickbar_channel'] == 'spells'

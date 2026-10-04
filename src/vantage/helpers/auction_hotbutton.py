@@ -77,6 +77,106 @@ def _social_reference(slot):
     return f"E{(page - 1) * 10 + button - 1}"
 
 
+def export_managed_auction_hotbuttons(eq_root):
+    """Export only Vantage-created WTS/WTB Socials, never whole EQ INIs."""
+    root = Path(eq_root).expanduser().resolve(strict=True)
+    if (not root.is_dir() or root.is_symlink() or
+            not (root / "eqgame.exe").is_file()):
+        raise ValueError("Choose the EverQuest folder")
+    exported = []
+    candidates = sorted(
+        (path for path in root.glob("*.ini")
+         if _P99_CHARACTER_RX.search(path.name)),
+        key=lambda path: path.name.casefold())[:128]
+    for path in candidates:
+        try:
+            payload = path.read_bytes()
+            if len(payload) > 4 * 1024 * 1024:
+                continue
+            rows = payload.decode("cp1252").splitlines()
+        except (OSError, UnicodeError):
+            continue
+        start, end = _section_bounds(rows, "Socials")
+        if start is None:
+            continue
+        hot_start, hot_end = _section_bounds(rows, "HotButtons")
+        hotbar_by_reference = {}
+        if hot_start is not None:
+            for row in rows[hot_start + 1:hot_end]:
+                match = _HOTBUTTON_KEY_RX.match(row.strip())
+                if match:
+                    value = match.group("value").split(",", 1)[0].strip().upper()
+                    hotbar_by_reference.setdefault(value, match.group(1))
+        records = {}
+        for row in rows[start + 1:end]:
+            match = re.match(
+                r"^(Page\d+Button\d+)(Name|Line[1-5])\s*=\s*(.*)$",
+                row.strip(), re.IGNORECASE)
+            if not match:
+                continue
+            slot, field, value = match.groups()
+            record = records.setdefault(slot.casefold(), {
+                "slot": slot, "name": "", "commands": {}})
+            if field.casefold() == "name":
+                record["name"] = value.strip()
+            else:
+                record["commands"][int(field[4:])] = value.strip()
+        grouped = {"WTS": [], "WTB": []}
+        preferred = {}
+        for record in records.values():
+            name = record["name"].upper()
+            trade = "WTB" if re.fullmatch(r"(?:VANTAGEWTB|V-WTB)\d*", name) else (
+                "WTS" if re.fullmatch(r"(?:VANTAGEWTS|V-WTS)\d*", name) else "")
+            if not trade:
+                continue
+            grouped[trade].extend(
+                record["commands"][key] for key in sorted(record["commands"])
+                if record["commands"][key])
+            hotbar = hotbar_by_reference.get(_social_reference(record["slot"]))
+            if hotbar and trade not in preferred:
+                preferred[trade] = hotbar
+        for trade, commands in grouped.items():
+            if not commands:
+                continue
+            hotbar = preferred.get(trade, "Page1Button1")
+            match = re.fullmatch(r"Page(\d+)Button(\d+)", hotbar, re.IGNORECASE)
+            exported.append({
+                "filename": path.name,
+                "trade_type": trade,
+                "commands": commands[:45],
+                "hotbar_page": int(match.group(1)) if match else 1,
+                "hotbar_button": int(match.group(2)) if match else 1,
+            })
+    return exported
+
+
+def import_managed_auction_hotbuttons(eq_root, records):
+    """Apply synced managed Socials to matching characters with normal backups."""
+    root = Path(eq_root).expanduser().resolve(strict=True)
+    if (not root.is_dir() or root.is_symlink() or
+            not (root / "eqgame.exe").is_file()):
+        raise ValueError("Choose the EverQuest folder")
+    changed = 0
+    for record in list(records or ())[:256]:
+        if not isinstance(record, dict):
+            continue
+        filename = Path(str(record.get("filename") or "")).name
+        if not _P99_CHARACTER_RX.search(filename):
+            continue
+        target = root / filename
+        if not target.is_file():
+            continue
+        commands = [str(value)[:512] for value in record.get("commands", [])[:45]
+                    if str(value).strip()]
+        if not commands:
+            continue
+        install_auction_hotbuttons(
+            target, commands, record.get("trade_type", "WTS"),
+            record.get("hotbar_page", 1), record.get("hotbar_button", 1))
+        changed += 1
+    return changed
+
+
 def _install_hotbar_references(
         rows, previous_socials, installed_socials, *, preferred_page=1,
         preferred_button=1):

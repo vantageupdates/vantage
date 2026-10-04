@@ -7,9 +7,16 @@ from glob import glob
 import json
 import re
 import tempfile
+from datetime import datetime, timezone
 
 from vantage.helpers.trigger_groups import normalize_trigger_groups
+from vantage.helpers.raid_attendance import sanitize_attendance_alts
 from vantage.helpers.quickbar_items import QUICKBAR_ITEM_KEYS
+from vantage.helpers.timer_sync import sanitize_timer_sync_meta
+from vantage.helpers.timer_keywords import normalize_keyword_rules
+from vantage.helpers.vitals import (
+    MAX_VITAL_BARS, VITALS_DEFAULTS_VERSION, default_vital_bar,
+    sanitize_vital_bars)
 
 data = {}
 _filename = ''
@@ -20,12 +27,27 @@ QUEST_CHECKLIST_MAX_ENTRY_BYTES = 16 * 1024
 QUEST_CHECKLIST_MAX_TOTAL_BYTES = 384 * 1024
 
 
+def valid_utc_timestamp(value):
+    """Recognize the compact ISO-8601 UTC timestamps stored by Vantage."""
+    if not isinstance(value, str) or len(value) > 40 or not value.endswith('Z'):
+        return False
+    try:
+        parsed = datetime.fromisoformat(value[:-1] + '+00:00')
+    except ValueError:
+        return False
+    return (
+        parsed.tzinfo is not None
+        and parsed.utcoffset() == timezone.utc.utcoffset(parsed)
+    )
+
+
 # Reset UI Layout is deliberately constrained to this presentation-only
 # allowlist. Gameplay state, parsed history, profiles, alerts, timers, cached
 # content, and checklist progress must never be inferred as "UI" and erased.
 UI_PRESENTATION_DEFAULTS = {
     ('general', 'startup_window_state'): 'rolled',
-    ('quickbar', 'geometry'): [10, 10, 679, 67],
+    ('general', 'table_column_widths'): {},
+    ('quickbar', 'geometry'): [10, 10, 779, 72],
     ('quickbar', 'toggled'): True,
     ('quickbar', 'auto_hide_menu'): False,
     ('quickbar', 'always_on_top'): True,
@@ -71,6 +93,14 @@ UI_PRESENTATION_DEFAULTS = {
     ('timers', 'frameless'): True,
     ('timers', 'collapsed'): False,
     ('timers', 'compact'): False,
+    ('vitals', 'geometry'): [650, 80, 560, 460],
+    ('vitals', 'toggled'): False,
+    ('vitals', 'opacity'): 94,
+    ('vitals', 'clickthrough'): False,
+    ('vitals', 'auto_hide_menu'): False,
+    ('vitals', 'always_on_top'): True,
+    ('vitals', 'frameless'): True,
+    ('vitals', 'collapsed'): False,
     ('combat', 'geometry'): [620, 380, 520, 300],
     ('combat', 'toggled'): False,
     ('combat', 'opacity'): 94,
@@ -79,6 +109,14 @@ UI_PRESENTATION_DEFAULTS = {
     ('combat', 'always_on_top'): True,
     ('combat', 'frameless'): True,
     ('combat', 'collapsed'): False,
+    ('random_parser', 'geometry'): [650, 410, 430, 300],
+    ('random_parser', 'toggled'): False,
+    ('random_parser', 'opacity'): 94,
+    ('random_parser', 'clickthrough'): False,
+    ('random_parser', 'auto_hide_menu'): False,
+    ('random_parser', 'always_on_top'): True,
+    ('random_parser', 'frameless'): True,
+    ('random_parser', 'collapsed'): False,
     ('heals', 'geometry'): [560, 700, 520, 220],
     ('heals', 'toggled'): False,
     ('heals', 'opacity'): 94,
@@ -122,6 +160,22 @@ UI_PRESENTATION_DEFAULTS = {
     ('quests', 'frameless'): True,
     ('quests', 'collapsed'): False,
     ('quests', 'checklist', 'geometry'): [80, 80, 380, 480],
+    ('items_notes', 'geometry'): [240, 140, 900, 570],
+    ('items_notes', 'toggled'): False,
+    ('items_notes', 'opacity'): 100,
+    ('items_notes', 'clickthrough'): False,
+    ('items_notes', 'auto_hide_menu'): False,
+    ('items_notes', 'always_on_top'): False,
+    ('items_notes', 'frameless'): True,
+    ('items_notes', 'collapsed'): False,
+    ('log_searcher', 'geometry'): [220, 120, 960, 560],
+    ('log_searcher', 'toggled'): False,
+    ('log_searcher', 'opacity'): 100,
+    ('log_searcher', 'clickthrough'): False,
+    ('log_searcher', 'auto_hide_menu'): False,
+    ('log_searcher', 'always_on_top'): False,
+    ('log_searcher', 'frameless'): True,
+    ('log_searcher', 'collapsed'): False,
     ('vantage_ui', 'geometry'): [250, 150, 700, 540],
     ('vantage_ui', 'toggled'): False,
     ('vantage_ui', 'opacity'): 100,
@@ -238,7 +292,7 @@ def _normalize_quest_checklist_steps(value):
         total_bytes += size
     return normalized
 
-BASIC_ALERTS_VERSION = 2
+BASIC_ALERTS_VERSION = 5
 BASIC_ALERTS = (
     ["Invisibility Fading", "You feel yourself starting to appear*", "00:00:00", "",
      "builtin:danger-double", "INVISIBILITY FADING", True, False, "Vantage · Basics"],
@@ -265,6 +319,66 @@ BASIC_ALERTS = (
      "builtin:danger-double", "MOB ENRAGED", True, False, "Vantage · Basics"],
     ["Critical hit", "{c} scores a critical hit!", "00:00:00", "",
      "builtin:warden-bell", "CRITICAL HIT", False, False, "Vantage · Basics"],
+    # Positional fields after source mirror CustomTrigger.to_list(). Keeping
+    # them at the tail preserves old trigger rows while giving this predefined
+    # P99 alert the common Sound/WAV, TTS, Off, voice, volume, pitch, and Test UI.
+    ["Mob is casting", "{mob} begins to cast a spell.", "00:00:00", "",
+     "builtin:warden-bell", "{mob} is casting", True, False,
+     "Vantage · Basics", "Vantage · Basics", "alerts", "restart", "", "",
+     "Classic P99 external cast-start line; ambiguous player-like names are ignored.",
+     "none", 0, 0, "", "", "", "", 0, "", [],
+     "{mob} is casting", False, "", False, "", False, "", "", False,
+     "sound", "", 85, 0, "off", "", 100, 0, "off", "", 100, 0,
+     "external_npc_cast", 2.0],
+    ["Insufficient mana", r"^Insufficient Mana to cast this spell[!.]$",
+     "00:00:00", "", "builtin:soft-tick", "Insufficient mana", True, True,
+     "Vantage · Basics", "Vantage · Basics", "alerts", "restart", "", "",
+     "Classic P99 client insufficient-mana system line.",
+     "none", 0, 0, "", "", "", "", 0, "", [],
+     "Insufficient mana", False, "", False, "", False, "", "", False,
+     "sound", "", 85, 0, "off", "", 100, 0, "off", "", 100, 0,
+     "", 0.75],
+    ["Target too far", r"^Your target is too far away, get closer!$",
+     "00:00:00", "", "builtin:soft-tick", "Target too far", True, True,
+     "Vantage · Basics", "Vantage · Basics", "alerts", "restart", "", "",
+     "Exact classic P99 spell range failure line.",
+     "none", 0, 0, "", "", "", "", 0, "", [],
+     "Target too far", False, "", False, "", False, "", "", False,
+     "sound", "", 85, 0, "off", "", 100, 0, "off", "", 100, 0,
+     "", 1.0],
+    ["Target out of range", r"^Your target is out of range, get closer!$",
+     "00:00:00", "", "builtin:soft-tick", "Target out of range", True, True,
+     "Vantage · Basics", "Vantage · Basics", "alerts", "restart", "", "",
+     "Exact classic P99 spell range failure line.",
+     "none", 0, 0, "", "", "", "", 0, "", [],
+     "Target out of range", False, "", False, "", False, "", "", False,
+     "sound", "", 85, 0, "off", "", 100, 0, "off", "", 100, 0,
+     "", 1.0],
+    ["Cannot see target", r"^You can't see your target from here\.$",
+     "00:00:00", "", "builtin:soft-tick", "Cannot see target", True, True,
+     "Vantage · Basics", "Vantage · Basics", "alerts", "restart", "", "",
+     "Exact classic P99 line-of-sight failure line.",
+     "none", 0, 0, "", "", "", "", 0, "", [],
+     "Cannot see target", False, "", False, "", False, "", "", False,
+     "sound", "", 85, 0, "off", "", 100, 0, "off", "", 100, 0,
+     "", 1.0],
+    ["No target selected",
+     r"^You must first select a target for this spell!$",
+     "00:00:00", "", "builtin:soft-tick", "No target selected", True, True,
+     "Vantage · Basics", "Vantage · Basics", "alerts", "restart", "", "",
+     "Exact classic P99 missing-target spell failure line.",
+     "none", 0, 0, "", "", "", "", 0, "", [],
+     "No target selected", False, "", False, "", False, "", "", False,
+     "sound", "", 85, 0, "off", "", 100, 0, "off", "", 100, 0,
+     "", 1.0],
+    ["Spell not recovered", r"^You haven't recovered yet\.\.\.$",
+     "00:00:00", "", "builtin:soft-tick", "Spell not recovered", True, True,
+     "Vantage · Basics", "Vantage · Basics", "alerts", "restart", "", "",
+     "Exact classic P99 spell-recovery failure line.",
+     "none", 0, 0, "", "", "", "", 0, "", [],
+     "Spell not recovered", False, "", False, "", False, "", "", False,
+     "sound", "", 85, 0, "off", "", 100, 0, "off", "", 100, 0,
+     "", 1.0],
 )
 
 
@@ -484,6 +598,22 @@ def verify_settings():
     # verify vantage.config.json contains what it should and
     # set defaults if appropriate
 
+    # Versioned legal acceptance contains no external account or profile data.
+    legal = data.get('legal', {})
+    if not isinstance(legal, dict):
+        legal = {}
+    terms_version = legal.get('terms_version', '')
+    if (not isinstance(terms_version, str) or
+            not re.fullmatch(r'\d{4}-\d{2}-\d{2}\.[1-9]\d*', terms_version)):
+        terms_version = ''
+    accepted_at = legal.get('accepted_at', '')
+    if not valid_utc_timestamp(accepted_at):
+        accepted_at = ''
+    data['legal'] = {
+        'terms_version': terms_version,
+        'accepted_at': accepted_at,
+    }
+
     # general
     data['general'] = data.get('general', {})
     data['general']['eq_log_dir'] = get_setting(
@@ -504,6 +634,8 @@ def verify_settings():
         data['general']['update_system_version'] = 1
     data['general']['update_check'] = get_setting(
         data['general'].get('update_check', True), True)
+    data['general']['auto_install_updates'] = get_setting(
+        data['general'].get('auto_install_updates', False), False)
     try:
         data['general']['last_update_check'] = max(
             0.0, float(data['general'].get('last_update_check', 0.0)))
@@ -536,6 +668,21 @@ def verify_settings():
             'top_left', 'top_center', 'top_right',
             'bottom_left', 'bottom_center', 'bottom_right')
     )
+    raw_table_widths = data['general'].get('table_column_widths', {})
+    raw_table_widths = (
+        raw_table_widths if isinstance(raw_table_widths, dict) else {})
+    table_widths = {}
+    for raw_key, raw_widths in raw_table_widths.items():
+        key = str(raw_key or '').strip()[:192]
+        if (not key or not isinstance(raw_widths, list) or
+                not 1 <= len(raw_widths) <= 64):
+            continue
+        table_widths[key] = [
+            _bounded_int(width, 80, 28, 2400)
+            for width in raw_widths]
+        if len(table_widths) >= 256:
+            break
+    data['general']['table_column_widths'] = table_widths
 
     # Central notification routes. The immutable catalog is shared by the
     # dispatcher, settings UI, and tests so a sound can never lose its text
@@ -543,6 +690,11 @@ def verify_settings():
     from vantage.helpers.notification_routes import (
         NOTIFICATION_ROUTES, normalized_route_settings)
     data['sounds'] = data.get('sounds', {})
+    if not isinstance(data['sounds'], dict):
+        data['sounds'] = {}
+    data['sounds']['starting_delivery'] = get_setting(
+        data['sounds'].get('starting_delivery', 'sound'), 'sound',
+        lambda value: value in ('sound', 'voice'))
     route_values = data['sounds'].get('routes', {})
     route_values = route_values if isinstance(route_values, dict) else {}
     legacy_keys = {
@@ -577,8 +729,8 @@ def verify_settings():
     # interactive and never creates another normal Windows taskbar entry.
     data['quickbar'] = data.get('quickbar', {})
     data['quickbar']['geometry'] = get_setting(
-        data['quickbar'].get('geometry', [10, 10, 679, 67]),
-        [10, 10, 679, 67],
+        data['quickbar'].get('geometry', [10, 10, 779, 72]),
+        [10, 10, 779, 72],
         lambda value: isinstance(value, list) and len(value) == 4)
     for key, default in (
             ('toggled', True), ('auto_hide_menu', False),
@@ -611,6 +763,13 @@ def verify_settings():
     if support_visibility_version < 1:
         data['quickbar']['show_support'] = True
     data['quickbar']['support_visibility_version'] = 1
+    # Repair profiles created while the independent Zones button could remain
+    # hidden. This is one-time; later user visibility choices are preserved.
+    zones_visibility_version = _bounded_int(
+        data['quickbar'].get('zones_visibility_version', 0), 0, 0, 1)
+    if zones_visibility_version < 1:
+        data['quickbar']['show_zones'] = True
+    data['quickbar']['zones_visibility_version'] = 1
     if 'notification_overlays' in data['general']:
         data['general']['notification_overlays'] = \
             normalize_notification_overlays(
@@ -762,12 +921,34 @@ def verify_settings():
             for item in custom_timers):
         custom_timers = []
     for item in custom_timers:
+        # Trigger rows predate the structured editor and may have travelled
+        # through JSON/import tools that stored checkbox values as text.  A
+        # plain ``bool("false")`` turns that explicit Off choice back on.
+        # Normalize the positional enabled field before any catalog merge so
+        # false remains false through save, reload, and UI reconstruction.
+        if len(item) > 6:
+            enabled = item[6]
+            if type(enabled) is not bool:
+                folded = str(enabled or '').strip().casefold()
+                if folded in {'false', '0', 'off', 'no'}:
+                    enabled = False
+                elif folded in {'true', '1', 'on', 'yes'}:
+                    enabled = True
+                else:
+                    enabled = True
+            item[6] = enabled
         if len(item) > 8 and item[8] in (
                 "Vantage · Básicos", "Vantage · Basics"):
             translated = next(
                 (basic for basic in BASIC_ALERTS if basic[1] == item[1]),
                 None)
-            if translated:
+            # Same-name rows are user-editable built-ins. Preserve every field
+            # during catalog migrations; only translate an older differently
+            # named stock row that is still identified by its pattern.
+            preserve_named_custom = (
+                translated and
+                item[0].casefold() == translated[0].casefold())
+            if translated and not preserve_named_custom:
                 item[0] = translated[0]
                 item[5] = translated[5]
                 item[8] = translated[8]
@@ -858,13 +1039,15 @@ def verify_settings():
     data['spells']['fade_sound_enabled'] = get_setting(
         data['spells'].get('fade_sound_enabled', True), True)
     data['spells']['sounds_when_hidden'] = get_setting(
-        data['spells'].get('sounds_when_hidden', False), False)
+        data['spells'].get('sounds_when_hidden', True), True)
     warning_seconds = data['spells'].get('fade_warning_seconds', 40)
     if warning_seconds == 30:
         warning_seconds = 40  # migrate the former default
     data['spells']['fade_warning_seconds'] = get_setting(
         warning_seconds, 40,
         lambda x: 0 <= x <= 600)
+    data['spells']['fade_voice_warning_seconds'] = _bounded_int(
+        data['spells'].get('fade_voice_warning_seconds', 5), 5, 1, 600)
     data['spells']['fade_sound_volume'] = get_setting(
         data['spells'].get('fade_sound_volume', 80), 80,
         lambda x: 0 <= x <= 100)
@@ -921,6 +1104,8 @@ def verify_settings():
     data['spells']['active_timer_state'] = get_setting(
         data['spells'].get('active_timer_state', []), [],
         lambda value: isinstance(value, list))[:512]
+    data['spells']['active_timer_sync'] = sanitize_timer_sync_meta(
+        data['spells'].get('active_timer_sync', {}))
     data['spells']['active_character_key'] = get_setting(
         data['spells'].get('active_character_key', ''), '',
         lambda value: isinstance(value, str))[:160]
@@ -981,6 +1166,74 @@ def verify_settings():
     data['timers']['view_zone'] = get_setting(
         data['timers'].get('view_zone', ''), '',
         lambda value: isinstance(value, str))
+    raw_timer_watches = data['timers'].get('watch_timer_ids', [])
+    if not isinstance(raw_timer_watches, list):
+        raw_timer_watches = []
+    timer_watches = []
+    seen_timer_watches = set()
+    for raw_timer_id in raw_timer_watches[:128]:
+        timer_id = str(raw_timer_id or '').strip()[:96]
+        if not timer_id or timer_id in seen_timer_watches:
+            continue
+        seen_timer_watches.add(timer_id)
+        timer_watches.append(timer_id)
+        if len(timer_watches) >= 64:
+            break
+    data['timers']['watch_timer_ids'] = timer_watches
+    data['timers']['keyword_rules'] = normalize_keyword_rules(
+        data['timers'].get('keyword_rules', []))
+    raw_timer_instances = data['timers'].get('instances', [])
+    if not isinstance(raw_timer_instances, list):
+        raw_timer_instances = []
+    timer_instances = []
+    seen_timer_instances = set()
+    for raw_instance in raw_timer_instances[:16]:
+        raw_id = (
+            raw_instance.get('id') if isinstance(raw_instance, dict)
+            else raw_instance)
+        instance_id = str(raw_id or '').strip().lower()
+        if (not re.fullmatch(r'[a-z0-9]{6,24}', instance_id)
+                or instance_id in seen_timer_instances):
+            continue
+        seen_timer_instances.add(instance_id)
+        timer_instances.append({'id': instance_id})
+        section_key = f'timer_view_{instance_id}'
+        section = data.get(section_key, {})
+        if not isinstance(section, dict):
+            section = {}
+        section['geometry'] = get_setting(
+            section.get('geometry', [650, 30, 520, 360]),
+            [650, 30, 520, 360],
+            lambda value: isinstance(value, list) and len(value) == 4)
+        for key, default in (
+                ('toggled', True), ('clickthrough', False),
+                ('auto_hide_menu', False), ('always_on_top', True),
+                ('frameless', True), ('collapsed', False),
+                ('compact', False)):
+            section[key] = get_setting(section.get(key, default), default)
+        section['opacity'] = get_setting(
+            section.get('opacity', 92), 92,
+            lambda value: isinstance(value, (int, float)) and
+            not isinstance(value, bool) and 25 <= value <= 100)
+        section['view_zone'] = get_setting(
+            section.get('view_zone', ''), '',
+            lambda value: isinstance(value, str))[:160]
+        raw_watches = section.get('watch_timer_ids', [])
+        if not isinstance(raw_watches, list):
+            raw_watches = []
+        watches = []
+        seen_watches = set()
+        for raw_timer_id in raw_watches[:128]:
+            timer_id = str(raw_timer_id or '').strip()[:96]
+            if not timer_id or timer_id in seen_watches:
+                continue
+            seen_watches.add(timer_id)
+            watches.append(timer_id)
+            if len(watches) >= 64:
+                break
+        section['watch_timer_ids'] = watches
+        data[section_key] = section
+    data['timers']['instances'] = timer_instances
     data['timers']['seen_share_ids'] = get_setting(
         data['timers'].get('seen_share_ids', []), [],
         lambda value: isinstance(value, list))
@@ -1005,6 +1258,47 @@ def verify_settings():
         data['timers'].get('death_loop_deaths', 4), 4, 2, 20)
     data['timers']['death_loop_seconds'] = _bounded_int(
         data['timers'].get('death_loop_seconds', 120), 120, 30, 600)
+
+    # Read-only pixel Vitals Monitor. Runtime readings and crossing state are
+    # intentionally not persisted; only calibration and notification rules
+    # survive restarts.
+    raw_vitals = data.get('vitals', {})
+    data['vitals'] = raw_vitals if isinstance(raw_vitals, dict) else {}
+    data['vitals']['geometry'] = get_setting(
+        data['vitals'].get('geometry', [650, 80, 560, 460]),
+        [650, 80, 560, 460],
+        lambda value: isinstance(value, list) and len(value) == 4 and
+        all(isinstance(item, int) and not isinstance(item, bool)
+            for item in value))
+    for key, default in (
+            ('toggled', False), ('clickthrough', False),
+            ('auto_hide_menu', False), ('always_on_top', True),
+            ('frameless', True), ('collapsed', False),
+            ('sounds_when_hidden', True)):
+        data['vitals'][key] = get_setting(
+            data['vitals'].get(key, default), default,
+            lambda value: isinstance(value, bool))
+    data['vitals']['opacity'] = _bounded_int(
+        data['vitals'].get('opacity', 94), 94, 25, 100)
+    data['vitals']['poll_ms'] = _bounded_int(
+        data['vitals'].get('poll_ms', 500), 500, 200, 5000)
+    raw_vital_bars = data['vitals'].get('bars')
+    data['vitals']['bars'] = sanitize_vital_bars(raw_vital_bars)
+    try:
+        vital_defaults_version = int(
+            data['vitals'].get('defaults_version', 0))
+    except (TypeError, ValueError):
+        vital_defaults_version = 0
+    # The target bar was added after the original three defaults. Seed it once
+    # for existing profiles, then remember the migration so an intentional
+    # later removal stays removed.
+    if (vital_defaults_version < VITALS_DEFAULTS_VERSION and
+            not any(bar['type'] == 'target_hp'
+                    for bar in data['vitals']['bars']) and
+            len(data['vitals']['bars']) < MAX_VITAL_BARS):
+        data['vitals']['bars'].append(default_vital_bar(
+            'target-hp', 'Target / Mob HP', 'target_hp'))
+    data['vitals']['defaults_version'] = VITALS_DEFAULTS_VERSION
 
     # Multi-view combat parser workspace.
     data['combat'] = data.get('combat', {})
@@ -1033,6 +1327,28 @@ def verify_settings():
             'all', 'clear', 900, 1800, 3600, 7200, 14400, 28800, 86400}:
         chat_time_filter = 'all'
     data['combat']['chat_time_filter'] = chat_time_filter
+
+    # Standalone zero-based EQ /random scoreboard.
+    data['random_parser'] = data.get('random_parser', {})
+    if not isinstance(data['random_parser'], dict):
+        data['random_parser'] = {}
+    data['random_parser']['geometry'] = get_setting(
+        data['random_parser'].get('geometry', [650, 410, 430, 300]),
+        [650, 410, 430, 300],
+        lambda value: (
+            isinstance(value, list) and len(value) == 4 and
+            all(isinstance(item, int) for item in value) and
+            value[2] > 0 and value[3] > 0))
+    for key, default in (
+            ('toggled', False), ('clickthrough', False),
+            ('auto_hide_menu', False), ('always_on_top', True),
+            ('frameless', True), ('collapsed', False)):
+        data['random_parser'][key] = get_setting(
+            data['random_parser'].get(key, default), default)
+    data['random_parser']['clickthrough'] = False
+    data['random_parser']['opacity'] = get_setting(
+        data['random_parser'].get('opacity', 94), 94,
+        lambda value: 25 <= value <= 100)
     export_defaults = {
         'output_channel': '', 'separator': ' | ', 'top_players': 10,
         'show_opponent': True, 'show_damage': True,
@@ -1247,6 +1563,18 @@ def verify_settings():
     data['opendkp']['opacity'] = get_setting(
         data['opendkp'].get('opacity', 100), 100,
         lambda value: 40 <= value <= 100)
+    raw_tick_phrases = data['opendkp'].get(
+        'raid_tick_phrases', ['RAID TICK'])
+    if not isinstance(raw_tick_phrases, list):
+        raw_tick_phrases = []
+    tick_phrases = []
+    for raw_phrase in raw_tick_phrases:
+        phrase = ' '.join(str(raw_phrase or '').split())[:96]
+        if (phrase and phrase.casefold() not in {
+                value.casefold() for value in tick_phrases}):
+            tick_phrases.append(phrase)
+    data['opendkp']['raid_tick_phrases'] = (
+        tick_phrases[:16] or ['RAID TICK'])
     raw_profiles = data['opendkp'].get('guilds', [])
     raw_profiles = raw_profiles if isinstance(raw_profiles, list) else []
     guilds = []
@@ -1278,6 +1606,8 @@ def verify_settings():
             'username': ' '.join(str(
                 raw_profile.get('username') or '').split())[:160],
             'watch_items': watches[:64],
+            'attendance_alts': sanitize_attendance_alts(raw_profile.get('attendance_alts', [])),
+            'attendance_include_alts': bool(raw_profile.get('attendance_include_alts', True)),
         })
     data['opendkp']['guilds'] = guilds[:12]
     active_guild = str(
@@ -1339,6 +1669,7 @@ def verify_settings():
         'items': (320, 240),
         'mobs': (220, 65, 90, 105, 280, 180),
         'nameds': (220, 65, 90, 105, 280, 180),
+        'all_mobs': (220, 65, 90, 105, 280, 220),
     }
     # Validate each table independently. A damaged width list for one tab must
     # never discard the user's valid layout for either of the other tabs.
@@ -1391,6 +1722,50 @@ def verify_settings():
                        value[2] > 0 and value[3] > 0))
     data['quests']['checklist'] = checklist
 
+    # Item snapshots and notes live in their own atomic profile file. Only
+    # presentation belongs in the shared settings document.
+    data['items_notes'] = data.get('items_notes', {})
+    if not isinstance(data['items_notes'], dict):
+        data['items_notes'] = {}
+    data['items_notes']['geometry'] = get_setting(
+        data['items_notes'].get('geometry', [240, 140, 900, 570]),
+        [240, 140, 900, 570],
+        lambda value: (isinstance(value, list) and len(value) == 4 and
+                       all(isinstance(item, int) for item in value) and
+                       value[2] > 0 and value[3] > 0))
+    for key, default in (
+            ('toggled', False), ('clickthrough', False),
+            ('auto_hide_menu', False), ('always_on_top', False),
+            ('frameless', True)):
+        data['items_notes'][key] = get_setting(
+            data['items_notes'].get(key, default), default)
+    data['items_notes']['clickthrough'] = False
+    data['items_notes']['opacity'] = get_setting(
+        data['items_notes'].get('opacity', 100), 100,
+        lambda value: 40 <= value <= 100)
+
+    # Local cached search across every linked EQ log. The SQLite cache itself
+    # is machine-local; only this window's presentation can enter Device Sync.
+    data['log_searcher'] = data.get('log_searcher', {})
+    if not isinstance(data['log_searcher'], dict):
+        data['log_searcher'] = {}
+    data['log_searcher']['geometry'] = get_setting(
+        data['log_searcher'].get('geometry', [220, 120, 960, 560]),
+        [220, 120, 960, 560],
+        lambda value: (isinstance(value, list) and len(value) == 4 and
+                       all(isinstance(item, int) for item in value) and
+                       value[2] > 0 and value[3] > 0))
+    for key, default in (
+            ('toggled', False), ('clickthrough', False),
+            ('auto_hide_menu', False), ('always_on_top', False),
+            ('frameless', True)):
+        data['log_searcher'][key] = get_setting(
+            data['log_searcher'].get(key, default), default)
+    data['log_searcher']['clickthrough'] = False
+    data['log_searcher']['opacity'] = get_setting(
+        data['log_searcher'].get('opacity', 100), 100,
+        lambda value: 40 <= value <= 100)
+
     # Optional VantageUI management. The user-selected EQ root and opt-in
     # automatic update preference are content, not presentation reset state.
     data['vantage_ui'] = data.get('vantage_ui', {})
@@ -1418,9 +1793,33 @@ def verify_settings():
         r'C:\Program Files (x86)\Sony\EverQuest')
     data['vantage_ui']['auto_update'] = get_setting(
         data['vantage_ui'].get('auto_update', False), False)
+    data['vantage_ui']['auto_apply_profiles'] = get_setting(
+        data['vantage_ui'].get('auto_apply_profiles', True), True)
+    data['vantage_ui']['layout_source'] = get_setting(
+        data['vantage_ui'].get('layout_source', ''), '',
+        lambda value: len(value) <= 240 and
+        (not value or (value.startswith('UI_') and value.endswith('.ini') and
+                       '/' not in value and '\\' not in value)))
+    pending_profile_sync = data['vantage_ui'].get('pending_profile_sync', {})
+    if not isinstance(pending_profile_sync, dict):
+        pending_profile_sync = {}
+    pending_root = str(pending_profile_sync.get('eq_root') or '')
+    pending_skin = str(pending_profile_sync.get('skin_folder') or '')
+    if (not pending_root or
+            not re.fullmatch(r'VantageUI-v\d+\.\d+\.\d+', pending_skin)):
+        pending_profile_sync = {}
+    else:
+        pending_profile_sync = {
+            'eq_root': pending_root, 'skin_folder': pending_skin}
+    data['vantage_ui']['pending_profile_sync'] = pending_profile_sync
 
-    # Local, read-only EverQuest view. Enabling is intentionally per-session.
+    # Private mobile companion and local, read-only EverQuest view.  The LAN
+    # credential is deliberately persisted so an installed Home Screen app can
+    # reconnect.  host_id is a separate, non-secret mDNS identity and must
+    # never be accepted as a pairing credential.
     data['mobile'] = data.get('mobile', {})
+    if not isinstance(data['mobile'], dict):
+        data['mobile'] = {}
     data['mobile']['eq_executable'] = get_setting(
         data['mobile'].get('eq_executable', ''), '')
     data['mobile']['game_fps'] = get_setting(
@@ -1429,6 +1828,45 @@ def verify_settings():
     data['mobile']['game_image_quality'] = get_setting(
         data['mobile'].get('game_image_quality', 'hd'), 'hd',
         lambda x: x in ('efficient', 'hd', 'native'))
+    data['mobile']['game_enabled'] = get_setting(
+        data['mobile'].get('game_enabled', True), True)
+    data['mobile']['auto_start'] = get_setting(
+        data['mobile'].get('auto_start', False), False)
+    mobile_token = str(data['mobile'].get('lan_token') or '')
+    data['mobile']['lan_token'] = (
+        mobile_token if re.fullmatch(r'[A-Za-z0-9_-]{43}', mobile_token)
+        else '')
+    mobile_host_id = str(data['mobile'].get('host_id') or '')
+    data['mobile']['host_id'] = (
+        mobile_host_id if re.fullmatch(r'[a-f0-9]{10}', mobile_host_id)
+        else '')
+    data['mobile']['preferred_port'] = get_setting(
+        data['mobile'].get('preferred_port', 8765), 8765,
+        lambda value: 1024 <= value <= 65535)
+
+    # Account-free multi-PC sync. Device identity, group key and transport API
+    # stay local; only Vantage's allowlisted snapshot enters the shared folder.
+    data['device_sync'] = data.get('device_sync', {})
+    if not isinstance(data['device_sync'], dict):
+        data['device_sync'] = {}
+    for key, default in (
+            ('enabled', False), ('sync_settings', True),
+            ('sync_layout', True), ('sync_timers', True),
+            ('sync_active_spells', True),
+            ('sync_items_notes', True),
+            ('sync_hotbuttons', True)):
+        data['device_sync'][key] = get_setting(
+            data['device_sync'].get(key, default), default)
+    device_name = ' '.join(str(
+        data['device_sync'].get('device_name') or '').split())[:80]
+    data['device_sync']['device_name'] = device_name
+    group_id = str(data['device_sync'].get('group_id') or '').lower()
+    data['device_sync']['group_id'] = (
+        group_id if re.fullmatch(r'[a-f0-9]{24}', group_id) else '')
+    group_secret = str(data['device_sync'].get('group_secret') or '')
+    data['device_sync']['group_secret'] = (
+        group_secret if re.fullmatch(
+            r'[A-Za-z0-9_-]{43}', group_secret) else '')
 
     # Do not keep obsolete integration configuration in new saves.
     data.pop('discord', None)

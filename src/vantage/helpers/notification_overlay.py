@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QMessageBox, QPushButton, QSizePolicy, QVBoxLayout, QWidget)
 
 from vantage.helpers import config
+from vantage.helpers.parser import ScreenGeometryWatcher
 
 
 POSITIONS = (
@@ -141,14 +142,27 @@ class OverlayMessageRow(QFrame):
         headline.setSpacing(3)
         self.title = QLabel(str(entry.get("title") or "Vantage"))
         self.title.setObjectName("NotificationOverlayTitle")
+        self.title.setTextFormat(Qt.TextFormat.PlainText)
+        self.title.setWordWrap(True)
+        self.title.setMinimumWidth(0)
+        self.title.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.title.setToolTip(self.title.text())
         headline.addWidget(self.title, 1)
         self.remaining = QLabel()
         self.remaining.setObjectName("NotificationOverlayRemaining")
+        self.remaining.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
         headline.addWidget(self.remaining)
         layout.addLayout(headline)
         self.message = QLabel(str(entry.get("message") or ""))
         self.message.setObjectName("NotificationOverlayMessage")
+        self.message.setTextFormat(Qt.TextFormat.PlainText)
         self.message.setWordWrap(True)
+        self.message.setMinimumWidth(0)
+        self.message.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.message.setToolTip(self.message.text())
         self.message.setVisible(bool(self.message.text().strip()))
         font_size = max(7, min(32, int(settings.get("font_size", 10))))
         font_weight = {
@@ -306,6 +320,8 @@ class NotificationOverlay(QWidget):
         self._expiry_timer.setInterval(500)
         self._expiry_timer.timeout.connect(self._expire_entries)
         self._apply_window_mode(False)
+        self._screen_geometry_watcher = ScreenGeometryWatcher(
+            self, self._recover_screen_geometry)
         self._restore_geometry()
         self._apply_appearance()
 
@@ -844,6 +860,13 @@ class NotificationOverlay(QWidget):
         x = min(max(self.x(), area.left()), area.right() - width + 1)
         y = min(max(self.y(), area.top()), area.bottom() - height + 1)
         self.setGeometry(x, y, width, height)
+
+    def _recover_screen_geometry(self):
+        # A monitor change must not fight an in-progress arrangement gesture.
+        if self._drag_offset is not None or self._resize_state is not None:
+            self._screen_geometry_watcher.defer()
+            return
+        self._keep_on_a_screen()
 
 
 class NotificationOverlayManager:

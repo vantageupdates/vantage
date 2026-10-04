@@ -5,10 +5,13 @@ from PySide6.QtWidgets import QApplication, QSpinBox
 import vantage.parsers.market as market_module
 from vantage.parsers.market import (
     AuctionComposer, AuctionEntry, AuctionQuantity, GearItem, P99_CHAT_LIMIT,
-    P99_ITEM_LINK_DELIMITER, compose_auction_lines, normalize_auction_price,
+    P99_ITEM_LINK_DELIMITER, compose_auction_lines, compose_discord_auction,
+    normalize_auction_price,
     install_auction_hotbuttons, p99_item_link)
 from vantage.helpers import config
 from vantage.helpers.eq_clipboard import clipboard_payloads
+from vantage.helpers.auction_hotbutton import (
+    export_managed_auction_hotbuttons, import_managed_auction_hotbuttons)
 
 
 def _app():
@@ -76,6 +79,35 @@ def test_wtb_messages_are_plain_text_even_with_valid_item_ids():
     assert P99_ITEM_LINK_DELIMITER not in lines[0]
 
 
+def test_discord_wts_and_wtb_are_vertical_linked_markdown():
+    entries = [
+        AuctionEntry(1, "Tolan's Darkwood Breastplate", "25k"),
+        AuctionEntry(2, "Robe of the Grove", "10,000 pp", 2),
+    ]
+
+    wts = compose_discord_auction(entries, "WTS")
+    wtb = compose_discord_auction(entries, "WTB")
+
+    assert wts == [
+        "WTS\n"
+        "[Tolan's Darkwood Breastplate](https://wiki.project1999.com/"
+        "Tolan%27s_Darkwood_Breastplate) — 25k\n"
+        "[Robe of the Grove](https://wiki.project1999.com/Robe_of_the_Grove)"
+        " — 2x · 10000p"]
+    assert wtb[0].startswith("WTB\n")
+    assert "https://wiki.project1999.com/" in wtb[0]
+
+
+def test_discord_messages_pack_into_numbered_copy_sized_blocks():
+    entries = [AuctionEntry(index, f"Long Auction Item {index}", "12345p")
+               for index in range(20)]
+    messages = compose_discord_auction(entries, max_length=350)
+
+    assert len(messages) > 1
+    assert all(message.startswith("WTS\n") for message in messages)
+    assert all(len(message) <= 350 for message in messages)
+
+
 def test_composer_copies_plain_wts_and_builds_linked_hotbutton_without_inventory():
     app = _app()
     composer = AuctionComposer(lambda name: 80000 if name == "Manastone" else 0)
@@ -96,11 +128,16 @@ def test_composer_copies_plain_wts_and_builds_linked_hotbutton_without_inventory
     assert copied == "WTS Manastone 80000p PST"
     assert P99_ITEM_LINK_DELIMITER not in copied
 
+    assert composer.copy_discord_next()
+    assert app.clipboard().text().startswith(
+        "WTS\n[Manastone](https://wiki.project1999.com/Manastone)")
+
     composer.trade_type.setCurrentIndex(1)
     assert composer.copy_next()
     copied = app.clipboard().text()
     assert copied == "WTB Manastone 80000p PST"
     assert P99_ITEM_LINK_DELIMITER not in copied
+    assert composer.discord_copy_button.text().startswith("Copy Discord WTB")
     composer.close()
 
 
@@ -313,6 +350,44 @@ def test_reinstall_reuses_vantage_hotbar_without_duplicates(tmp_path):
     assert installed.count("Name=V-WTS1") == 1
     assert "WTS Second Item 20p PST" in installed
     assert "WTS First Item 10p PST" not in installed
+
+
+def test_device_sync_exports_only_managed_socials_and_restores_matching_toon(
+        tmp_path):
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    target.mkdir()
+    (source / "eqgame.exe").write_bytes(b"MZ")
+    (target / "eqgame.exe").write_bytes(b"MZ")
+    source_ini = source / "Etsy_P1999Green.ini"
+    target_ini = target / "Etsy_P1999Green.ini"
+    source_ini.write_text(
+        "[HotButtons]\nPage1Button9=B0\n\n[Socials]\n"
+        "Page2Button9Name=KeepMe\nPage2Button9Line1=/loc\n",
+        encoding="cp1252")
+    target_ini.write_text(
+        "[HotButtons]\nPage1Button9=B0\n\n[Socials]\n"
+        "Page2Button9Name=DifferentLocalSocial\nPage2Button9Line1=/who\n",
+        encoding="cp1252")
+    install_auction_hotbuttons(
+        source_ini, ["WTS Manastone 80k PST"], "WTS", 2, 3)
+    install_auction_hotbuttons(
+        source_ini, ["WTB JBoots MQ PST"], "WTB", 2, 4)
+
+    records = export_managed_auction_hotbuttons(source)
+    assert {(record["trade_type"], record["hotbar_page"],
+             record["hotbar_button"]) for record in records} == {
+                 ("WTS", 2, 3), ("WTB", 2, 4)}
+    assert all("KeepMe" not in str(record) for record in records)
+
+    assert import_managed_auction_hotbuttons(target, records) == 2
+    installed = target_ini.read_text(encoding="cp1252")
+    assert "DifferentLocalSocial" in installed
+    assert "/auction WTS Manastone 80k PST" in installed
+    assert "/auction WTB JBoots MQ PST" in installed
+    assert "Page2Button3=" in installed
+    assert "Page2Button4=" in installed
 
 
 def test_advanced_templates_are_hidden_until_requested():

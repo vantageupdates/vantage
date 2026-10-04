@@ -6,10 +6,11 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from vantage.parsers.market import (
-    GearItem, MarketModel, WikiItemCard, combined_market_price,
+    GearItem, MarketModel, WikiEntityCard, WikiItemCard,
+    bundled_effect_entity_data, combined_market_price,
     parse_wiki_entity_wikitext,
     parse_wiki_auction_html, parse_wiki_green_auction_html,
-    parse_wiki_item_wikitext)
+    parse_wiki_item_wikitext, wiki_item_stats_html)
 
 
 WIKI_ITEM = """
@@ -65,6 +66,47 @@ def test_wiki_itembox_is_converted_to_native_card_data():
         "zone_url": "https://wiki.project1999.com/Old_Sebilis",
         "zone_target": "Old Sebilis",
     }]
+    assert item["effects"] == [{
+        "name": "Fungal Regrowth", "target": "Fungal Regrowth"}]
+
+
+def test_wiki_itembox_exposes_weapon_damage_and_delay_for_mobile_card():
+    item = parse_wiki_item_wikitext("""{{Itembox
+| itemname = Wurmslayer
+| statsblock = MAGIC ITEM LORE ITEM<br>Slot: PRIMARY<br>
+Skill: 1H Slashing Atk Delay: 40<br>DMG: 25<br>AC: 5
+}}""")
+
+    assert item["numeric_stats"] == {"dmg": 25, "dly": 40, "ac": 5}
+
+
+def test_plain_item_effect_name_becomes_internal_link_not_its_requirements():
+    item = parse_wiki_item_wikitext("""{{Itembox
+|itemname = Grim Aura item
+|statsblock =
+Slot: EAR<br>
+Effect: Grim Aura (Must Equip, Casting Time: 10.0)<br>
+Class: ALL
+}}""")
+    rendered = wiki_item_stats_html(item["stats"], item["effects"])
+
+    assert item["effects"] == [{"name": "Grim Aura", "target": "Grim Aura"}]
+    assert 'vantage://wiki/effect/Grim%20Aura' in rendered
+    assert '>Grim Aura</a> (Must Equip, Casting Time: 10.0)' in rendered
+
+    app = QApplication.instance() or QApplication([])
+    card = WikiItemCard({"n": "Grim Aura item"})
+    requests = []
+    card.wiki_entity_requested.connect(
+        lambda target, label, kind: requests.append((target, label, kind)))
+    card.set_item_data(item)
+    assert "vantage://wiki/effect/Grim%20Aura" in card.stats.text()
+    assert card.stats.textInteractionFlags() & (
+        Qt.TextInteractionFlag.LinksAccessibleByKeyboard)
+    card.stats.linkActivated.emit("vantage://wiki/effect/Grim%20Aura")
+    app.processEvents()
+    assert requests == [("Grim Aura", "Grim Aura", "effect")]
+    card.close()
 
 
 def test_wiki_drop_parser_keeps_multiple_zone_relationships():
@@ -155,6 +197,25 @@ def test_native_effect_summary_explains_what_the_item_effect_does():
     assert "WHAT IT DOES" in entity["summary"]
     assert "Increase Movement Speed by 34%" in entity["summary"]
     assert "Wears off: The spirit of wolf leaves you." in entity["summary"]
+
+
+def test_item_effect_card_has_bundled_fallback_and_keeps_it_when_offline():
+    app = QApplication.instance() or QApplication([])
+    local = bundled_effect_entity_data("JourneymanBoots")
+    assert local["name"] == "JourneymanBoots"
+    assert ("Spell ID", "874") in local["facts"]
+    assert "Your feet feel quick." in local["summary"]
+
+    card = WikiEntityCard("JourneymanBoots", "effect")
+    card.set_entity_data(local, local=True)
+    before = (card.facts.text(), card.summary.text())
+    card.set_error("connection timed out")
+
+    assert (card.facts.text(), card.summary.text()) == before
+    assert card.source.text() == "LOCAL DATA · WIKI REFRESH UNAVAILABLE"
+    assert "local cached data remains visible" in card.retry_button.toolTip()
+    card.close()
+    app.processEvents()
 
 
 def test_item_effect_names_are_keyboard_accessible_internal_wiki_links():

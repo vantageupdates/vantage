@@ -1,15 +1,19 @@
 import csv
 import functools
 import re
+from pathlib import Path
 
-from PySide6.QtCore import Qt, QObject, QSize, Signal, QStringListModel
+from PySide6.QtCore import (
+    QEvent, Qt, QObject, QSize, QTimer, Signal, QStringListModel)
 from PySide6.QtGui import QColor, QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QFormLayout, QFrame,
                              QHeaderView, QHBoxLayout, QLabel, QListWidget,
-                             QListWidgetItem, QInputDialog,
-                             QSlider, QSpinBox, QStackedWidget, QPushButton,
+                             QListWidgetItem, QInputDialog, QMenu,
+                             QDoubleSpinBox, QSlider, QSpinBox, QStackedWidget,
+                             QPushButton, QPlainTextEdit,
                              QSplitter, QTableWidget, QTableWidgetItem,
-                             QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
+                             QTabBar, QTabWidget, QToolButton, QTreeWidget,
+                             QTreeWidgetItem,
                              QTreeWidgetItemIterator, QVBoxLayout,
                              QWidget, QComboBox, QLineEdit,
                              QMessageBox, QColorDialog, QApplication, QFileDialog,
@@ -17,14 +21,20 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QFormLayou
 
 from vantage.helpers import config, text_time_to_seconds
 from vantage.helpers.audio import (
-    DEFAULT_SOUND, add_custom_sound_to_combo, play_alert,
+    DEFAULT_SOUND, add_custom_sound_to_combo, audio_preflight, play_alert,
     audio_muted, master_volume, set_audio_muted, set_master_volume,
-    set_sound_combo_value, speak_text, speech_voice_names)
+    set_sound_combo_value, speak_text,
+    speech_voice_names,
+    unavailable_voice_label, vantage_command_voice_description,
+    vantage_command_voice_label)
 from vantage.helpers.notification_routes import (
-    DELIVERY_CHOICES, NOTIFICATION_ROUTES, normalized_route_settings)
+    DELIVERY_CHOICES, NOTIFICATION_ROUTES, STARTING_DELIVERY_CHOICES,
+    apply_starting_delivery, normalized_route_settings)
 from vantage.helpers.icons import game_icon
 from vantage.helpers.friends_manager import FriendsManagerDialog
-from vantage.helpers.gina_import import GinaImportError, import_gina_package
+from vantage.helpers.gina_import import (
+    GinaImportError, import_gina_package, import_vantage_package_bytes,
+    serialize_gina_package, serialize_vantage_package)
 from vantage.helpers.portable import store_portable_file
 from vantage.helpers.quickbar_items import QUICKBAR_ITEMS
 from vantage.helpers.responsive import (
@@ -35,7 +45,9 @@ from vantage.helpers.trigger_groups import (
     group_ancestors, group_state, group_style, normalize_group_path,
     normalize_trigger_color, normalize_trigger_groups, set_group_enabled,
     set_group_style)
-from vantage.parsers.spells import CustomTrigger
+from vantage.parsers.spells import (
+    CustomTrigger, compile_trigger_pattern, dynamic_timer_seconds,
+    render_trigger_text, trigger_match_allowed)
 
 class SettingsSignals(QObject):
     config_updated = Signal()
@@ -143,14 +155,42 @@ class GinaImportPreviewDialog(UniformScaleDialog):
             'Cancel leaves no imported audio behind. External file paths are '
             'replaced with safe gallery sounds.')
         root.addWidget(intro)
-        self.table = QTableWidget(0, 5)
+        compatibility = QLabel(
+            f"{getattr(triggers, 'format_name', 'Trigger pack')} · "
+            "data-only import, not complete GINA service compatibility. "
+            "Vantage uses one Sound or Voice route per phase, not both together.")
+        compatibility.setObjectName('TriggerTokenLegend')
+        compatibility.setTextFormat(Qt.TextFormat.PlainText)
+        compatibility.setWordWrap(True)
+        root.addWidget(compatibility)
+        warnings = getattr(triggers, 'warnings', [])
+        self.compatibility_warnings = QLabel('\n'.join(
+            f"{entry.get('trigger') or 'Pack'} · {entry.get('message', '')}"
+            for entry in warnings))
+        self.compatibility_warnings.setObjectName('CombatDataNotice')
+        self.compatibility_warnings.setTextFormat(Qt.TextFormat.PlainText)
+        self.compatibility_warnings.setWordWrap(True)
+        self.compatibility_warnings.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.compatibility_warnings.setAccessibleName('Trigger pack compatibility warnings')
+        self._warning_scroll = scrollable(
+            self.compatibility_warnings, 'TriggerImportWarnings')
+        self._warning_scroll.setMaximumHeight(140)
+        self._warning_scroll.setVisible(bool(warnings))
+        root.addWidget(self._warning_scroll)
+        self.table = QTableWidget(0, 6)
+        self.table.setObjectName('TriggerImportReviewTable')
+        self.table.setAccessibleName('Imported trigger review')
+        self.table.setAccessibleDescription(
+            'Review imported triggers and choose which rows to include.')
         self.table.setHorizontalHeaderLabels(
-            ('Import', 'Name', 'Search text', 'Timer', 'Actions'))
+            ('Import', 'Name', 'Search text', 'Timer', 'Actions', 'Review notes'))
         header_tips = (
             'Include or exclude this trigger from the import',
             'Imported trigger name', 'Log text or regular expression to match',
             'Imported countdown or stopwatch duration',
-            'Safe actions retained from the imported trigger')
+            'Safe actions retained from the imported trigger',
+            'Unsupported settings, invalid patterns, or substituted audio to review')
         for column, tooltip in enumerate(header_tips):
             self.table.horizontalHeaderItem(column).setToolTip(tooltip)
         self.table.verticalHeader().setVisible(False)
@@ -168,6 +208,8 @@ class GinaImportPreviewDialog(UniformScaleDialog):
             3, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(
             4, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(
+            5, QHeaderView.ResizeMode.Stretch)
         for trigger in triggers:
             row = self.table.rowCount()
             self.table.insertRow(row)
@@ -184,21 +226,29 @@ class GinaImportPreviewDialog(UniformScaleDialog):
             actions = []
             if trigger.alert_text:
                 actions.append('Text')
-            if trigger.tts_text:
+            delivery = (triggers.preview_audio_delivery(trigger, 'basic')
+                        if hasattr(triggers, 'preview_audio_delivery') else trigger.audio_delivery('basic'))
+            if delivery == 'tts' and trigger.tts_text:
                 actions.append('TTS')
-            if trigger.sound_path:
+            if delivery == 'sound' and trigger.sound_path:
                 actions.append(
                     'Pack WAV' if (
                         hasattr(triggers, 'has_embedded_audio') and
-                        triggers.has_embedded_audio(trigger))
+                        triggers.has_embedded_audio(trigger, 'sound_path'))
                     else 'Gallery sound')
+            elif (delivery == 'sound' and hasattr(triggers, 'has_embedded_audio')
+                  and triggers.has_embedded_audio(trigger, 'sound_path')):
+                actions.append('Pack WAV')
             if trigger.end_patterns:
                 actions.append('Ender')
             if trigger.text_color:
                 actions.append(trigger.text_color)
+            notes = (triggers.warnings_for(trigger)
+                     if hasattr(triggers, 'warnings_for') else [])
             for column, value in enumerate((
                     trigger.name, trigger.text, timer,
-                    ' · '.join(actions) or 'Match only'), 1):
+                    ' · '.join(actions) or 'Match only',
+                    '\n'.join(entry['message'] for entry in notes) or 'No conversion warnings'), 1):
                 item = QTableWidgetItem(str(value))
                 item.setToolTip(str(value))
                 self.table.setItem(row, column, item)
@@ -238,11 +288,14 @@ class GinaImportPreviewDialog(UniformScaleDialog):
 
 class SettingsWindow(UniformScaleDialog):
 
-    def __init__(self):
+    def __init__(self, section=None, parent=None):
         super().__init__(
-            QSize(720, 520), minimum_size=QSize(216, 156),
+            QSize(720, 520), parent, minimum_size=QSize(216, 156),
             initial_size=QSize(612, 442))
-        self.setWindowTitle('Vantage · Settings')
+        self._scoped_section = str(section or '').strip()
+        self.setWindowTitle(
+            f'Vantage · {self._scoped_section} Settings'
+            if self._scoped_section else 'Vantage · Settings')
         self._master_volume_before_edit = master_volume()
         self._settings_saved = False
 
@@ -278,6 +331,7 @@ class SettingsWindow(UniformScaleDialog):
         self._notification_sound_combos = []
         self._notification_route_widgets = []
         self._trigger_sound_routes = []
+        self._trigger_audio_mutes = []
 
         settings = self._create_settings()
         if settings:
@@ -290,7 +344,18 @@ class SettingsWindow(UniformScaleDialog):
                 'Sharing': 'spawn', 'Appearance': 'compact',
                 'Quick Bar': 'compact',
             }
+            visible_sections = (
+                {self._scoped_section} if self._scoped_section else
+                {'General', 'Sounds', 'Sharing', 'Appearance'})
+            self._visible_sections = set(visible_sections)
             for setting_name, stacked_widget in settings:
+                if setting_name not in visible_sections:
+                    # _create_settings also registers route/trigger controls
+                    # used by save/preview helpers. Keep excluded pages alive
+                    # without exposing them in this scoped window.
+                    stacked_widget.setParent(self.scaled_surface)
+                    stacked_widget.hide()
+                    continue
                 item = QListWidgetItem(game_icon(
                     section_icons.get(setting_name, 'settings')), setting_name)
                 item.setToolTip(f'Open the {setting_name} settings section')
@@ -305,10 +370,23 @@ class SettingsWindow(UniformScaleDialog):
                 page_layout = stacked_widget.layout()
                 if isinstance(page_layout, QFormLayout):
                     polish_form(page_layout)
-                self._widget_stack.addWidget(scrollable(
-                    stacked_widget, 'SettingsPageScroll'))
+                page_scroll = scrollable(
+                    stacked_widget, 'SettingsPageScroll')
+                page_scroll.setAccessibleName(f'{setting_name} settings')
+                page_scroll.setAccessibleDescription(
+                    f'Scrollable {setting_name} settings page')
+                self._widget_stack.addWidget(page_scroll)
 
             self._list_widget.setCurrentRow(0)
+            if self._scoped_section:
+                self.select_section(self._scoped_section)
+                # A feature-owned settings surface shows only that feature;
+                # it is not a disguised route back into the global settings
+                # directory. Save/Cancel and the complete page stay intact.
+                self._list_widget.hide()
+                self._section_combo.hide()
+                self._widget_stack.setAccessibleName(
+                    f'{self._scoped_section} settings')
         self._list_widget.setMaximumWidth(
             self._list_widget.minimumSizeHint().width())
 
@@ -318,20 +396,22 @@ class SettingsWindow(UniformScaleDialog):
         buttons.setObjectName('SettingsButtons')
         buttons_layout = QHBoxLayout()
         buttons_layout.setContentsMargins(0, 0, 0, 0)
-        save_button = QPushButton('Save')
-        save_button.setObjectName('PrimaryAction')
-        save_button.setIcon(game_icon('spawn'))
-        save_button.setAutoDefault(False)
-        save_button.setAccessibleName('Save Vantage settings')
-        save_button.setToolTip('Save every changed setting and close this window')
-        save_button.clicked.connect(self._save)
-        buttons_layout.addWidget(save_button)
-        cancel_button = QPushButton('Cancel')
-        cancel_button.setAutoDefault(False)
-        cancel_button.setAccessibleName('Cancel Vantage settings')
-        cancel_button.setToolTip('Discard unsaved changes and close this window')
-        cancel_button.clicked.connect(self._cancelled)
-        buttons_layout.addWidget(cancel_button)
+        self._save_button = QPushButton('Save')
+        self._save_button.setObjectName('PrimaryAction')
+        self._save_button.setIcon(game_icon('spawn'))
+        self._save_button.setAutoDefault(False)
+        self._save_button.setAccessibleName('Save Vantage settings')
+        self._save_button.setToolTip(
+            'Save every changed setting and close this window')
+        self._save_button.clicked.connect(self._save)
+        buttons_layout.addWidget(self._save_button)
+        self._cancel_button = QPushButton('Cancel')
+        self._cancel_button.setAutoDefault(False)
+        self._cancel_button.setAccessibleName('Cancel Vantage settings')
+        self._cancel_button.setToolTip(
+            'Discard unsaved changes and close this window')
+        self._cancel_button.clicked.connect(self._cancelled)
+        buttons_layout.addWidget(self._cancel_button)
         buttons_layout.insertStretch(0)
         buttons.setLayout(buttons_layout)
         layout.addLayout(top_layout, 1)
@@ -339,13 +419,20 @@ class SettingsWindow(UniformScaleDialog):
 
         self.scaled_surface.setLayout(layout)
 
+        if self._scoped_section:
+            self._scoped_focus_controls = self._scoped_page_controls()
+            for control in self._scoped_focus_controls:
+                control.installEventFilter(self)
+        else:
+            self._scoped_focus_controls = []
+
         self._set_values()
 
     def _save(self):
         for stacked_widget in self._widget_stack.findChildren(QFrame):
             for widget in stacked_widget.children():
                 wt = type(widget)
-                if wt == QCheckBox:
+                if wt == QCheckBox and ':' in widget.objectName():
                     key1, key2 = widget.objectName().split(':')
                     config.data[key1][key2] = widget.isChecked()
                 elif wt == QSpinBox:
@@ -367,38 +454,61 @@ class SettingsWindow(UniformScaleDialog):
                 hexcolor = hex(widget.currentColor().rgb()).replace('0xff', '#')
                 config.data[key1][key2] = hexcolor
         trigger_sounds_changed = False
-        custom_timers = config.data.get('spells', {}).get('custom_timers', [])
-        for item_index, field_index, combo in self._trigger_sound_routes:
-            if item_index >= len(custom_timers):
-                continue
-            item = custom_timers[item_index]
-            if not isinstance(item, list):
-                continue
-            while len(item) <= field_index:
-                item.append('')
-            selected = str(combo.currentData() or '')
-            if item[field_index] != selected:
-                item[field_index] = selected
-                trigger_sounds_changed = True
-        for route_key, delivery, picker in self._notification_route_widgets:
-            route = NOTIFICATION_ROUTES[route_key]
-            current = normalized_route_settings(
-                config.data.get('sounds', {}).get('routes', {}).get(route_key),
-                route)
-            current['delivery'] = str(delivery.currentData() or 'off')
-            if current['delivery'] == 'sound':
-                current['sound'] = str(picker.currentData() or '')
-            elif current['delivery'] == 'voice':
-                current['voice'] = str(picker.currentData() or '')
-            config.data.setdefault('sounds', {}).setdefault(
-                'routes', {})[route_key] = current
-        for route_key, legacy_key in (
-                ('smart_timer', 'timer_default'),
-                ('raid_encounter', 'raid_encounter'),
-                ('market_sale', 'market_sale'),
-                ('death_loop', 'safety_alert')):
-            config.data['sounds'][legacy_key] = \
-                config.data['sounds']['routes'][route_key]['sound']
+        if 'Sounds' in self._visible_sections:
+            custom_timers = config.data.get(
+                'spells', {}).get('custom_timers', [])
+            for item_index, field_index, combo in self._trigger_sound_routes:
+                item = next((row for row in custom_timers
+                             if isinstance(row, list) and row and
+                             row[0] == combo._trigger_name), None)
+                if item is None:
+                    continue
+                while len(item) <= field_index:
+                    item.append('')
+                selected = str(combo.currentData() or '')
+                if selected == getattr(combo, '_saved_trigger_sound', selected):
+                    continue
+                if item[field_index] != selected:
+                    item[field_index] = selected
+                    # Clearing a WAV must not fall through to legacy TTS.
+                    trigger = CustomTrigger(*item)
+                    setattr(trigger, {4: 'delivery', 19: 'timer_ending_delivery',
+                                      21: 'timer_ended_delivery'}[field_index],
+                            'sound' if selected else 'off')
+                    item[:] = trigger.to_list()
+                    trigger_sounds_changed = True
+            for name, mute in self._trigger_audio_mutes:
+                if mute.isChecked() == mute._saved_trigger_mute:
+                    continue
+                item = next((row for row in custom_timers
+                             if isinstance(row, list) and row and row[0] == name), None)
+                if item is not None:
+                    trigger = CustomTrigger(*item)
+                    trigger.audio_muted = mute.isChecked()
+                    item[:] = trigger.to_list()
+                    trigger_sounds_changed = True
+        if 'Sounds' in self._visible_sections:
+            for route_key, delivery, picker in self._notification_route_widgets:
+                route = NOTIFICATION_ROUTES[route_key]
+                current = normalized_route_settings(
+                    config.data.get('sounds', {}).get(
+                        'routes', {}).get(route_key), route)
+                current['delivery'] = str(delivery.currentData() or 'off')
+                if current['delivery'] == 'sound':
+                    current['sound'] = str(picker.currentData() or '')
+                elif current['delivery'] == 'voice':
+                    current['voice'] = str(picker.currentData() or '')
+                config.data.setdefault('sounds', {}).setdefault(
+                    'routes', {})[route_key] = current
+            config.data.setdefault('sounds', {})['starting_delivery'] = str(
+                self.audio_starting_style.currentData() or 'sound')
+            for route_key, legacy_key in (
+                    ('smart_timer', 'timer_default'),
+                    ('raid_encounter', 'raid_encounter'),
+                    ('market_sale', 'market_sale'),
+                    ('death_loop', 'safety_alert')):
+                config.data['sounds'][legacy_key] = \
+                    config.data['sounds']['routes'][route_key]['sound']
         config.save()
         set_audio_muted(config.data['general'].get('audio_muted', False))
         set_master_volume(config.data['general'].get('master_volume', 100))
@@ -423,6 +533,82 @@ class SettingsWindow(UniformScaleDialog):
         self._settings_saved = False
         self._set_values()
         super().showEvent(event)
+        if self._scoped_section:
+            QTimer.singleShot(0, self._focus_scoped_page)
+        else:
+            QTimer.singleShot(
+                0, lambda: self._list_widget.setFocus(
+                    Qt.FocusReason.ShortcutFocusReason))
+
+    def _focus_scoped_page(self):
+        """Give a feature-owned settings window an immediate named target."""
+        current = self.scaled_surface.focusWidget()
+        if current is not None:
+            current.clearFocus()
+        self._dialog_view.setAccessibleName(
+            f'{self._scoped_section} settings')
+        self._dialog_view.setAccessibleDescription(
+            f'Feature settings window for {self._scoped_section}')
+        self._dialog_view.setFocus(Qt.FocusReason.ShortcutFocusReason)
+
+    def _first_scoped_control(self):
+        """Return the first usable control inside the one visible page."""
+        page = self._widget_stack.currentWidget()
+        if page is None:
+            return None
+        candidate = page.nextInFocusChain()
+        visited = set()
+        while candidate is not page and id(candidate) not in visited:
+            visited.add(id(candidate))
+            if (page.isAncestorOf(candidate) and candidate.isVisibleTo(page)
+                    and candidate.isEnabled()
+                    and candidate.focusPolicy() != Qt.FocusPolicy.NoFocus):
+                return candidate
+            candidate = candidate.nextInFocusChain()
+        return page
+
+    def _scoped_page_controls(self):
+        """Build the visible page's logical keyboard cycle."""
+        page = self._widget_stack.currentWidget()
+        if page is None:
+            return [self._save_button, self._cancel_button]
+        controls = []
+        candidate = page.nextInFocusChain()
+        visited = set()
+        while candidate is not page and id(candidate) not in visited:
+            visited.add(id(candidate))
+            parent = candidate.parentWidget()
+            internal_editor = (
+                isinstance(candidate, QLineEdit) and
+                isinstance(parent, (QSpinBox, QDoubleSpinBox, QComboBox)))
+            if (page.isAncestorOf(candidate) and candidate.isVisibleTo(page)
+                    and candidate.isEnabled()
+                    and candidate.focusPolicy() != Qt.FocusPolicy.NoFocus
+                    and not internal_editor
+                    and not isinstance(candidate, QTabWidget)):
+                controls.append(candidate)
+            candidate = candidate.nextInFocusChain()
+        controls.extend((self._save_button, self._cancel_button))
+        return controls
+
+    def eventFilter(self, watched, event):
+        if (self._scoped_section and event.type() == QEvent.Type.KeyPress
+                and watched in self._scoped_focus_controls):
+            key = event.key()
+            shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            tab = key == Qt.Key.Key_Tab and not shift
+            backtab = key == Qt.Key.Key_Backtab or (
+                key == Qt.Key.Key_Tab and shift)
+            if tab or backtab:
+                index = self._scoped_focus_controls.index(watched)
+                offset = 1 if tab else -1
+                target = self._scoped_focus_controls[
+                    (index + offset) % len(self._scoped_focus_controls)]
+                target.setFocus(
+                    Qt.FocusReason.TabFocusReason if tab else
+                    Qt.FocusReason.BacktabFocusReason)
+                return True
+        return super().eventFilter(watched, event)
 
     def closeEvent(self, _):
         if not self._settings_saved:
@@ -452,7 +638,7 @@ class SettingsWindow(UniformScaleDialog):
         for stacked_widget in self._widget_stack.findChildren(QFrame):
             for widget in stacked_widget.children():
                 wt = type(widget)
-                if wt == QCheckBox:
+                if wt == QCheckBox and ':' in widget.objectName():
                     key1, key2 = widget.objectName().split(':')
                     widget.setChecked(config.data[key1][key2])
                     if key1 == 'sharing' and key2 == 'player_name_override' \
@@ -491,11 +677,20 @@ class SettingsWindow(UniformScaleDialog):
                 widget.setCurrentColor(QColor(intcolor))
         custom_timers = config.data.get('spells', {}).get('custom_timers', [])
         for item_index, field_index, combo in self._trigger_sound_routes:
-            if (item_index < len(custom_timers) and
-                    isinstance(custom_timers[item_index], list) and
-                    field_index < len(custom_timers[item_index])):
+            item = next((row for row in custom_timers
+                         if isinstance(row, list) and row and
+                         row[0] == combo._trigger_name), None)
+            if item is not None and field_index < len(item):
                 set_sound_combo_value(
-                    combo, custom_timers[item_index][field_index])
+                    combo, item[field_index])
+                combo.setItemText(combo.findData(''), 'Off (no audio)')
+                combo._saved_trigger_sound = str(combo.currentData() or '')
+        for name, mute in self._trigger_audio_mutes:
+            row = next((item for item in custom_timers
+                        if isinstance(item, list) and item and item[0] == name), None)
+            value = CustomTrigger(*row).audio_muted if row is not None else False
+            mute.setChecked(value)
+            mute._saved_trigger_mute = value
         for route_key, delivery, picker in self._notification_route_widgets:
             values = normalized_route_settings(
                 config.data.get('sounds', {}).get('routes', {}).get(route_key),
@@ -504,6 +699,14 @@ class SettingsWindow(UniformScaleDialog):
             delivery.setCurrentIndex(max(0, index))
             self._populate_route_picker(
                 route_key, delivery, picker, values=values)
+        if hasattr(self, 'audio_starting_style'):
+            wanted = config.data.get('sounds', {}).get(
+                'starting_delivery', 'sound')
+            index = self.audio_starting_style.findData(wanted)
+            self.audio_starting_style.setCurrentIndex(max(0, index))
+            self.audio_starting_style_status.setText(
+                'Choose a style and apply it. Nothing changes until Apply, '
+                'and nothing is stored until Save.')
 
     def _populate_route_picker(
             self, route_key, delivery, picker, _index=None, values=None):
@@ -523,54 +726,119 @@ class SettingsWindow(UniformScaleDialog):
                 if index >= 0:
                     picker.setCurrentIndex(index)
             picker.setAccessibleName(f'{route.label} sound')
-            picker.setToolTip(f'Choose the sound for {route.label.casefold()}')
+            sound_help = (
+                f'Choose the gallery or custom WAV sound for '
+                f'{route.label.casefold()}.')
+            picker.setAccessibleDescription(sound_help)
+            picker.setToolTip(sound_help)
         elif mode == 'voice':
-            picker.addItem('Windows default voice', '')
+            picker.addItem(vantage_command_voice_label(), '')
             for voice in speech_voice_names():
                 picker.addItem(voice, voice)
             wanted = previous if previous and not previous.startswith(
                 ('builtin:', 'portable:')) else values['voice']
             index = picker.findData(wanted)
+            missing_voice = str(wanted or '').strip() if index < 0 else ''
+            if missing_voice:
+                picker.addItem(
+                    unavailable_voice_label(missing_voice), missing_voice)
+                index = picker.count() - 1
             picker.setCurrentIndex(max(0, index))
             picker.setAccessibleName(f'{route.label} Windows voice')
+            picker.setAccessibleDescription(
+                vantage_command_voice_description(missing_voice))
             picker.setToolTip(
-                f'Choose an installed Windows voice for {route.label.casefold()}')
+                f'Choose an installed Windows voice for {route.label.casefold()}. '
+                + vantage_command_voice_description(missing_voice))
         else:
             picker.addItem('No audio delivery', '')
             picker.setAccessibleName(f'{route.label} audio is off')
-            picker.setToolTip('Select Sound or Voice to choose an audio output')
+            off_help = (
+                'Audio delivery is off. Select Sound or Voice to choose an '
+                'audio output.')
+            picker.setAccessibleDescription(off_help)
+            picker.setToolTip(off_help)
         picker.setEnabled(mode != 'off')
         picker.blockSignals(False)
 
     def _test_notification_route(self, route_key, delivery, picker, status):
         route = NOTIFICATION_ROUTES[route_key]
         mode = str(delivery.currentData() or 'off')
-        if mode == 'off':
-            message = f'{route.label} test: delivery is Off'
-        elif audio_muted():
-            message = f'{route.label} test: blocked by Master Mute'
-        elif master_volume() == 0:
-            message = f'{route.label} test: silent at 0% Master Volume'
+        check = audio_preflight(
+            mode, sound=str(picker.currentData() or ''),
+            text=route.default_voice, volume=80, channel=route.channel,
+            allow_hidden=True)
+        if not check.ready:
+            message = f'{route.label} test: {check.reason}'
         elif mode == 'voice':
             played = speak_text(
                 route.default_voice, 80, source=f'Test · {route.label}',
-                allow_hidden=True, voice_name=str(picker.currentData() or ''))
-            message = (f'{route.label} test: voice played' if played else
+                allow_hidden=True, voice_name=str(picker.currentData() or ''),
+                channel=route.channel)
+            message = (f'{route.label} test: voice queued' if played else
                        f'{route.label} test: Windows voice unavailable')
         else:
             played = play_alert(
-                picker.currentData(), 80, 1, source=f'Test · {route.label}',
-                allow_hidden=True)
-            message = (f'{route.label} test: sound played' if played else
-                       f'{route.label} test: sound unavailable')
+                picker.currentData(), 80, 1,
+                source=f'Test · {route.label}', allow_hidden=True,
+                channel=route.channel)
+            message = (f'{route.label} test: sound queued' if played else
+                       f'{route.label} test: Windows audio backend unavailable')
         status.setText(message)
         status.setVisible(True)
+        status.setAccessibleName(message)
+        status.setAccessibleDescription(
+            f'Latest notification test result: {message}')
         try:
             QAccessible.updateAccessibility(
                 QAccessibleAnnouncementEvent(status, message))
         except (AttributeError, RuntimeError, TypeError):
             pass
         return message
+
+    def _apply_audio_starting_style(self):
+        """Preview a safe app-wide audio starting point in route controls."""
+        current_routes = {}
+        for route_key, delivery, picker in self._notification_route_widgets:
+            route = NOTIFICATION_ROUTES[route_key]
+            values = normalized_route_settings(
+                config.data.get('sounds', {}).get('routes', {}).get(route_key),
+                route)
+            mode = str(delivery.currentData() or 'off')
+            values['delivery'] = mode
+            if mode == 'sound':
+                values['sound'] = str(picker.currentData() or '')
+            elif mode == 'voice':
+                values['voice'] = str(picker.currentData() or '')
+            current_routes[route_key] = values
+
+        mode = str(self.audio_starting_style.currentData() or 'sound')
+        result = apply_starting_delivery(current_routes, mode)
+        changed = set(result.changed_keys)
+        for route_key, delivery, picker in self._notification_route_widgets:
+            if route_key not in changed:
+                continue
+            values = result.routes[route_key]
+            delivery.blockSignals(True)
+            delivery.setCurrentIndex(max(0, delivery.findData(mode)))
+            delivery.blockSignals(False)
+            self._populate_route_picker(
+                route_key, delivery, picker, values=values)
+
+        style = ('Text to speech' if mode == 'voice' else 'Beeps')
+        message = (
+            f'{style} preview applied · {len(result.changed_keys)} default '
+            f'routes changed · {len(result.preserved_keys)} routes preserved. '
+            'Custom choices and Off routes stay unchanged. Select Save to keep it.')
+        self.audio_starting_style_status.setText(message)
+        self.audio_starting_style_status.setVisible(True)
+        try:
+            QAccessible.updateAccessibility(
+                QAccessibleAnnouncementEvent(
+                    self.audio_starting_style_status, message))
+        except (AttributeError, RuntimeError, TypeError):
+            pass
+        return result
 
     def _create_settings(self):
         stacked_widgets = []
@@ -601,6 +869,16 @@ class SettingsWindow(UniformScaleDialog):
             'Check the official vantageupdates/vantage GitHub Release at '
             'startup and every minute; installation always requires your click')
         gsl.addRow('Automatic update heartbeat', update_check)
+        auto_install_updates = QCheckBox()
+        auto_install_updates.setObjectName(
+            'general:auto_install_updates')
+        auto_install_updates.setToolTip(
+            'Optional: automatically download, verify, install, and restart '
+            'Vantage when a new Companion release is found. Device Sync '
+            'shares this choice with every paired PC.')
+        auto_install_updates.setAccessibleName(
+            'Automatically install Vantage Companion updates')
+        gsl.addRow('Automatically install updates', auto_install_updates)
 
         gsl.addRow(SettingsHeader('LOG ARCHIVE'))
         log_archive_enabled = QCheckBox()
@@ -636,6 +914,19 @@ class SettingsWindow(UniformScaleDialog):
         manage_friends.clicked.connect(
             lambda: FriendsManagerDialog(self).exec())
         gsl.addRow('Character friends', manage_friends)
+
+        gsl.addRow(SettingsHeader('DEVICE SYNC'))
+        device_sync = QPushButton('Connect & Sync My PCs…')
+        device_sync.setIcon(game_icon('link'))
+        device_sync.setAccessibleName(
+            'Set up account-free sync between Vantage PCs')
+        device_sync.setToolTip(
+            'Pair 2, 3 or more PCs once with a code. Approved devices then '
+            'reconnect automatically and exchange selected Vantage settings '
+            'without a user account or Vantage cloud storage.')
+        device_sync.clicked.connect(
+            QApplication.instance().show_device_sync)
+        gsl.addRow('2–3+ PCs · no account', device_sync)
 
         gsl.addRow(SettingsHeader('OVERLAYS'))
         arrange_notifications = QPushButton('Arrange')
@@ -697,25 +988,59 @@ class SettingsWindow(UniformScaleDialog):
         ssl.addRow('Triggers and timers', ssl_open_custom)
 
         ssl.addRow(SettingsHeader('FADING ALERTS'))
+        fade_note = QLabel(
+            'Choose the early beep and spoken stops below. Each plays once '
+            'per cast. Speech requires the Spell fading route to use Voice in Sounds.')
+        fade_note.setWordWrap(True)
+        ssl.addRow(fade_note)
         fade_enabled = QCheckBox()
         fade_enabled.setObjectName('spells:fade_sound_enabled')
         fade_enabled.setToolTip(
-            'Play one short alert when a tracked spell enters its fading window')
-        ssl.addRow('Enable fading click', fade_enabled)
+            'At the configured warning time, play one short sound cue and show '
+            'the spell and target. If the fading route uses Voice, speak once '
+            'at the Speak before fading stop (five seconds by default).')
+        fade_enabled.setAccessibleName('Enable fading alerts')
+        fade_enabled.setAccessibleDescription(fade_enabled.toolTip())
+        self.fade_alerts_enabled = fade_enabled
+        ssl.addRow('Enable fading alerts', fade_enabled)
         spell_background_audio = QCheckBox()
         spell_background_audio.setObjectName('spells:sounds_when_hidden')
         spell_background_audio.setToolTip(
             'Allow buff, resist, and trigger sounds while the Buffs & Triggers '
-            'window is hidden; off by default so every sound has a visible source')
+            'window is hidden. On by default for alerts during gameplay; '
+            'Master Mute and route Off still take priority.')
+        spell_background_audio.setAccessibleName(
+            'Sound while window hidden')
+        spell_background_audio.setAccessibleDescription(
+            spell_background_audio.toolTip())
+        self.spell_background_audio = spell_background_audio
         ssl.addRow('Sound while window hidden', spell_background_audio)
         fade_warning = QSpinBox()
         fade_warning.setRange(0, 600)
         fade_warning.setSuffix(' s')
         fade_warning.setObjectName('spells:fade_warning_seconds')
         fade_warning.setToolTip(
-            'The bar turns yellow at this remaining time; the final 20 '
-            'seconds always use the faster red critical warning')
+            'Sets when the yellow warning and early sound cue begin. If the '
+            'fading route uses Voice, speech uses the separate spoken stop; '
+            'the final 20 seconds use the faster red critical warning.')
+        fade_warning.setAccessibleName('Warn before fading')
+        fade_warning.setAccessibleDescription(fade_warning.toolTip())
+        self.fade_warning_seconds = fade_warning
         ssl.addRow('Warn before fading', fade_warning)
+        fade_voice_warning = QSpinBox()
+        fade_voice_warning.setRange(1, 600)
+        fade_voice_warning.setSuffix(' s')
+        fade_voice_warning.setObjectName('spells:fade_voice_warning_seconds')
+        fade_voice_warning.setAccessibleName('Speak before fading')
+        fade_voice_warning.setToolTip(
+            'Seconds remaining when the fading Voice speaks once (default 5). '
+            'Set the fading delivery to Voice in Sounds. Choose a lower stop '
+            'than Warn before fading to hear an early beep followed by speech. '
+            'A spoken stop at or above the early stop skips that early beep. '
+            'Sound/WAV and Off choices are respected.')
+        fade_voice_warning.setAccessibleDescription(fade_voice_warning.toolTip())
+        self.fade_voice_warning_seconds = fade_voice_warning
+        ssl.addRow('Speak before fading', fade_voice_warning)
         fade_volume = QSpinBox()
         fade_volume.setRange(0, 100)
         fade_volume.setSuffix('%')
@@ -806,13 +1131,67 @@ class SettingsWindow(UniformScaleDialog):
         sound_intro.setObjectName('CombatDataNotice')
         sound_intro.setWordWrap(True)
         sound_sl.addRow('', sound_intro)
+        sound_sl.addRow(SettingsHeader('STARTING STYLE'))
+        starting_style_intro = QLabel(
+            'Choose a starting style for automatic notifications, then apply '
+            'it. Only routes still using their defaults change. Custom WAVs, '
+            'chosen sounds, voices, and Off routes are always preserved; every '
+            'route remains editable below.')
+        starting_style_intro.setObjectName('CombatDataNotice')
+        starting_style_intro.setWordWrap(True)
+        sound_sl.addRow('', starting_style_intro)
+        starting_style = QComboBox()
+        starting_style.setObjectName('sounds:starting_delivery')
+        starting_style.setAccessibleName('Starting notification style')
+        starting_style.setAccessibleDescription(
+            'Choose Beeps or Text to speech as the starting style for '
+            'automatic routes that have not been customized.')
+        starting_style.setToolTip(
+            'This does not overwrite custom WAVs, chosen sounds or voices, '
+            'or routes set to Off.')
+        for choice_label, value in STARTING_DELIVERY_CHOICES:
+            starting_style.addItem(choice_label, value)
+        starting_style_label = QLabel('Starting notification style')
+        starting_style_label.setBuddy(starting_style)
+        starting_style_row = QWidget()
+        starting_style_layout = QHBoxLayout(starting_style_row)
+        starting_style_layout.setContentsMargins(0, 0, 0, 0)
+        starting_style_layout.setSpacing(3)
+        starting_style_layout.addWidget(starting_style, 1)
+        apply_starting_style = QPushButton('Apply to defaults')
+        apply_starting_style.setAccessibleName(
+            'Apply starting notification style to default routes')
+        apply_starting_style.setAccessibleDescription(
+            'Previews the selected style without replacing custom route '
+            'choices. Use Save to keep the preview.')
+        apply_starting_style.setToolTip(
+            'Preview this style on untouched routes; nothing is saved until '
+            'you select Save')
+        apply_starting_style.clicked.connect(self._apply_audio_starting_style)
+        starting_style_layout.addWidget(apply_starting_style)
+        sound_sl.addRow(starting_style_label, starting_style_row)
+        starting_style_status = QLabel(
+            'Choose a style and apply it. Nothing changes until Apply, and '
+            'nothing is stored until Save.')
+        starting_style_status.setObjectName('StartingAudioStyleStatus')
+        starting_style_status.setAccessibleName(
+            'Starting notification style result')
+        starting_style_status.setAccessibleDescription(
+            'Reports how many default routes changed and how many existing '
+            'route choices were preserved without moving keyboard focus.')
+        starting_style_status.setWordWrap(True)
+        sound_sl.addRow('Apply status', starting_style_status)
+        self.audio_starting_style = starting_style
+        self.audio_starting_style_label = starting_style_label
+        self.apply_audio_starting_style_button = apply_starting_style
+        self.audio_starting_style_status = starting_style_status
         sound_sl.addRow(SettingsHeader('NOTIFICATION SOUNDS'))
 
         route_test_status = QLabel('')
         route_test_status.setObjectName('NotificationRouteTestStatus')
         route_test_status.setAccessibleName('Notification test result')
         route_test_status.setAccessibleDescription(
-            'Reports played, muted, zero volume, off, or unavailable without '
+            'Reports queued, muted, zero volume, off, or unavailable without '
             'moving keyboard focus')
         route_test_status.setWordWrap(True)
         route_test_status.setVisible(False)
@@ -877,9 +1256,16 @@ class SettingsWindow(UniformScaleDialog):
                 (route_key, delivery, picker))
             if route.default_delivery == 'sound':
                 self._notification_sound_combos.append(picker)
+        QWidget.setTabOrder(
+            starting_style, apply_starting_style)
+        if self._notification_route_widgets:
+            QWidget.setTabOrder(
+                apply_starting_style,
+                self._notification_route_widgets[0][1])
         sound_sl.addRow('Test status', route_test_status)
 
-        def add_sound_route(label, object_name, default, volume, source):
+        def add_sound_route(label, object_name, default, volume, source,
+                            trigger_name):
             row = QHBoxLayout()
             row.setContentsMargins(0, 0, 0, 0)
             row.setSpacing(3)
@@ -903,11 +1289,35 @@ class SettingsWindow(UniformScaleDialog):
             test.setIcon(game_icon('play'))
             test.setAccessibleName(f'Test {label} sound')
             test.setToolTip(f'Play the selected {label.casefold()} sound now')
-            test.clicked.connect(
-                lambda _checked=False, combo=combo, volume=volume,
-                source=source: play_alert(
-                    combo.currentData(), volume(), 1, source=source,
-                    allow_hidden=True) if combo.currentData() else None)
+            def preview_sound():
+                mute = dict(self._trigger_audio_mutes).get(trigger_name)
+                if mute is not None and mute.isChecked():
+                    result = f'{label} test: this trigger is muted'
+                    route_test_status.setText(result)
+                    route_test_status.setAccessibleName(result)
+                    route_test_status.setVisible(True)
+                    return
+                selected = str(combo.currentData() or '')
+                check = audio_preflight(
+                    'sound' if selected else 'off', sound=selected,
+                    volume=volume(), channel='spells', allow_hidden=True)
+                if not check.ready:
+                    result = f'{label} test: {check.reason}'
+                else:
+                    played = play_alert(
+                        combo.currentData(), volume(), 1, source=source,
+                        channel='spells', allow_hidden=True)
+                    result = (f'{label} test: sound queued' if played else
+                              f'{label} test: Windows audio backend unavailable')
+                route_test_status.setText(result)
+                route_test_status.setAccessibleName(result)
+                route_test_status.setVisible(True)
+                try:
+                    QAccessible.updateAccessibility(
+                        QAccessibleAnnouncementEvent(route_test_status, result))
+                except (AttributeError, RuntimeError, TypeError):
+                    pass
+            test.clicked.connect(preview_sound)
             row.addWidget(test)
             sound_sl.addRow(label, row)
             self._notification_sound_combos.append(combo)
@@ -942,9 +1352,35 @@ class SettingsWindow(UniformScaleDialog):
                 combo = add_sound_route(
                     f'{name} · {stage}', '', current,
                     lambda: self._fade_volume.value(),
-                    f'Test · {name} · {stage}')
+                    f'Test · {name} · {stage}', name)
                 self._trigger_sound_routes.append(
                     (item_index, field_index, combo))
+                combo._trigger_name = config.data['spells'][
+                    'custom_timers'][item_index][0]
+                combo._saved_trigger_sound = str(combo.currentData() or '')
+                combo.setItemText(combo.findData(''), 'Off (no audio)')
+        sound_sl.addRow(SettingsHeader('MUTE INDIVIDUAL TRIGGERS'))
+        mute_note = QLabel(
+            'Mute stops Sound/WAV and speech for this trigger, including timer '
+            'warnings. Detection and visual alerts stay on. Save to apply; '
+            'uncheck to restore its saved audio choices.')
+        mute_note.setWordWrap(True)
+        sound_sl.addRow(mute_note)
+        for item in config.data.get('spells', {}).get('custom_timers', []):
+            if not isinstance(item, list) or not item:
+                continue
+            trigger = CustomTrigger(*item)
+            mute = QCheckBox('Mute this trigger')
+            mute.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            mute.setAccessibleName(f'Mute this trigger: {trigger.name}')
+            mute.setAccessibleDescription(
+                'Silence all audio without disabling detection or visual alerts. '
+                'Save applies this setting; uncheck restores saved audio.')
+            mute.setToolTip(mute.accessibleDescription())
+            mute.setChecked(trigger.audio_muted)
+            mute._saved_trigger_mute = trigger.audio_muted
+            self._trigger_audio_mutes.append((trigger.name, mute))
+            sound_sl.addRow(trigger.name, mute)
         overrides = QLabel(
             'Every configured trigger sound action is listed above. Saved '
             'Smart Timers keep their own optional alarm in each timer editor.')
@@ -1022,6 +1458,11 @@ class SettingsWindow(UniformScaleDialog):
         timer_background_audio.setToolTip(
             'Keep critical timer alarms audible while Smart Timers is hidden; '
             'turn this off for strict visible-window-only audio')
+        timer_background_audio.setAccessibleName(
+            'Timer sounds while hidden')
+        timer_background_audio.setAccessibleDescription(
+            timer_background_audio.toolTip())
+        self.timer_background_audio = timer_background_audio
         tsl.addRow('Timer sounds while hidden', timer_background_audio)
         timer_compact = QCheckBox()
         timer_compact.setObjectName('timers:compact')
@@ -1120,58 +1561,6 @@ class SettingsWindow(UniformScaleDialog):
         csl.addRow('Log visibility', combat_visibility)
         combat_settings.setLayout(csl)
         stacked_widgets.append(('Combat', combat_settings))
-
-        heal_settings = QFrame()
-        hsl = QFormLayout()
-        hsl.addRow(SettingsHeader('COMPLETE HEAL CHAIN'))
-        heal_enabled = QCheckBox()
-        heal_enabled.setObjectName('heals:enabled')
-        heal_enabled.setToolTip(
-            'Parse Complete Heal calls even while the Heal Chain panel is hidden')
-        hsl.addRow('Enable chain monitor', heal_enabled)
-        heal_interval = QSpinBox()
-        heal_interval.setRange(1, 9)
-        heal_interval.setSuffix(' s')
-        heal_interval.setObjectName('heals:interval')
-        heal_interval.setToolTip(
-            'Expected spacing; an in-game !KI1 through !KI9 call updates it')
-        hsl.addRow('Cleric spacing', heal_interval)
-        cast_seconds = QSpinBox()
-        cast_seconds.setRange(1, 20)
-        cast_seconds.setSuffix(' s')
-        cast_seconds.setObjectName('heals:cast_seconds')
-        cast_seconds.setToolTip('Length of the moving Complete Heal cast rail')
-        hsl.addRow('Cast rail length', cast_seconds)
-        hotkey_format = QLineEdit()
-        hotkey_format.setObjectName('heals:hotkey_format')
-        hotkey_format.setPlaceholderText('### - CH - tankname')
-        hotkey_format.setToolTip(
-            'Use ### where the cleric order appears and tankname where the tank appears')
-        hsl.addRow('Announcement format', hotkey_format)
-        format_legend = QLabel(
-            'Required tokens:  ### = cleric order · tankname = heal target\n'
-            'Examples: “AAA - CH - Vulak” or “ST CCC CH -- Dain”')
-        format_legend.setWordWrap(True)
-        format_legend.setObjectName('TriggerTokenLegend')
-        hsl.addRow('Format legend', format_legend)
-        own_marker = QLineEdit()
-        own_marker.setObjectName('heals:own_marker')
-        own_marker.setPlaceholderText('Auto-detect from your own call')
-        own_marker.setMaxLength(3)
-        own_marker.setToolTip(
-            'Optional marker such as AAA; leave empty to learn it from a “You” call')
-        hsl.addRow('Your cleric order', own_marker)
-        notify_turn = QCheckBox()
-        notify_turn.setObjectName('heals:notify_turn')
-        notify_turn.setToolTip('Show a Vantage overlay when your marker is next')
-        hsl.addRow('Alert when you are next', notify_turn)
-        privacy = QLabel(
-            'Local only · reads the linked EQ log · no raid data is sent to an external server.')
-        privacy.setWordWrap(True)
-        privacy.setObjectName('CombatDataNotice')
-        hsl.addRow('Data handling', privacy)
-        heal_settings.setLayout(hsl)
-        stacked_widgets.append(('Heal Chain', heal_settings))
 
         market_settings = QFrame()
         mrsl = QFormLayout()
@@ -1365,8 +1754,13 @@ class SettingsWindow(UniformScaleDialog):
             dialog.setCurrentColor(QColor(intcolor))
 
     def _get_custom_timers(self):
-        dialog = CustomTriggerSettings()
-        dialog.exec()
+        app = QApplication.instance()
+        opener = getattr(app, 'show_triggers', None)
+        if callable(opener):
+            opener(owner=self)
+        else:
+            # Lightweight test/legacy hosts can still use the editor.
+            CustomTriggerSettings(parent=self).exec()
 
     def _choose_fade_sound(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -1785,37 +2179,68 @@ class TriggerLibraryTree(QTreeWidget):
 
 class CustomTriggerSettings(UniformScaleDialog):
 
-    def __init__(self):
+    def __init__(self, parent=None):
         super().__init__(
-            QSize(680, 650), minimum_size=QSize(204, 195),
-            initial_size=QSize(544, 520))
+            QSize(960, 760), parent, minimum_size=QSize(288, 228),
+            initial_size=QSize(768, 608))
 
         self._custom_triggers = {}
         self._current_trigger = ''
         self._tree_loading = False
 
-        self.setWindowTitle("Vantage · Triggers and Timers")
+        self.setWindowTitle("Vantage · Triggers")
         self._setup_ui()
         self._load_from_config()
+        self._monitor_status_timer = QTimer(self)
+        self._monitor_status_timer.setInterval(1000)
+        self._monitor_status_timer.timeout.connect(self._refresh_monitor_status)
+        self._refresh_monitor_status()
 
     def _setup_ui(self):
 
         layout = QVBoxLayout()
+
+        self._monitor_enabled = QCheckBox('Monitoring On')
+        self._monitor_enabled.setAccessibleName('Custom trigger monitoring On or Off')
+        self._monitor_enabled.setToolTip(
+            'Pause custom matches and alerts without changing saved triggers or '
+            'automatic spell tracking. Existing timers retain their deadlines.')
+        self._monitor_enabled.toggled.connect(self._monitor_changed)
+        layout.addWidget(self._monitor_enabled)
+        self._monitor_status = QLabel()
+        self._monitor_status.setObjectName('InlineStatus')
+        self._monitor_status.setTextFormat(Qt.TextFormat.PlainText)
+        self._monitor_status.setWordWrap(True)
+        self._monitor_status.setAccessibleName('Trigger monitoring, profile and log status')
+        layout.addWidget(self._monitor_status)
+        self._library_search = QLineEdit()
+        self._library_search.setPlaceholderText('Find a trigger, group, log pattern or source…')
+        self._library_search.setClearButtonEnabled(True)
+        self._library_search.setAccessibleName('Search trigger library')
+        self._library_search.setToolTip(
+            'Filter the library without changing groups, order, saved rules or the current draft. '
+            'Clear search before moving rows.')
+        self._library_search.textChanged.connect(self._apply_library_filter)
+        layout.addWidget(self._library_search)
 
         self._triggers = TriggerLibraryTree()
         self._triggers.setObjectName('TriggerLibraryTree')
         self._triggers.setAccessibleName('Trigger group and trigger library')
         self._triggers.setToolTip(
             'Groups and triggers · drag a row to reorder it or move it into another group')
-        self._triggers.setHeaderLabels(('Trigger library', 'Scope'))
+        self._triggers.setHeaderLabels(('Trigger library', 'State', 'Scope'))
         self._triggers.headerItem().setToolTip(
             0, 'Nested trigger groups and individual trigger names')
         self._triggers.headerItem().setToolTip(
-            1, 'All characters or the exact character profile override')
+            1, 'Visible On or Off state for this trigger or group')
+        self._triggers.headerItem().setToolTip(
+            2, 'All characters or the exact character profile override')
         self._triggers.header().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch)
         self._triggers.header().setSectionResizeMode(
             1, QHeaderView.ResizeMode.ResizeToContents)
+        self._triggers.header().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.ResizeToContents)
         self._triggers.setSelectionMode(
             QAbstractItemView.SelectionMode.SingleSelection)
         self._triggers.setDragDropMode(
@@ -1823,15 +2248,16 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._triggers.setDefaultDropAction(Qt.DropAction.MoveAction)
         self._triggers.setDropIndicatorShown(True)
         self._triggers.setMinimumHeight(92)
-        self._triggers.setMaximumHeight(190)
+        self._triggers.setMaximumHeight(140)
         self._triggers.itemSelectionChanged.connect(self._activated)
         self._triggers.itemChanged.connect(self._tree_item_changed)
-        self._triggers.structure_changed.connect(self._persist_tree_structure)
+        self._triggers.structure_changed.connect(
+            lambda: self._persist_tree_structure(reload_tree=False))
         layout.addWidget(self._triggers)
 
         action_bar = ResponsiveActionBar(86)
         self._add_trigger_button = QPushButton()
-        self._add_trigger_button.setText('Add')
+        self._add_trigger_button.setText('New trigger')
         self._add_trigger_button.setIcon(game_icon('add'))
         self._add_trigger_button.setToolTip(
             'Create a trigger inside the selected group')
@@ -1877,6 +2303,20 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._import_gina_button.setIcon(game_icon('refresh'))
         self._import_gina_button.clicked.connect(self._import_gina)
         action_bar.addWidget(self._import_gina_button)
+        self._export_pack_button = QPushButton('Share…')
+        self._export_pack_button.setIcon(game_icon('export'))
+        self._export_pack_button.setToolTip(
+            'Share the saved selected trigger/group, or explicitly choose all saved triggers. '
+            'Review scope, included WAVs and compatibility before sharing.')
+        share_menu = QMenu(self._export_pack_button)
+        for label, callback in (
+                ('Save native JSON pack…', self._export_native_pack),
+                ('Save GINA .gtp compatibility pack…', self._export_gina_pack),
+                ('Copy Vantage share code…', lambda: self._copy_share(False)),
+                ('Copy Vantage share link…', lambda: self._copy_share(True))):
+            share_menu.addAction(label, callback)
+        self._export_pack_button.setMenu(share_menu)
+        action_bar.addWidget(self._export_pack_button)
 
         history_button = QPushButton('Match Log')
         history_button.setIcon(game_icon('combat'))
@@ -1887,8 +2327,76 @@ class CustomTriggerSettings(UniformScaleDialog):
 
         layout.addWidget(action_bar)
 
+        sharing_row = QHBoxLayout()
+        sharing_row.addWidget(QLabel('Share scope'))
+        self._share_scope = QComboBox()
+        self._share_scope.addItem('Saved selection only', 'selection')
+        self._share_scope.addItem('All saved triggers', 'all')
+        self._share_scope.setAccessibleName('Explicit trigger sharing scope')
+        self._share_scope.setToolTip('Selection means one saved trigger or its selected group. Unsaved edits are not shared.')
+        sharing_row.addWidget(self._share_scope, 1)
+        self._paste_share_button = QPushButton('Paste code or link…')
+        self._paste_share_button.setToolTip('Review a self-contained Vantage share as disabled copies; no network request or GimaLink service.')
+        self._paste_share_button.clicked.connect(self._paste_share)
+        sharing_row.addWidget(self._paste_share_button)
+        layout.addLayout(sharing_row)
+
+        self._advanced_toggle = QCheckBox('Advanced options')
+        self._advanced_toggle.setAccessibleName('Show advanced trigger options')
+        self._advanced_toggle.setToolTip(
+            'Show profile/zone rules, regular expressions, group overrides and timer stages. '
+            'Hiding them never clears saved values; configured advanced options open automatically.')
+        self._advanced_toggle.toggled.connect(self._set_advanced_visible)
+        disclosure_row = QHBoxLayout()
+        disclosure_row.addWidget(self._advanced_toggle)
+        disclosure_row.addStretch(1)
+        self._sample_toggle = QPushButton('Show match check')
+        self._sample_toggle.setCheckable(True)
+        self._sample_toggle.setAccessibleName('Show or hide safe sample match check')
+        self._sample_toggle.setToolTip('Expand a no-actions draft match check; collapsing keeps the result.')
+        disclosure_row.addWidget(self._sample_toggle)
+        layout.addLayout(disclosure_row)
+
+        self._sample_host = QWidget()
+        sample_layout = QVBoxLayout(self._sample_host)
+        sample_layout.setContentsMargins(0, 0, 0, 0)
+        sample_layout.setSpacing(4)
+        self._sample_host.setVisible(False)
+        self._sample_toggle.toggled.connect(self._sample_host.setVisible)
+        self._sample_toggle.toggled.connect(lambda checked: self._sample_toggle.setText(
+            'Hide match check' if checked else 'Show match check'))
+
+        sample_row = QHBoxLayout()
+        self._sample_line = QLineEdit()
+        self._sample_line.setMaxLength(2048)
+        self._sample_line.setPlaceholderText('Paste one sample EQ log line to check this draft…')
+        self._sample_line.setAccessibleName('Sample log line for safe trigger matching')
+        self._sample_line.setToolTip(
+            'Check the current unsaved rule and expand captures without audio, '
+            'timers, clipboard changes or overlays.')
+        self._sample_line.returnPressed.connect(self._match_sample_line)
+        sample_row.addWidget(self._sample_line, 1)
+        self._sample_match_button = QPushButton('Check match')
+        self._sample_match_button.setAccessibleName('Dry-run current trigger against sample line')
+        self._sample_match_button.clicked.connect(self._match_sample_line)
+        sample_row.addWidget(self._sample_match_button)
+        sample_layout.addLayout(sample_row)
+        self._sample_result = QPlainTextEdit('Match check · no actions are played or started')
+        self._sample_result.setObjectName('InlineStatus')
+        self._sample_result.setReadOnly(True)
+        self._sample_result.setMaximumHeight(90)
+        self._sample_result.setAccessibleName('Sample match result and expanded output')
+        self._sample_result.setToolTip(
+            'Read-only dry-run result: captures and expanded output from the '
+            'current unsaved trigger and sample log line. No audio, timers, '
+            'clipboard changes or overlays are run.')
+        self._sample_result.setVisible(False)
+        sample_layout.addWidget(self._sample_result)
+        layout.addWidget(self._sample_host)
+
         trigger_layout = polish_form(QFormLayout())
-        trigger_layout.setSpacing(10)
+        self._trigger_form = trigger_layout
+        trigger_layout.setSpacing(6)
 
         trigger_layout.addRow(SettingsHeader('TRIGGER'))
 
@@ -1903,10 +2411,7 @@ class CustomTriggerSettings(UniformScaleDialog):
             'Exact EQ log text to match; type { to see supported tokens')
         trigger_layout.addRow('Log text', self._trigger_text)
 
-        token_legend = QLabel(
-            "TOKENS · type { to autocomplete\n"
-            "* any text · {c} your character · {target}/{mob}/{spell}/{damage} "
-            "capture text · {ts} dynamic D:H:M:S timer · {COUNTER} activation count")
+        token_legend = self._token_legend = QLabel('Tokens: type { for suggestions · * matches any text')
         token_legend.setObjectName('TriggerTokenLegend')
         token_legend.setWordWrap(True)
         token_legend.setMaximumHeight(88)
@@ -1918,20 +2423,74 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_time = QLineEdit()
         self._trigger_time.setText("hh:mm:ss")
         self._trigger_time.setToolTip(
-            'Timer duration; 3 means 3 minutes, and 3:50 or 1:03:50 are also accepted')
+            'Timer duration in H:MM:SS; for example 00:03:00 is three minutes. '
+            'Use {ts} in match text for a captured duration.')
 
-        self._trigger_enabled = QCheckBox('Enabled')
+        self._trigger_enabled = QCheckBox('Trigger On')
         self._trigger_enabled.setChecked(True)
+        self._trigger_enabled.setAccessibleName('Individual trigger On or Off')
+        self._trigger_enabled.setAccessibleDescription(
+            'Press Space to switch only this trigger On or Off. The saved '
+            'Sound, text-to-speech, timer, and overlay settings are preserved.')
         self._trigger_enabled.setToolTip(
-            'Enable this trigger without changing the rest of its category')
+            'Turn only this trigger On or Off without changing its category '
+            'or delivery settings')
+        self._trigger_enabled.toggled.connect(self._sync_trigger_enabled_text)
         trigger_layout.addRow('Status', self._trigger_enabled)
+
+        self._trigger_audio_muted = QCheckBox('Mute this trigger')
+        self._trigger_audio_muted.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._trigger_audio_muted.setAccessibleName('Mute this trigger audio')
+        self._trigger_audio_muted.setAccessibleDescription(
+            'Silence this trigger Sound/WAV and text-to-speech in all phases. '
+            'Detection, timers and visual alerts stay enabled. Save applies '
+            'the change; uncheck restores your saved audio choices.')
+        self._trigger_audio_muted.setToolTip(
+            self._trigger_audio_muted.accessibleDescription())
+        trigger_layout.addRow('Audio mute', self._trigger_audio_muted)
+
+        self._test_trigger_button = QPushButton('Test trigger now')
+        self._test_trigger_button.setIcon(game_icon('play'))
+        self._test_trigger_button.setAccessibleName(
+            'Test selected trigger notification')
+        self._test_trigger_button.setAccessibleDescription(
+            'Sends a visible Quick Bar test and exercises the currently '
+            'selected Sound, text-to-speech, or Off delivery without waiting '
+            'for an EverQuest log line.')
+        self._test_trigger_button.setToolTip(
+            'Test this trigger\'s current Quick Bar, overlay, and audio route')
+        self._test_trigger_button.clicked.connect(self._test_trigger_action)
+        self._trigger_test_status = QLabel('Test status · ready')
+        self._trigger_test_status.setTextFormat(Qt.TextFormat.PlainText)
+        self._trigger_test_status.setWordWrap(True)
+        self._trigger_test_status.setAccessibleName(
+            'Trigger test status: ready')
+        self._trigger_test_status.setAccessibleDescription(
+            'Result of the most recent trigger notification test.')
+        trigger_layout.addRow('Test action', self._test_trigger_button)
+        trigger_layout.addRow('Test status', self._trigger_test_status)
 
         self._trigger_regex = QCheckBox('Regular expression')
         self._trigger_regex.setToolTip(
             'For advanced or imported patterns only; normal triggers do not need it')
         trigger_layout.addRow('Pattern mode', self._trigger_regex)
 
+        self._trigger_match_cooldown = QDoubleSpinBox()
+        self._trigger_match_cooldown.setRange(0.0, 300.0)
+        self._trigger_match_cooldown.setDecimals(2)
+        self._trigger_match_cooldown.setSingleStep(0.25)
+        self._trigger_match_cooldown.setSuffix(' s')
+        self._trigger_match_cooldown.setAccessibleName(
+            'Trigger repeat guard duration')
+        self._trigger_match_cooldown.setAccessibleDescription(
+            'Suppress the same trigger for this many seconds. The Mob is '
+            'casting alert applies the guard independently to each actor.')
+        self._trigger_match_cooldown.setToolTip(
+            'Short duplicate guard after a match; set 0 to allow every line')
+        trigger_layout.addRow('Repeat guard', self._trigger_match_cooldown)
+
         self._trigger_source = QLabel('Vantage')
+        self._trigger_source.setTextFormat(Qt.TextFormat.PlainText)
         self._trigger_source.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse)
         trigger_layout.addRow('Source', self._trigger_source)
@@ -2019,6 +2578,11 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_end_text.setPlaceholderText(
             'Optional log text that ends this timer early')
         self._trigger_enders = QTableWidget(0, 2)
+        self._trigger_enders.setObjectName('TriggerEarlyEndersTable')
+        self._trigger_enders.setAccessibleName(
+            'Independent trigger ending patterns')
+        self._trigger_enders.setAccessibleDescription(
+            'Each row is a separate log pattern that can end this timer early.')
         self._trigger_enders.setHorizontalHeaderLabels(('Log text', 'Regex'))
         self._trigger_enders.horizontalHeaderItem(0).setToolTip(
             'Independent log pattern that immediately ends the running timer')
@@ -2063,18 +2627,18 @@ class CustomTriggerSettings(UniformScaleDialog):
         trigger_sound_browse.setIcon(game_icon('copy'))
         trigger_sound_browse.setToolTip(
             'Copy a custom WAV into the portable Vantage sound gallery')
+        trigger_sound_browse.setAccessibleName(
+            'Choose WAV for basic trigger sound')
         trigger_sound_browse.clicked.connect(self._choose_trigger_sound)
         trigger_sound_actions.addWidget(trigger_sound_browse)
         trigger_sound_test = QPushButton('Test')
         trigger_sound_test.setIcon(game_icon('play'))
         trigger_sound_test.setToolTip(
             'Play the selected trigger sound at the configured trigger volume')
+        trigger_sound_test.setAccessibleName('Test basic trigger sound')
         trigger_sound_test.clicked.connect(
-            lambda: play_alert(
-                self._trigger_sound.currentData(),
-                config.data['spells']['fade_sound_volume'], 1,
-                source="Test · trigger sound")
-            if self._trigger_sound.currentData() else None)
+            lambda: self._test_trigger_sound(
+                self._trigger_sound, 'Test · trigger sound'))
         trigger_sound_actions.addWidget(trigger_sound_test)
         trigger_sound_row.addWidget(trigger_sound_actions)
         self._trigger_timer_type = QComboBox()
@@ -2145,67 +2709,179 @@ class CustomTriggerSettings(UniformScaleDialog):
             'Optional speech when the timer reaches zero')
         self._trigger_ended_interrupt = QCheckBox('Interrupt current speech')
 
-        def speech_panel(editor, interrupt, source):
+        def delivery_combo(label):
+            combo = QComboBox()
+            combo.addItem('Sound / WAV', 'sound')
+            combo.addItem('Text to speech', 'tts')
+            combo.addItem('Off', 'off')
+            combo.setAccessibleName(f'{label} audio delivery')
+            combo.setAccessibleDescription(
+                f'Choose one audio output for {label.casefold()}: '
+                'a gallery or custom WAV, Windows text to speech, or no audio.')
+            combo.setToolTip(
+                'Choose exactly one audio action; visual display text is configured separately')
+            return combo
+
+        def voice_combo(label):
+            combo = QComboBox()
+            combo.addItem(vantage_command_voice_label(), '')
+            for voice in speech_voice_names():
+                combo.addItem(voice, voice)
+            combo.setAccessibleName(f'{label} Windows voice')
+            combo.setAccessibleDescription(
+                vantage_command_voice_description())
+            combo.setToolTip(
+                'Choose an installed Windows voice for this trigger phase. '
+                + vantage_command_voice_description())
+            return combo
+
+        def speech_spin(label, kind, minimum, maximum, value, suffix):
+            spin = QSpinBox()
+            spin.setRange(minimum, maximum)
+            spin.setValue(value)
+            spin.setSuffix(suffix)
+            spin.setAccessibleName(f'{label} speech {kind}')
+            spin.setAccessibleDescription(
+                f'{kind.title()} applied only to {label.casefold()} text to speech')
+            spin.setToolTip(
+                f'Set {kind} for this phase; Master Volume and character '
+                'profile volume are still applied')
+            return spin
+
+        self._trigger_delivery = delivery_combo('Basic trigger')
+        self._trigger_ending_delivery = delivery_combo('Timer ending')
+        self._trigger_ended_delivery = delivery_combo('Timer ended')
+        self._trigger_tts_voice = voice_combo('Basic trigger')
+        self._trigger_ending_voice = voice_combo('Timer ending')
+        self._trigger_ended_voice = voice_combo('Timer ended')
+        self._trigger_tts_volume = speech_spin(
+            'Basic trigger', 'volume', 0, 100, 100, '%')
+        self._trigger_ending_volume = speech_spin(
+            'Timer ending', 'volume', 0, 100, 100, '%')
+        self._trigger_ended_volume = speech_spin(
+            'Timer ended', 'volume', 0, 100, 100, '%')
+        self._trigger_tts_pitch = speech_spin(
+            'Basic trigger', 'pitch', -10, 10, 0, '')
+        self._trigger_ending_pitch = speech_spin(
+            'Timer ending', 'pitch', -10, 10, 0, '')
+        self._trigger_ended_pitch = speech_spin(
+            'Timer ended', 'pitch', -10, 10, 0, '')
+
+        def speech_panel(
+                editor, interrupt, voice, volume, pitch, source, label):
             panel = QWidget()
-            panel_layout = QVBoxLayout(panel)
+            panel_layout = polish_form(QFormLayout(panel))
+            # This compound editor is often displayed in the narrow action
+            # side of a splitter.  Stack labels above controls so fields keep
+            # a useful width, then let the enclosing tab scroll vertically.
+            panel_layout.setRowWrapPolicy(
+                QFormLayout.RowWrapPolicy.WrapAllRows)
             panel_layout.setContentsMargins(0, 0, 0, 0)
             panel_layout.setSpacing(3)
+            for control in (editor, voice, volume, pitch):
+                control.setMinimumHeight(34)
+                # The application stylesheet is applied after construction
+                # and otherwise replaces QWidget's minimum with its generic
+                # 24 px rule.  Keep these scaled-dialog fields at a readable
+                # physical height at the normal 80% dialog scale.
+                control.setStyleSheet('min-height: 30px;')
+            interrupt.setMinimumHeight(30)
             editor.setToolTip(
                 'Resolved tokens are spoken by the built-in Windows voice')
-            panel_layout.addWidget(editor)
+            editor.setAccessibleName(f'{label} speech message')
+            panel_layout.addRow('Message', editor)
+            panel_layout.addRow('Voice', voice)
+            panel_layout.addRow('Volume', volume)
+            panel_layout.addRow('Pitch', pitch)
             row = QHBoxLayout()
             interrupt.setToolTip(
                 'Stop current Vantage speech before speaking this action')
             test = QPushButton('Test voice')
+            test.setMinimumHeight(30)
             test.setIcon(game_icon('play'))
             test.setToolTip('Speak this text now using the Windows voice')
-            test.clicked.connect(lambda: speak_text(
-                editor.text(), config.data['spells']['fade_sound_volume'],
-                interrupt.isChecked(), source=source))
+            test.setAccessibleName(f'Test {label.casefold()} speech')
+            status = QLabel('')
+            status.setWordWrap(True)
+            status.setVisible(False)
+            status.setAccessibleName(f'{label} speech test: no result yet')
+            status.setAccessibleDescription(
+                f'Live result of the {label.casefold()} speech test.')
+            test.clicked.connect(lambda: self._test_trigger_speech(
+                editor, interrupt, voice, volume, pitch, source, label,
+                status))
             row.addWidget(interrupt)
             row.addWidget(test)
-            panel_layout.addLayout(row)
+            panel_layout.addRow('Speech action', row)
+            panel_layout.addRow('Test status', status)
+            panel._speech_status = status
+            panel._speech_test = test
             return panel
 
         basic_speech_panel = speech_panel(
             self._trigger_tts, self._trigger_interrupt_speech,
-            'Test · trigger speech')
+            self._trigger_tts_voice, self._trigger_tts_volume,
+            self._trigger_tts_pitch, 'Test · trigger speech',
+            'Basic trigger')
         ending_speech_panel = speech_panel(
             self._trigger_ending_tts, self._trigger_ending_interrupt,
-            'Test · timer ending speech')
+            self._trigger_ending_voice, self._trigger_ending_volume,
+            self._trigger_ending_pitch, 'Test · timer ending speech',
+            'Timer ending')
         ended_speech_panel = speech_panel(
             self._trigger_ended_tts, self._trigger_ended_interrupt,
-            'Test · timer ended speech')
+            self._trigger_ended_voice, self._trigger_ended_volume,
+            self._trigger_ended_pitch, 'Test · timer ended speech',
+            'Timer ended')
 
-        def stage_sound_panel(combo, source):
+        def stage_sound_panel(combo, source, label):
             panel = QWidget()
             panel_layout = QVBoxLayout(panel)
             panel_layout.setContentsMargins(0, 0, 0, 0)
             panel_layout.setSpacing(3)
             combo.setToolTip(
                 'Choose No sound, a built-in sound, or a portable custom WAV')
+            combo.setAccessibleName(f'{label} sound gallery')
+            combo.setAccessibleDescription(
+                f'Choose a built-in or custom WAV for {label.casefold()}.')
             panel_layout.addWidget(combo)
             actions = ResponsiveActionBar(96)
             choose = QPushButton('Choose WAV…')
             choose.setIcon(game_icon('copy'))
             choose.setToolTip('Copy a custom WAV into Vantage portable data')
+            choose.setAccessibleName(f'Choose WAV for {label.casefold()}')
             choose.clicked.connect(lambda: self._choose_stage_sound(combo))
             actions.addWidget(choose)
             test = QPushButton('Test')
             test.setIcon(game_icon('play'))
             test.setToolTip('Play this stage sound at the configured volume')
-            test.clicked.connect(lambda: play_alert(
-                combo.currentData(),
-                config.data['spells']['fade_sound_volume'], 1,
-                source=source) if combo.currentData() else None)
+            test.setAccessibleName(f'Test {label.casefold()} sound')
+            test.clicked.connect(lambda: self._test_trigger_sound(combo, source))
             actions.addWidget(test)
             panel_layout.addWidget(actions)
             return panel
 
         ending_sound_panel = stage_sound_panel(
-            self._trigger_ending_sound, 'Test · timer ending sound')
+            self._trigger_ending_sound, 'Test · timer ending sound',
+            'Timer ending')
         ended_sound_panel = stage_sound_panel(
-            self._trigger_ended_sound, 'Test · timer ended sound')
+            self._trigger_ended_sound, 'Test · timer ended sound',
+            'Timer ended')
+
+        self._trigger_delivery_panels = (
+            (self._trigger_delivery, trigger_sound_panel,
+             basic_speech_panel),
+            (self._trigger_ending_delivery, ending_sound_panel,
+             ending_speech_panel),
+            (self._trigger_ended_delivery, ended_sound_panel,
+             ended_speech_panel),
+        )
+        for delivery, sound_panel, speech_widget in \
+                self._trigger_delivery_panels:
+            delivery.currentIndexChanged.connect(
+                lambda _index, selector=delivery, sound=sound_panel,
+                speech=speech_widget: self._trigger_delivery_changed(
+                    selector, sound, speech))
 
         action_tabs = QTabWidget()
         self._action_tabs = action_tabs
@@ -2215,16 +2891,24 @@ class CustomTriggerSettings(UniformScaleDialog):
 
         basic_page = QWidget()
         basic_layout = polish_form(QFormLayout(basic_page))
+        self._basic_form = basic_layout
         basic_layout.addRow('Display text', self._trigger_alert)
         basic_layout.addRow('Text color', self._trigger_color)
         basic_layout.addRow('Overlay route', self._trigger_overlay)
+        basic_layout.addRow('Delivery', self._trigger_delivery)
         basic_layout.addRow('Sound', trigger_sound_panel)
         basic_layout.addRow('Text-to-speech', basic_speech_panel)
         basic_layout.addRow('Copy to clipboard', self._trigger_clipboard)
-        action_tabs.addTab(basic_page, 'Basic')
+        trigger_sound_panel._delivery_label = \
+            basic_layout.labelForField(trigger_sound_panel)
+        trigger_sound_panel._delivery_label.setBuddy(self._trigger_sound)
+        basic_speech_panel._delivery_label = \
+            basic_layout.labelForField(basic_speech_panel)
+        basic_speech_panel._delivery_label.setBuddy(self._trigger_tts)
 
         timer_page = QWidget()
         timer_layout = polish_form(QFormLayout(timer_page))
+        self._timer_form = timer_layout
         timer_layout.addRow('Timer type', self._trigger_timer_type)
         timer_layout.addRow('Timer name', self._trigger_timer_name)
         timer_layout.addRow('Duration', self._trigger_time)
@@ -2233,22 +2917,61 @@ class CustomTriggerSettings(UniformScaleDialog):
         timer_layout.addRow('Restart scope', self._trigger_restart_name)
         timer_layout.addRow('Early enders', ender_host)
         timer_layout.addRow('Counter reset', self._trigger_counter_reset)
-        action_tabs.addTab(timer_page, 'Timer')
 
         ending_page = QWidget()
         ending_layout = polish_form(QFormLayout(ending_page))
         ending_layout.addRow('Threshold', self._trigger_ending_seconds)
         ending_layout.addRow('Display text', self._trigger_ending_alert)
+        ending_layout.addRow('Delivery', self._trigger_ending_delivery)
         ending_layout.addRow('Sound', ending_sound_panel)
         ending_layout.addRow('Text-to-speech', ending_speech_panel)
-        action_tabs.addTab(ending_page, 'Timer Ending')
+        ending_sound_panel._delivery_label = \
+            ending_layout.labelForField(ending_sound_panel)
+        ending_sound_panel._delivery_label.setBuddy(
+            self._trigger_ending_sound)
+        ending_speech_panel._delivery_label = \
+            ending_layout.labelForField(ending_speech_panel)
+        ending_speech_panel._delivery_label.setBuddy(
+            self._trigger_ending_tts)
 
         ended_page = QWidget()
         ended_layout = polish_form(QFormLayout(ended_page))
         ended_layout.addRow('Display text', self._trigger_ended_alert)
+        ended_layout.addRow('Delivery', self._trigger_ended_delivery)
         ended_layout.addRow('Sound', ended_sound_panel)
         ended_layout.addRow('Text-to-speech', ended_speech_panel)
-        action_tabs.addTab(ended_page, 'Timer Ended')
+        ended_sound_panel._delivery_label = \
+            ended_layout.labelForField(ended_sound_panel)
+        ended_sound_panel._delivery_label.setBuddy(
+            self._trigger_ended_sound)
+        ended_speech_panel._delivery_label = \
+            ended_layout.labelForField(ended_speech_panel)
+        ended_speech_panel._delivery_label.setBuddy(
+            self._trigger_ended_tts)
+
+        # Reclaim inactive delivery space instead of compressing two complete
+        # editors into the same short tab.  Every page is independently
+        # scrollable, so keyboard focus can reveal all controls at a readable
+        # height even when the dialog is at its minimum/default size.
+        self._refresh_trigger_delivery_panels()
+
+        def add_action_page(page, label, object_name):
+            page.setMinimumHeight(max(600, page.minimumSizeHint().height()))
+            area = scrollable(page, object_name)
+            area.setAccessibleName(f'{label} trigger action settings')
+            area.setAccessibleDescription(
+                f'Scrollable {label.casefold()} controls for this trigger')
+            action_tabs.addTab(area, label)
+            return area
+
+        self._basic_action_scroll = add_action_page(
+            basic_page, 'Basic', 'TriggerBasicActionScroll')
+        self._timer_action_scroll = add_action_page(
+            timer_page, 'Timer', 'TriggerTimerActionScroll')
+        self._ending_action_scroll = add_action_page(
+            ending_page, 'Timer Ending', 'TriggerEndingActionScroll')
+        self._ended_action_scroll = add_action_page(
+            ended_page, 'Timer Ended', 'TriggerEndedActionScroll')
         ensure_tab_tooltips(action_tabs, {
             'Basic': 'Configure the actions fired when this trigger matches',
             'Timer': 'Configure timer type, duration, restart, and early ending',
@@ -2279,6 +3002,515 @@ class CustomTriggerSettings(UniformScaleDialog):
         layout.addItem(button_layout)
 
         self.scaled_surface.setLayout(layout)
+        self._advanced_core_fields = (
+            self._trigger_regex, self._trigger_match_cooldown, self._trigger_source,
+            self._category_enabled, self._category_scope, self._category_color,
+            self._trigger_profile, self._trigger_zone, self._trigger_comments,
+        )
+        self._advanced_basic_fields = (self._trigger_color, self._trigger_clipboard)
+        self._advanced_timer_fields = (
+            self._trigger_visible_seconds, self._trigger_restart,
+            self._trigger_restart_name, ender_host, self._trigger_counter_reset,
+        )
+        self._set_advanced_visible(False)
+
+    def _monitor_changed(self, enabled):
+        config.data['spells']['use_custom_triggers'] = bool(enabled)
+        config.save()
+        parser = getattr(QApplication.instance(), '_parsers_dict', {}).get('spells')
+        toggle = getattr(parser, '_custom_timer_toggle', None)
+        if toggle is not None:
+            toggle.setChecked(bool(enabled))
+        self._refresh_monitor_status()
+
+    def _refresh_monitor_status(self):
+        app = QApplication.instance()
+        parser = getattr(app, '_parsers_dict', {}).get('spells')
+        enabled = bool(config.data['spells'].get('use_custom_triggers', True))
+        self._monitor_enabled.blockSignals(True)
+        self._monitor_enabled.setChecked(enabled)
+        self._monitor_enabled.setText(f"Monitoring {'On' if enabled else 'Off'}")
+        self._monitor_enabled.blockSignals(False)
+        profile = str(getattr(parser, '_active_character', '') or
+                      config.data.get('sharing', {}).get('player_name', '')).strip()
+        if profile in ('', 'ConfigureMe'):
+            profile = 'not detected'
+        log_status = str(getattr(app, '_log_status', '') or 'status unavailable')
+        detail = ('Custom matches and alerts enabled' if enabled else
+                  'Custom matches and alerts paused; timer deadlines retained')
+        self._monitor_status.setText(f'{detail} · Profile: {profile} · Logs: {log_status}')
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if hasattr(self, '_monitor_status_timer'):
+            self._refresh_monitor_status()
+            self._monitor_status_timer.start()
+
+    def hideEvent(self, event):
+        if hasattr(self, '_monitor_status_timer'):
+            self._monitor_status_timer.stop()
+        super().hideEvent(event)
+
+    def _apply_library_filter(self, *_):
+        query = self._library_search.text().strip().casefold()
+        items = []
+        iterator = QTreeWidgetItemIterator(self._triggers)
+        while iterator.value():
+            items.append(iterator.value())
+            iterator += 1
+        visible = set()
+        for item in items:
+            name = str(item.data(0, TRIGGER_ITEM_ID) or '')
+            trigger = self._custom_triggers.get(name)
+            fields = (name, trigger.text, trigger.category, trigger.source,
+                      trigger.profile, trigger.comments) if trigger else (name,)
+            ancestor = item.parent()
+            group_match = False
+            while ancestor is not None:
+                group_match = group_match or query in str(
+                    ancestor.data(0, TRIGGER_ITEM_ID) or '').casefold()
+                ancestor = ancestor.parent()
+            if not query or group_match or query in ' '.join(fields).casefold():
+                visible.add(item)
+                ancestor = item.parent()
+                while ancestor is not None:
+                    visible.add(ancestor)
+                    ancestor = ancestor.parent()
+        for item in items:
+            item.setHidden(item not in visible)
+        self._triggers.setDragDropMode(
+            QAbstractItemView.DragDropMode.NoDragDrop if query else
+            QAbstractItemView.DragDropMode.InternalMove)
+
+    def _set_advanced_visible(self, visible):
+        if not hasattr(self, '_advanced_core_fields'):
+            return
+        self._token_legend.setText(
+            'TOKENS · type { to autocomplete\n* any text · {c} your character · '
+            '{target}/{mob}/{spell}/{damage} captures · {ts} D:H:M:S timer · {COUNTER} activation count'
+            if visible else 'Tokens: type { for suggestions · * matches any text')
+        for form, fields in (
+                (self._trigger_form, self._advanced_core_fields),
+                (self._basic_form, self._advanced_basic_fields),
+                (self._timer_form, self._advanced_timer_fields)):
+            for widget in fields:
+                form.setRowVisible(widget, visible)
+        for index in (2, 3):
+            self._action_tabs.setTabVisible(index, visible)
+        if not visible and self._action_tabs.currentIndex() > 1:
+            self._action_tabs.setCurrentIndex(0)
+
+    def _reveal_configured_advanced(self, trigger):
+        configured = bool(
+            trigger.regex or trigger.profile or trigger.zone or trigger.comments or
+            trigger.text_color or trigger.clipboard_text or trigger.match_filter or
+            trigger.match_cooldown_seconds != 0.75 or trigger.end_patterns or
+            trigger.timer_type in ('stopwatch', 'repeating') or
+            trigger.timer_visible_seconds or trigger.counter_reset_seconds or
+            trigger.restart_behavior != 'restart' or trigger.restart_based_on_timer_name or
+            trigger.timer_ending_seconds or trigger.timer_ending_alert or
+            trigger.timer_ending_sound or trigger.timer_ending_tts or
+            trigger.timer_ended_alert or trigger.timer_ended_sound or trigger.timer_ended_tts)
+        if configured:
+            self._advanced_toggle.setChecked(True)
+
+    def _draft_trigger(self):
+        existing = self._custom_triggers.get(self._current_trigger)
+        trigger = CustomTrigger(*existing.to_list()) if existing else CustomTrigger()
+        trigger.name = self._trigger_name.text().strip() or 'Draft trigger'
+        trigger.text = self._trigger_text.text()
+        trigger.time = self._trigger_time.text().strip()
+        self._apply_extra_fields(trigger, update_groups=False)
+        return trigger
+
+    def _match_sample_line(self):
+        """Evaluate a detached draft only; do not invoke parser delivery APIs."""
+        self._sample_toggle.setChecked(True)
+        self._sample_result.setVisible(True)
+        original = self._sample_line.text().strip()
+        if not original:
+            self._sample_result.setPlainText('Paste one EQ log line before checking a match.')
+            self._sample_line.setFocus()
+            return False
+        line = original.split('] ', 1)[1] if original.startswith('[') and '] ' in original else original
+        trigger = self._draft_trigger()
+        app = QApplication.instance()
+        parser = getattr(app, '_parsers_dict', {}).get('spells')
+        profile = str(getattr(parser, '_active_character', '') or
+                      config.data.get('sharing', {}).get('player_name', ''))
+        trigger.runtime_character = '' if profile == 'ConfigureMe' else profile
+        trigger.counter = 1  # Detached preview counter; never mutate live runs.
+        try:
+            pattern = compile_trigger_pattern(trigger.text, character=trigger.runtime_character,
+                                              raw_regex=trigger.regex)
+            match = pattern.match(line)
+            early_match = next((candidate for entry in trigger.end_patterns
+                                if (candidate := compile_trigger_pattern(
+                                    entry['text'], character=trigger.runtime_character,
+                                    raw_regex=entry.get('regex', False)).match(line))), None)
+        except (re.error, ValueError) as error:
+            self._sample_result.setPlainText(f'Invalid pattern · {error}\nNo actions were run.')
+            return False
+        if not match and not early_match:
+            self._sample_result.setPlainText('No pattern match. No actions were run.')
+            return False
+        if not early_match and not trigger_match_allowed(trigger, match, line, profile):
+            self._sample_result.setPlainText('Pattern matches, but its safety filter rejects this actor. No actions were run.')
+            return False
+        selected = early_match or match
+        output = ['Early-ending pattern matched' if early_match else 'Match found · detached draft preview']
+        if selected.groupdict():
+            output.append('Captures: ' + ' · '.join(
+                f'{key}={value}' for key, value in selected.groupdict().items()))
+        if selected.groups():
+            output.append('Numbered captures: ' + ' · '.join(
+                f'${index}={value}' for index, value in enumerate(selected.groups(), 1)))
+        if not early_match:
+            for label, template in (
+                    ('Timer name', trigger.timer_name or trigger.name),
+                    ('Display', trigger.alert_text), ('Speech', trigger.tts_text),
+                    ('Clipboard', trigger.clipboard_text),
+                    ('Timer ending display', trigger.timer_ending_alert),
+                    ('Timer ended display', trigger.timer_ended_alert)):
+                if template:
+                    output.append(f'{label}: {render_trigger_text(template, match, trigger)}')
+            if trigger.timer_type in ('countdown', 'repeating'):
+                duration = (dynamic_timer_seconds(match) if '{ts}' in trigger.text.casefold()
+                            else text_time_to_seconds(trigger.time))
+                output.append(f'Timer preview: {duration:g} seconds · {trigger.timer_type}')
+            if trigger.profile and trigger.profile.casefold() != profile.casefold():
+                output.append('Live scope: different or undetected character profile.')
+            if trigger.zone and trigger.zone.casefold() != str(getattr(parser, '_current_zone', '')).casefold():
+                output.append('Live scope: different or undetected zone.')
+            if not trigger.enabled or not self._monitor_enabled.isChecked() or not self._category_enabled.isChecked():
+                output.append('Live scope: monitoring, this trigger or its group is Off.')
+        output.append('No audio, timer, clipboard or overlay action was run; counter preview = 1.')
+        message = '\n'.join(output)
+        self._sample_result.setPlainText(message)
+        self._sample_result.setAccessibleDescription(message)
+        return True
+
+    def _selected_pack_triggers(self):
+        if self._share_scope.currentData() == 'all':
+            return list(self._custom_triggers.values())
+        item = self._selected_tree_item()
+        if item is None:
+            return []
+        name = self._selected_trigger_name()
+        if name and name in self._custom_triggers:
+            return [self._custom_triggers[name]]
+        group = self._selected_group_path()
+        return [trigger for trigger in self._custom_triggers.values()
+                if trigger.category == group or trigger.category.startswith(group + '/')]
+
+    def _export_native_pack(self):
+        prepared = self._prepare_share()
+        if prepared is None:
+            return
+        selected, content, warnings = prepared
+        if not self._confirm_share(selected, content, warnings):
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, 'Share Vantage Native Pack', 'Vantage-Triggers.json',
+            'Vantage native trigger pack (*.json)')
+        if not path:
+            return
+        if not path.casefold().endswith('.json'):
+            path += '.json'
+        try:
+            Path(path).write_bytes(content)
+        except (GinaImportError, OSError) as error:
+            QMessageBox.warning(self, 'Share Failed', str(error))
+            return
+        QMessageBox.information(self, 'Native pack saved',
+            f'{len(selected)} saved trigger(s) exported as native JSON. '
+            'Imports are reviewed disabled copies, not GimaLink shares.')
+
+    def _prepare_share(self, *, gina=False):
+        selected = self._selected_pack_triggers()
+        if not selected:
+            QMessageBox.information(self, 'Share trigger pack',
+                                    'Select a saved trigger or group first, or explicitly choose All saved triggers.')
+            return None
+        try:
+            # Normalize a detached registry: preparing/cancelling a share must
+            # not rewrite group metadata or commit an unsaved editor draft.
+            groups = config.data['spells'].get('trigger_groups', {})
+            serializer = serialize_gina_package if gina else serialize_vantage_package
+            content, warnings = serializer(selected, groups)
+        except (GinaImportError, OSError) as error:
+            QMessageBox.warning(self, 'Share Failed', str(error))
+            return None
+        return selected, content, warnings
+
+    def _confirm_share(self, selected, content, warnings, *, gina=False):
+        scope = ('All saved triggers' if self._share_scope.currentData() == 'all'
+                 else f'Saved selection · {self._selected_trigger_name() or self._selected_group_path()}')
+        note = ('GINA .gtp compatibility subset. Review the losses below. Native JSON '
+                'preserves Vantage-only settings; this is not complete GINA service parity.'
+                if gina else 'Native Vantage definitions, selected group settings and available portable WAVs. '
+                'Anyone with the file, code or link can import it. No upload or account is used; not GimaLink.')
+        box = QMessageBox(self)
+        box.setTextFormat(Qt.TextFormat.PlainText)
+        box.setWindowTitle('Review sharing scope and compatibility')
+        box.setIcon(QMessageBox.Icon.Warning if warnings else QMessageBox.Icon.Information)
+        box.setText(f'{scope}\n{len(selected)} saved trigger(s) · {len(content):,} bytes\n\n{note}')
+        if warnings:
+            box.setInformativeText('Some settings or audio cannot be shared. Expand Details and review before continuing.')
+            box.setDetailedText('\n'.join(f"{entry['trigger'] or 'Pack'} · {entry['message']}" for entry in warnings))
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        return box.exec() == QMessageBox.StandardButton.Yes
+
+    def _export_gina_pack(self):
+        prepared = self._prepare_share(gina=True)
+        if prepared is None:
+            return
+        selected, content, warnings = prepared
+        if not self._confirm_share(selected, content, warnings, gina=True):
+            return
+        path, _ = QFileDialog.getSaveFileName(self, 'Save GINA Compatibility Pack',
+                                            'Vantage-Triggers.gtp', 'GINA trigger pack (*.gtp)')
+        if not path:
+            return
+        if not path.casefold().endswith('.gtp'):
+            path += '.gtp'
+        try:
+            Path(path).write_bytes(content)
+        except OSError as error:
+            QMessageBox.warning(self, 'Share Failed', str(error))
+            return
+        QMessageBox.information(self, 'GINA compatibility pack saved',
+                                'Review this .gtp in GINA before enabling it. A native JSON pack preserves Vantage-only settings.')
+
+    def _copy_share(self, as_link=False):
+        from vantage.helpers.trigger_sharing import create_trigger_share_code, trigger_share_url
+        prepared = self._prepare_share()
+        if prepared is None:
+            return
+        selected, content, warnings = prepared
+        try:
+            code = create_trigger_share_code(content)
+        except ValueError as error:
+            QMessageBox.warning(self, 'Use a pack file',
+                                f'{error}\nSave a native JSON or GINA .gtp file for larger packs or WAVs. No audio was removed to shrink this share.')
+            return
+        if not self._confirm_share(selected, content, warnings):
+            return
+        share = trigger_share_url(code) if as_link else code
+        if len(share) > 240:
+            destination_note = ('It may also exceed a Discord message; use a pack file.'
+                                if len(share) > 1800 else
+                                'Discord or a pack file is more suitable for this length.')
+            choice = QMessageBox.question(self, 'Long share',
+                f'This self-contained share is {len(share):,} characters and may not fit an EverQuest /tell. '
+                f'{destination_note} No text or audio is truncated. Copy the complete share anyway?',
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel)
+            if choice != QMessageBox.StandardButton.Yes:
+                return
+        QApplication.clipboard().setText(share)
+        QMessageBox.information(self, 'Vantage share copied',
+                                'The complete share is on the clipboard. Anyone with it can import reviewed disabled copies; nothing was uploaded.')
+
+    def _paste_share(self):
+        from vantage.helpers.trigger_sharing import decode_trigger_share_code
+        text, accepted = QInputDialog.getMultiLineText(self, 'Paste Vantage share',
+            'Paste a VT1 code or Vantage share link. No network request is made; review disabled copies before importing.')
+        if not accepted or not text.strip():
+            return
+        try:
+            batch = import_vantage_package_bytes(decode_trigger_share_code(text))
+        except ValueError as error:
+            QMessageBox.warning(self, 'Share Import Failed', str(error))
+            return
+        self._review_import_batch(batch)
+
+    @staticmethod
+    def _trigger_delivery_changed(delivery, sound_panel, speech_panel):
+        mode = str(delivery.currentData() or 'off')
+        sound_active = mode == 'sound'
+        speech_active = mode == 'tts'
+        sound_panel.setEnabled(sound_active)
+        sound_panel.setVisible(sound_active)
+        speech_panel.setEnabled(speech_active)
+        speech_panel.setVisible(speech_active)
+        for panel, visible in (
+                (sound_panel, sound_active),
+                (speech_panel, speech_active)):
+            label = getattr(panel, '_delivery_label', None)
+            if label is not None:
+                label.setVisible(visible)
+        description = {
+            'sound': 'Sound or WAV is active; text to speech is inactive.',
+            'tts': 'Text to speech is active; sound or WAV is inactive.',
+            'off': 'Audio delivery is off for this trigger phase.',
+        }.get(mode, 'Audio delivery is off for this trigger phase.')
+        delivery.setAccessibleDescription(description)
+
+    def _refresh_trigger_delivery_panels(self):
+        for delivery, sound_panel, speech_panel in \
+                self._trigger_delivery_panels:
+            self._trigger_delivery_changed(
+                delivery, sound_panel, speech_panel)
+
+    def _sync_trigger_enabled_text(self, enabled):
+        state = 'On' if enabled else 'Off'
+        self._trigger_enabled.setText(f'Trigger {state}')
+        self._trigger_enabled.setAccessibleName(
+            f'Individual trigger {state}')
+        self._trigger_enabled.setAccessibleDescription(
+            f'This trigger is {state}. Press Space to switch only this '
+            'trigger. Saved Sound, text-to-speech, timer, and overlay '
+            'settings are preserved.')
+
+    def _announce_trigger_test(self, message):
+        text = str(message or 'Test status · unavailable')
+        self._trigger_test_status.setText(text)
+        self._trigger_test_status.setAccessibleName(text)
+        self._trigger_test_status.setAccessibleDescription(
+            f'Latest trigger notification test result: {text}')
+        try:
+            QAccessible.updateAccessibility(
+                QAccessibleAnnouncementEvent(
+                    self._trigger_test_status, text))
+        except (AttributeError, RuntimeError, TypeError):
+            pass
+        return text
+
+    def _test_trigger_action(self):
+        """Exercise the selected trigger's complete user-facing route.
+
+        The former per-control Test buttons proved only that an audio primitive
+        could be called. They did not emit the Quick Bar message players rely
+        on, did not explain Master Mute/zero volume, and could be suppressed
+        merely because the Spells window was hidden. This explicit action is a
+        user request, so it bypasses window-visibility gating while continuing
+        to honor Master Mute and Master Volume.
+        """
+        name = self._trigger_name.text().strip() or 'Selected trigger'
+        semantic = (
+            self._trigger_alert.text().strip() or
+            self._trigger_tts.text().strip() or f'{name} matched')
+        # Token values require a real log match. Keep the test useful and
+        # honest instead of pretending to resolve a mob/spell capture.
+        semantic = re.sub(r'\{[^{}]+\}', 'sample', semantic)
+        app = QApplication.instance()
+        queue_notice = getattr(app, '_queue_quickbar_notice', None)
+        if callable(queue_notice):
+            try:
+                queue_notice(f'Test · {semantic}', channel='spells')
+            except TypeError:  # Compatible with lightweight host adapters.
+                queue_notice(f'Test · {semantic}')
+
+        overlay_id = str(self._trigger_overlay.currentData() or 'none')
+        show_overlay = getattr(app, 'show_overlay_notification', None)
+        if overlay_id != 'none' and callable(show_overlay):
+            show_overlay(
+                f'Test · {name}', semantic, msecs=3500,
+                overlay_id=overlay_id, register=False)
+
+        mode = ('off' if self._trigger_audio_muted.isChecked() else
+                str(self._trigger_delivery.currentData() or 'off'))
+        speech = re.sub(r'\{[^{}]+\}', 'sample',
+                        self._trigger_tts.text().strip() or semantic)
+        check = audio_preflight(
+            mode, sound=str(self._trigger_sound.currentData() or ''),
+            text=speech, volume=(config.data['spells']['fade_sound_volume']
+                                if mode == 'sound' else
+                                self._trigger_tts_volume.value()),
+            channel='spells', allow_hidden=True)
+        if mode != 'off' and not check.ready:
+            outcome = check.reason
+        elif mode == 'sound':
+            sound = str(self._trigger_sound.currentData() or '')
+            played = bool(sound and play_alert(
+                sound, config.data['spells']['fade_sound_volume'], 1,
+                source=f'Test · {name}', channel='spells',
+                allow_hidden=True, visual_registered=True))
+            outcome = ('Sound queued' if played else
+                       'Windows audio backend unavailable')
+        elif mode == 'tts':
+            played = bool(speak_text(
+                speech, self._trigger_tts_volume.value(),
+                self._trigger_interrupt_speech.isChecked(),
+                source=f'Test · {name} · speech', channel='spells',
+                allow_hidden=True,
+                voice_name=str(self._trigger_tts_voice.currentData() or ''),
+                pitch=self._trigger_tts_pitch.value(),
+                visual_registered=True))
+            outcome = ('Text to speech queued' if played else
+                       'Windows voice unavailable')
+        else:
+            outcome = ('this trigger is muted; visual notification sent'
+                       if self._trigger_audio_muted.isChecked() else
+                       'audio Off; visual notification sent')
+        return self._announce_trigger_test(f'Test status · {outcome}')
+
+    @staticmethod
+    def _set_voice_combo(combo, voice_name):
+        wanted = str(voice_name or '')
+        index = combo.findData(wanted)
+        missing_voice = wanted if wanted and index < 0 else ''
+        if missing_voice:
+            combo.addItem(
+                unavailable_voice_label(missing_voice), missing_voice)
+            index = combo.count() - 1
+        combo.setCurrentIndex(index if index >= 0 else 0)
+        combo.setAccessibleDescription(
+            vantage_command_voice_description(missing_voice))
+
+    def _test_trigger_speech(
+            self, editor, interrupt, voice, volume, pitch, source, label,
+            status):
+        message = editor.text().strip()
+        check = audio_preflight(
+            'voice', text=message, volume=volume.value(),
+            channel='spells', allow_hidden=True)
+        if self._trigger_audio_muted.isChecked():
+            result = f'{label} speech test: this trigger is muted'
+        elif not message:
+            result = f'{label} speech test: enter a message first'
+        elif not check.ready:
+            result = f'{label} speech test: {check.reason}'
+        else:
+            played = speak_text(
+                message, volume.value(), interrupt.isChecked(),
+                source=source, channel='spells', allow_hidden=True,
+                voice_name=str(voice.currentData() or ''),
+                pitch=pitch.value())
+            result = (
+                f'{label} speech test: voice queued' if played else
+                f'{label} speech test: Windows voice unavailable')
+        status.setText(result)
+        status.setAccessibleName(result)
+        status.setAccessibleDescription(
+            f'Latest speech test result: {result}')
+        status.setVisible(True)
+        try:
+            QAccessible.updateAccessibility(
+                QAccessibleAnnouncementEvent(status, result))
+        except (AttributeError, RuntimeError, TypeError):
+            pass
+        return result
+
+    def _test_trigger_sound(self, combo, source):
+        if self._trigger_audio_muted.isChecked():
+            return self._announce_trigger_test(
+                'Test status · this trigger is muted')
+        selected = str(combo.currentData() or '')
+        check = audio_preflight(
+            'sound' if selected else 'off', sound=selected,
+            volume=config.data['spells']['fade_sound_volume'],
+            channel='spells', allow_hidden=True)
+        if not check.ready:
+            return self._announce_trigger_test(f'Sound test: {check.reason}')
+        played = play_alert(
+            selected, config.data['spells']['fade_sound_volume'],
+            1, source=source, channel='spells', allow_hidden=True)
+        return self._announce_trigger_test(
+            'Sound test queued' if played else
+            'Sound test: Windows audio backend unavailable')
 
     def _timer_type_changed(self, *_):
         timer_type = self._trigger_timer_type.currentData()
@@ -2363,7 +3595,9 @@ class CustomTriggerSettings(UniformScaleDialog):
                 pair[0].casefold()))
         for path, definition in ordered_groups:
             parent_path = path.rsplit('/', 1)[0] if '/' in path else ''
-            item = QTreeWidgetItem((path.rsplit('/', 1)[-1], 'All'))
+            enabled = bool(definition.get('enabled', True))
+            item = QTreeWidgetItem((
+                path.rsplit('/', 1)[-1], 'On' if enabled else 'Off', 'All'))
             item.setData(0, TRIGGER_ITEM_KIND, 'group')
             item.setData(0, TRIGGER_ITEM_ID, path)
             item.setFlags(
@@ -2371,12 +3605,14 @@ class CustomTriggerSettings(UniformScaleDialog):
                 Qt.ItemFlag.ItemIsDragEnabled | Qt.ItemFlag.ItemIsDropEnabled |
                 Qt.ItemFlag.ItemIsEditable)
             item.setCheckState(
-                0, Qt.CheckState.Checked if definition.get('enabled', True)
+                0, Qt.CheckState.Checked if enabled
                 else Qt.CheckState.Unchecked)
             item.setToolTip(
                 0, f'{path} · drag to nest or reorder · rename inline')
             item.setToolTip(
-                1, 'The checkbox is the global state; character overrides are edited below')
+                1, f"Group is {'On' if enabled else 'Off'}; press Space to toggle")
+            item.setToolTip(
+                2, 'The checkbox is the global state; character overrides are edited below')
             parent = group_items.get(parent_path)
             if parent:
                 parent.addChild(item)
@@ -2400,7 +3636,8 @@ class CustomTriggerSettings(UniformScaleDialog):
             if parent is None:
                 parent = group_items.get('Default')
             item = QTreeWidgetItem((
-                trigger.name, trigger.profile or 'All'))
+                trigger.name, 'On' if trigger.enabled else 'Off',
+                trigger.profile or 'All'))
             item.setData(0, TRIGGER_ITEM_KIND, 'trigger')
             item.setData(0, TRIGGER_ITEM_ID, trigger.name)
             item.setFlags(
@@ -2412,9 +3649,11 @@ class CustomTriggerSettings(UniformScaleDialog):
                 0, Qt.CheckState.Checked if trigger.enabled
                 else Qt.CheckState.Unchecked)
             item.setToolTip(
-                0, f'{trigger.name} · drag to move or reorder · check to enable')
+                0, f'{trigger.name} · drag to move or reorder · press Space to toggle')
             item.setToolTip(
-                1, trigger.profile or 'Runs for every character')
+                1, f"Trigger is {'On' if trigger.enabled else 'Off'}")
+            item.setToolTip(
+                2, trigger.profile or 'Runs for every character')
             if parent:
                 parent.addChild(item)
             else:
@@ -2434,6 +3673,7 @@ class CustomTriggerSettings(UniformScaleDialog):
             self._current_trigger = None
             self._clear()
             self._save_trigger_button.setEnabled(False)
+        self._apply_library_filter()
 
     def _save_to_config(self):
         spells = config.data['spells']
@@ -2489,9 +3729,13 @@ class CustomTriggerSettings(UniformScaleDialog):
 
     def _tree_item_changed(self, *_):
         if not self._tree_loading:
-            self._persist_tree_structure()
+            # QTreeWidget is still inside its native itemChanged dispatch.
+            # Clearing/rebuilding it here deletes the emitting item while Qt
+            # still owns the signal stack and can fault in Qt6Widgets. The
+            # visible tree already contains the edit, so persist it in place.
+            self._persist_tree_structure(reload_tree=False)
 
-    def _persist_tree_structure(self):
+    def _persist_tree_structure(self, reload_tree=True):
         """Commit drag/drop, rename and enable changes into runtime config."""
         if self._tree_loading:
             return
@@ -2524,6 +3768,9 @@ class CustomTriggerSettings(UniformScaleDialog):
                 group_order += 1
                 new_groups[path] = definition
                 item.setData(0, TRIGGER_ITEM_ID, path)
+                item.setText(1, 'On' if definition['enabled'] else 'Off')
+                item.setToolTip(
+                    1, f"Group is {item.text(1)}; press Space to toggle")
                 for index in range(item.childCount()):
                     visit(item.child(index), path)
                 return
@@ -2534,6 +3781,9 @@ class CustomTriggerSettings(UniformScaleDialog):
                     trigger.category = parent_path or 'Default'
                     trigger.enabled = (
                         item.checkState(0) == Qt.CheckState.Checked)
+                    item.setText(1, 'On' if trigger.enabled else 'Off')
+                    item.setToolTip(
+                        1, f"Trigger is {item.text(1)}")
                     trigger_order.append(name)
 
         for index in range(self._triggers.topLevelItemCount()):
@@ -2550,7 +3800,11 @@ class CustomTriggerSettings(UniformScaleDialog):
             for path, definition in new_groups.items()}
         spells['trigger_order'] = trigger_order
         self._save_to_config()
-        self._load_from_config(selected_name, selected_group)
+        if reload_tree:
+            self._load_from_config(selected_name, selected_group)
+        else:
+            # Refresh the editor fields without deleting any live tree item.
+            self._activated()
 
     def _add_group(self):
         parent = self._selected_group_path()
@@ -2617,7 +3871,10 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_text.setText(trigger.text)
         self._trigger_time.setText(trigger.time)
         self._trigger_enabled.setChecked(trigger.enabled)
+        self._trigger_audio_muted.setChecked(trigger.audio_muted)
         self._trigger_regex.setChecked(trigger.regex)
+        self._trigger_match_cooldown.setValue(
+            trigger.match_cooldown_seconds)
         self._trigger_source.setText(trigger.source)
         self._trigger_category.setCurrentText(trigger.category)
         self._category_enabled.setChecked(
@@ -2643,6 +3900,11 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_clipboard.setText(trigger.clipboard_text)
         self._trigger_tts.setText(trigger.tts_text)
         self._trigger_interrupt_speech.setChecked(trigger.interrupt_speech)
+        self._set_combo_data(
+            self._trigger_delivery, trigger.configured_audio_delivery('basic'))
+        self._set_voice_combo(self._trigger_tts_voice, trigger.tts_voice)
+        self._trigger_tts_volume.setValue(trigger.tts_volume)
+        self._trigger_tts_pitch.setValue(trigger.tts_pitch)
         self._trigger_ending_seconds.setValue(trigger.timer_ending_seconds)
         self._trigger_ending_alert.setText(trigger.timer_ending_alert)
         set_sound_combo_value(
@@ -2650,17 +3912,33 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_ending_tts.setText(trigger.timer_ending_tts)
         self._trigger_ending_interrupt.setChecked(
             trigger.timer_ending_interrupt)
+        self._set_combo_data(
+            self._trigger_ending_delivery,
+            trigger.configured_audio_delivery('ending'))
+        self._set_voice_combo(
+            self._trigger_ending_voice, trigger.timer_ending_voice)
+        self._trigger_ending_volume.setValue(trigger.timer_ending_volume)
+        self._trigger_ending_pitch.setValue(trigger.timer_ending_pitch)
         self._trigger_ended_alert.setText(trigger.timer_ended_alert)
         set_sound_combo_value(
             self._trigger_ended_sound, trigger.timer_ended_sound)
         self._trigger_ended_tts.setText(trigger.timer_ended_tts)
         self._trigger_ended_interrupt.setChecked(
             trigger.timer_ended_interrupt)
+        self._set_combo_data(
+            self._trigger_ended_delivery, trigger.configured_audio_delivery('ended'))
+        self._set_voice_combo(
+            self._trigger_ended_voice, trigger.timer_ended_voice)
+        self._trigger_ended_volume.setValue(trigger.timer_ended_volume)
+        self._trigger_ended_pitch.setValue(trigger.timer_ended_pitch)
+        self._refresh_trigger_delivery_panels()
+        self._reveal_configured_advanced(trigger)
 
     def _add_trigger(self):
         category = self._selected_group_path()
         self._current_trigger = ''
         self._clear()
+        self._test_trigger_button.setEnabled(True)
         self._trigger_category.setCurrentText(category)
         self._save_trigger_button.setEnabled(True)
         self._trigger_name.setPlaceholderText('<new>')
@@ -2742,7 +4020,7 @@ class CustomTriggerSettings(UniformScaleDialog):
                         self._trigger_text.text(),
                         self._trigger_time.text(),
                         self._trigger_zone.text().strip(),
-                        str(self._trigger_sound.currentData() or DEFAULT_SOUND),
+                        str(self._trigger_sound.currentData() or ''),
                         self._trigger_alert.text().strip(),
                         self._trigger_enabled.isChecked(),
                         self._trigger_regex.isChecked(),
@@ -2784,10 +4062,12 @@ class CustomTriggerSettings(UniformScaleDialog):
             self._current_trigger = name
             self._display_trigger(self._custom_triggers[name])
             self._save_trigger_button.setEnabled(True)
+            self._test_trigger_button.setEnabled(True)
             return
         self._current_trigger = None
         path = self._selected_group_path()
         self._clear()
+        self._test_trigger_button.setEnabled(False)
         self._trigger_category.setCurrentText(path)
         self._category_changed()
         self._save_trigger_button.setEnabled(True)
@@ -2797,7 +4077,9 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_text.clear()
         self._trigger_time.clear()
         self._trigger_enabled.setChecked(True)
+        self._trigger_audio_muted.setChecked(False)
         self._trigger_regex.setChecked(False)
+        self._trigger_match_cooldown.setValue(0.75)
         self._trigger_source.setText('Vantage')
         self._trigger_category.setCurrentText('Default')
         self._category_enabled.setChecked(True)
@@ -2826,23 +4108,39 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_clipboard.clear()
         self._trigger_tts.clear()
         self._trigger_interrupt_speech.setChecked(False)
+        self._set_combo_data(self._trigger_delivery, 'sound')
+        self._set_voice_combo(self._trigger_tts_voice, '')
+        self._trigger_tts_volume.setValue(100)
+        self._trigger_tts_pitch.setValue(0)
         self._trigger_ending_seconds.setValue(0)
         self._trigger_ending_alert.clear()
         set_sound_combo_value(self._trigger_ending_sound, '')
         self._trigger_ending_tts.clear()
         self._trigger_ending_interrupt.setChecked(False)
+        self._set_combo_data(self._trigger_ending_delivery, 'off')
+        self._set_voice_combo(self._trigger_ending_voice, '')
+        self._trigger_ending_volume.setValue(100)
+        self._trigger_ending_pitch.setValue(0)
         self._trigger_ended_alert.clear()
         set_sound_combo_value(self._trigger_ended_sound, '')
         self._trigger_ended_tts.clear()
         self._trigger_ended_interrupt.setChecked(False)
+        self._set_combo_data(self._trigger_ended_delivery, 'off')
+        self._set_voice_combo(self._trigger_ended_voice, '')
+        self._trigger_ended_volume.setValue(100)
+        self._trigger_ended_pitch.setValue(0)
+        self._refresh_trigger_delivery_panels()
 
-    def _apply_extra_fields(self, trigger):
+    def _apply_extra_fields(self, trigger, *, update_groups=True):
         trigger.enabled = self._trigger_enabled.isChecked()
         trigger.regex = self._trigger_regex.isChecked()
+        trigger.match_cooldown_seconds = (
+            self._trigger_match_cooldown.value())
         trigger.zone = self._trigger_zone.text().strip()
         trigger.alert_text = self._trigger_alert.text().strip()
         trigger.text_color = self._trigger_color.value()
-        trigger.sound_path = str(self._trigger_sound.currentData() or DEFAULT_SOUND)
+        trigger.sound_path = str(self._trigger_sound.currentData() or '')
+        trigger.audio_muted = self._trigger_audio_muted.isChecked()
         trigger.category = (
             self._trigger_category.currentText().strip() or 'Default')
         trigger.profile = self._trigger_profile.text().strip()
@@ -2861,6 +4159,12 @@ class CustomTriggerSettings(UniformScaleDialog):
         trigger.clipboard_text = self._trigger_clipboard.text().strip()
         trigger.tts_text = self._trigger_tts.text().strip()
         trigger.interrupt_speech = self._trigger_interrupt_speech.isChecked()
+        trigger.delivery = str(
+            self._trigger_delivery.currentData() or 'off')
+        trigger.tts_voice = str(
+            self._trigger_tts_voice.currentData() or '')
+        trigger.tts_volume = self._trigger_tts_volume.value()
+        trigger.tts_pitch = self._trigger_tts_pitch.value()
         trigger.timer_ending_seconds = self._trigger_ending_seconds.value()
         trigger.timer_ending_alert = self._trigger_ending_alert.text().strip()
         trigger.timer_ending_sound = str(
@@ -2868,12 +4172,26 @@ class CustomTriggerSettings(UniformScaleDialog):
         trigger.timer_ending_tts = self._trigger_ending_tts.text().strip()
         trigger.timer_ending_interrupt = (
             self._trigger_ending_interrupt.isChecked())
+        trigger.timer_ending_delivery = str(
+            self._trigger_ending_delivery.currentData() or 'off')
+        trigger.timer_ending_voice = str(
+            self._trigger_ending_voice.currentData() or '')
+        trigger.timer_ending_volume = self._trigger_ending_volume.value()
+        trigger.timer_ending_pitch = self._trigger_ending_pitch.value()
         trigger.timer_ended_alert = self._trigger_ended_alert.text().strip()
         trigger.timer_ended_sound = str(
             self._trigger_ended_sound.currentData() or '')
         trigger.timer_ended_tts = self._trigger_ended_tts.text().strip()
         trigger.timer_ended_interrupt = (
             self._trigger_ended_interrupt.isChecked())
+        trigger.timer_ended_delivery = str(
+            self._trigger_ended_delivery.currentData() or 'off')
+        trigger.timer_ended_voice = str(
+            self._trigger_ended_voice.currentData() or '')
+        trigger.timer_ended_volume = self._trigger_ended_volume.value()
+        trigger.timer_ended_pitch = self._trigger_ended_pitch.value()
+        if not update_groups:
+            return
         set_group_enabled(
             config.data['spells'], trigger.category,
             self._category_enabled.isChecked(),
@@ -2908,7 +4226,7 @@ class CustomTriggerSettings(UniformScaleDialog):
     def _import_gina(self):
         path, _ = QFileDialog.getOpenFileName(
             self, 'Import Trigger Pack', '',
-            'Trigger packs (*.gtp *.xml *.gtt);;All Files (*)')
+            'Trigger packs (*.gtp *.xml *.gtt *.json);;All Files (*)')
         if not path:
             return
         try:
@@ -2916,6 +4234,9 @@ class CustomTriggerSettings(UniformScaleDialog):
         except GinaImportError as error:
             QMessageBox.warning(self, 'Import Failed', str(error))
             return
+        self._review_import_batch(batch)
+
+    def _review_import_batch(self, batch):
         preview = GinaImportPreviewDialog(batch, self)
         if preview.exec() != QDialog.DialogCode.Accepted:
             return
@@ -2923,9 +4244,20 @@ class CustomTriggerSettings(UniformScaleDialog):
         if not imported:
             return
         if hasattr(batch, 'materialize_selected'):
-            imported = batch.materialize_selected(imported)
+            try:
+                imported = batch.materialize_selected(imported)
+            except OSError as error:
+                QMessageBox.warning(self, 'Import Failed', f'Selected WAVs could not be saved: {error}')
+                return
+        groups = normalize_trigger_groups(config.data['spells'])
+        selected_paths = {path for trigger in imported for path in group_ancestors(trigger.category)}
+        for path, definition in getattr(batch, 'groups', {}).items():
+            if path in selected_paths:
+                groups.setdefault(path, definition)
+        config.data['spells']['trigger_groups'] = groups
         added = 0
         for trigger in imported:
+            trigger.enabled = False
             base = trigger.name
             name = base
             suffix = 2
