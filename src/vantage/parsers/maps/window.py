@@ -63,6 +63,7 @@ class MapLootDialog(QDialog):
 
     def __init__(self, point, mob, zone, open_item, open_zones, parent=None):
         super().__init__(parent)
+        self.setObjectName("MapLootDialog")
         self.setWindowTitle(f"Loot · {point.label}")
         self.setMinimumSize(330, 230)
         self.setMaximumWidth(520)
@@ -91,10 +92,13 @@ class MapLootDialog(QDialog):
         self.status.setAccessibleName("Map loot status")
         layout.addWidget(self.status)
         scroll = QScrollArea()
+        scroll.setObjectName("MapLootScroll")
+        scroll.viewport().setObjectName("MapLootViewport")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         scroll.setAccessibleName(f"Known loot from {point.label}")
         body = QWidget()
+        body.setObjectName("MapLootBody")
         body_layout = QVBoxLayout(body)
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(4)

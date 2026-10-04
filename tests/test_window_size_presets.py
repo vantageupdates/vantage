@@ -109,4 +109,4 @@ def test_every_window_size_preset_rollup_and_tray_restore_are_effective(
         assert state['minimized'] is True
         assert state['saved_while_hidden'] == state['mini']
         assert state['tray_restore'] == state['mini']
-        assert state['rolled'][1] <= 24
+        assert state['rolled'][1] <= 28

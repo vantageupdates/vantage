@@ -75,7 +75,7 @@ def test_timer_editor_tests_inherited_off_and_override_truthfully(monkeypatch):
     assert calls[-1][0] == 'smart_timer'
     assert calls[-1][1]['sound_override'] is None
     assert calls[-1][1]['allow_hidden'] is True
-    assert dialog.sound_test_status.text() == 'Test status · voice queued'
+    assert dialog.sound_test_status.text() == 'Test status · Voice queued'
 
     dialog.sound.setCurrentIndex(dialog.sound.findData(''))
     dialog._test_notification()
@@ -85,7 +85,7 @@ def test_timer_editor_tests_inherited_off_and_override_truthfully(monkeypatch):
     dialog.sound.setCurrentIndex(dialog.sound.findData('builtin:portal-ping'))
     dialog._test_notification()
     assert calls[-1][1]['sound_override'] == 'builtin:portal-ping'
-    assert dialog.sound_test_status.text() == 'Test status · sound queued'
+    assert dialog.sound_test_status.text() == 'Test status · Sound queued'
     assert dialog.sound_test_status.accessibleName()
     assert dialog.sound_test_status.toolTip()
     assert len(announcements) == 3
@@ -132,7 +132,7 @@ def test_timer_sound_test_reports_exact_accessible_reason_without_focus_loss(
     ('Master Mute', False, 'Test status · Master Mute'),
     ('Master Volume 0%', False, 'Test status · Master Volume 0%'),
     ('', False, 'Test status · Windows voice backend unavailable'),
-    ('', True, 'Test status · tts queued'),
+    ('', True, 'Test status · Voice queued'),
 ))
 def test_timer_tts_test_distinguishes_preflight_and_backend(
         monkeypatch, check_reason, spoken, expected):
@@ -243,9 +243,9 @@ def test_timer_editor_exposes_compact_accessible_tts_controls(monkeypatch):
     assert spoken[-1][0][:2] == (
         "Port cycle: ready · North Karana", 47)
     assert "replace_pending" not in spoken[-1][1]
-    assert dialog.sound_test_status.text() == "Test status · tts queued"
+    assert dialog.sound_test_status.text() == "Test status · Voice queued"
     assert dialog.sound_test_status.accessibleName() == \
-        "Test status · tts queued"
+        "Test status · Voice queued"
     assert "Latest timer notification test result" in \
         dialog.sound_test_status.accessibleDescription()
 

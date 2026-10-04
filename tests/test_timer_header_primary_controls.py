@@ -202,5 +202,5 @@ def test_share_and_zone_stay_directly_visible_in_timer_header(tmp_path):
         narrow['overflow_actions']
 
     assert result['wide']['mobile_visible'] is True
-    assert result['rolled']['window'][1] <= 24
-    assert result['mini']['window'][1] <= 24
+    assert result['rolled']['window'][1] <= 28
+    assert result['mini']['window'][1] <= 28

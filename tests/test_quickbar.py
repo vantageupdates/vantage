@@ -330,6 +330,14 @@ overflow_focus = {
         'Master Mute: OFF'),
     'live_value': overflow_live_value,
     'menu_action_count': len(bar._header_overflow_menu.actions()),
+    'hidden_chrome': [widget.accessibleName()
+        for widget in bar._header_overflowed if widget in (
+            bar._button, bar._minimize_button, bar._settings_button,
+            bar._roll_button)],
+    'menu_action_labels': [action.text()
+        for action in bar._header_overflow_menu.actions()
+        if not action.isSeparator() and
+        not isinstance(action, QWidgetAction)],
     'volume_widget_actions': sum(
         isinstance(action, QWidgetAction) and
         action.defaultWidget() is not None
@@ -514,6 +522,9 @@ app.reset_ui_layout = lambda **_kwargs: reload_calls.append('reset') or True
 bar._trigger('reload_ui')
 
 tick = app._parsers_dict['tick']
+# Inspect the exact sync pulse, not the wall-clock countdown after a delayed
+# event loop (the pulse legitimately expires in 280 ms on a busy build host).
+tick._render_timer.stop()
 tick.sync_now()
 app.processEvents()
 tick_readout = {
@@ -1136,7 +1147,18 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
         'writes': [],
         'muted': False,
     }
-    assert result['overflow_focus'] == {
+    overflow_focus = result['overflow_focus'].copy()
+    hidden_chrome = overflow_focus.pop('hidden_chrome')
+    assert hidden_chrome == [
+        'Toggle window frame', 'Hide in system tray',
+        'Settings for this window']
+    assert overflow_focus.pop('menu_action_labels') == [
+        'Master Mute: OFF', *hidden_chrome]
+    # One native volume QWidgetAction and the existing Master Mute action
+    # accompany the
+    # secondary window actions. No hidden chrome may silently disappear.
+    assert overflow_focus.pop('menu_action_count') == len(hidden_chrome) + 2
+    assert overflow_focus == {
         'rocker_hidden': True,
         'overflow_visible': True,
         'saved_child': True,
@@ -1148,7 +1170,6 @@ def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
             'overflow': 72,
             'label': '72%',
         },
-        'menu_action_count': 2,
         'volume_widget_actions': 1,
         'empty_actions': 0,
         'tab_order': [True] * 4,

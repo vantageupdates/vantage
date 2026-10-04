@@ -298,6 +298,10 @@ QTest.keyClick(
     bar.notification_rail.history_button, Qt.Key.Key_Space)
 app.processEvents()
 history_dialog = app._notification_history_dialog
+# Native/offscreen top-level activation is asynchronous; wait for the actual
+# launch to settle before testing Tab order, rather than racing its focus event.
+QTest.qWait(20)
+app.processEvents()
 history_dialog.table.selectRow(1)
 history_dialog.search.setFocus()
 QTest.keyClick(history_dialog.search, Qt.Key.Key_Tab)
@@ -576,7 +580,7 @@ def test_quickbar_notification_rail_shows_one_event_then_clears(tmp_path):
     }
     assert result['vertical'] == {
         'rail_visible': True,
-        'design_width': 240,
+        'design_width': 30,
         'text': 'Muted but visible',
     }
     assert result['ticker_off'] == {

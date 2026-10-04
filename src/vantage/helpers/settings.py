@@ -1259,10 +1259,26 @@ class SettingsWindow(UniformScaleDialog):
                     route_test_status.setAccessibleName(result)
                     route_test_status.setVisible(True)
                     return
-                if combo.currentData():
-                    play_alert(
+                selected = str(combo.currentData() or '')
+                check = audio_preflight(
+                    'sound' if selected else 'off', sound=selected,
+                    volume=volume(), channel='spells', allow_hidden=True)
+                if not check.ready:
+                    result = f'{label} test: {check.reason}'
+                else:
+                    played = play_alert(
                         combo.currentData(), volume(), 1, source=source,
                         channel='spells', allow_hidden=True)
+                    result = (f'{label} test: sound queued' if played else
+                              f'{label} test: Windows audio backend unavailable')
+                route_test_status.setText(result)
+                route_test_status.setAccessibleName(result)
+                route_test_status.setVisible(True)
+                try:
+                    QAccessible.updateAccessibility(
+                        QAccessibleAnnouncementEvent(route_test_status, result))
+                except (AttributeError, RuntimeError, TypeError):
+                    pass
             test.clicked.connect(preview_sound)
             row.addWidget(test)
             sound_sl.addRow(label, row)
@@ -2919,23 +2935,25 @@ class CustomTriggerSettings(UniformScaleDialog):
 
         mode = ('off' if self._trigger_audio_muted.isChecked() else
                 str(self._trigger_delivery.currentData() or 'off'))
-        if mode == 'sound':
+        speech = re.sub(r'\{[^{}]+\}', 'sample',
+                        self._trigger_tts.text().strip() or semantic)
+        check = audio_preflight(
+            mode, sound=str(self._trigger_sound.currentData() or ''),
+            text=speech, volume=(config.data['spells']['fade_sound_volume']
+                                if mode == 'sound' else
+                                self._trigger_tts_volume.value()),
+            channel='spells', allow_hidden=True)
+        if mode != 'off' and not check.ready:
+            outcome = check.reason
+        elif mode == 'sound':
             sound = str(self._trigger_sound.currentData() or '')
             played = bool(sound and play_alert(
                 sound, config.data['spells']['fade_sound_volume'], 1,
                 source=f'Test · {name}', channel='spells',
                 allow_hidden=True, visual_registered=True))
-            if audio_muted():
-                outcome = 'blocked by Master Mute'
-            elif master_volume() <= 0:
-                outcome = 'silent at 0% Master Volume'
-            elif not sound:
-                outcome = 'no Sound or WAV selected'
-            else:
-                outcome = 'Sound queued' if played else 'Sound unavailable'
+            outcome = ('Sound queued' if played else
+                       'Windows audio backend unavailable')
         elif mode == 'tts':
-            speech = self._trigger_tts.text().strip() or semantic
-            speech = re.sub(r'\{[^{}]+\}', 'sample', speech)
             played = bool(speak_text(
                 speech, self._trigger_tts_volume.value(),
                 self._trigger_interrupt_speech.isChecked(),
@@ -2944,13 +2962,8 @@ class CustomTriggerSettings(UniformScaleDialog):
                 voice_name=str(self._trigger_tts_voice.currentData() or ''),
                 pitch=self._trigger_tts_pitch.value(),
                 visual_registered=True))
-            if audio_muted():
-                outcome = 'blocked by Master Mute'
-            elif master_volume() <= 0:
-                outcome = 'silent at 0% Master Volume'
-            else:
-                outcome = 'Text to speech queued' if played else \
-                    'Windows voice unavailable'
+            outcome = ('Text to speech queued' if played else
+                       'Windows voice unavailable')
         else:
             outcome = ('this trigger is muted; visual notification sent'
                        if self._trigger_audio_muted.isChecked() else
@@ -2974,14 +2987,15 @@ class CustomTriggerSettings(UniformScaleDialog):
             self, editor, interrupt, voice, volume, pitch, source, label,
             status):
         message = editor.text().strip()
+        check = audio_preflight(
+            'voice', text=message, volume=volume.value(),
+            channel='spells', allow_hidden=True)
         if self._trigger_audio_muted.isChecked():
             result = f'{label} speech test: this trigger is muted'
         elif not message:
             result = f'{label} speech test: enter a message first'
-        elif audio_muted():
-            result = f'{label} speech test: blocked by Master Mute'
-        elif master_volume() == 0:
-            result = f'{label} speech test: silent at 0% Master Volume'
+        elif not check.ready:
+            result = f'{label} speech test: {check.reason}'
         else:
             played = speak_text(
                 message, volume.value(), interrupt.isChecked(),
@@ -3007,11 +3021,19 @@ class CustomTriggerSettings(UniformScaleDialog):
         if self._trigger_audio_muted.isChecked():
             return self._announce_trigger_test(
                 'Test status · this trigger is muted')
-        if combo.currentData():
-            return play_alert(
-                combo.currentData(), config.data['spells']['fade_sound_volume'],
-                1, source=source, channel='spells', allow_hidden=True)
-        return self._announce_trigger_test('Test status · audio Off')
+        selected = str(combo.currentData() or '')
+        check = audio_preflight(
+            'sound' if selected else 'off', sound=selected,
+            volume=config.data['spells']['fade_sound_volume'],
+            channel='spells', allow_hidden=True)
+        if not check.ready:
+            return self._announce_trigger_test(f'Sound test: {check.reason}')
+        played = play_alert(
+            selected, config.data['spells']['fade_sound_volume'],
+            1, source=source, channel='spells', allow_hidden=True)
+        return self._announce_trigger_test(
+            'Sound test queued' if played else
+            'Sound test: Windows audio backend unavailable')
 
     def _timer_type_changed(self, *_):
         timer_type = self._trigger_timer_type.currentData()

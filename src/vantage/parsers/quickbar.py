@@ -52,6 +52,7 @@ class QuickBarNotificationRail(QFrame):
     """Show one attributable event once, then clear it from the rail."""
 
     history_requested = Signal()
+    activity_changed = Signal()
     _MAX_PENDING = 4
     _CONTENT_INSET = 1
     _MESSAGE_GAP = 4
@@ -218,6 +219,7 @@ class QuickBarNotificationRail(QFrame):
             (f"; {overflow_count} earlier notifications are available in "
              "Notification History" if overflow_count else ""))
         self._announce_accessibly(spoken)
+        self.activity_changed.emit()
         # Combat summaries can be much wider than the rail and previously
         # remained visible for a long marquee pass. Give them a bounded,
         # readable dwell, then clear them so the Quick Bar is available for
@@ -328,6 +330,7 @@ class QuickBarNotificationRail(QFrame):
         self.setAccessibleName("Quick Bar notification rail; no active notice")
         self.setAccessibleDescription(
             f"{len(self._pending)} notifications waiting")
+        self.activity_changed.emit()
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -841,10 +844,13 @@ class QuickBar(ParserWindow):
             self.action_frame, 0,
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.notification_rail = QuickBarNotificationRail()
+        self._rail_floating = False
         self.notification_rail.setToolTip(
             "The next attributable Vantage event appears here")
         self.notification_rail.history_requested.connect(
             self._application.show_notification_history)
+        self.notification_rail.activity_changed.connect(
+            lambda: QTimer.singleShot(0, self._sync_vertical_notification_rail))
         self.content.addWidget(
             self.notification_rail, 0,
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
@@ -1259,6 +1265,15 @@ class QuickBar(ParserWindow):
             super().apply_saved_presentation()
             return
         expected = tuple(int(value) for value in geometry)
+        if self._orientation == 'vertical':
+            # Only the legacy ticker block has a grossly mismatched width/
+            # height scale. Preserve genuine saved column sizes and replicas.
+            width_scale = expected[2] / max(1, self._design_size.width())
+            height_scale = expected[3] / max(1, self._design_size.height())
+            if width_scale > max(1.0, height_scale * 4):
+                expected = (expected[0], expected[1], self._design_size.width(),
+                            self._design_size.height())
+                config.data['quickbar']['geometry'] = list(expected)
         self._preserving_saved_geometry = True
         try:
             super().apply_saved_presentation()
@@ -1433,11 +1448,76 @@ class QuickBar(ParserWindow):
     def showEvent(self, event):
         super().showEvent(event)
         self.refresh_state()
+        self._sync_vertical_notification_rail()
 
     def hideEvent(self, event):
         super().hideEvent(event)
+        if getattr(self, '_rail_floating', False):
+            self.notification_rail.hide()
         self._sync_support_animation()
         self._sync_log_animation()
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        self._sync_vertical_notification_rail()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._sync_vertical_notification_rail()
+
+    def _set_notification_rail_host(self, floating):
+        """Keep a vertical tool column narrow without losing readable notices."""
+        floating = bool(floating)
+        if floating == self._rail_floating:
+            return
+        rail = self.notification_rail
+        self.content.removeWidget(rail)
+        self._rail_floating = floating
+        if floating:
+            flags = Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint
+            if self._always_on_top:
+                flags |= Qt.WindowType.WindowStaysOnTopHint
+            rail.setParent(self, flags)
+            rail.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+            rail.setWindowTitle('Vantage notification')
+            rail.setFixedWidth(320)
+        else:
+            rail.setParent(self._surface, Qt.WindowType.Widget)
+            self.content.addWidget(
+                rail, 0,
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+
+    def _sync_vertical_notification_rail(self):
+        """Anchor an active notice beside the column, within its own screen."""
+        if not getattr(self, '_rail_floating', False):
+            return
+        rail = self.notification_rail
+        # The adjacent owned notice must follow the same live pin preference,
+        # not retain whichever flag was used at the orientation transition.
+        top_flag = Qt.WindowType.WindowStaysOnTopHint
+        if bool(rail.windowFlags() & top_flag) != bool(self._always_on_top):
+            rail.setWindowFlag(top_flag, self._always_on_top)
+        enabled = config.data.get('quickbar', {}).get(
+            'show_notification_ticker', True)
+        visible = bool(enabled and self.isVisible() and not self._collapsed and
+                       (rail._current_text or rail._pending))
+        if not visible:
+            rail.hide()
+            return
+        anchor = self.frameGeometry()
+        screen = self.screen() or QApplication.primaryScreen()
+        area = screen.availableGeometry() if screen else None
+        width = min(320, max(1, area.width() - 16)) if area else 320
+        rail.setFixedWidth(width)
+        x = anchor.right() + 6
+        y = anchor.bottom() - rail.height() + 1
+        if area:
+            if x + width - 1 > area.right():
+                x = anchor.left() - width - 6
+            x = max(area.left(), min(x, area.right() - width + 1))
+            y = max(area.top(), min(y, area.bottom() - rail.height() + 1))
+        rail.move(x, y)
+        rail.show()
 
     def _parser_settings_config_update_watcher(self):
         super()._parser_settings_config_update_watcher()
@@ -1480,10 +1560,21 @@ class QuickBar(ParserWindow):
         actions["quickbar_header"] = show_header
         if not self._header_visible:
             actions["roll"].setVisible(False)
+        history = menu.addAction('Notification History…')
+        history.setToolTip('Search the full notification history without replaying sounds')
+        history.triggered.connect(self._application.show_notification_history)
+        actions['notification_history'] = history
         return menu, actions
 
     def _apply_quickbar_settings(self, preserve_scale=True):
         settings = config.data["quickbar"]
+        # Drain the previous packer's hidden list before setting new explicit
+        # orientation visibility. Otherwise a deferred pack can resurrect
+        # horizontal chrome inside the vertical branded drag handle.
+        for widget in tuple(self._header_overflowed):
+            widget.show()
+        self._header_overflowed = []
+        self._header_overflow_button.hide()
         prior_size = QSize(self.size())
         prior_orientation = self._orientation
         prior_width_scale = (
@@ -1558,7 +1649,9 @@ class QuickBar(ParserWindow):
         tick_visible = bool(settings.get("show_server_tick", True))
         self.tick_readout.setVisible(tick_visible)
         rail_visible = bool(settings.get("show_notification_ticker", True))
-        self.notification_rail.setVisible(rail_visible)
+        self._set_notification_rail_host(vertical)
+        if not vertical:
+            self.notification_rail.setVisible(rail_visible)
         if not rail_visible:
             # The ticker preference is the only choice that discards its
             # visual queue. Orientation changes keep every live notice.
@@ -1600,17 +1693,11 @@ class QuickBar(ParserWindow):
                 margins.top() + margins.bottom() +
                 sum(widget.height() for widget in visible_widgets) +
                 max(0, item_count - 1) * spacing)
-            # A 30 px tool column cannot communicate notification text. Give
-            # the enabled ticker a compact readable rail below the centered
-            # actions; disabling the ticker restores the original shrink-wrap.
-            authored_width = max(
-                action_width, header_width, 240 if rail_visible else 0)
-            if rail_visible:
-                self.notification_rail.setFixedWidth(authored_width)
+            # Notification text lives in an adjacent transient tool surface;
+            # it must never turn this single column into a 240 px empty block.
+            authored_width = max(action_width, header_width)
             design_size = QSize(
-                authored_width,
-                header_height + action_height +
-                (self.notification_rail.height() if rail_visible else 0))
+                authored_width, header_height + action_height)
         else:
             self.content.setAlignment(
                 self.action_frame,
@@ -1638,7 +1725,7 @@ class QuickBar(ParserWindow):
         # smaller of width/height and accumulating a rounding shrink each time.
         self._set_design_size(design_size, preserve_scale=False)
         if preserve_scale and not self._collapsed:
-            if prior_orientation == self._orientation:
+            if prior_orientation == self._orientation and not vertical:
                 # Status/catalog changes must not rewrite the user's exact
                 # physical rectangle. The existing viewport handles narrow
                 # saved bars while every authored target remains 24 px.
@@ -1672,6 +1759,7 @@ class QuickBar(ParserWindow):
                     round(design_size.height() * scale))
         self._update_uniform_scale()
         self._fit_to_available_screen()
+        self._sync_vertical_notification_rail()
 
     def _set_update_button_presentation(self, product_names=()):
         """Identify pending update products without relying on color alone."""
@@ -2036,6 +2124,7 @@ class QuickBar(ParserWindow):
                     notice_id, notice,
                     config.data["general"].get("reduce_motion", False),
                     available=True, channel=channel, created_at=created_at)
+        self._sync_vertical_notification_rail()
 
     def _sync_support_animation(self):
         support = self._buttons.get("support")

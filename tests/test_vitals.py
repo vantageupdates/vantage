@@ -1957,7 +1957,8 @@ app.quit()
     assert result["mini_scale"] == pytest.approx(0.35, abs=0.01)
     assert result["roll_name"] == "Roll up panel"
     assert result["roll_focused"] is True
-    assert result["rolled"][1] <= 24
+    # Vitals uses the same readable, inset 28 px header as every other panel.
+    assert result["rolled"][1] == 28
     assert result["content_hidden"] is True
     assert result["saved_while_rolled"] == expected_mini
     assert result["expand_name"] == "Expand panel"

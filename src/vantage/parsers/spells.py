@@ -626,6 +626,7 @@ class Spells(ParserWindow):
             config.data['spells'].get('show_boat_schedules', False))
         self._boat_toggle.setAccessibleName('Show P99 boat schedules')
         self._boat_toggle.setProperty('HeaderPriority', 1)
+        self._boat_toggle.setProperty('HeaderAlwaysVisible', True)
         self._boat_toggle.setToolTip(
             'Show or hide compact P99 boat arrivals; use the arrow to refresh or inspect the PigParse source')
         self._boat_toggle.setPopupMode(
@@ -1440,12 +1441,15 @@ class Spells(ParserWindow):
                         ct.tts_text, match, ct)
                     has_audio = self._custom_trigger_has_audio(
                         ct, 'basic', ct.sound_path, rendered_speech)
+                    has_notice = bool(has_audio or ct.alert_text or (
+                        ct.audio_muted and
+                        ct.configured_audio_delivery('basic') != 'off'))
                     outcome_already_registered = bool(
                         faded or
                         SPELL_WORN_OFF_RX.match(str(text or '').strip()) or
                         SPELL_RESIST_RX.match(str(text or '').strip()) or
                         str(text or '').strip().casefold() in CHARM_BREAK_LINES)
-                    if has_audio and not outcome_already_registered:
+                    if has_notice and not outcome_already_registered:
                         app._queue_quickbar_notice(
                             render_trigger_text(ct.alert_text, match, ct)
                             if ct.alert_text else f'{timer_name} matched',
@@ -1455,7 +1459,7 @@ class Spells(ParserWindow):
                         ct.interrupt_speech, f"Trigger · {timer_name}",
                         active_character,
                         getattr(self, '_active_server', ''),
-                        visual_registered=has_audio)
+                        visual_registered=has_notice)
                     if audio_output:
                         output.append(audio_output)
                     if ct.clipboard_text:
@@ -1484,7 +1488,7 @@ class Spells(ParserWindow):
                             character=active_character,
                             text_color=self._trigger_text_color(
                                 ct, active_character),
-                            register=not has_audio,
+                            register=not has_notice,
                             quickbar_channel='spells')
                         output.append(f"{ct.overlay_id.title()} overlay")
                     self._record_trigger_match(
@@ -1940,13 +1944,13 @@ class Spells(ParserWindow):
         has_audio = self._custom_trigger_has_audio(
             trigger, stage, sound, speech)
         semantic = text or f"{run['name']} · {label}"
-        if has_audio:
-            app._queue_quickbar_notice(semantic, channel='spells')
+        # Audio Off/mute does not suppress the event's written counterpart.
+        app._queue_quickbar_notice(semantic, channel='spells')
         audio_output = self._deliver_custom_trigger_audio(
             trigger, stage, sound, speech, interrupt,
             f"Trigger · {run['name']} · {label}",
             run.get('character', ''), run.get('server', ''),
-            visual_registered=has_audio)
+            visual_registered=True)
         if audio_output:
             outputs.append(audio_output)
         if text and trigger.overlay_id != 'none':
@@ -1956,7 +1960,7 @@ class Spells(ParserWindow):
                 character=run.get('character', ''),
                 text_color=self._trigger_text_color(
                     trigger, run.get('character', '')),
-                register=not has_audio, quickbar_channel='spells')
+                register=False, quickbar_channel='spells')
             outputs.append('Overlay')
         if outputs:
             self._record_trigger_match(
@@ -2661,7 +2665,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.123')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.124')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -4313,23 +4317,31 @@ class SpellWidget(QFrame):
                 self._queue_fading_notice(semantic_notice)
             return False
 
-        if not force and (
+        if (
                 trigger_muted or not settings['fade_sound_enabled'] or
                 key in settings['fade_sound_muted']):
+            if force:
+                self._queue_fading_notice(
+                    f'Test · {key}: fading audio is muted or Off')
             return dispatch(delivery_override='off')
         override = settings['fade_sound_overrides'].get(key)
-        if force:
-            return play_alert(
-                override or settings['fade_sound_path'],
-                settings['fade_sound_volume'], 1,
-                source=f"Test · {self.spell.name}",
-                character=self.runtime_character,
-                server=self.runtime_server, channel='spells',
-                allow_hidden=True)
         route_settings = config.data.get('sounds', {}).get(
             'routes', {}).get(route_key, {})
         if str(route_settings.get('delivery', '')).casefold() == 'off':
+            if force:
+                self._queue_fading_notice(f'Test · {key}: fading audio is Off')
             return dispatch(delivery_override='off')
+        if force:
+            semantic_notice = f'Test · {semantic_notice}'
+            result = dispatch(sound_override=override, allow_hidden=True)
+            state = getattr(result, 'state', 'unavailable')
+            delivery = getattr(result, 'delivery', 'off')
+            reason = str(getattr(result, 'reason', '') or '')
+            outcome = ('Voice queued' if delivery == 'voice' else 'Sound queued'
+                       ) if state == 'played' else reason or (
+                           'Off' if delivery == 'off' else 'Audio unavailable')
+            self._queue_fading_notice(f'Test · {key}: {outcome}')
+            return result
         if phase == 'early':
             if override:
                 return dispatch(sound_override=override)

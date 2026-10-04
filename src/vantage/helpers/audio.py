@@ -198,6 +198,22 @@ class AudioPreflightResult:
         return self.ready
 
 
+@dataclass(frozen=True)
+class AudioReplayDescriptor:
+    """Lossless alert inputs, independent of display text and live scaling."""
+
+    delivery: str
+    content: str
+    volume: int
+    character: str = ""
+    server: str = ""
+    channel: str = ""
+    voice_name: str = ""
+    pitch: int = 0
+    repeat: int = 1
+    is_replay: bool = False
+
+
 def audio_preflight(
         delivery, *, sound="", text="", volume=80, character="", server="",
         channel="", allow_hidden=False):
@@ -814,9 +830,15 @@ def _speech_notify_started(request):
     try:
         notifier(
             source, f"tts:{message[:60]}", volume, channel,
-            bool(request.get("visual_registered", False)))
+            bool(request.get("visual_registered", False)),
+            replay_data=request.get("replay_data"))
     except TypeError:  # Backward-compatible host/test adapter.
-        notifier(source, f"tts:{message[:60]}", volume)
+        try:
+            notifier(
+                source, f"tts:{message[:60]}", volume, channel,
+                bool(request.get("visual_registered", False)))
+        except TypeError:
+            notifier(source, f"tts:{message[:60]}", volume)
 
 
 def _finish_active_speech(speech, request_id):
@@ -843,6 +865,10 @@ def _finish_active_speech(speech, request_id):
 def _poll_speech_state(speech, epoch, request_id=0):
     """Drain engines whose state signal is absent, disconnected, or delayed."""
     if speech is not _SPEECH or epoch != _SPEECH_EPOCH:
+        return
+    if request_id and (
+            not _SPEECH_ACTIVE or
+            int(_SPEECH_ACTIVE.get("id", -1)) != int(request_id)):
         return
     state = _current_speech_state(speech)
     if state == "error":
@@ -969,6 +995,9 @@ def _start_next_speech(speech):
             pitch=request.get("pitch", 0))
         if not _apply_speech_volume(
                 speech, int(request.get("volume", 0)) / 100.0):
+            _report_blocked(
+                app, request.get("source", "Vantage speech"),
+                "speech volume setup failed", request.get("channel", ""))
             continue
 
         # A mute/config signal may run while voice properties are applied.
@@ -985,13 +1014,21 @@ def _start_next_speech(speech):
             speech.say(request["message"])
         except (AttributeError, RuntimeError, TypeError):
             _SPEECH_ACTIVE = None
+            _report_blocked(
+                app, request.get("source", "Vantage speech"),
+                "speech submission failed", request.get("channel", ""))
             continue
+        if speech is not _SPEECH:
+            return False
+        request["started"] = True
         _speech_notify_started(request)
-        if not _SPEECH_STATE_SIGNAL:
-            QTimer.singleShot(
-                _SPEECH_POLL_MS,
-                lambda: _poll_speech_state(
-                    speech, _SPEECH_EPOCH, request.get("id", 0)))
+        # A connected state signal can still miss its final Ready emission.
+        # Poll as a fallback; the request ID makes late callbacks harmless.
+        epoch = _SPEECH_EPOCH
+        request_id = request.get("id", 0)
+        QTimer.singleShot(
+            _SPEECH_POLL_MS,
+            lambda: _poll_speech_state(speech, epoch, request_id))
         return True
     return False
 
@@ -1114,7 +1151,8 @@ def _queue_speech_request(speech, request, replace_pending=False):
         return _enqueue_native_speech(speech, request)
     _SPEECH_PENDING.append(request)
     _start_next_speech(speech)
-    return True
+    return bool(request.get("started") or any(
+        pending is request for pending in _SPEECH_PENDING))
 
 
 def stop_all_audio():
@@ -1191,7 +1229,7 @@ def _silence_effect(effect):
 def play_alert(
         path="", volume=80, repeat=1, source="Vantage alert",
         character="", server="", channel="", allow_hidden=False,
-        visual_registered=False):
+        visual_registered=False, replay=False):
     """Play an identified gallery/custom WAV with per-alert volume control."""
     app = QApplication.instance()
     if not str(path or "").strip():
@@ -1201,6 +1239,10 @@ def play_alert(
         _report_blocked(app, source, blocked, channel)
         return False
     volume = max(0, min(100, int(volume)))
+    replay_data = AudioReplayDescriptor(
+        "sound", str(path), volume, str(character or ""),
+        str(server or ""), str(channel or ""),
+        repeat=max(1, min(int(repeat), 3)), is_replay=bool(replay))
     profile = profile_audio_settings(character, server)
     volume = round(volume * int(profile.get("volume", 100)) / 100)
     volume = round(volume * master_volume() / 100)
@@ -1242,9 +1284,15 @@ def play_alert(
         try:
             notifier(
                 str(source or "Vantage alert"), path, volume,
-                str(channel or ""), bool(visual_registered))
+                str(channel or ""), bool(visual_registered),
+                replay_data=replay_data)
         except TypeError:  # Backward-compatible host/test adapter.
-            notifier(str(source or "Vantage alert"), path, volume)
+            try:
+                notifier(
+                    str(source or "Vantage alert"), path, volume,
+                    str(channel or ""), bool(visual_registered))
+            except TypeError:
+                notifier(str(source or "Vantage alert"), path, volume)
     # Also release failed/unsupported playback without keeping a dead object.
     QTimer.singleShot(12_000, release_if_finished)
     return True
@@ -1254,7 +1302,7 @@ def speak_text(
         text, volume=80, interrupt=False, source="Vantage speech",
         character="", server="", channel="", allow_hidden=False,
         voice_name="", pitch=0, replace_pending=False,
-        visual_registered=False, dedupe_key=""):
+        visual_registered=False, dedupe_key="", replay=False):
     """Submit speech to Vantage's persistent Windows voice scheduler.
 
     Automatic notifications use ``replace_pending=True`` to coalesce exact
@@ -1272,6 +1320,15 @@ def speak_text(
         _report_blocked(app, source, blocked, channel)
         return False
     volume = max(0, min(100, int(volume)))
+    try:
+        replay_pitch = int(pitch or 0)
+    except (TypeError, ValueError):
+        replay_pitch = 0
+    replay_data = AudioReplayDescriptor(
+        "voice", message, volume, str(character or ""),
+        str(server or ""), str(channel or ""),
+        voice_name=str(voice_name or "").strip(), pitch=replay_pitch,
+        is_replay=bool(replay))
     profile = profile_audio_settings(character, server)
     base_volume = round(volume * int(profile.get("volume", 100)) / 100)
     volume = round(base_volume * master_volume() / 100)
@@ -1290,13 +1347,14 @@ def speak_text(
         "base_volume": base_volume,
         "profile": dict(profile),
         "voice_name": str(voice_name or "").strip(),
-        "pitch": pitch,
+        "pitch": replay_pitch,
         "source": str(source or "Vantage speech"),
         "channel": str(channel or ""),
         "allow_hidden": bool(allow_hidden),
         "automatic": bool(replace_pending),
         "dedupe_key": str(dedupe_key or ""),
         "visual_registered": bool(visual_registered),
+        "replay_data": replay_data,
     }
     return _queue_speech_request(
         speech, request, replace_pending=bool(replace_pending))

@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = r"""
 import json
 
-from PySide6.QtCore import QRect, Qt
+from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QAbstractButton, QStyle, QStyleOptionSpinBox)
@@ -24,12 +24,16 @@ app = VantageApp([])
 panel = app._parsers_dict['spells']
 panel._set_collapsed(False)
 panel._set_header_revealed(True)
-panel.resize(260, 400)
+# Physical presets keep the complete replica fixed. Constrain the synthetic
+# logical header instead to exercise focus transfer into the shared overflow.
+panel._set_design_size(QSize(340, 400), False)
+panel.resize(340, 400)
 panel.show()
 app.processEvents()
 panel._library_button.setFocus()
 app.processEvents()
 focus_started_on_library = panel._library_button.hasFocus()
+panel._set_design_size(QSize(260, 400), False)
 panel.resize(184, 390)
 app.processEvents()
 
@@ -73,6 +77,16 @@ result = {
         'initially_checked': panel._active_sync_toggle.isChecked(),
     },
 }
+
+# Widen while focus is still on the overflow, before deliberately using any
+# body control. The previously focused library button regains keyboard focus.
+panel._set_design_size(QSize(340, 400), False)
+panel.resize(340, 400)
+app.processEvents()
+result['focus_restored_to_library'] = panel._library_button.hasFocus()
+panel._set_design_size(QSize(260, 400), False)
+panel.resize(184, 390)
+app.processEvents()
 
 panel._active_sync_toggle.click()
 app.processEvents()
@@ -120,7 +134,8 @@ result['level'] = {
     'after_down': level.value(),
 }
 
-panel.resize(260, 400)
+panel._set_design_size(QSize(340, 400), False)
+panel.resize(340, 400)
 app.processEvents()
 result['wide_boat_visible'] = panel._boat_toggle.isVisible()
 result['wide_library_visible'] = panel._library_button.isVisible()
@@ -145,14 +160,16 @@ def test_narrow_spell_header_collapses_low_priority_tools_without_overlap(
     assert result['title'] == 'Spells'
     assert result['title_width'] >= 34
     assert result['boat_visible'] is True
-    assert result['library_visible'] is True
-    assert result['overflow_visible'] is False
+    assert result['library_visible'] is False
+    assert result['overflow_visible'] is True
     assert result['overflow_name'] == 'More window actions'
     assert result['overflow_tooltip']
     assert result['overlaps'] == []
     assert result['focus_started_on_library'] is True
-    assert result['focus_moved_to_overflow'] is False
-    assert result['overflow_actions'] == []
+    assert result['focus_moved_to_overflow'] is True
+    assert any(action['text'] == 'Open P99 Spells and Skills'
+               for action in result['overflow_actions'])
+    assert all(action['tooltip'] for action in result['overflow_actions'])
     active_sync = result['active_sync']
     assert active_sync['visible'] is True
     assert active_sync['row_visible'] is True
@@ -181,3 +198,4 @@ def test_narrow_spell_header_collapses_low_priority_tools_without_overlap(
     assert result['wide_boat_visible'] is True
     assert result['wide_library_visible'] is True
     assert result['wide_overflow_visible'] is False
+    assert result['focus_restored_to_library'] is True

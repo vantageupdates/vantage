@@ -187,7 +187,7 @@ SPAWN_TIMER_WINDOW_STYLE = """
     QLabel#ParserWindowTitle {
         color: #ECE8DF;
         font-family: "Segoe UI Variable", "Segoe UI";
-        font-size: 11px;
+        font-size: 12px;
         font-weight: 600;
     }
     QFrame#SpawnTimerRow {
@@ -846,7 +846,8 @@ class TimerEditDialog(UniformScaleDialog):
         if delivery == "off":
             message = "Test status · Off — this timer will not play audio"
         elif state == "played":
-            message = f"Test status · {delivery} queued"
+            label = 'Voice' if delivery in ('tts', 'voice') else 'Sound'
+            message = f"Test status · {label} queued"
         else:
             message = f"Test status · {audio_reason_label(reason, delivery)}"
         self.sound_test_status.setText(message)

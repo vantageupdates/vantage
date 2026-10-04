@@ -63,7 +63,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=123,
+    patch=124,
     build=""
 )
 
@@ -124,6 +124,7 @@ class VantageApp(QApplication):
         self._latest_log_activity = None
         self._last_audio = "None yet"
         self._last_audio_event = None
+        self._last_audio_replay = None
         self._last_audio_blocked = "None yet"
         self._quickbar_notice_id = 0
         self._quickbar_notice = ""
@@ -778,7 +779,7 @@ class VantageApp(QApplication):
 
     def audio_started(
             self, source, sound_path, volume, channel="",
-            visual_registered=False):
+            visual_registered=False, *, replay_data=None):
         """Remember audio and ensure it has one attributable written notice.
 
         ``notify_event`` registers its visual notice before audio delivery and
@@ -787,11 +788,15 @@ class VantageApp(QApplication):
         Bar here.  The user sees the event that caused the sound, never an
         opaque WAV filename or Python module name.
         """
-        self._last_audio_event = (
-            str(source or "Vantage alert"), str(sound_path or ""),
-            max(0, min(100, int(volume))), str(channel or ""))
-        self._last_audio = (
-            f"{source} · {sound_display_name(sound_path)} · {volume}%")
+        # Native speech starts asynchronously. A replay callback must not
+        # replace the original event after show_last_sound has returned.
+        if not getattr(replay_data, "is_replay", False):
+            self._last_audio_event = (
+                str(source or "Vantage alert"), str(sound_path or ""),
+                max(0, min(100, int(volume))), str(channel or ""))
+            self._last_audio_replay = replay_data
+            self._last_audio = (
+                f"{source} · {sound_display_name(sound_path)} · {volume}%")
         if not visual_registered:
             semantic_source = " ".join(
                 str(source or "Vantage alert").split())
@@ -1225,11 +1230,19 @@ class VantageApp(QApplication):
             show_feedback("No Vantage sound has played yet.")
             return False
         source, sound_path, volume, _channel = event
-        delivery = "voice" if sound_path.startswith("tts:") else "sound"
-        content = sound_path[4:] if delivery == "voice" else ""
+        descriptor = getattr(self, "_last_audio_replay", None)
+        delivery = (descriptor.delivery if descriptor else
+                    "voice" if sound_path.startswith("tts:") else "sound")
+        content = (descriptor.content if descriptor else
+                   sound_path[4:] if delivery == "voice" else sound_path)
+        volume = descriptor.volume if descriptor else volume
+        profile = {
+            "character": descriptor.character if descriptor else "",
+            "server": descriptor.server if descriptor else "",
+        }
         check = audio_preflight(
-            delivery, sound=sound_path, text=content, volume=volume,
-            channel=_channel, allow_hidden=True)
+            delivery, sound=content, text=content, volume=volume,
+            channel=_channel, allow_hidden=True, **profile)
         if not check.ready:
             show_feedback(
                 f"Replay unavailable · {check.reason}.", _channel)
@@ -1239,12 +1252,16 @@ class VantageApp(QApplication):
             played = speak_text(
                 content, volume, source=f"Replay · {source}",
                 channel=_channel, allow_hidden=True,
-                visual_registered=True)
+                voice_name=descriptor.voice_name if descriptor else "",
+                pitch=descriptor.pitch if descriptor else 0,
+                visual_registered=True, replay=True, **profile)
         else:
             played = play_alert(
-                sound_path, volume, source=f"Replay · {source}",
+                content, volume,
+                repeat=descriptor.repeat if descriptor else 1,
+                source=f"Replay · {source}",
                 channel=_channel, allow_hidden=True,
-                visual_registered=True)
+                visual_registered=True, replay=True, **profile)
         # Playback attribution is useful on screen, but the replay itself must
         # not replace the original event or accumulate "Replay · Replay".
         self._last_audio_event = event

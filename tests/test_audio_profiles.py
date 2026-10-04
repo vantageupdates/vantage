@@ -390,11 +390,176 @@ class _TimerHarness:
         self.callbacks.append((delay, callback))
 
     def run_next(self, expected_delay=None):
+        # State completion is emitted manually by these adapters. A watchdog
+        # queued before that emission may now be stale; run it before the
+        # newly scheduled gap, as the real event loop would eventually do.
+        while (expected_delay is not None and self.callbacks and
+               self.callbacks[0][0] != expected_delay):
+            delay, callback = self.callbacks.pop(0)
+            assert delay == audio._SPEECH_POLL_MS
+            callback()
         delay, callback = self.callbacks.pop(0)
         if expected_delay is not None:
             assert delay == expected_delay
         callback()
         return delay
+
+
+@pytest.mark.parametrize('failure', ['volume', 'say'])
+def test_serial_submission_failure_is_reported_and_not_accepted(
+        monkeypatch, failure):
+    app = _App()
+    speech = _Speech()
+    timers = _TimerHarness()
+    monkeypatch.setattr(config, 'data', {
+        'general': {'audio_muted': False, 'master_volume': 100},
+        'spells': {'audio_profiles': {}}})
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, '_SPEECH', speech)
+    monkeypatch.setattr(audio, 'QTimer', timers)
+
+    def reject(_value):
+        raise RuntimeError('Rejected by the speech backend')
+
+    monkeypatch.setattr(
+        speech, 'setVolume' if failure == 'volume' else 'say', reject)
+    assert not audio.speak_text(
+        'This phrase was not submitted', source='Test route', channel='spells')
+    assert speech.messages == []
+    assert audio._SPEECH_PENDING == []
+    assert audio._SPEECH_ACTIVE is None
+    assert app.events == []
+    assert app.blocked == [(
+        'Test route', 'speech volume setup failed' if failure == 'volume'
+        else 'speech submission failed', 'spells')]
+
+
+def test_connected_serial_signal_has_poll_fallback_without_repeating(
+        monkeypatch):
+    app = _App()
+    speech = _Speech()
+    timers = _TimerHarness()
+    monkeypatch.setattr(config, 'data', {
+        'general': {'audio_muted': False, 'master_volume': 100},
+        'spells': {'audio_profiles': {}}})
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, '_SPEECH', speech)
+    monkeypatch.setattr(audio, 'QTimer', timers)
+
+    assert audio.speak_text('First phrase')
+    assert audio.speak_text('Second phrase')
+    # The backend finished but lost its Ready signal. The connected signal
+    # alone must not leave the whole serial queue waiting forever.
+    speech._state = 'Ready'
+    timers.run_next(audio._SPEECH_POLL_MS)
+    timers.run_next(audio._SPEECH_GAP_MS)
+    assert speech.messages == ['First phrase', 'Second phrase']
+    assert speech.stop_count == 0
+    speech.complete()
+    timers.run_next(audio._SPEECH_GAP_MS)
+    assert speech.messages == ['First phrase', 'Second phrase']
+    assert audio._SPEECH_PENDING == []
+    assert audio._SPEECH_ACTIVE is None
+
+
+@pytest.mark.parametrize('native', [False, True])
+def test_speech_replay_descriptor_keeps_full_phrase_and_unscaled_inputs(
+        monkeypatch, native):
+    app = _App()
+    descriptors = []
+    speech = _NativeSpeech() if native else _Speech()
+    timers = _TimerHarness()
+    monkeypatch.setattr(config, 'data', {
+        'general': {'audio_muted': False, 'master_volume': 50},
+        'spells': {'audio_profiles': {
+            'ayla@green': {'character': 'Ayla', 'server': 'Green',
+                           'volume': 50}}}})
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, '_SPEECH', speech)
+    monkeypatch.setattr(audio, 'QTimer', timers)
+
+    def started(source, path, volume, channel, visual_registered, *,
+                replay_data=None):
+        app.events.append((source, path, volume))
+        descriptors.append(replay_data)
+
+    app.audio_started = started
+    message = ('This alert has more than sixty characters so its final '
+               'instruction must survive replay: assist Ayla now.')
+    assert audio.speak_text(
+        message, 80, source='Long event', character='Ayla', server='Green',
+        channel='spells', voice_name='Voice B', pitch=3, replay=True)
+    if native:
+        assert descriptors == []
+        speech.synthesize_next()
+    descriptor, = descriptors
+    assert descriptor == audio.AudioReplayDescriptor(
+        'voice', message, 80, 'Ayla', 'Green', 'spells', 'Voice B', 3,
+        is_replay=True)
+    assert app.events == [('Long event', f'tts:{message[:60]}', 20)]
+    assert (speech.synthesized if native else speech.messages) == [message]
+
+
+def test_wav_replay_descriptor_keeps_unscaled_volume_and_repeat(
+        monkeypatch, tmp_path):
+    app = _App()
+    descriptors = []
+    sound = tmp_path / 'sample.wav'
+    sound.write_bytes(b'fake: playback is fully mocked')
+    monkeypatch.setattr(config, 'data', {
+        'general': {'audio_muted': False, 'master_volume': 50},
+        'spells': {'audio_profiles': {}}})
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, 'QSoundEffect', _Effect)
+    monkeypatch.setattr(audio, 'resolve_sound', lambda _path: sound)
+    monkeypatch.setattr(audio, 'QTimer', _TimerHarness())
+
+    def started(source, path, volume, channel, visual_registered, *,
+                replay_data=None):
+        app.events.append((source, path, volume))
+        descriptors.append(replay_data)
+
+    app.audio_started = started
+    assert audio.play_alert(
+        'builtin:crystal-ping', 80, 2, source='WAV route', channel='spells',
+        replay=True)
+    assert descriptors == [audio.AudioReplayDescriptor(
+        'sound', 'builtin:crystal-ping', 80, channel='spells', repeat=2,
+        is_replay=True)]
+    assert app.events == [('WAV route', 'builtin:crystal-ping', 40)]
+
+
+@pytest.mark.parametrize('pitch, expected', [
+    (None, 0), ('', 0), ('legacy', 0), ({'legacy': True}, 0), ('3', 3)])
+def test_speech_replay_descriptor_tolerates_legacy_pitch(
+        monkeypatch, pitch, expected):
+    app = _App()
+    speech = _Speech()
+    descriptors = []
+    monkeypatch.setattr(config, 'data', {
+        'general': {'audio_muted': False, 'master_volume': 100},
+        'spells': {'audio_profiles': {}}})
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, '_SPEECH', speech)
+    monkeypatch.setattr(audio, 'QTimer', _TimerHarness())
+    app.audio_started = lambda *args, replay_data=None: descriptors.append(
+        replay_data)
+
+    assert audio.speak_text('Legacy pitch sample', voice_name='Voice B',
+                            pitch=pitch)
+    assert speech.messages == ['Legacy pitch sample']
+    assert speech.pitch == expected / 10.0
+    assert descriptors[0].pitch == expected
 
 
 def test_started_audio_is_recorded_without_spawning_a_second_notification():
@@ -879,7 +1044,8 @@ def test_speech_prewarm_is_silent_async_and_scheduled_only_once(monkeypatch):
     # second SAPI engine or wait for another scheduled callback.
     assert audio.speak_text('First live alert', replace_pending=True)
     assert created == [app]
-    assert len(callbacks) == 1
+    assert len(callbacks) == 2
+    assert callbacks[1][0] == audio._SPEECH_POLL_MS
     assert speech.events[-1:] == [('say', 'First live alert')]
     assert speech.stop_count == 0
 
