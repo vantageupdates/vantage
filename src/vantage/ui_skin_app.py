@@ -483,9 +483,11 @@ class SkinWindow:
                      if self.allow_game_running else "Close EverQuest before preparation.")
         if not self._confirm(
                 "Prepare buff hotkeys",
-                "Install and verify the published vertical 1.44.102 and horizontal 1.44.103 skins.\n"
+                "Install and verify 1.44.104 (V) — vertical and 1.44.105 (H) — horizontal.\n"
+                "Both share the same UI; only buff layout and its version badge differ.\n"
+                "V uses one column; H uses a wide grid. Both show buff names beside icons.\n"
                 "Existing skin files, character INIs and hotkeys will not be overwritten.\n"
-                "The updater will select 1.44.103; the game changes only when you load a skin.\n"
+                "The updater will select 1.44.105; the game changes only when you load a skin.\n"
                 "If interrupted, a completed skin remains installed; retry to finish the pair.\n\n" + live_copy):
             return
         self.automatic.set(False)
@@ -516,7 +518,9 @@ class SkinWindow:
                   wraplength=570).grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 12))
         for row, (orientation, version) in enumerate(updater.BUFF_LAYOUT_VERSIONS.items(), 2):
             command = f"/loadskin {updater.folder_name(version)} 1"
-            ttk.Label(frame, text=f"Buffs {orientation}\n{command}", style="Gold.TLabel").grid(
+            badge = "V" if orientation == "vertical" else "H"
+            detail = "One column · visible names" if badge == "V" else "Wide grid · visible names"
+            ttk.Label(frame, text=f"Buffs {orientation} — v{version} ({badge})\n{detail}\n{command}", style="Gold.TLabel").grid(
                 row=row, column=0, sticky="w", pady=8)
             def copy(value=command):
                 if self.busy or self.confirming or self.eq.get().strip() != prepared_eq:
@@ -525,7 +529,8 @@ class SkinWindow:
                 self.root.clipboard_append(value)
                 self.status.set("Buff command copied. Paste it into the matching EverQuest social.")
             ttk.Button(frame, text="Copy command", command=copy).grid(row=row, column=1, padx=(20, 0))
-        ttk.Label(frame, text="Move the horizontal strip using its titlebar. If it is clipped after switching, send a screenshot.\n"
+        ttk.Label(frame, text="(V) = vertical · (H) = horizontal. The rest of the UI is the same in both.\n"
+                  "Move the horizontal grid using its titlebar. If clipped after switching, send a screenshot.\n"
                   "Saved geometry and fixed-size reload behavior still need confirmation in P99.",
                   wraplength=570, style="Muted.TLabel").grid(
             row=4, column=0, columnspan=2, sticky="w", pady=(12, 6))

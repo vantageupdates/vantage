@@ -502,7 +502,8 @@ def test_group_brand_and_version_are_bound_to_release_beside_the_resists():
     mark = _item(root, "StaticAnimation", "GW_VantageBrandMark")
     animation = _item(root, "Ui2DAnimation", "A_VantageGroupBrandMark")
     release = json.loads((SKIN_DIR.parent / "release.json").read_text())
-    assert label.findtext("Text") == f"v{release['version']}"
+    badge = {"vertical": "V", "horizontal": "H"}[release['buff_layout']]
+    assert label.findtext("Text") == f"v{release['version']} ({badge})"
     assert label.findtext("Font") == "1"
     assert label.findtext("NoWrap") == label.findtext("AlignCenter") == "true"
     assert label.find("EQType") is None  # Never let live game data overwrite it.

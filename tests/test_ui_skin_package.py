@@ -55,6 +55,8 @@ def test_manifest_exact_bytes_flat_entries_and_deterministic_archive(candidate):
     '<Label item="GW_VantageVersionLabel"><Text>VantageUI</Text></Label>',
     '<Label item="GW_VantageVersionLabel"><Text>v1.44.52</Text></Label>' * 2,
     '<Label item="GW_VantageVersionLabel"><Text>VantageUI  v1.44.52</Text></Label>',
+    '<Label item="GW_VantageVersionLabel"><Text>v1.44.52 (V)</Text></Label>',
+    '<Label item="GW_VantageVersionLabel"><Text>v1.44.52 (H)</Text></Label>',
 ])
 def test_package_refuses_missing_stale_or_duplicate_visible_version(candidate, label):
     skin, release, output = candidate
@@ -72,6 +74,95 @@ def test_package_preserves_correct_visible_version_bytes(candidate):
     with zipfile.ZipFile(output / package.PAYLOAD_NAME) as archive:
         assert archive.read("EQUI_GroupWindow.xml") == data
     assert (skin / "EQUI_GroupWindow.xml").read_bytes() == data
+
+
+@pytest.mark.parametrize("layout,suffix", [("vertical", "V"), ("horizontal", "H")])
+def test_oriented_package_preserves_badge_bytes_and_public_manifest_contract(candidate, layout, suffix):
+    skin, release, output = candidate
+    metadata = json.loads(release.read_text(encoding="utf-8"))
+    metadata["buff_layout"] = layout
+    release.write_text(json.dumps(metadata), encoding="utf-8")
+    assert package.load_release(release) == metadata
+    data = ('<XML>\r\n  <Label item="GW_VantageVersionLabel">'
+            '<Text>v1.44.52 ({})</Text></Label>\r\n</XML>\r\n'.format(suffix)).encode("ascii")
+    (skin / "EQUI_GroupWindow.xml").write_bytes(data)
+    manifest = package.package_skin(skin, release, output)
+    assert set(manifest) == {"schema", "version", "skin_folder", "files"}
+    assert {key: manifest[key] for key in ("schema", "version", "skin_folder")} == {
+        "schema": 2, "version": "1.44.52", "skin_folder": "VantageUI-v1.44.52"}
+    manifest_bytes = (output / package.MANIFEST_NAME).read_bytes()
+    payload_bytes = (output / package.PAYLOAD_NAME).read_bytes()
+    assert json.loads(manifest_bytes) == manifest
+    entry = next(item for item in manifest["files"] if item["path"] == "EQUI_GroupWindow.xml")
+    assert entry["size"] == len(data) and entry["sha256"] == hashlib.sha256(data).hexdigest()
+    with zipfile.ZipFile(output / package.PAYLOAD_NAME) as archive:
+        assert archive.read("EQUI_GroupWindow.xml") == data
+    assert (skin / "EQUI_GroupWindow.xml").read_bytes() == data
+    package.package_skin(skin, release, output)
+    assert (output / package.MANIFEST_NAME).read_bytes() == manifest_bytes
+    assert (output / package.PAYLOAD_NAME).read_bytes() == payload_bytes
+
+
+@pytest.mark.parametrize("layout,suffix,opposite", [
+    ("vertical", "V", "H"), ("horizontal", "H", "V"),
+])
+@pytest.mark.parametrize("badge", [
+    "missing", "duplicate", "v1.44.52", "v1.44.51 ({suffix})",
+    "v1.44.52 ({opposite})", "v1.44.52 (X)", "v1.44.52({suffix})",
+    "v1.44.52 ({suffix}) ", "VantageUI v1.44.52 ({suffix})",
+])
+def test_oriented_package_refuses_missing_stale_or_wrong_badge(candidate, layout, suffix, opposite, badge):
+    skin, release, output = candidate
+    metadata = json.loads(release.read_text(encoding="utf-8"))
+    metadata["buff_layout"] = layout
+    release.write_text(json.dumps(metadata), encoding="utf-8")
+    if badge == "missing":
+        labels = ""
+    else:
+        text = "v1.44.52 ({})".format(suffix) if badge == "duplicate" else badge.format(
+            suffix=suffix, opposite=opposite)
+        labels = '<Label item="GW_VantageVersionLabel"><Text>{}</Text></Label>'.format(text)
+        if badge == "duplicate":
+            labels *= 2
+    (skin / "EQUI_GroupWindow.xml").write_text("<XML>" + labels + "</XML>", encoding="utf-8")
+    with pytest.raises(package.PackageError, match="Visible VantageUI group version"):
+        package.package_skin(skin, release, output)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("layout", ["vertical", "horizontal"])
+def test_oriented_package_requires_group_badge_asset(candidate, layout):
+    skin, release, output = candidate
+    metadata = json.loads(release.read_text(encoding="utf-8"))
+    metadata["buff_layout"] = layout
+    release.write_text(json.dumps(metadata), encoding="utf-8")
+    with pytest.raises(package.PackageError, match="Visible VantageUI group version"):
+        package.package_skin(skin, release, output)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("layout", ["", "Vertical", "H", " vertical ", "diagonal", None, True, 42, [], {}])
+def test_invalid_orientation_fails_before_package_outputs(candidate, layout):
+    skin, release, output = candidate
+    metadata = json.loads(release.read_text(encoding="utf-8"))
+    metadata["buff_layout"] = layout
+    release.write_text(json.dumps(metadata), encoding="utf-8")
+    with pytest.raises(package.PackageError, match="buff_layout"):
+        package.package_skin(skin, release, output)
+    assert not output.exists()
+
+
+def test_invalid_orientation_stops_cli_before_source_export(candidate, monkeypatch):
+    skin, release, output = candidate
+    metadata = json.loads(release.read_text(encoding="utf-8"))
+    metadata["buff_layout"] = None
+    release.write_text(json.dumps(metadata), encoding="utf-8")
+    monkeypatch.setattr(package, "sync_source", lambda *_: pytest.fail("Invalid metadata must not export source"))
+    with pytest.raises(SystemExit) as error:
+        package.main(["--sync-from", str(skin), "--skin-dir", str(skin),
+                      "--release", str(release), "--output", str(output)])
+    assert error.value.code == 2
+    assert not output.exists()
 
 
 @pytest.mark.parametrize("name", ["../bad.xml", "sub/bad.xml", "sub\\bad.xml", "C:\\bad.xml",
@@ -207,6 +298,14 @@ def test_repository_snapshot_parses_and_matches_release_contract():
     assert ignored == 0
     assert "EQUI_CastSpellWnd.xml" in assets
     assert "SIDL.xml" in assets
-    release = package.load_release(root / "ui" / "release.json")
-    assert release == {"schema": 2, "version": "1.44.103",
-                       "skin_folder": "VantageUI-v1.44.103"}
+    release_path = root / "ui" / "release.json"
+    metadata = json.loads(release_path.read_text(encoding="utf-8"))
+    release = package.load_release(release_path)
+    assert release == {key: metadata[key] for key in
+                       ("schema", "version", "skin_folder", "buff_layout") if key in metadata}
+    assert (release["version"], release.get("buff_layout")) in {
+        ("1.44.104", "vertical"), ("1.44.105", "horizontal")}
+    manifest = package.create_manifest(assets, release)
+    assert set(manifest) == {"schema", "version", "skin_folder", "files"}
+    assert manifest["version"] == metadata["version"]
+    assert manifest["skin_folder"] == "VantageUI-v" + metadata["version"]

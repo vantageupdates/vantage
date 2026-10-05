@@ -38,9 +38,8 @@ def test_buff_buttons_have_explicit_preset_locations_and_native_bindings(filenam
         button = item(root, 'Button', name)
         assert button.findtext('ScreenID') == f'Buff{i}'
         assert button.findtext('RelativePosition') == 'true'
-        # The main window is the optional UI103 horizontal preset. The
-        # disabled short-duration window keeps its original vertical source.
-        bounds = (6 + 28 * i, 4, 24, 24) if prefix == 'BW' else (175, 1 + 25 * i, 24, 24)
+        horizontal = prefix == 'BW' and screen.findtext('Text') == 'Effects (H)'
+        bounds = (152 + 176 * (i % 5), 4 + 28 * (i // 5), 24, 24) if horizontal else (175, 1 + 25 * i, 24, 24)
         assert tuple(int(button.findtext(p)) for p in
                      ('Location/X', 'Location/Y', 'Size/CX', 'Size/CY')) == bounds
         assert button.findtext('Style_Transparent') == 'true'
@@ -54,13 +53,13 @@ def test_buff_buttons_have_explicit_preset_locations_and_native_bindings(filenam
         label = item(root, 'Label', f'{prefix}_Buff{i}_Label')
         assert label.findtext('ScreenID') == f'Buff{i}Label'
         assert label.findtext('EQType') == str((500 if prefix == 'BW' else 600) + i)
-        assert label.findtext('Location/X') == ('4' if prefix == 'BW' else '30')
-        assert label.findtext('Size/CX') == ('0' if prefix == 'BW' else '142')
+        assert label.findtext('Location/X') == (str(6 + 176 * (i % 5)) if horizontal else '30')
+        assert label.findtext('Size/CX') == '142'
         assert label.findtext('AlignRight') == label.findtext('NoWrap') == 'true'
         # Both presets keep name labels outside every native icon hit box.
         assert int(label.findtext('Location/X')) + int(label.findtext('Size/CX')) < bounds[0]
-    assert screen.findtext('Style_Transparent') == ('false' if prefix == 'BW' else 'true')
-    assert screen.findtext('Style_Border') == ('true' if prefix == 'BW' else 'false')
+    assert screen.findtext('Style_Transparent') == ('false' if horizontal else 'true')
+    assert screen.findtext('Style_Border') == ('true' if horizontal else 'false')
 
 
 def test_all_buff_chrome_states_are_fully_transparent_including_hover():

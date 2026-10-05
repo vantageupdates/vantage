@@ -52,14 +52,22 @@ engine-level resolution upgrade or a claim of in-game verification.
 
 ## Buffs: vertical and horizontal hotkeys
 
-The 1.44.103 source snapshot is the optional horizontal buff strip. Vertical
-remains available as the immutable published 1.44.102 skin; neither preset
-replaces the other. The horizontal strip uses the existing dark frame/titlebar,
-native icon art and button bindings. Names are inspected through native tooltips
-instead of a permanently displayed vertical name lane. This is fixed geometry,
-not an automatic orientation or resizing system.
+The matched presets are **1.44.104 (V)** and **1.44.105 (H)**. They share the
+same UI features and artwork; only the buff layout and its identifying badge
+differ. `(V)` means vertical: the familiar narrow column. `(H)` means horizontal:
+a wide five-column grid with names immediately left of each icon. Both retain
+the same 142px name lane and native font/alignment; names stay visible without
+hovering, with native tooltips still available. The version below the group logo
+identifies the loaded preset. Published 102/103 folders remain unchanged.
 
-In the standalone **VantageUI-Updater 1.44.103**, choose **Buff hotkeys…** and
+The horizontal grid is 896×168 outer pixels with a native dark frame/titlebar
+for dragging. It retains all 25 original XML controls, with the first 15 spanning
+three rows. Its fixed five-row reserve can leave two empty rows beneath them;
+it does not add buff capacity to P99. Long names have the same
+single-line clipping limits as vertical. This is fixed geometry, not automatic
+orientation, scaling or responsive wrapping.
+
+In either new standalone **VantageUI-Updater**, choose **Buff hotkeys…** and
 confirm preparation. Both releases are fetched by exact stable tags and their
 assets/files verified before they are presented as ready. Existing edited or
 unmanaged folders are preserved and refused, not repaired or silently adopted.
@@ -70,22 +78,22 @@ Create two social hotkeys in P99, with one command on their first line:
 
 | Social name | First-line command |
 | --- | --- |
-| Buffs vertical | `/loadskin VantageUI-v1.44.102 1` |
-| Buffs horizontal | `/loadskin VantageUI-v1.44.103 1` |
+| Buffs vertical (V) | `/loadskin VantageUI-v1.44.104 1` |
+| Buffs horizontal (H) | `/loadskin VantageUI-v1.44.105 1` |
 
 Drag both socials to your existing hotbar. Each switches the entire skin with
 settings preserved; it is not an instant toggle inside BuffWindow. The updater
 does not create/overwrite any socials, change character INIs or load the skin
-for you. Move the horizontal strip using its titlebar. Both presets are fixed-size;
+for you. Move the horizontal grid using its titlebar. Both presets are fixed-size;
 saved-size handling after reload still needs native confirmation. If it is clipped,
 report a screenshot rather than using a settings-resetting reload to fix one window.
 Check actual icon placement, tooltips, dragging and right-click cancellation
 inside P99. Source bounds and tests are not native rendering verification.
 
-This updater retains registered 102/103 preset folders. Older Companion/updater
+This updater retains registered 102/103 and 104/105 preset folders. Older Companion/updater
 builds use their own active/previous-only cleanup policy; they may retire older
 presets after future UI releases. Use the current updater to prepare a matching
-pair; this 103 updater refuses pair preparation when a newer UI is selected.
+pair; these updaters refuse pair preparation when a UI newer than 105 is selected.
 
 The 1.44.101 definition pass gives all buff buttons explicit positions in the
 numbered icon column and removes opaque inactive backplates, targeting the
@@ -174,14 +182,18 @@ repository folder rejects unexpected files rather than silently publishing them.
 Review the resulting Git diff and asset changes before publishing. Increment the
 independent UI patch version in `ui/release.json`; update the canonical
 `EQUI_GroupWindow.xml` label `GW_VantageVersionLabel` to exactly
-`v<version>` before exporting. The approved Vantage UI logo is a separate texture;
+`v<version> (V)` or `v<version> (H)` before exporting, matching the internal
+`buff_layout` (`vertical`/`horizontal`) in release metadata. Legacy metadata
+without an orientation still requires exactly `v<version>`. Orientation is not
+added to the downloaded schema-2 manifest, so existing clients retain their
+canonical `VantageUI-v<version>` folder/manifest contract. The approved Vantage UI logo is a separate texture;
 the version remains editable text inside its own rounded frame. Packaging rejects an absent, duplicate,
 or mismatched visible version tab. Never reuse a published UI
 version or tag. A UI-only release does not increment Companion and does not build
 or publish `Vantage.exe`. After focused and complete tests, coordinate publication
 of the updater and both transport assets on a reviewed
 `vantage-ui-v<major.minor.patch>` tag in `vantageupdates/vantage`. For this
-candidate the tag is `vantage-ui-v1.44.103`. Verify public asset sizes and
+candidates the tags are `vantage-ui-v1.44.104` and `vantage-ui-v1.44.105`. Verify public asset sizes and
 SHA-256 digests against the tested artifacts. An arbitrary source push must not
 automatically publish an unreviewed UI update. The repository
 [release policy](../AGENTS.md) records the separation between Companion and UI
@@ -241,7 +253,7 @@ untouched.
 
 The updater retains the active managed version and its immediate previous
 selection; both are retained even when edited. This updater additionally retains
-registered native buff presets 1.44.102 and 1.44.103, never by scanning or adopting
+registered native buff presets 1.44.102/103 and 1.44.104/105, never by scanning or adopting
 arbitrary skin folders. Older updater builds do not have these preset pins. “Active”
 means the updater's selection; it does not mean EverQuest has loaded that folder.
 Only older registered cleanup candidates whose complete contents still match

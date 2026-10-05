@@ -1,8 +1,8 @@
-"""Lay out the existing Titanium buff controls as a fixed horizontal preset.
+"""Lay out the existing Titanium buff controls as fixed V/H presets.
 
 This changes geometry and native window chrome only. It does not create buff
 controls, change native IDs, replace spell art, or touch a character's UI INI.
-The vertical preset remains available in the separately published UI102 skin.
+Both presets retain visible native spell-name labels and all native bindings.
 Native tooltips, cancellation, and titlebar clipping need a client reload to
 validate; XML geometry checks cannot certify the game renderer.
 """
@@ -19,11 +19,13 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE = ROOT / "ui" / "skin" / "EQUI_BuffWindow.xml"
 BUFF_COUNT = 25
 ICON_SIZE = 24
-ICON_PITCH = 28
-ICON_X = 6
+GRID_COLUMNS = 5
+CELL_WIDTH = 176
+ROW_HEIGHT = 28
+ICON_X = 152
 ICON_Y = 4
-WINDOW_WIDTH = 716
-WINDOW_HEIGHT = 56
+WINDOW_WIDTH = 896
+WINDOW_HEIGHT = 168
 
 
 def _change_child(block: str, parent: str, child: str, value: str) -> str:
@@ -68,31 +70,38 @@ def _rect(x: int, y: int, width: int, height: int) -> dict[str, str]:
                     map(str, (x, y, width, height))))
 
 
-def horizontal_preset(source: str) -> str:
-    """Keep the original native controls/Pieces and change only their layout."""
+def _validate_controls(source: str) -> ET.Element:
     before = ET.fromstring(source)
     buttons = before.findall("Button")
     if [node.findtext("ScreenID") for node in buttons] != [
             f"Buff{i}" for i in range(BUFF_COUNT)]:
         raise ValueError("Expected exactly the original Buff0 through Buff24 controls")
+    return before
+
+
+def horizontal_preset(source: str) -> str:
+    """Five horizontal cells per row, with the original readable name width."""
+    before = _validate_controls(source)
 
     result = source
     for index in range(BUFF_COUNT):
-        # Coordinates are inside the native client area. WDT_Rounded has a
-        # 16px titlebar and up to 4px frame insets, leaving 708x32 client pixels
-        # in the 716x56 outer screen. Do not reserve the title a second time.
-        # A button's size and decal fields are native contracts, not layout.
+        column, row = index % GRID_COLUMNS, index // GRID_COLUMNS
+        # Client coordinates exclude the 16px title and native frame. Names
+        # stay left of icons, as vertically; preserve Font/NoWrap/alignment.
         result = _change_item(result, "Button", f"BW_Buff{index}_Button", {
-            "Location/X": str(ICON_X + ICON_PITCH * index),
-            "Location/Y": str(ICON_Y),
+            "Location/X": str(ICON_X + CELL_WIDTH * column),
+            "Location/Y": str(ICON_Y + ROW_HEIGHT * row),
         })
-
-    # Keep every original Piece and every EQType assignment. A zero-sized
-    # text/decorative lane leaves native icon hit boxes unobstructed and keeps
-    # long spell names from extending a compact horizontal preset.
-    for kind in ("Label", "StaticAnimation"):
-        for node in before.findall(kind):
-            result = _change_item(result, kind, node.attrib["item"], _rect(4, 20, 0, 0))
+        result = _change_item(result, "Label", f"BW_Buff{index}_Label",
+                              _rect(6 + CELL_WIDTH * column, 10 + ROW_HEIGHT * row, 142, 12))
+        if index < 15:
+            result = _change_item(result, "Label", f"BW_Buff{index}_LabelBG",
+                                  _rect(7 + CELL_WIDTH * column, 11 + ROW_HEIGHT * row, 142, 12))
+        # Keep the native empty-slot numbers/Pieces but don't float them in
+        # the horizontal name lane without the vertical holder artwork.
+        result = _change_item(result, "Label", f"BW_Number{index}Label", _rect(4, 20, 0, 0))
+    for node in before.findall("StaticAnimation"):
+        result = _change_item(result, "StaticAnimation", node.attrib["item"], _rect(4, 20, 0, 0))
 
     result = _change_item(result, "Screen", "BuffWindow", {
         **_rect(415, 395, WINDOW_WIDTH, WINDOW_HEIGHT),
@@ -100,6 +109,7 @@ def horizontal_preset(source: str) -> str:
         "DrawTemplate": "WDT_Rounded",
         "Style_Titlebar": "true",
         "Style_Border": "true",
+        "Text": "Effects (H)",
     })
     after = ET.fromstring(result)
     original_screen = before.find("Screen[@item='BuffWindow']")
@@ -112,9 +122,33 @@ def horizontal_preset(source: str) -> str:
     return result
 
 
+def vertical_preset(source: str) -> str:
+    """Restore the unchanged UI102 column; only the orientation title is new."""
+    _validate_controls(source)
+    result = source
+    for index in range(BUFF_COUNT):
+        result = _change_item(result, "Button", f"BW_Buff{index}_Button", {
+            "Location/X": "175", "Location/Y": str(1 + 25 * index)})
+        result = _change_item(result, "Label", f"BW_Number{index}Label",
+                              _rect(175, 7 + 25 * index, 24, 12))
+        result = _change_item(result, "Label", f"BW_Buff{index}_Label",
+                              _rect(30, 6 + 25 * index, 142, 12))
+        if index < 15:
+            result = _change_item(result, "Label", f"BW_Buff{index}_LabelBG",
+                                  _rect(31, 7 + 25 * index, 142, 12))
+    for index in range(3):
+        result = _change_item(result, "StaticAnimation", f"BW_BuffBackground{index}",
+                              _rect(175, 1 + 125 * index, 24, 124))
+    return _change_item(result, "Screen", "BuffWindow", {
+        **_rect(415, 395, 200, 375), "Style_Transparent": "true",
+        "DrawTemplate": "WDT_RoundedNoTitle", "Style_Titlebar": "false",
+        "Style_Border": "false", "Text": "Effects (V)"})
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
+    parser.add_argument("--layout", choices=("vertical", "horizontal"), default="horizontal")
     parser.add_argument("--output", type=Path,
                         help="Save mechanically transformed XML to this path")
     parser.add_argument("--check", action="store_true",
@@ -128,15 +162,15 @@ def main(argv: list[str] | None = None) -> int:
     # read_bytes/decode preserves the source's CRLF and comments. Only the
     # named fields above change; ElementTree is used for checks, not export.
     source = args.source.read_bytes().decode("ascii")
-    rendered = horizontal_preset(source)
+    rendered = (vertical_preset if args.layout == "vertical" else horizontal_preset)(source)
     if args.check:
         if source != rendered:
-            print("BuffWindow does not match the horizontal preset")
+            print(f"BuffWindow does not match the {args.layout} preset")
             return 1
-        print("Horizontal buff source geometry matches")
+        print(f"{args.layout.title()} buff source geometry matches")
         return 0
     args.output.write_bytes(rendered.encode("ascii"))
-    print(f"Horizontal buff preset written: {args.output}")
+    print(f"{args.layout.title()} buff preset written: {args.output}")
     return 0
 
 

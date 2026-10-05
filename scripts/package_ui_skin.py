@@ -25,6 +25,7 @@ MANIFEST_NAME = "VantageUI-manifest.json"
 PAYLOAD_NAME = "VantageUI-payload.zip"
 MANIFEST_SCHEMA = 2
 SKIN_FOLDER_PREFIX = "VantageUI-v"
+BUFF_LAYOUT_BADGES = {"vertical": "V", "horizontal": "H"}
 VERSION_PATTERN = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
 RESERVED_NAMES = {"con", "prn", "aux", "nul"} | {
     "{}{}".format(prefix, number) for prefix in ("com", "lpt") for number in range(1, 10)
@@ -127,6 +128,15 @@ def collect_assets(directory, source_export=False):
     return assets, ignored
 
 
+def _badge_suffix(release):
+    if "buff_layout" not in release:
+        return ""
+    layout = release["buff_layout"]
+    if not isinstance(layout, str) or layout not in BUFF_LAYOUT_BADGES:
+        raise PackageError("buff_layout must be exactly vertical or horizontal")
+    return " ({})".format(BUFF_LAYOUT_BADGES[layout])
+
+
 def load_release(path):
     try:
         release = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -141,21 +151,31 @@ def load_release(path):
     if release.get("skin_folder") != expected_folder:
         raise PackageError(
             "skin_folder must exactly match the release version: {}".format(expected_folder))
-    return {key: release[key] for key in ("schema", "version", "skin_folder")}
+    _badge_suffix(release)
+    normalized = {key: release[key] for key in ("schema", "version", "skin_folder")}
+    if "buff_layout" in release:
+        normalized["buff_layout"] = release["buff_layout"]
+    return normalized
 
 
 def create_manifest(assets, release):
     validate_names(assets)
+    expected = "v" + release["version"] + _badge_suffix(release)
+    badge_found = False
     # A visible skin version must identify this exact delivery. Refuse a stale
     # group-window badge rather than rewriting the canonical source or silently
     # shipping it.
     for name, data in assets.items():
         if name.casefold() == "equi_groupwindow.xml":
+            badge_found = True
             labels = ET.fromstring(data).findall("./Label[@item='GW_VantageVersionLabel']")
-            expected = "v" + release["version"]
             if len(labels) != 1 or labels[0].findtext("Text") != expected:
                 raise PackageError("Visible VantageUI group version must match release: " + expected)
-    manifest = dict(release)
+    if "buff_layout" in release and not badge_found:
+        raise PackageError("Visible VantageUI group version must match release: " + expected)
+    # Orientation is an internal source/badge contract, not a new downloaded
+    # manifest field. Existing schema-2 readers retain the exact public contract.
+    manifest = {key: release[key] for key in ("schema", "version", "skin_folder")}
     manifest["files"] = [
         {"path": name, "size": len(assets[name]), "sha256": hashlib.sha256(assets[name]).hexdigest()}
         for name in sorted(assets, key=lambda value: (value.casefold(), value))

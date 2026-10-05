@@ -30,7 +30,9 @@ PAYLOAD_ASSET = "VantageUI-payload.zip"
 RELEASES_API = f"https://api.github.com/repos/{REPOSITORY}/releases"
 # These immutable releases are the two native hotkey targets. Only verified,
 # registered installations qualify for retention; unknown folders are not adopted.
-BUFF_LAYOUT_VERSIONS = {"vertical": "1.44.102", "horizontal": "1.44.103"}
+BUFF_LAYOUT_VERSIONS = {"vertical": "1.44.104", "horizontal": "1.44.105"}
+# Preserve previously prepared pairs too; never enumerate or adopt unknown skins.
+BUFF_LAYOUT_RETAINED_VERSIONS = ("1.44.102", "1.44.103", *BUFF_LAYOUT_VERSIONS.values())
 MAX_FILES = 2000
 MAX_FILE_BYTES = 32 * 1024 * 1024
 MAX_TOTAL_BYTES = 256 * 1024 * 1024
@@ -992,7 +994,7 @@ def _retained_folders(registry):
     keep = {
         name for name in (registry["active"], registry["previous"])
         if name}
-    keep.update(folder_name(version) for version in BUFF_LAYOUT_VERSIONS.values()
+    keep.update(folder_name(version) for version in BUFF_LAYOUT_RETAINED_VERSIONS
                 if folder_name(version) in registry["managed"])
     return keep
 

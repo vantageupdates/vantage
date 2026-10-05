@@ -23,8 +23,9 @@ PROTECTED_FILES = {
 }
 
 
-def xml():
-    return ET.parse(SKIN / "EQUI_BuffWindow.xml").getroot()
+def xml(layout="horizontal"):
+    source = (SKIN / "EQUI_BuffWindow.xml").read_bytes().decode("ascii")
+    return ET.fromstring(getattr(generator(), layout + "_preset")(source))
 
 
 def item(root, kind, name):
@@ -90,6 +91,8 @@ def native_contract(root):
         if original.tag not in allowed_fields:
             continue
         node = deepcopy(original)
+        if node.tag == "Screen" and node.findtext("Text") in ("Effects (V)", "Effects (H)"):
+            node.find("Text").text = "Effects"
         for child in list(node):
             if child.tag in allowed_fields[node.tag]:
                 node.remove(child)
@@ -122,6 +125,8 @@ def restore_vertical_geometry(root):
                                 (175, 1 + 125 * index, 24, 124)):
             background.find(field).text = str(value)
     screen = item(root, "Screen", "BuffWindow")
+    if screen.findtext("Text") in ("Effects (V)", "Effects (H)"):
+        screen.find("Text").text = "Effects"
     for field, value in {
             "Location/X": "415", "Location/Y": "395", "Size/CX": "200", "Size/CY": "375",
             "Style_Transparent": "true", "DrawTemplate": "WDT_RoundedNoTitle",
@@ -130,8 +135,9 @@ def restore_vertical_geometry(root):
     return root
 
 
-def test_horizontal_changes_only_allowed_geometry_and_window_chrome():
-    root = restore_vertical_geometry(xml())
+@pytest.mark.parametrize("layout", ("vertical", "horizontal"))
+def test_presets_change_only_allowed_geometry_and_window_chrome(layout):
+    root = restore_vertical_geometry(xml(layout))
     # This preserves all original IDs (including native duplicate label
     # ScreenIDs), EQTypes, Pieces/order, native decal/click fields and art.
     assert tree_digest(root) == VERTICAL_TREE
@@ -145,7 +151,7 @@ def test_native_bindings_match_the_frozen_ui102_xml_reference():
     assert signature(native_contract(xml())) == signature(reference)
 
 
-def test_all_twenty_five_native_buttons_are_a_single_nonoverlapping_row():
+def test_all_twenty_five_native_buttons_and_names_fit_a_nonoverlapping_horizontal_grid():
     root = xml()
     screen = item(root, "Screen", "BuffWindow")
     pieces = [node.text for node in screen.findall("Pieces")]
@@ -153,16 +159,27 @@ def test_all_twenty_five_native_buttons_are_a_single_nonoverlapping_row():
     expected_ids = [f"Buff{index}" for index in range(25)]
     assert [node.findtext("ScreenID") for node in buttons] == expected_ids
     assert len(set(expected_ids)) == len(buttons)
-    assert rect(screen) == (415, 395, 716, 56)
+    assert rect(screen) == (415, 395, 896, 168)
     client_sizes = native_client_sizes(screen)
-    assert client_sizes == {"declared": (708, 34), "conservative": (708, 32)}
-    previous_right = 0
+    assert client_sizes == {"declared": (888, 146), "conservative": (888, 144)}
+    occupied = []
     for index, button in enumerate(buttons):
         assert button.attrib["item"] == f"BW_Buff{index}_Button"
         x, y, width, height = rect(button)
-        assert (x, y, width, height) == (6 + 28 * index, 4, 24, 24)
-        assert previous_right <= x
-        previous_right = x + width
+        column, row = index % 5, index // 5
+        assert (x, y, width, height) == (152 + 176 * column, 4 + 28 * row, 24, 24)
+        name = item(root, "Label", f"BW_Buff{index}_Label")
+        name_bounds = (6 + 176 * column, 10 + 28 * row, 142, 12)
+        assert rect(name) == name_bounds
+        assert name.findtext("EQType") == str(500 + index)
+        assert name.findtext("Font") == "1"
+        assert name.findtext("NoWrap") == name.findtext("AlignRight") == "true"
+        assert name_bounds[0] + name_bounds[2] + 4 == x
+        occupied.extend((rect(button), name_bounds))
+        if index < 15:
+            shadow = item(root, "Label", f"BW_Buff{index}_LabelBG")
+            assert rect(shadow) == (name_bounds[0] + 1, name_bounds[1] + 1, 142, 12)
+            assert shadow.findtext("EQType") == str(500 + index)
         for client_width, client_height in client_sizes.values():
             assert 4 <= x and x + width <= client_width - 4
             assert 4 <= y and y + height <= client_height - 4
@@ -172,13 +189,20 @@ def test_all_twenty_five_native_buttons_are_a_single_nonoverlapping_row():
                      ("DecalOffset/X", "DecalOffset/Y", "DecalSize/CX", "DecalSize/CY")) == (2, 2, 20, 20)
     # P99 commonly supplies 15 active buffs, but no 15-control capacity rule
     # is encoded in the XML: the client still owns all 25 existing controls.
-    assert rect(buttons[14])[0] + 24 - rect(buttons[0])[0] == 416
+    assert rect(buttons[14])[1] == 60
+    for index, (x, y, width, height) in enumerate(occupied):
+        for client_width, client_height in client_sizes.values():
+            assert 4 <= x and x + width <= client_width - 4
+            assert 4 <= y and y + height <= client_height - 4
+        for other_x, other_y, other_width, other_height in occupied[index + 1:]:
+            assert (x + width <= other_x or other_x + other_width <= x or
+                    y + height <= other_y or other_y + other_height <= y)
 
 
 def test_dark_native_titlebar_is_clear_of_icon_controls():
     root = xml()
     screen = item(root, "Screen", "BuffWindow")
-    assert screen.findtext("Text") == "Effects"
+    assert screen.findtext("Text") == "Effects (H)"
     assert screen.findtext("DrawTemplate") == "WDT_Rounded"
     assert screen.findtext("Style_Titlebar") == screen.findtext("Style_Border") == "true"
     assert screen.findtext("Style_Transparent") == "false"
@@ -188,7 +212,8 @@ def test_dark_native_titlebar_is_clear_of_icon_controls():
     template = item(templates, "WindowDrawTemplate", "WDT_Rounded")
     assert template.findtext("Background") == "wnd_bg_modern.png"
     assert template.find("Titlebar") is not None
-    for node in root.findall("Label") + root.findall("StaticAnimation"):
+    for node in root.findall("StaticAnimation") + [node for node in root.findall("Label")
+                                                      if node.attrib["item"].startswith("BW_Number")]:
         assert rect(node) == (4, 20, 0, 0), node.attrib["item"]
     for node in root.findall("Label"):
         if node.find("EQType") is not None:
@@ -223,15 +248,34 @@ def generator():
 
 def test_generator_is_idempotent_and_preserves_comments_and_native_fields():
     module = generator()
-    source = (SKIN / "EQUI_BuffWindow.xml").read_bytes().decode("ascii")
+    original = (SKIN / "EQUI_BuffWindow.xml").read_bytes().decode("ascii")
+    source = module.horizontal_preset(original)
     assert module.horizontal_preset(source) == source
+    vertical_source = module.vertical_preset(original)
+    assert module.vertical_preset(vertical_source) == vertical_source
+    assert module.horizontal_preset(vertical_source) == source
+    assert module.vertical_preset(source) == vertical_source
     vertical = restore_vertical_geometry(xml())
     restored_source = ET.tostring(vertical, encoding="unicode")
     generated = module.horizontal_preset(restored_source)
     assert signature(ET.fromstring(generated)) == signature(xml())
     assert tree_digest(restore_vertical_geometry(ET.fromstring(generated))) == VERTICAL_TREE
-    decorated = source.replace("<Text>Effects</Text>", "<!-- retain this note -->\r\n    <Text>Effects</Text>")
+    decorated = source.replace("<Text>Effects (H)</Text>", "<!-- retain this note -->\r\n    <Text>Effects (H)</Text>")
     assert module.horizontal_preset(decorated) == decorated
+
+
+def test_exported_preset_matches_its_explicit_release_orientation():
+    release = json.loads((ROOT / "ui/release.json").read_text())
+    expected = {"1.44.104": "vertical", "1.44.105": "horizontal"}
+    assert release["buff_layout"] == expected[release["version"]]
+    source = (SKIN / "EQUI_BuffWindow.xml").read_bytes().decode("ascii")
+    assert getattr(generator(), release["buff_layout"] + "_preset")(source) == source
+
+
+def test_unknown_title_is_not_erased_by_frozen_native_contract_check():
+    altered = xml()
+    item(altered, "Screen", "BuffWindow").find("Text").text = "Unreviewed title"
+    assert tree_digest(restore_vertical_geometry(altered)) != VERTICAL_TREE
 
 
 def test_generator_rejects_duplicate_or_missing_native_buff_ids():
