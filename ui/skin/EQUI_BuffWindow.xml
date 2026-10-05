@@ -159,36 +159,36 @@
   <StaticAnimation item="BW_BuffBackground0">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>1</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>124</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Animation>Buff_BackgroundLong</Animation>
   </StaticAnimation>
   <StaticAnimation item="BW_BuffBackground1">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>126</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>124</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Animation>Buff_BackgroundLong</Animation>
   </StaticAnimation>
   <StaticAnimation item="BW_BuffBackground2">
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>251</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>124</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Animation>Buff_BackgroundLong</Animation>
   </StaticAnimation>
@@ -197,12 +197,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>7</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>1</Text>
     <TextColor>
@@ -220,12 +220,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>32</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>2</Text>
     <TextColor>
@@ -243,12 +243,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>57</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>3</Text>
     <TextColor>
@@ -266,12 +266,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>82</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>4</Text>
     <TextColor>
@@ -289,12 +289,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>107</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>5</Text>
     <TextColor>
@@ -312,12 +312,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>132</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>6</Text>
     <TextColor>
@@ -335,12 +335,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>157</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>7</Text>
     <TextColor>
@@ -358,12 +358,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>182</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>8</Text>
     <TextColor>
@@ -381,12 +381,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>207</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>9</Text>
     <TextColor>
@@ -404,12 +404,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>232</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>10</Text>
     <TextColor>
@@ -427,12 +427,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>257</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>11</Text>
     <TextColor>
@@ -450,12 +450,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>282</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>12</Text>
     <TextColor>
@@ -473,12 +473,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>307</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>13</Text>
     <TextColor>
@@ -496,12 +496,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>332</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>14</Text>
     <TextColor>
@@ -519,12 +519,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>357</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>15</Text>
     <TextColor>
@@ -542,12 +542,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>382</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>16</Text>
     <TextColor>
@@ -565,12 +565,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>407</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>17</Text>
     <TextColor>
@@ -588,12 +588,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>432</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>18</Text>
     <TextColor>
@@ -611,12 +611,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>457</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>19</Text>
     <TextColor>
@@ -634,12 +634,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>482</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>20</Text>
     <TextColor>
@@ -657,12 +657,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>507</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>21</Text>
     <TextColor>
@@ -680,12 +680,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>532</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>22</Text>
     <TextColor>
@@ -703,12 +703,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>557</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>23</Text>
     <TextColor>
@@ -726,12 +726,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>582</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>24</Text>
     <TextColor>
@@ -749,12 +749,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>607</Y>
+      <X>4</X>
+      <Y>20</Y>
     </Location>
     <Size>
-      <CX>24</CX>
-      <CY>12</CY>
+      <CX>0</CX>
+      <CY>0</CY>
     </Size>
     <Text>25</Text>
     <TextColor>
@@ -771,8 +771,8 @@
     <ScreenID>Buff0</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>1</Y>
+      <X>152</X>
+      <Y>4</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -801,8 +801,8 @@
     <ScreenID>Buff1</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>26</Y>
+      <X>328</X>
+      <Y>4</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -831,8 +831,8 @@
     <ScreenID>Buff2</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>51</Y>
+      <X>504</X>
+      <Y>4</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -861,8 +861,8 @@
     <ScreenID>Buff3</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>76</Y>
+      <X>680</X>
+      <Y>4</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -891,8 +891,8 @@
     <ScreenID>Buff4</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>101</Y>
+      <X>856</X>
+      <Y>4</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -921,8 +921,8 @@
     <ScreenID>Buff5</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>126</Y>
+      <X>152</X>
+      <Y>32</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -951,8 +951,8 @@
     <ScreenID>Buff6</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>151</Y>
+      <X>328</X>
+      <Y>32</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -981,8 +981,8 @@
     <ScreenID>Buff7</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>176</Y>
+      <X>504</X>
+      <Y>32</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1011,8 +1011,8 @@
     <ScreenID>Buff8</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>201</Y>
+      <X>680</X>
+      <Y>32</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1041,8 +1041,8 @@
     <ScreenID>Buff9</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>226</Y>
+      <X>856</X>
+      <Y>32</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1071,8 +1071,8 @@
     <ScreenID>Buff10</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>251</Y>
+      <X>152</X>
+      <Y>60</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1101,8 +1101,8 @@
     <ScreenID>Buff11</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>276</Y>
+      <X>328</X>
+      <Y>60</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1131,8 +1131,8 @@
     <ScreenID>Buff12</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>301</Y>
+      <X>504</X>
+      <Y>60</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1161,8 +1161,8 @@
     <ScreenID>Buff13</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>326</Y>
+      <X>680</X>
+      <Y>60</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1191,8 +1191,8 @@
     <ScreenID>Buff14</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>351</Y>
+      <X>856</X>
+      <Y>60</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1221,8 +1221,8 @@
     <ScreenID>Buff15</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>376</Y>
+      <X>152</X>
+      <Y>88</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1251,8 +1251,8 @@
     <ScreenID>Buff16</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>401</Y>
+      <X>328</X>
+      <Y>88</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1281,8 +1281,8 @@
     <ScreenID>Buff17</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>426</Y>
+      <X>504</X>
+      <Y>88</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1311,8 +1311,8 @@
     <ScreenID>Buff18</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>451</Y>
+      <X>680</X>
+      <Y>88</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1341,8 +1341,8 @@
     <ScreenID>Buff19</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>476</Y>
+      <X>856</X>
+      <Y>88</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1371,8 +1371,8 @@
     <ScreenID>Buff20</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>501</Y>
+      <X>152</X>
+      <Y>116</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1401,8 +1401,8 @@
     <ScreenID>Buff21</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>526</Y>
+      <X>328</X>
+      <Y>116</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1431,8 +1431,8 @@
     <ScreenID>Buff22</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>551</Y>
+      <X>504</X>
+      <Y>116</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1461,8 +1461,8 @@
     <ScreenID>Buff23</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>576</Y>
+      <X>680</X>
+      <Y>116</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1491,8 +1491,8 @@
     <ScreenID>Buff24</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>175</X>
-      <Y>601</Y>
+      <X>856</X>
+      <Y>116</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1523,8 +1523,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>6</Y>
+      <X>6</X>
+      <Y>10</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1546,8 +1546,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>31</X>
-      <Y>7</Y>
+      <X>7</X>
+      <Y>11</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1569,8 +1569,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>31</Y>
+      <X>182</X>
+      <Y>10</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1592,8 +1592,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>31</X>
-      <Y>32</Y>
+      <X>183</X>
+      <Y>11</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1615,8 +1615,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>56</Y>
+      <X>358</X>
+      <Y>10</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1638,8 +1638,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>31</X>
-      <Y>57</Y>
+      <X>359</X>
+      <Y>11</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1661,8 +1661,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>81</Y>
+      <X>534</X>
+      <Y>10</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1684,8 +1684,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>31</X>
-      <Y>82</Y>
+      <X>535</X>
+      <Y>11</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1707,8 +1707,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>106</Y>
+      <X>710</X>
+      <Y>10</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1730,8 +1730,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>31</X>
-      <Y>107</Y>
+      <X>711</X>
+      <Y>11</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1753,8 +1753,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>131</Y>
+      <X>6</X>
+      <Y>38</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1776,8 +1776,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>31</X>
-      <Y>132</Y>
+      <X>7</X>
+      <Y>39</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1799,8 +1799,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>156</Y>
+      <X>182</X>
+      <Y>38</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1822,8 +1822,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>31</X>
-      <Y>157</Y>
+      <X>183</X>
+      <Y>39</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1845,8 +1845,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>181</Y>
+      <X>358</X>
+      <Y>38</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1868,8 +1868,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>31</X>
-      <Y>182</Y>
+      <X>359</X>
+      <Y>39</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1891,8 +1891,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>206</Y>
+      <X>534</X>
+      <Y>38</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1914,8 +1914,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>31</X>
-      <Y>207</Y>
+      <X>535</X>
+      <Y>39</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1937,8 +1937,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>231</Y>
+      <X>710</X>
+      <Y>38</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1960,8 +1960,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>31</X>
-      <Y>232</Y>
+      <X>711</X>
+      <Y>39</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1983,8 +1983,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>256</Y>
+      <X>6</X>
+      <Y>66</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2006,8 +2006,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>31</X>
-      <Y>257</Y>
+      <X>7</X>
+      <Y>67</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2029,8 +2029,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>281</Y>
+      <X>182</X>
+      <Y>66</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2052,8 +2052,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>31</X>
-      <Y>282</Y>
+      <X>183</X>
+      <Y>67</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2075,8 +2075,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>306</Y>
+      <X>358</X>
+      <Y>66</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2098,8 +2098,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>31</X>
-      <Y>307</Y>
+      <X>359</X>
+      <Y>67</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2121,8 +2121,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>331</Y>
+      <X>534</X>
+      <Y>66</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2144,8 +2144,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>31</X>
-      <Y>332</Y>
+      <X>535</X>
+      <Y>67</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2167,8 +2167,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>356</Y>
+      <X>710</X>
+      <Y>66</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2190,8 +2190,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>31</X>
-      <Y>357</Y>
+      <X>711</X>
+      <Y>67</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2213,8 +2213,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>381</Y>
+      <X>6</X>
+      <Y>94</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2236,8 +2236,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>406</Y>
+      <X>182</X>
+      <Y>94</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2259,8 +2259,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>431</Y>
+      <X>358</X>
+      <Y>94</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2282,8 +2282,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>456</Y>
+      <X>534</X>
+      <Y>94</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2305,8 +2305,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>481</Y>
+      <X>710</X>
+      <Y>94</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2328,8 +2328,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>506</Y>
+      <X>6</X>
+      <Y>122</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2351,8 +2351,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>531</Y>
+      <X>182</X>
+      <Y>122</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2374,8 +2374,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>556</Y>
+      <X>358</X>
+      <Y>122</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2397,8 +2397,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>581</Y>
+      <X>534</X>
+      <Y>122</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2420,8 +2420,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>30</X>
-      <Y>606</Y>
+      <X>710</X>
+      <Y>122</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2438,25 +2438,25 @@
     <AlignRight>true</AlignRight>
   </Label>
   <Screen item="BuffWindow">
-    <Text>Effects (V)</Text>
+    <Text>Effects (H)</Text>
     <RelativePosition>false</RelativePosition>
     <Location>
       <X>415</X>
       <Y>395</Y>
     </Location>
     <Size>
-      <CX>200</CX>
-      <CY>375</CY>
+      <CX>896</CX>
+      <CY>168</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>true</Style_Transparent>
+    <Style_Transparent>false</Style_Transparent>
     <!--<TooltipReference/>-->
-    <DrawTemplate>WDT_RoundedNoTitle</DrawTemplate>
-    <Style_Titlebar>false</Style_Titlebar>
+    <DrawTemplate>WDT_Rounded</DrawTemplate>
+    <Style_Titlebar>true</Style_Titlebar>
     <Style_Closebox>false</Style_Closebox>
     <Style_Minimizebox>false</Style_Minimizebox>
-    <Style_Border>false</Style_Border>
+    <Style_Border>true</Style_Border>
     <Style_Sizable>false</Style_Sizable>
     <Pieces>BW_BuffBackground0</Pieces>
     <Pieces>BW_BuffBackground1</Pieces>
