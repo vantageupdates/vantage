@@ -483,11 +483,11 @@ class SkinWindow:
                      if self.allow_game_running else "Close EverQuest before preparation.")
         if not self._confirm(
                 "Prepare buff hotkeys",
-                "Install and verify 1.44.104 (V) — vertical and 1.44.105 (H) — horizontal.\n"
+                "Install and verify 1.44.104 (V) — vertical and 1.44.106 (H) — compact horizontal.\n"
                 "Both share the same UI; only buff layout and its version badge differ.\n"
-                "V uses one column; H uses a wide grid. Both show buff names beside icons.\n"
+                "V uses one column; H uses three columns. Both show buff names beside icons.\n"
                 "Existing skin files, character INIs and hotkeys will not be overwritten.\n"
-                "The updater will select 1.44.105; the game changes only when you load a skin.\n"
+                "The updater will select 1.44.106; the game changes only when you load a skin.\n"
                 "If interrupted, a completed skin remains installed; retry to finish the pair.\n\n" + live_copy):
             return
         self.automatic.set(False)
@@ -519,7 +519,7 @@ class SkinWindow:
         for row, (orientation, version) in enumerate(updater.BUFF_LAYOUT_VERSIONS.items(), 2):
             command = f"/loadskin {updater.folder_name(version)} 1"
             badge = "V" if orientation == "vertical" else "H"
-            detail = "One column · visible names" if badge == "V" else "Wide grid · visible names"
+            detail = "One column · visible names" if badge == "V" else "Compact 3-column grid · visible names"
             ttk.Label(frame, text=f"Buffs {orientation} — v{version} ({badge})\n{detail}\n{command}", style="Gold.TLabel").grid(
                 row=row, column=0, sticky="w", pady=8)
             def copy(value=command):

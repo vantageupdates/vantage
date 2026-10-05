@@ -39,7 +39,7 @@ def test_buff_buttons_have_explicit_preset_locations_and_native_bindings(filenam
         assert button.findtext('ScreenID') == f'Buff{i}'
         assert button.findtext('RelativePosition') == 'true'
         horizontal = prefix == 'BW' and screen.findtext('Text') == 'Effects (H)'
-        bounds = (152 + 176 * (i % 5), 4 + 28 * (i // 5), 24, 24) if horizontal else (175, 1 + 25 * i, 24, 24)
+        bounds = (152 + 176 * (i % 3), 4 + 28 * (i // 3), 24, 24) if horizontal else (175, 1 + 25 * i, 24, 24)
         assert tuple(int(button.findtext(p)) for p in
                      ('Location/X', 'Location/Y', 'Size/CX', 'Size/CY')) == bounds
         assert button.findtext('Style_Transparent') == 'true'
@@ -53,7 +53,7 @@ def test_buff_buttons_have_explicit_preset_locations_and_native_bindings(filenam
         label = item(root, 'Label', f'{prefix}_Buff{i}_Label')
         assert label.findtext('ScreenID') == f'Buff{i}Label'
         assert label.findtext('EQType') == str((500 if prefix == 'BW' else 600) + i)
-        assert label.findtext('Location/X') == (str(6 + 176 * (i % 5)) if horizontal else '30')
+        assert label.findtext('Location/X') == (str(6 + 176 * (i % 3)) if horizontal else '30')
         assert label.findtext('Size/CX') == '142'
         assert label.findtext('AlignRight') == label.findtext('NoWrap') == 'true'
         # Both presets keep name labels outside every native icon hit box.

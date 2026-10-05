@@ -30,9 +30,9 @@ PAYLOAD_ASSET = "VantageUI-payload.zip"
 RELEASES_API = f"https://api.github.com/repos/{REPOSITORY}/releases"
 # These immutable releases are the two native hotkey targets. Only verified,
 # registered installations qualify for retention; unknown folders are not adopted.
-BUFF_LAYOUT_VERSIONS = {"vertical": "1.44.104", "horizontal": "1.44.105"}
+BUFF_LAYOUT_VERSIONS = {"vertical": "1.44.104", "horizontal": "1.44.106"}
 # Preserve previously prepared pairs too; never enumerate or adopt unknown skins.
-BUFF_LAYOUT_RETAINED_VERSIONS = ("1.44.102", "1.44.103", *BUFF_LAYOUT_VERSIONS.values())
+BUFF_LAYOUT_RETAINED_VERSIONS = ("1.44.102", "1.44.103", "1.44.105", *BUFF_LAYOUT_VERSIONS.values())
 MAX_FILES = 2000
 MAX_FILE_BYTES = 32 * 1024 * 1024
 MAX_TOTAL_BYTES = 256 * 1024 * 1024
@@ -1241,8 +1241,10 @@ def prepare_buff_layouts(eq_dir, state_dir, log=print, allow_game_running=False,
                          progress=None):
     """Explicitly prepare two verified skins; never write socials or UI INIs.
 
-    This is two normal immutable installs, not an atomic pair. If the second
-    fails, the first remains usable and no hotkey-ready result is returned.
+    This prepares two immutable skins, not an atomic pair. An intermediate
+    older horizontal selection upgrades first, then prepares vertical through
+    the existing narrow exception and reselects horizontal. On interruption a
+    completed skin remains usable, but no hotkey-ready result is returned.
     """
     progress = _monotonic_progress(progress)
     _require_install_policy(allow_game_running)
@@ -1251,11 +1253,19 @@ def prepare_buff_layouts(eq_dir, state_dir, log=print, allow_game_running=False,
              tuple(map(int, BUFF_LAYOUT_VERSIONS["horizontal"].split("."))),
              "A newer UI is selected. Use its current updater to prepare buff layouts.")
     releases = [check_release_version(version) for version in BUFF_LAYOUT_VERSIONS.values()]
+    # A user coming from the old horizontal 105 cannot select 104 first:
+    # the only allowed preparation downgrade is 104 from verified 106.
+    # Upgrade to 106, prepare 104 through that existing narrow exception,
+    # then reselect 106. Ordinary downgrades stay forbidden.
+    vertical_version = tuple(map(int, BUFF_LAYOUT_VERSIONS["vertical"].split(".")))
+    horizontal_version = tuple(map(int, BUFF_LAYOUT_VERSIONS["horizontal"].split(".")))
+    if current and vertical_version < tuple(map(int, current.split("."))) < horizontal_version:
+        releases = [releases[1], releases[0], releases[1]]
     warnings = []
     result = None
     for index, release in enumerate(releases):
         mapped = None if progress is None else lambda stage, percent, received, total, i=index: (
-            _emit_progress(progress, stage, i * 50 + percent // 2, received, total))
+            _emit_progress(progress, stage, (i * 100 + percent) // len(releases), received, total))
         result = install_release(release, eq_dir, state_dir, log=log,
                                  allow_game_running=allow_game_running,
                                  progress=mapped, prepare_buff_preset=True)

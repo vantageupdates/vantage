@@ -15,6 +15,13 @@ SKIN = ROOT / "ui" / "skin"
 # Full normalized XML before the horizontal change, independently measured
 # from git show 5544920:ui/skin/EQUI_BuffWindow.xml. Tests need no Git checkout.
 VERTICAL_TREE = "68ba13683016126d3eb9e6e81a877e4791140ac7799966ca758ba0c9bf039e74"
+# Only these inherited SIDL fields are new geometry inputs. Keep this allowlist
+# independent of the generator so it cannot silently permit new native fields.
+GEOMETRY_ANCHORS = (
+    "AutoStretch", "TopAnchorToTop", "LeftAnchorToLeft", "BottomAnchorToTop",
+    "RightAnchorToLeft", "TopAnchorOffset", "BottomAnchorOffset",
+    "LeftAnchorOffset", "RightAnchorOffset",
+)
 PROTECTED_FILES = {
     "Buff_Background.tga": "c838ed81f5189f6b6d86e4e0b860875c366e971ab4a0fd81ba502ede5f7c6214",
     "wnd_bg_modern.png": "9a8a5ed13da0261c0569b4cb43de5f1bf5ef9fc9a478f3c24b3804ca2eb9b4e4",
@@ -37,6 +44,21 @@ def item(root, kind, name):
 def rect(node):
     return tuple(int(node.findtext(path)) for path in
                  ("Location/X", "Location/Y", "Size/CX", "Size/CY"))
+
+
+def anchored_rect(node):
+    """Resolve this explicit top/left SIDL model, not the game renderer."""
+    for field in GEOMETRY_ANCHORS[:5]:
+        assert len(node.findall(field)) == 1, field
+        assert node.findtext(field) == "true", field
+    offsets = []
+    for field in ("LeftAnchorOffset", "TopAnchorOffset", "RightAnchorOffset",
+                  "BottomAnchorOffset"):
+        assert len(node.findall(field)) == 1, field
+        offsets.append(int(node.findtext(field)))
+    left, top, right, bottom = offsets
+    assert right > left and bottom > top
+    return left, top, right - left, bottom - top
 
 
 def signature(node):
@@ -82,7 +104,7 @@ def native_contract(root):
     contract = ET.Element("NativeBuffContract", {
         "source": "5544920", "file": "ui/skin/EQUI_BuffWindow.xml"})
     allowed_fields = {
-        "Button": ("Location",),
+        "Button": ("Location",) + GEOMETRY_ANCHORS,
         "Label": ("Location", "Size"),
         "Screen": ("Location", "Size", "Style_Transparent", "DrawTemplate",
                    "Style_Titlebar", "Style_Border"),
@@ -106,6 +128,9 @@ def restore_vertical_geometry(root):
         button = item(root, "Button", f"BW_Buff{index}_Button")
         button.find("Location/X").text = "175"
         button.find("Location/Y").text = str(1 + 25 * index)
+        for field in GEOMETRY_ANCHORS:
+            for node in button.findall(field):
+                button.remove(node)
         number = item(root, "Label", f"BW_Number{index}Label")
         for field, value in zip(("Location/X", "Location/Y", "Size/CX", "Size/CY"),
                                 (175, 7 + 25 * index, 24, 12)):
@@ -151,7 +176,7 @@ def test_native_bindings_match_the_frozen_ui102_xml_reference():
     assert signature(native_contract(xml())) == signature(reference)
 
 
-def test_all_twenty_five_native_buttons_and_names_fit_a_nonoverlapping_horizontal_grid():
+def test_fifteen_p99_slots_fit_the_compact_grid_without_removing_native_controls():
     root = xml()
     screen = item(root, "Screen", "BuffWindow")
     pieces = [node.text for node in screen.findall("Pieces")]
@@ -159,15 +184,16 @@ def test_all_twenty_five_native_buttons_and_names_fit_a_nonoverlapping_horizonta
     expected_ids = [f"Buff{index}" for index in range(25)]
     assert [node.findtext("ScreenID") for node in buttons] == expected_ids
     assert len(set(expected_ids)) == len(buttons)
-    assert rect(screen) == (415, 395, 896, 168)
+    assert rect(screen) == (415, 395, 544, 168)
     client_sizes = native_client_sizes(screen)
-    assert client_sizes == {"declared": (888, 146), "conservative": (888, 144)}
+    assert client_sizes == {"declared": (536, 146), "conservative": (536, 144)}
     occupied = []
     for index, button in enumerate(buttons):
         assert button.attrib["item"] == f"BW_Buff{index}_Button"
         x, y, width, height = rect(button)
-        column, row = index % 5, index // 5
+        column, row = index % 3, index // 3
         assert (x, y, width, height) == (152 + 176 * column, 4 + 28 * row, 24, 24)
+        assert anchored_rect(button) == rect(button)
         name = item(root, "Label", f"BW_Buff{index}_Label")
         name_bounds = (6 + 176 * column, 10 + 28 * row, 142, 12)
         assert rect(name) == name_bounds
@@ -182,21 +208,75 @@ def test_all_twenty_five_native_buttons_and_names_fit_a_nonoverlapping_horizonta
             assert shadow.findtext("EQType") == str(500 + index)
         for client_width, client_height in client_sizes.values():
             assert 4 <= x and x + width <= client_width - 4
-            assert 4 <= y and y + height <= client_height - 4
+            if index < 15:
+                assert 4 <= y and y + height <= client_height - 4
+            else:
+                # No new native capacity: retain the other Titanium controls
+                # below the P99 pane, exactly as the old V preset did.
+                assert y >= client_height - 2
+                assert name_bounds[1] >= client_height
         assert pieces.count(button.attrib["item"]) == 1
         assert button.findtext("ButtonDrawTemplate/NormalDecal") == "BuffIcons"
         assert tuple(int(button.findtext(field)) for field in
                      ("DecalOffset/X", "DecalOffset/Y", "DecalSize/CX", "DecalSize/CY")) == (2, 2, 20, 20)
-    # P99 commonly supplies 15 active buffs, but no 15-control capacity rule
-    # is encoded in the XML: the client still owns all 25 existing controls.
-    assert rect(buttons[14])[1] == 60
+    assert rect(buttons[14])[1] == 116
+    assert len(buttons) == 25
     for index, (x, y, width, height) in enumerate(occupied):
         for client_width, client_height in client_sizes.values():
             assert 4 <= x and x + width <= client_width - 4
-            assert 4 <= y and y + height <= client_height - 4
+            if index < 30:
+                assert 4 <= y and y + height <= client_height - 4
         for other_x, other_y, other_width, other_height in occupied[index + 1:]:
             assert (x + width <= other_x or other_x + other_width <= x or
                     y + height <= other_y or other_y + other_height <= y)
+
+
+def test_explicit_button_anchors_keep_names_associated_after_native_location_reset():
+    root = xml()
+    screen = item(root, "Screen", "BuffWindow")
+    client_width, _ = native_client_sizes(screen)["conservative"]
+    for index, button in enumerate(root.findall("Button")):
+        column, row = index % 3, index // 3
+        expected = (152 + 176 * column, 4 + 28 * row, 24, 24)
+        # The supplied screenshot has the native icons stacked at the right
+        # while names retain their static layout. Model a native Location reset
+        # and require the separate anchor fields to retain our intended grid.
+        button.find("Location/X").text = str(client_width - 24)
+        button.find("Location/Y").text = str(4 + 25 * index)
+        assert anchored_rect(button) == expected
+        name = item(root, "Label", f"BW_Buff{index}_Label")
+        nx, ny, nw, nh = rect(name)
+        bx, by, bw, bh = anchored_rect(button)
+        assert nx + nw + 4 == bx
+        assert ny - by == 6 and nh == 12 and (bw, bh) == (24, 24)
+
+
+@pytest.mark.parametrize("field", GEOMETRY_ANCHORS)
+def test_anchor_contract_rejects_missing_fields_even_when_locations_are_correct(field):
+    button = item(xml(), "Button", "BW_Buff0_Button")
+    assert rect(button) == (152, 4, 24, 24)
+    button.remove(button.find(field))
+    with pytest.raises(AssertionError):
+        anchored_rect(button)
+
+
+@pytest.mark.parametrize("field", GEOMETRY_ANCHORS[:5])
+def test_anchor_contract_rejects_disabled_or_opposite_anchors_with_correct_locations(field):
+    button = item(xml(), "Button", "BW_Buff0_Button")
+    button.find(field).text = "false"
+    assert rect(button) == (152, 4, 24, 24)
+    with pytest.raises(AssertionError):
+        anchored_rect(button)
+
+
+def test_anchor_fields_are_inherited_native_sidl_elements():
+    sidl = ET.parse(SKIN / "SIDL.xml").getroot()
+    namespace = "{EverQuestData}"
+    inherited = {node.attrib.get("name"): node.attrib.get("type")
+                 for node in sidl.findall(f".//{namespace}ElementType[@name='ScreenPiece']/{namespace}element")}
+    assert {field: inherited[field] for field in GEOMETRY_ANCHORS} == {
+        field: ("boolean" if field in GEOMETRY_ANCHORS[:5] else "int")
+        for field in GEOMETRY_ANCHORS}
 
 
 def test_dark_native_titlebar_is_clear_of_icon_controls():
@@ -255,6 +335,13 @@ def test_generator_is_idempotent_and_preserves_comments_and_native_fields():
     assert module.vertical_preset(vertical_source) == vertical_source
     assert module.horizontal_preset(vertical_source) == source
     assert module.vertical_preset(source) == vertical_source
+    crlf_source = original.replace("\r\n", "\n").replace("\n", "\r\n")
+    for layout in ("vertical", "horizontal"):
+        crlf_result = getattr(module, layout + "_preset")(crlf_source)
+        assert crlf_result.count("\n") == crlf_result.count("\r\n")
+        assert getattr(module, layout + "_preset")(crlf_result) == crlf_result
+    for button in ET.fromstring(vertical_source).findall("Button"):
+        assert all(button.find(field) is None for field in GEOMETRY_ANCHORS)
     vertical = restore_vertical_geometry(xml())
     restored_source = ET.tostring(vertical, encoding="unicode")
     generated = module.horizontal_preset(restored_source)
@@ -266,7 +353,7 @@ def test_generator_is_idempotent_and_preserves_comments_and_native_fields():
 
 def test_exported_preset_matches_its_explicit_release_orientation():
     release = json.loads((ROOT / "ui/release.json").read_text())
-    expected = {"1.44.104": "vertical", "1.44.105": "horizontal"}
+    expected = {"1.44.104": "vertical", "1.44.105": "horizontal", "1.44.106": "horizontal"}
     assert release["buff_layout"] == expected[release["version"]]
     source = (SKIN / "EQUI_BuffWindow.xml").read_bytes().decode("ascii")
     assert getattr(generator(), release["buff_layout"] + "_preset")(source) == source
@@ -283,6 +370,34 @@ def test_generator_rejects_duplicate_or_missing_native_buff_ids():
     source = (SKIN / "EQUI_BuffWindow.xml").read_bytes().decode("ascii")
     with pytest.raises(ValueError, match="original Buff0 through Buff24"):
         module.horizontal_preset(source.replace("<ScreenID>Buff24</ScreenID>", "<ScreenID>Buff0</ScreenID>"))
+
+
+@pytest.mark.parametrize("layout", ("vertical", "horizontal"))
+@pytest.mark.parametrize("field", GEOMETRY_ANCHORS)
+def test_generator_rejects_duplicate_geometry_anchor_fields(layout, field):
+    module = generator()
+    source = module.horizontal_preset((SKIN / "EQUI_BuffWindow.xml").read_bytes().decode("ascii"))
+    first_button = item(ET.fromstring(source), "Button", "BW_Buff0_Button")
+    value = first_button.findtext(field)
+    source = source.replace(f"<{field}>{value}</{field}>",
+                            f"<{field}>{value}</{field}>\r\n    <{field}>{value}</{field}>", 1)
+    with pytest.raises(ValueError, match=f"at most one {field}"):
+        getattr(module, layout + "_preset")(source)
+
+
+@pytest.mark.parametrize("layout", ("vertical", "horizontal"))
+def test_generator_rejects_duplicate_coordinate_fields(layout):
+    module = generator()
+    source = (SKIN / "EQUI_BuffWindow.xml").read_bytes().decode("ascii")
+    source = source.replace("<X>152</X>", "<X>152</X><X>999</X>", 1)
+    with pytest.raises(ValueError, match="Expected one X, found 2"):
+        getattr(module, layout + "_preset")(source)
+
+
+def test_frozen_contract_does_not_erase_other_native_layout_fields():
+    root = xml()
+    ET.SubElement(item(root, "Button", "BW_Buff0_Button"), "LayoutBox").text = "Unreviewed"
+    assert tree_digest(restore_vertical_geometry(root)) != VERTICAL_TREE
 
 
 def test_frozen_contract_detects_native_binding_changes():

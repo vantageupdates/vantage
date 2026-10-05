@@ -778,6 +778,15 @@
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>4</TopAnchorOffset>
+    <BottomAnchorOffset>28</BottomAnchorOffset>
+    <LeftAnchorOffset>152</LeftAnchorOffset>
+    <RightAnchorOffset>176</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -808,6 +817,15 @@
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>4</TopAnchorOffset>
+    <BottomAnchorOffset>28</BottomAnchorOffset>
+    <LeftAnchorOffset>328</LeftAnchorOffset>
+    <RightAnchorOffset>352</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -838,6 +856,15 @@
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>4</TopAnchorOffset>
+    <BottomAnchorOffset>28</BottomAnchorOffset>
+    <LeftAnchorOffset>504</LeftAnchorOffset>
+    <RightAnchorOffset>528</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -861,13 +888,22 @@
     <ScreenID>Buff3</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>680</X>
-      <Y>4</Y>
+      <X>152</X>
+      <Y>32</Y>
     </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>32</TopAnchorOffset>
+    <BottomAnchorOffset>56</BottomAnchorOffset>
+    <LeftAnchorOffset>152</LeftAnchorOffset>
+    <RightAnchorOffset>176</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -891,13 +927,22 @@
     <ScreenID>Buff4</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>856</X>
-      <Y>4</Y>
+      <X>328</X>
+      <Y>32</Y>
     </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>32</TopAnchorOffset>
+    <BottomAnchorOffset>56</BottomAnchorOffset>
+    <LeftAnchorOffset>328</LeftAnchorOffset>
+    <RightAnchorOffset>352</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -921,13 +966,22 @@
     <ScreenID>Buff5</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>152</X>
+      <X>504</X>
       <Y>32</Y>
     </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>32</TopAnchorOffset>
+    <BottomAnchorOffset>56</BottomAnchorOffset>
+    <LeftAnchorOffset>504</LeftAnchorOffset>
+    <RightAnchorOffset>528</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -951,13 +1005,22 @@
     <ScreenID>Buff6</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>328</X>
-      <Y>32</Y>
+      <X>152</X>
+      <Y>60</Y>
     </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>60</TopAnchorOffset>
+    <BottomAnchorOffset>84</BottomAnchorOffset>
+    <LeftAnchorOffset>152</LeftAnchorOffset>
+    <RightAnchorOffset>176</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -981,13 +1044,22 @@
     <ScreenID>Buff7</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>504</X>
-      <Y>32</Y>
+      <X>328</X>
+      <Y>60</Y>
     </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>60</TopAnchorOffset>
+    <BottomAnchorOffset>84</BottomAnchorOffset>
+    <LeftAnchorOffset>328</LeftAnchorOffset>
+    <RightAnchorOffset>352</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1011,13 +1083,22 @@
     <ScreenID>Buff8</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>680</X>
-      <Y>32</Y>
+      <X>504</X>
+      <Y>60</Y>
     </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>60</TopAnchorOffset>
+    <BottomAnchorOffset>84</BottomAnchorOffset>
+    <LeftAnchorOffset>504</LeftAnchorOffset>
+    <RightAnchorOffset>528</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1041,13 +1122,22 @@
     <ScreenID>Buff9</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>856</X>
-      <Y>32</Y>
+      <X>152</X>
+      <Y>88</Y>
     </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>88</TopAnchorOffset>
+    <BottomAnchorOffset>112</BottomAnchorOffset>
+    <LeftAnchorOffset>152</LeftAnchorOffset>
+    <RightAnchorOffset>176</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1071,13 +1161,22 @@
     <ScreenID>Buff10</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>152</X>
-      <Y>60</Y>
+      <X>328</X>
+      <Y>88</Y>
     </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>88</TopAnchorOffset>
+    <BottomAnchorOffset>112</BottomAnchorOffset>
+    <LeftAnchorOffset>328</LeftAnchorOffset>
+    <RightAnchorOffset>352</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1101,13 +1200,22 @@
     <ScreenID>Buff11</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>328</X>
-      <Y>60</Y>
+      <X>504</X>
+      <Y>88</Y>
     </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>88</TopAnchorOffset>
+    <BottomAnchorOffset>112</BottomAnchorOffset>
+    <LeftAnchorOffset>504</LeftAnchorOffset>
+    <RightAnchorOffset>528</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1131,13 +1239,22 @@
     <ScreenID>Buff12</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>504</X>
-      <Y>60</Y>
+      <X>152</X>
+      <Y>116</Y>
     </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>116</TopAnchorOffset>
+    <BottomAnchorOffset>140</BottomAnchorOffset>
+    <LeftAnchorOffset>152</LeftAnchorOffset>
+    <RightAnchorOffset>176</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1161,13 +1278,22 @@
     <ScreenID>Buff13</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>680</X>
-      <Y>60</Y>
+      <X>328</X>
+      <Y>116</Y>
     </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>116</TopAnchorOffset>
+    <BottomAnchorOffset>140</BottomAnchorOffset>
+    <LeftAnchorOffset>328</LeftAnchorOffset>
+    <RightAnchorOffset>352</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1191,13 +1317,22 @@
     <ScreenID>Buff14</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>856</X>
-      <Y>60</Y>
+      <X>504</X>
+      <Y>116</Y>
     </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>116</TopAnchorOffset>
+    <BottomAnchorOffset>140</BottomAnchorOffset>
+    <LeftAnchorOffset>504</LeftAnchorOffset>
+    <RightAnchorOffset>528</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1222,12 +1357,21 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>152</X>
-      <Y>88</Y>
+      <Y>144</Y>
     </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>144</TopAnchorOffset>
+    <BottomAnchorOffset>168</BottomAnchorOffset>
+    <LeftAnchorOffset>152</LeftAnchorOffset>
+    <RightAnchorOffset>176</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1252,12 +1396,21 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>328</X>
-      <Y>88</Y>
+      <Y>144</Y>
     </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>144</TopAnchorOffset>
+    <BottomAnchorOffset>168</BottomAnchorOffset>
+    <LeftAnchorOffset>328</LeftAnchorOffset>
+    <RightAnchorOffset>352</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1282,12 +1435,21 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>504</X>
-      <Y>88</Y>
+      <Y>144</Y>
     </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>144</TopAnchorOffset>
+    <BottomAnchorOffset>168</BottomAnchorOffset>
+    <LeftAnchorOffset>504</LeftAnchorOffset>
+    <RightAnchorOffset>528</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1311,13 +1473,22 @@
     <ScreenID>Buff18</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>680</X>
-      <Y>88</Y>
+      <X>152</X>
+      <Y>172</Y>
     </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>172</TopAnchorOffset>
+    <BottomAnchorOffset>196</BottomAnchorOffset>
+    <LeftAnchorOffset>152</LeftAnchorOffset>
+    <RightAnchorOffset>176</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1341,13 +1512,22 @@
     <ScreenID>Buff19</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>856</X>
-      <Y>88</Y>
+      <X>328</X>
+      <Y>172</Y>
     </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>172</TopAnchorOffset>
+    <BottomAnchorOffset>196</BottomAnchorOffset>
+    <LeftAnchorOffset>328</LeftAnchorOffset>
+    <RightAnchorOffset>352</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1371,13 +1551,22 @@
     <ScreenID>Buff20</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>152</X>
-      <Y>116</Y>
+      <X>504</X>
+      <Y>172</Y>
     </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>172</TopAnchorOffset>
+    <BottomAnchorOffset>196</BottomAnchorOffset>
+    <LeftAnchorOffset>504</LeftAnchorOffset>
+    <RightAnchorOffset>528</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1401,13 +1590,22 @@
     <ScreenID>Buff21</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>328</X>
-      <Y>116</Y>
+      <X>152</X>
+      <Y>200</Y>
     </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>200</TopAnchorOffset>
+    <BottomAnchorOffset>224</BottomAnchorOffset>
+    <LeftAnchorOffset>152</LeftAnchorOffset>
+    <RightAnchorOffset>176</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1431,13 +1629,22 @@
     <ScreenID>Buff22</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>504</X>
-      <Y>116</Y>
+      <X>328</X>
+      <Y>200</Y>
     </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>200</TopAnchorOffset>
+    <BottomAnchorOffset>224</BottomAnchorOffset>
+    <LeftAnchorOffset>328</LeftAnchorOffset>
+    <RightAnchorOffset>352</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1461,13 +1668,22 @@
     <ScreenID>Buff23</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>680</X>
-      <Y>116</Y>
+      <X>504</X>
+      <Y>200</Y>
     </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>200</TopAnchorOffset>
+    <BottomAnchorOffset>224</BottomAnchorOffset>
+    <LeftAnchorOffset>504</LeftAnchorOffset>
+    <RightAnchorOffset>528</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1491,13 +1707,22 @@
     <ScreenID>Buff24</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>856</X>
-      <Y>116</Y>
+      <X>152</X>
+      <Y>228</Y>
     </Location>
     <Size>
       <CX>24</CX>
       <CY>24</CY>
     </Size>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <BottomAnchorToTop>true</BottomAnchorToTop>
+    <RightAnchorToLeft>true</RightAnchorToLeft>
+    <TopAnchorOffset>228</TopAnchorOffset>
+    <BottomAnchorOffset>252</BottomAnchorOffset>
+    <LeftAnchorOffset>152</LeftAnchorOffset>
+    <RightAnchorOffset>176</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1661,8 +1886,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>534</X>
-      <Y>10</Y>
+      <X>6</X>
+      <Y>38</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1684,8 +1909,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>535</X>
-      <Y>11</Y>
+      <X>7</X>
+      <Y>39</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1707,8 +1932,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>710</X>
-      <Y>10</Y>
+      <X>182</X>
+      <Y>38</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1730,8 +1955,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>711</X>
-      <Y>11</Y>
+      <X>183</X>
+      <Y>39</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1753,7 +1978,7 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>6</X>
+      <X>358</X>
       <Y>38</Y>
     </Location>
     <Size>
@@ -1776,7 +2001,7 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>7</X>
+      <X>359</X>
       <Y>39</Y>
     </Location>
     <Size>
@@ -1799,8 +2024,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>182</X>
-      <Y>38</Y>
+      <X>6</X>
+      <Y>66</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1822,8 +2047,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>183</X>
-      <Y>39</Y>
+      <X>7</X>
+      <Y>67</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1845,8 +2070,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>358</X>
-      <Y>38</Y>
+      <X>182</X>
+      <Y>66</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1868,8 +2093,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>359</X>
-      <Y>39</Y>
+      <X>183</X>
+      <Y>67</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1891,8 +2116,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>534</X>
-      <Y>38</Y>
+      <X>358</X>
+      <Y>66</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1914,8 +2139,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>535</X>
-      <Y>39</Y>
+      <X>359</X>
+      <Y>67</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1937,8 +2162,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>710</X>
-      <Y>38</Y>
+      <X>6</X>
+      <Y>94</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1960,8 +2185,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>711</X>
-      <Y>39</Y>
+      <X>7</X>
+      <Y>95</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -1983,8 +2208,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>6</X>
-      <Y>66</Y>
+      <X>182</X>
+      <Y>94</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2006,8 +2231,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>7</X>
-      <Y>67</Y>
+      <X>183</X>
+      <Y>95</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2029,8 +2254,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>182</X>
-      <Y>66</Y>
+      <X>358</X>
+      <Y>94</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2052,8 +2277,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>183</X>
-      <Y>67</Y>
+      <X>359</X>
+      <Y>95</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2075,8 +2300,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>358</X>
-      <Y>66</Y>
+      <X>6</X>
+      <Y>122</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2098,8 +2323,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>359</X>
-      <Y>67</Y>
+      <X>7</X>
+      <Y>123</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2121,8 +2346,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>534</X>
-      <Y>66</Y>
+      <X>182</X>
+      <Y>122</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2144,8 +2369,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>535</X>
-      <Y>67</Y>
+      <X>183</X>
+      <Y>123</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2167,8 +2392,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>710</X>
-      <Y>66</Y>
+      <X>358</X>
+      <Y>122</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2190,8 +2415,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>711</X>
-      <Y>67</Y>
+      <X>359</X>
+      <Y>123</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2214,7 +2439,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>6</X>
-      <Y>94</Y>
+      <Y>150</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2237,7 +2462,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>182</X>
-      <Y>94</Y>
+      <Y>150</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2260,7 +2485,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>358</X>
-      <Y>94</Y>
+      <Y>150</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2282,8 +2507,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>534</X>
-      <Y>94</Y>
+      <X>6</X>
+      <Y>178</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2305,8 +2530,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>710</X>
-      <Y>94</Y>
+      <X>182</X>
+      <Y>178</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2328,8 +2553,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>6</X>
-      <Y>122</Y>
+      <X>358</X>
+      <Y>178</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2351,8 +2576,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>182</X>
-      <Y>122</Y>
+      <X>6</X>
+      <Y>206</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2374,8 +2599,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>358</X>
-      <Y>122</Y>
+      <X>182</X>
+      <Y>206</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2397,8 +2622,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>534</X>
-      <Y>122</Y>
+      <X>358</X>
+      <Y>206</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2420,8 +2645,8 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>710</X>
-      <Y>122</Y>
+      <X>6</X>
+      <Y>234</Y>
     </Location>
     <Size>
       <CX>142</CX>
@@ -2445,7 +2670,7 @@
       <Y>395</Y>
     </Location>
     <Size>
-      <CX>896</CX>
+      <CX>544</CX>
       <CY>168</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>

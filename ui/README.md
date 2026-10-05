@@ -52,18 +52,28 @@ engine-level resolution upgrade or a claim of in-game verification.
 
 ## Buffs: vertical and horizontal hotkeys
 
-The matched presets are **1.44.104 (V)** and **1.44.105 (H)**. They share the
+The matched presets are **1.44.104 (V)** and **1.44.106 (H)**. They share the
 same UI features and artwork; only the buff layout and its identifying badge
 differ. `(V)` means vertical: the familiar narrow column. `(H)` means horizontal:
-a wide five-column grid with names immediately left of each icon. Both retain
+a compact three-column grid with names immediately left of each icon. Both retain
 the same 142px name lane and native font/alignment; names stay visible without
 hovering, with native tooltips still available. The version below the group logo
-identifies the loaded preset. Published 102/103 folders remain unchanged.
+identifies the loaded preset. Published 102/103/105 folders remain unchanged.
 
-The horizontal grid is 896×168 outer pixels with a native dark frame/titlebar
-for dragging. It retains all 25 original XML controls, with the first 15 spanning
-three rows. Its fixed five-row reserve can leave two empty rows beneath them;
-it does not add buff capacity to P99. Long names have the same
+The horizontal grid is 544×168 outer pixels with a native dark frame/titlebar
+for dragging. The user's actual 105 screenshot showed that the client ignored
+the icons' static `Location` positions while leaving names in their source grid:
+icons stacked at the far right of an unnecessarily wide frame. The 106 correction
+uses the inherited SIDL `AutoStretch` and explicit top/left anchor offsets for
+each icon, a technique described by [P99 UI authors](https://project1999.com/forums/showthread.php?t=327046).
+Source regression checks require those anchors even if static locations look
+correct; they do not emulate or certify the game renderer.
+
+It retains all 25 original XML controls and bindings. The first 15 occupy five
+rows inside the compact panel, matching the P99 capacity assumption; the other
+ten definitions remain below the visible panel, as in the vertical preset.
+The window does not shrink according to the number of active effects and does
+not add buff capacity to P99. Long names have the same
 single-line clipping limits as vertical. This is fixed geometry, not automatic
 orientation, scaling or responsive wrapping.
 
@@ -71,15 +81,18 @@ In either new standalone **VantageUI-Updater**, choose **Buff hotkeys…** and
 confirm preparation. Both releases are fetched by exact stable tags and their
 assets/files verified before they are presented as ready. Existing edited or
 unmanaged folders are preserved and refused, not repaired or silently adopted.
-If the second installation fails, a completed first skin remains available;
+If preparation fails partway through, a completed skin remains available;
 retry preparation instead of loading a partially prepared folder.
+When 105 is selected, preparation first upgrades to 106, then prepares 104 using
+the narrowly verified preset downgrade exception, and reselects 106. This keeps
+the ordinary downgrade guard intact and preserves the registered 105 folder.
 
 Create two social hotkeys in P99, with one command on their first line:
 
 | Social name | First-line command |
 | --- | --- |
 | Buffs vertical (V) | `/loadskin VantageUI-v1.44.104 1` |
-| Buffs horizontal (H) | `/loadskin VantageUI-v1.44.105 1` |
+| Buffs horizontal (H) | `/loadskin VantageUI-v1.44.106 1` |
 
 Drag both socials to your existing hotbar. Each switches the entire skin with
 settings preserved; it is not an instant toggle inside BuffWindow. The updater
@@ -90,10 +103,10 @@ report a screenshot rather than using a settings-resetting reload to fix one win
 Check actual icon placement, tooltips, dragging and right-click cancellation
 inside P99. Source bounds and tests are not native rendering verification.
 
-This updater retains registered 102/103 and 104/105 preset folders. Older Companion/updater
+This updater retains registered 102/103/105 and 104/106 preset folders. Older Companion/updater
 builds use their own active/previous-only cleanup policy; they may retire older
 presets after future UI releases. Use the current updater to prepare a matching
-pair; these updaters refuse pair preparation when a UI newer than 105 is selected.
+pair; this updater refuses pair preparation when a UI newer than 106 is selected.
 
 The 1.44.101 definition pass gives all buff buttons explicit positions in the
 numbered icon column and removes opaque inactive backplates, targeting the
@@ -193,7 +206,8 @@ version or tag. A UI-only release does not increment Companion and does not buil
 or publish `Vantage.exe`. After focused and complete tests, coordinate publication
 of the updater and both transport assets on a reviewed
 `vantage-ui-v<major.minor.patch>` tag in `vantageupdates/vantage`. For this
-candidates the tags are `vantage-ui-v1.44.104` and `vantage-ui-v1.44.105`. Verify public asset sizes and
+candidate the new tag is `vantage-ui-v1.44.106`; the existing vertical 104 release
+is reused without replacement. Verify public asset sizes and
 SHA-256 digests against the tested artifacts. An arbitrary source push must not
 automatically publish an unreviewed UI update. The repository
 [release policy](../AGENTS.md) records the separation between Companion and UI
@@ -253,7 +267,7 @@ untouched.
 
 The updater retains the active managed version and its immediate previous
 selection; both are retained even when edited. This updater additionally retains
-registered native buff presets 1.44.102/103 and 1.44.104/105, never by scanning or adopting
+registered native buff presets 1.44.102/103/105 and 1.44.104/106, never by scanning or adopting
 arbitrary skin folders. Older updater builds do not have these preset pins. “Active”
 means the updater's selection; it does not mean EverQuest has loaded that folder.
 Only older registered cleanup candidates whose complete contents still match
