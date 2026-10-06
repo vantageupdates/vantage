@@ -91,5 +91,19 @@ Native tests do not certify physical speech quality or live in-game behavior.
 No installed executable, game process, UI skin, character INI, game permission,
 or independent VantageUI release was changed.
 
-Public release verification will be appended after publication; the tested
-candidate and source remain immutable.
+## Public release verification
+
+[Companion 1.44.127](https://github.com/vantageupdates/vantage/releases/tag/v1.44.127)
+was published on **2026-10-06 at 22:50:01 UTC** and verified as stable,
+non-draft, non-prerelease **Companion Latest**. The new annotated tag resolves
+to tested source commit `22784d2832c40d04200b047428f5a5d5c7d9a022`.
+Main and that tag were pushed atomically without force or version reuse.
+
+Its single public asset is **Vantage.exe**, **75,942,960 bytes**. GitHub's
+public digest is
+`sha256:118218f66349b6d7aa0a4a3ad12b93b9065a071ab0e551f758f76feb6f5f7a94`,
+matching the built/self-tested candidate exactly. The source tag and executable
+remain immutable; this verification addition is documentation only.
+Install through Vantage's normal updater. Publication did not replace the
+user's local executable or change EverQuest, its files/permissions, or the
+independent VantageUI release.
