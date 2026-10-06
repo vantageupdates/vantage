@@ -11,6 +11,8 @@ Aplicación comunitaria gratuita, nativa, ligera y de un solo ejecutable para Wi
 
 ## Funciones principales
 
+- **Keyword triggers**: new rules default to **Contains text**, matching any literal word or phrase anywhere in a log line, regardless of capitalization. Saved rules retain their previous full-line behavior; change **Text match** explicitly to broaden one. Native packs/codes preserve the choice. See the [keyword matching guide](docs/trigger-keywords-1.44.127.md).
+
 - Splash compacto y responsivo con progreso real mientras carga el núcleo: ajusta texto, estado y máscara redondeada al escalado de Windows y fuentes grandes sin recortar contenido. Settings, Mobile, Spell Library y sus dependencias pesadas se crean sólo al abrirlas; las actualizaciones de red empiezan después de que la bandeja y los paneles están listos.
 - Un aviso versionado de **Terms & Privacy** se presenta una sola vez antes de iniciar servicios cuando la versión material cambia. Requiere confirmación explícita, guarda sólo la aceptación local y permite salir sin iniciar Vantage.
 - Ventanas sin marco, redimensionables, always-on-top, opacidad de 25–100 %, click-through opcional en overlays y acceso desde la bandeja del sistema. Mercado permanece siempre interactivo para que búsqueda y filtros reciban teclado.

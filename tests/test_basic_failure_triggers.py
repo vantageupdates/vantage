@@ -34,7 +34,8 @@ def test_basic_spell_failures_are_exact_anchored_editable_routes():
         assert trigger.audio_delivery("basic") == "sound"
         assert trigger.tts_text == trigger.alert_text
         assert trigger.match_cooldown_seconds == 1.0
-        assert len(trigger.to_list()) == 49
+        assert len(trigger.to_list()) == 50
+        assert trigger.to_list()[49] == 'full'
 
 
 def test_basic_failure_v4_migration_preserves_customized_same_name(

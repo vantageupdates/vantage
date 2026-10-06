@@ -323,8 +323,18 @@ def _charmed_pet_from_activity(text):
     return match.group('pet').strip() if match else ''
 
 
-def compile_trigger_pattern(text, character='', raw_regex=False):
-    """Compile friendly tokens or an explicitly imported regular expression."""
+def _trigger_match_mode(value):
+    value = str(value or 'full').strip().casefold()
+    return value if value in ('full', 'contains') else 'full'
+
+
+def compile_trigger_pattern(text, character='', raw_regex=False,
+                            match_mode='full'):
+    """Compile full friendly/regex patterns or a literal contains phrase."""
+    if not raw_regex and _trigger_match_mode(match_mode) == 'contains':
+        phrase = str(text or '').strip()
+        return re.compile(re.escape(phrase) if phrase else r'(?!)',
+                          re.RegexFlag.IGNORECASE)
     parts = []
     captured = set()
     cursor = 0
@@ -358,6 +368,13 @@ def compile_trigger_pattern(text, character='', raw_regex=False):
     if not raw_regex:
         pattern = '^' + pattern + '$'
     return re.compile(pattern, re.RegexFlag.IGNORECASE)
+
+
+def match_trigger_pattern(pattern, line, *, match_mode='full', raw_regex=False):
+    """Search literal phrases; retain the existing full/regex match contract."""
+    if not raw_regex and _trigger_match_mode(match_mode) == 'contains':
+        return pattern.search(line)
+    return pattern.match(line)
 
 
 def render_trigger_text(template, match, trigger):
@@ -835,7 +852,8 @@ class Spells(ParserWindow):
             self._active_character or
             config.data.get('sharing', {}).get('player_name', ''))
         for rx, _end_rxs, trigger in self._custom_timers:
-            match = rx.match(text)
+            match = match_trigger_pattern(
+                rx, text, match_mode=trigger.match_mode, raw_regex=trigger.regex)
             if not trigger_match_allowed(
                     trigger, match, text, active_character):
                 continue
@@ -1362,7 +1380,8 @@ class Spells(ParserWindow):
                             timestamp, ct, text, "Timer ended early",
                             status="Ended early", match_us=match_us)
                     continue
-                match = rx.match(text)
+                match = match_trigger_pattern(
+                    rx, text, match_mode=ct.match_mode, raw_regex=ct.regex)
                 match_us = (
                     time.perf_counter_ns() - evaluation_started) / 1000.0
                 captured_character = (
@@ -1404,7 +1423,8 @@ class Spells(ParserWindow):
                         ct.timer_name or ct.name, match, ct)
                     duration = (
                         (dynamic_timer_seconds(match)
-                         if '{ts}' in ct.text.casefold() else
+                         if (ct.regex or ct.match_mode != 'contains') and
+                         '{ts}' in ct.text.casefold() else
                          text_time_to_seconds(ct.time))
                         if ct.timer_type in ('countdown', 'repeating') else 0)
                     output = []
@@ -2530,7 +2550,7 @@ class Spells(ParserWindow):
             definitions[ct.name] = ct
             try:
                 rx = compile_trigger_pattern(
-                    ct.text, '', ct.regex)
+                    ct.text, '', ct.regex, ct.match_mode)
                 end_rxs = [
                     compile_trigger_pattern(
                         str(pattern.get('text') or ''), '',
@@ -2607,7 +2627,8 @@ class Spells(ParserWindow):
             end_match = next(
                 (match for pattern in end_rxs
                  if (match := pattern.match(line))), None)
-            match = rx.match(line)
+            match = match_trigger_pattern(
+                rx, line, match_mode=trigger.match_mode, raw_regex=trigger.regex)
             match_us = (time.perf_counter_ns() - started) / 1000.0
             if end_match:
                 self._record_trigger_match(
@@ -2619,6 +2640,10 @@ class Spells(ParserWindow):
             active_character = (
                 self._active_character or
                 config.data.get('sharing', {}).get('player_name', ''))
+            captured_character = match.groupdict().get('c') if match else ''
+            if (captured_character and active_character and
+                    captured_character.casefold() != active_character.casefold()):
+                continue
             if not trigger_match_allowed(
                     trigger, match, line, active_character):
                 continue
@@ -2629,7 +2654,8 @@ class Spells(ParserWindow):
             if trigger.timer_type != 'none':
                 duration = (
                     dynamic_timer_seconds(match)
-                    if '{ts}' in trigger.text.casefold() else
+                    if (trigger.regex or trigger.match_mode != 'contains') and
+                    '{ts}' in trigger.text.casefold() else
                     text_time_to_seconds(trigger.time))
                 outputs.append(
                     f"{trigger.timer_type} · {duration:g}s"
@@ -2714,7 +2740,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.126')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.127')
         reply = self._boat_network.get(request)
         reply.finished.connect(
             lambda reply=reply, server=server:
@@ -5103,7 +5129,8 @@ class CustomTrigger:
                  timer_ending_pitch=0, timer_ended_delivery='legacy',
                  timer_ended_voice='', timer_ended_volume=100,
                  timer_ended_pitch=0, match_filter='',
-                 match_cooldown_seconds=0.75, audio_muted=False, **_):
+                 match_cooldown_seconds=0.75, audio_muted=False,
+                 match_mode='full', **_):
         self.name, self.text, self.time = name, text, time
         self.zone = zone
         self.sound_path = sound_path
@@ -5117,6 +5144,7 @@ class CustomTrigger:
             False if enabled_text in {'false', '0', 'off', 'no'} else
             True)
         self.regex = bool(regex)
+        self.match_mode = _trigger_match_mode(match_mode)
         self.source = str(source or 'Vantage')
         self.category = str(category or 'Default').strip() or 'Default'
         overlay_definitions = config.data.get('general', {}).get(
@@ -5153,7 +5181,8 @@ class CustomTrigger:
             else 'countdown')
         if (self.timer_type in ('countdown', 'repeating') and
                 text_time_to_seconds(self.time) <= 0 and
-                '{ts}' not in self.text.casefold()):
+                (not (self.regex or self.match_mode != 'contains') or
+                 '{ts}' not in self.text.casefold())):
             self.timer_type = 'none'
         def nonnegative(value):
             try:
@@ -5251,7 +5280,7 @@ class CustomTrigger:
             self.timer_ending_pitch, self.timer_ended_delivery,
             self.timer_ended_voice, self.timer_ended_volume,
             self.timer_ended_pitch, self.match_filter,
-            self.match_cooldown_seconds, self.audio_muted]
+            self.match_cooldown_seconds, self.audio_muted, self.match_mode]
 
     def audio_delivery(self, stage='basic'):
         """Resolve effective delivery without discarding muted audio choices."""

@@ -15,6 +15,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 SCRIPT = r"""
 import json
+from native_audit_fixture import isolate
+
+# Keep the real application and every Quick Bar interaction, but do not
+# spend this bounded UI test discovering the live game, speech backend,
+# network sources, log indexes, or background sharing services.
+isolate()
 from PySide6.QtCore import QPoint, QPointF, QSize, Qt
 from PySide6.QtGui import QAccessible, QFont, QPainter, QWheelEvent
 from PySide6.QtTest import QTest
@@ -27,6 +33,11 @@ from vantage.helpers.audio import (
 from vantage.helpers.icons import game_icon
 from vantage.helpers.quickbar_items import QUICKBAR_ITEM_KEYS
 
+# This case explicitly exercises animated support and initially active
+# volume/mute controls. Restore those presentation defaults only; the
+# synthetic game, profile, audio backend, and network boundaries stay.
+config.data['general'].update({
+    'reduce_motion': False, 'audio_muted': False, 'master_volume': 100})
 config.data['general']['startup_window_state'] = 'normal'
 app = VantageApp([])
 bar = app._parsers_dict['quickbar']
@@ -1020,7 +1031,8 @@ def test_quickbar_repairs_hidden_support_once_and_preserves_later_choice(
 def test_quickbar_controls_windows_orientation_and_visibility(tmp_path):
     env = os.environ.copy()
     env['QT_QPA_PLATFORM'] = 'offscreen'
-    env['PYTHONPATH'] = str(ROOT / 'src')
+    env['QT_ACCESSIBILITY'] = '0'
+    env['PYTHONPATH'] = os.pathsep.join((str(ROOT / 'tests'), str(ROOT / 'src')))
     env['VANTAGE_DATA_DIR'] = str(tmp_path / 'profile')
     completed = subprocess.run(
         [sys.executable, '-c', SCRIPT], cwd=ROOT, env=env,

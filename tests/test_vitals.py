@@ -1099,11 +1099,13 @@ def test_quickbar_catalog_exposes_independent_vitals_action_with_unique_icon():
 
 
 def test_numeric_and_keyboard_calibration_are_equivalent_and_bounded(monkeypatch):
+    from PySide6.QtCore import QElapsedTimer
+
     _app()
     announcements = []
     monkeypatch.setattr(
         "vantage.parsers.vitals._announce",
-        lambda _widget, message: announcements.append(message))
+        lambda widget, message: announcements.append((widget, message)))
     bounds = QRect(100, 200, 800, 600)
     controls = CalibrationControls(bounds, QRect(180, 260, 160, 18))
     seen = []
@@ -1119,10 +1121,27 @@ def test_numeric_and_keyboard_calibration_are_equivalent_and_bounded(monkeypatch
     overlay.keyPressEvent(QKeyEvent(
         QKeyEvent.Type.KeyPress, Qt.Key.Key_Right,
         Qt.KeyboardModifier.NoModifier))
+    announcement_wait = QElapsedTimer()
+    announcement_wait.start()
     QTest.qWait(220)
     assert overlay.geometry().x() == before.x() + 1
-    assert announcements and "Calibration area" in announcements[-1]
-    assert "Preview invalidated" in announcements[-1]
+    # Numeric controls also announce after their independent debounce. The
+    # overlay assertion must observe this actor, not whichever timer happens
+    # to deliver the last message globally on a busy test host.
+    overlay_announcements = [
+        message for widget, message in announcements if widget is overlay]
+    # Qt delivery may lag the debounce on a loaded full-suite event loop.
+    # Wait for this exact actor's result, bounded to one second including the
+    # initial debounce wait, instead of relying on an arbitrary sleep order.
+    while not overlay_announcements and announcement_wait.elapsed() < 1000:
+        QTest.qWait(10)
+        overlay_announcements = [
+            message for widget, message in announcements if widget is overlay]
+    assert overlay_announcements and "Calibration area" in overlay_announcements[-1], {
+        "overlay_timer_active": overlay._announce_timer.isActive(),
+        "announcements": [
+            (widget is overlay, message) for widget, message in announcements]}
+    assert "Preview invalidated" in overlay_announcements[-1]
     overlay.keyPressEvent(QKeyEvent(
         QKeyEvent.Type.KeyPress, Qt.Key.Key_Down,
         Qt.KeyboardModifier.AltModifier))

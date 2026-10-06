@@ -30,7 +30,11 @@ def test_mute_preserves_all_phase_choices(stage, mode):
     assert restored.enabled
     assert restored.audio_delivery(stage) == 'off'
     assert restored.configured_audio_delivery(stage) == expected
-    assert restored.to_list()[:-1] == original[:-1]
+    restored_row = restored.to_list()
+    assert len(restored_row) == len(original) == 50
+    assert restored_row[:48] == original[:48]
+    assert restored_row[48] is True and original[48] is False
+    assert restored_row[49:] == original[49:] == ['full']
     restored.audio_muted = False
     assert restored.to_list() == original
     assert restored.audio_delivery(stage) == expected

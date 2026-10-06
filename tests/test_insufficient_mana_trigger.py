@@ -60,9 +60,10 @@ def test_insufficient_mana_v3_migration_round_trip_and_idempotence(
         trigger = CustomTrigger(*rows[0])
         serialized = trigger.to_list()
         assert len(rows[0]) == 48  # legacy seed keeps its positional fields
-        assert len(serialized) == 49
-        assert serialized[:-1] == rows[0]
-        assert serialized[-1] is False  # new mute defaults to unmuted
+        assert len(serialized) == 50
+        assert serialized[:-2] == rows[0]
+        assert serialized[48] is False  # mute defaults to unmuted
+        assert serialized[49] == 'full'  # legacy matching remains precise
         assert trigger.text == r"^Insufficient Mana to cast this spell[!.]$"
         assert trigger.regex is True
         assert trigger.enabled is True

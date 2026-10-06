@@ -84,12 +84,12 @@ def _warning(warnings, name, code, message):
 
 
 def _validate_patterns(trigger, warnings):
-    for label, text, regex in [
-            ("Match", trigger.text, trigger.regex),
-            *(("Early ender", entry.get("text", ""), entry.get("regex", False))
+    for label, text, regex, mode in [
+            ("Match", trigger.text, trigger.regex, trigger.match_mode),
+            *(("Early ender", entry.get("text", ""), entry.get("regex", False), "full")
               for entry in trigger.end_patterns)]:
         try:
-            compile_trigger_pattern(text, raw_regex=regex)
+            compile_trigger_pattern(text, raw_regex=regex, match_mode=mode)
         except (re.error, ValueError) as error:
             _warning(warnings, trigger.name, "invalid-pattern",
                      f"{label} pattern cannot run in Vantage: {error}. "
@@ -784,12 +784,21 @@ def serialize_vantage_package(triggers, groups=None):
             setattr(trigger, field, "")
             _warning(warnings, trigger.name, "unshared-audio",
                      f"{field}: unavailable or outside-profile audio was not shared.")
-        rows.append({"values": trigger.to_list(), "media": refs})
+        # Keep full-line-only packs readable by earlier Companion versions.
+        # Contains text needs schema 2 so old readers cannot silently narrow it.
+        values = trigger.to_list()
+        if trigger.match_mode == "full":
+            values = values[:49]
+        rows.append({"values": values, "media": refs})
     safe_groups = normalize_trigger_groups({
         "trigger_groups": _bounded_native_groups(groups or {}, warnings),
         "custom_timers": [row["values"] for row in rows]})
+    package_version = 2 if any(len(row["values"]) > 49 for row in rows) else 1
+    if package_version == 2:
+        _warning(warnings, "", "minimum-version",
+                 "Contains text matching requires Vantage Companion 1.44.127 or newer.")
     payload = {
-        "format": "vantage-trigger-pack", "version": 1,
+        "format": "vantage-trigger-pack", "version": package_version,
         "triggers": rows, "media": media,
         "groups": {key: value for key, value in safe_groups.items() if key in paths},
     }
@@ -828,7 +837,7 @@ def import_vantage_package_bytes(content, *, source_name="Shared pack"):
     except (ValueError, UnicodeError, RecursionError) as error:
         raise GinaImportError("The native JSON pack could not be read.") from error
     if (not isinstance(data, dict) or data.get("format") != "vantage-trigger-pack"
-            or data.get("version") != 1):
+            or data.get("version") not in (1, 2)):
         raise GinaImportError("This is not a supported Vantage native trigger pack.")
     rows, raw_media = data.get("triggers"), data.get("media", {})
     if not isinstance(rows, list) or not 1 <= len(rows) <= MAX_TRIGGERS:
@@ -856,14 +865,14 @@ def import_vantage_package_bytes(content, *, source_name="Shared pack"):
     for index, row in enumerate(rows):
         try:
             values = row.get("values") if isinstance(row, dict) else None
-            if (not isinstance(values, list) or not 3 <= len(values) <= 49
+            if (not isinstance(values, list) or not 3 <= len(values) <= 50
                     or not all(isinstance(value, str) for value in values[:3])
                     or not values[1] or len(values[1]) > MAX_PATTERN_LENGTH):
                 raise ValueError("missing or unsupported trigger values")
             string_fields = {
                 0, 1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14, 15,
                 18, 19, 20, 21, 23, 25, 27, 29, 31, 32, 34, 35, 38,
-                39, 42, 43, 46,
+                39, 42, 43, 46, 49,
             }
             if any(index < len(values) and
                    (not isinstance(values[index], str) or len(values[index]) > 8192)
@@ -885,6 +894,11 @@ def import_vantage_package_bytes(content, *, source_name="Shared pack"):
                 raise ValueError("unsupported nested trigger value")
             if any(isinstance(value, float) and not math.isfinite(value) for value in values):
                 raise ValueError("nonfinite numeric trigger value")
+            if len(values) > 49:
+                if values[49] not in ("full", "contains"):
+                    raise ValueError("unsupported text matching scope")
+                if values[49] == "contains" and data["version"] != 2:
+                    raise ValueError("Contains text requires native pack schema 2")
             # No nested executable data; text/actions are interpreted solely
             # through the existing CustomTrigger schema and bounded package.
             trigger = CustomTrigger(*values)
@@ -1041,6 +1055,9 @@ def serialize_gina_package(triggers, groups=None):
             put(ender, "EarlyEndText", entry["text"])
             put(ender, "EnableRegex", bool(entry.get("regex")))
         losses = []
+        if trigger.match_mode == "contains" and not trigger.regex:
+            losses.append("Vantage literal Contains text matching scope; use a native "
+                          "JSON pack or share code to preserve it exactly")
         if trigger.profile or trigger.zone:
             losses.append("character/zone restrictions")
         if not trigger.enabled:

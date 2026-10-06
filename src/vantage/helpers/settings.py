@@ -47,7 +47,7 @@ from vantage.helpers.trigger_groups import (
     set_group_style)
 from vantage.parsers.spells import (
     CustomTrigger, compile_trigger_pattern, dynamic_timer_seconds,
-    render_trigger_text, trigger_match_allowed)
+    render_trigger_text, trigger_match_allowed, match_trigger_pattern)
 
 class SettingsSignals(QObject):
     config_updated = Signal()
@@ -2570,9 +2570,23 @@ class CustomTriggerSettings(UniformScaleDialog):
         trigger_layout.addRow('Name', self._trigger_name)
 
         self._trigger_text = TokenLineEdit()
+        self._trigger_text.setAccessibleName('Trigger log text')
         self._trigger_text.setToolTip(
-            'Exact EQ log text to match; type { to see supported tokens')
+            'Words or a phrase to find anywhere in an EQ log line')
         trigger_layout.addRow('Log text', self._trigger_text)
+
+        self._trigger_match_mode = QComboBox()
+        self._trigger_match_mode.addItem('Contains text', 'contains')
+        self._trigger_match_mode.addItem('Entire log line', 'full')
+        self._trigger_match_mode.setAccessibleName('Trigger text matching scope')
+        self._trigger_match_mode.setToolTip(
+            'Contains text finds literal words anywhere, ignoring case. '
+            'Entire log line supports tokens and wildcards. Existing rules keep their saved mode.')
+        self._trigger_match_mode.setAccessibleDescription(
+            self._trigger_match_mode.toolTip())
+        self._trigger_match_mode.currentIndexChanged.connect(
+            self._refresh_trigger_match_mode)
+        trigger_layout.addRow('Text match', self._trigger_match_mode)
 
         token_legend = self._token_legend = QLabel('Tokens: type { for suggestions · * matches any text')
         token_legend.setObjectName('TriggerTokenLegend')
@@ -2636,6 +2650,7 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_regex = QCheckBox('Regular expression')
         self._trigger_regex.setToolTip(
             'For advanced or imported patterns only; normal triggers do not need it')
+        self._trigger_regex.toggled.connect(self._refresh_trigger_match_mode)
         trigger_layout.addRow('Pattern mode', self._trigger_regex)
 
         self._trigger_match_cooldown = QDoubleSpinBox()
@@ -3177,6 +3192,32 @@ class CustomTriggerSettings(UniformScaleDialog):
         )
         self._set_advanced_visible(False)
 
+    def _refresh_trigger_match_mode(self, *_):
+        regex = self._trigger_regex.isChecked()
+        self._trigger_match_mode.setEnabled(not regex)
+        if regex:
+            help_text = ('Regular expression: existing regex matching behavior is '
+                         'preserved; anchors and captures apply.')
+            placeholder = 'Advanced regular expression'
+        elif self._trigger_match_mode.currentData() == 'contains':
+            help_text = ('Contains: literal words or a phrase anywhere in the line, '
+                         'ignoring case. Tokens and * are literal here; use Entire '
+                         'log line for patterns.')
+            placeholder = 'e.g. the tangrin'
+        else:
+            help_text = ('Entire log line: type { for tokens; * matches any text. '
+                         'The pattern must match the whole message, ignoring case.')
+            placeholder = 'Full log message, with optional tokens or *'
+        if self._advanced_toggle.isChecked() and (
+                regex or self._trigger_match_mode.currentData() == 'full'):
+            help_text += ('\nTOKENS · {c} your character · {target}/{mob}/{spell}/'
+                          '{damage} captures · {ts} D:H:M:S timer · '
+                          '{COUNTER} activation count')
+        self._token_legend.setText(help_text)
+        self._trigger_text.setPlaceholderText(placeholder)
+        self._trigger_text.setToolTip(help_text)
+        self._trigger_text.setAccessibleDescription(help_text)
+
     def _monitor_changed(self, enabled):
         config.data['spells']['use_custom_triggers'] = bool(enabled)
         config.save()
@@ -3248,10 +3289,7 @@ class CustomTriggerSettings(UniformScaleDialog):
     def _set_advanced_visible(self, visible):
         if not hasattr(self, '_advanced_core_fields'):
             return
-        self._token_legend.setText(
-            'TOKENS · type { to autocomplete\n* any text · {c} your character · '
-            '{target}/{mob}/{spell}/{damage} captures · {ts} D:H:M:S timer · {COUNTER} activation count'
-            if visible else 'Tokens: type { for suggestions · * matches any text')
+        self._refresh_trigger_match_mode()
         for form, fields in (
                 (self._trigger_form, self._advanced_core_fields),
                 (self._basic_form, self._advanced_basic_fields),
@@ -3305,8 +3343,11 @@ class CustomTriggerSettings(UniformScaleDialog):
         trigger.counter = 1  # Detached preview counter; never mutate live runs.
         try:
             pattern = compile_trigger_pattern(trigger.text, character=trigger.runtime_character,
-                                              raw_regex=trigger.regex)
-            match = pattern.match(line)
+                                              raw_regex=trigger.regex,
+                                              match_mode=trigger.match_mode)
+            match = match_trigger_pattern(
+                pattern, line, match_mode=trigger.match_mode,
+                raw_regex=trigger.regex)
             early_match = next((candidate for entry in trigger.end_patterns
                                 if (candidate := compile_trigger_pattern(
                                     entry['text'], character=trigger.runtime_character,
@@ -3338,7 +3379,9 @@ class CustomTriggerSettings(UniformScaleDialog):
                 if template:
                     output.append(f'{label}: {render_trigger_text(template, match, trigger)}')
             if trigger.timer_type in ('countdown', 'repeating'):
-                duration = (dynamic_timer_seconds(match) if '{ts}' in trigger.text.casefold()
+                duration = (dynamic_timer_seconds(match) if
+                            (trigger.regex or trigger.match_mode != 'contains')
+                            and '{ts}' in trigger.text.casefold()
                             else text_time_to_seconds(trigger.time))
                 output.append(f'Timer preview: {duration:g} seconds · {trigger.timer_type}')
             if trigger.profile and trigger.profile.casefold() != profile.casefold():
@@ -4036,6 +4079,8 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_enabled.setChecked(trigger.enabled)
         self._trigger_audio_muted.setChecked(trigger.audio_muted)
         self._trigger_regex.setChecked(trigger.regex)
+        self._set_combo_data(self._trigger_match_mode, trigger.match_mode)
+        self._refresh_trigger_match_mode()
         self._trigger_match_cooldown.setValue(
             trigger.match_cooldown_seconds)
         self._trigger_source.setText(trigger.source)
@@ -4107,7 +4152,7 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_name.setPlaceholderText('<new>')
         self._trigger_name.selectAll()
         self._trigger_name.setFocus()
-        self._trigger_text.setPlaceholderText('match*me')
+        self._trigger_text.setPlaceholderText('e.g. the tangrin')
         self._trigger_time.setPlaceholderText('hh:mm:ss')
 
     def _remove_trigger(self):
@@ -4157,10 +4202,13 @@ class CustomTriggerSettings(UniformScaleDialog):
             if timer_type in ('none', 'stopwatch') and not time_value:
                 valid_time = True
             if timer_type in ('countdown', 'repeating'):
-                dynamic_time = '{ts}' in self._trigger_text.text().casefold()
+                dynamic_time = (
+                    (self._trigger_regex.isChecked() or
+                     self._trigger_match_mode.currentData() != 'contains') and
+                    '{ts}' in self._trigger_text.text().casefold())
                 valid_time = dynamic_time or (
                     valid_time and text_time_to_seconds(time_value) > 0)
-            if self._trigger_text.text() and valid_time:
+            if self._trigger_text.text().strip() and valid_time:
                 if self._trigger_name.text() in self._custom_triggers and \
                         not self._trigger_name.text() == self._current_trigger:
                     m = QMessageBox()
@@ -4242,6 +4290,8 @@ class CustomTriggerSettings(UniformScaleDialog):
         self._trigger_enabled.setChecked(True)
         self._trigger_audio_muted.setChecked(False)
         self._trigger_regex.setChecked(False)
+        self._set_combo_data(self._trigger_match_mode, 'contains')
+        self._refresh_trigger_match_mode()
         self._trigger_match_cooldown.setValue(0.75)
         self._trigger_source.setText('Vantage')
         self._trigger_category.setCurrentText('Default')
@@ -4297,6 +4347,7 @@ class CustomTriggerSettings(UniformScaleDialog):
     def _apply_extra_fields(self, trigger, *, update_groups=True):
         trigger.enabled = self._trigger_enabled.isChecked()
         trigger.regex = self._trigger_regex.isChecked()
+        trigger.match_mode = str(self._trigger_match_mode.currentData() or 'full')
         trigger.match_cooldown_seconds = (
             self._trigger_match_cooldown.value())
         trigger.zone = self._trigger_zone.text().strip()
