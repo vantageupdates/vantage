@@ -160,9 +160,12 @@ are converted to whole seconds with a warning when precision is lost.
 - GINA uses .NET regular expressions; Vantage uses Python regular expressions.
   .NET-only syntax is not translated. Invalid patterns are warned, and even a
   compiling pattern needs a sample/live-behavior review before enabling.
-- GINA can use Sound and Voice together. Vantage selects **one audio route per
-  phase**. Legacy combined choices retain both values for editing, with Sound
-  priority; simultaneous playback is not implemented.
+- Vantage selects **one audio route per phase**. Legacy or package data asking
+  for both retains both values for editing, with Sound priority; simultaneous
+  playback is not implemented. Correction after the 2026-10-06 audit: the
+  archived official GINA audio guide describes alternative audio formats;
+  the earlier claim of simultaneous GINA Sound and Voice was not established.
+  See [the source-grounded audit](triggers-audit-1.44.126.md).
 - `.gtp` export requires an explicit compatibility/loss acknowledgement.
   Vantage-specific character/zone restrictions, activation state, match
   filters/repeat guards, overlay/color routing, group enabled/style/profile

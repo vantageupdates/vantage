@@ -19,14 +19,19 @@ ROOT = Path(__file__).resolve().parents[1]
 def _run(script, tmp_path, *, timeout=45, webengine=False):
     env = os.environ.copy()
     env["QT_QPA_PLATFORM"] = "offscreen"
-    env["PYTHONPATH"] = str(ROOT / "src")
+    env["PYTHONPATH"] = os.pathsep.join(
+        (str(ROOT / "tests"), str(ROOT / "src")))
     env["VANTAGE_DATA_DIR"] = str(tmp_path / "profile")
     if webengine:
         env["QTWEBENGINE_DISABLE_SANDBOX"] = "1"
         env["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu"
     completed = subprocess.run(
         [sys.executable, "-c", script], cwd=ROOT, env=env,
-        capture_output=True, text=True, check=True, timeout=timeout)
+        capture_output=True, text=True, timeout=timeout)
+    assert completed.returncode == 0, (
+        f'Native polish fixture exited {completed.returncode}\n'
+        f'STDERR:\n{completed.stderr[-6000:]}\n'
+        f'STDOUT:\n{completed.stdout[-6000:]}')
     return json.loads(completed.stdout.strip().splitlines()[-1])
 
 
@@ -148,12 +153,16 @@ def test_proxy_hosted_table_tab_and_backtab_leave_grid(tmp_path):
 EMPTY_STATES_SCRIPT = r"""
 import gzip
 import json
+from native_audit_fixture import isolate
+isolate()
 from PySide6.QtNetwork import QNetworkReply
 from PySide6.QtTest import QTest
 from vantage.helpers import config
 from vantage.helpers.application import VantageApp
-from vantage.parsers.market import _gear_cache_file
+from vantage.parsers.market import GreenMarket, _gear_cache_file
 
+# The synthetic signature result must not race a startup network refresh.
+GreenMarket._refresh_gear_index = lambda self: None
 config.data['general']['eq_log_dir'] = ''
 app = VantageApp([])
 timers = app._parsers_dict['timers']

@@ -172,8 +172,9 @@ mute = dict(sounds._trigger_audio_mutes)['Mob is casting']
 mute.setChecked(True)
 mob_combo = next(combo for _, field, combo in sounds._trigger_sound_routes
                  if combo._trigger_name == 'Mob is casting' and field == 4)
-buttons = [button for button in mob_combo.parent().findChildren(QPushButton)
-           if button.accessibleName().startswith('Test Mob is casting')]
+buttons = [route['test'] for route in sounds._trigger_audio_routes
+           if route['name'] == 'Mob is casting' and route['stage'] == 'basic'
+           and route['test'].accessibleName().startswith('Test Mob is casting')]
 assert buttons
 buttons[0].click()
 assert not audio

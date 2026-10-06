@@ -232,6 +232,9 @@ while iterator.value():
         break
     iterator += 1
 assert [trigger.name for trigger in dialog._selected_pack_triggers()] == [local.name]
+# End the native traversal before the import flow rebuilds this same tree.
+# Retained iterator/item wrappers can outlive their deleted native rows.
+del iterator, item
 saved = copy.deepcopy(config.data)
 assert dialog._prepare_share() is not None and config.data == saved
 

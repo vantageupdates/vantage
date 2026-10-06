@@ -11,6 +11,9 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = r"""
 import json
 
+from native_audit_fixture import isolate
+isolate()
+
 from PySide6.QtTest import QTest
 
 from vantage.helpers import config
@@ -83,11 +86,16 @@ def test_every_window_size_preset_rollup_and_tray_restore_are_effective(
         tmp_path):
     env = os.environ.copy()
     env['QT_QPA_PLATFORM'] = 'offscreen'
-    env['PYTHONPATH'] = str(ROOT / 'src')
+    env['PYTHONPATH'] = os.pathsep.join(
+        (str(ROOT / 'tests'), str(ROOT / 'src')))
     env['VANTAGE_DATA_DIR'] = str(tmp_path / 'profile')
     completed = subprocess.run(
         [sys.executable, '-c', SCRIPT], cwd=ROOT, env=env,
-        check=True, capture_output=True, text=True, timeout=45)
+        capture_output=True, text=True, timeout=45)
+    assert completed.returncode == 0, (
+        f'Native window fixture exited {completed.returncode}\n'
+        f'STDERR:\n{completed.stderr[-6000:]}\n'
+        f'STDOUT:\n{completed.stdout[-6000:]}')
     result = json.loads(completed.stdout.strip().splitlines()[-1])
 
     expected_labels = [

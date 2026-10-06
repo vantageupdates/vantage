@@ -331,6 +331,7 @@ class SettingsWindow(UniformScaleDialog):
         self._notification_sound_combos = []
         self._notification_route_widgets = []
         self._trigger_sound_routes = []
+        self._trigger_audio_routes = []
         self._trigger_audio_mutes = []
 
         settings = self._create_settings()
@@ -457,25 +458,13 @@ class SettingsWindow(UniformScaleDialog):
         if 'Sounds' in self._visible_sections:
             custom_timers = config.data.get(
                 'spells', {}).get('custom_timers', [])
-            for item_index, field_index, combo in self._trigger_sound_routes:
+            for route in self._trigger_audio_routes:
                 item = next((row for row in custom_timers
                              if isinstance(row, list) and row and
-                             row[0] == combo._trigger_name), None)
+                             row[0] == route['name']), None)
                 if item is None:
                     continue
-                while len(item) <= field_index:
-                    item.append('')
-                selected = str(combo.currentData() or '')
-                if selected == getattr(combo, '_saved_trigger_sound', selected):
-                    continue
-                if item[field_index] != selected:
-                    item[field_index] = selected
-                    # Clearing a WAV must not fall through to legacy TTS.
-                    trigger = CustomTrigger(*item)
-                    setattr(trigger, {4: 'delivery', 19: 'timer_ending_delivery',
-                                      21: 'timer_ended_delivery'}[field_index],
-                            'sound' if selected else 'off')
-                    item[:] = trigger.to_list()
+                if self._apply_trigger_audio_route(item, route):
                     trigger_sounds_changed = True
             for name, mute in self._trigger_audio_mutes:
                 if mute.isChecked() == mute._saved_trigger_mute:
@@ -676,15 +665,13 @@ class SettingsWindow(UniformScaleDialog):
                 intcolor = int(hexcolor.replace('#', '0xff'), 16)
                 widget.setCurrentColor(QColor(intcolor))
         custom_timers = config.data.get('spells', {}).get('custom_timers', [])
-        for item_index, field_index, combo in self._trigger_sound_routes:
+        for route in self._trigger_audio_routes:
             item = next((row for row in custom_timers
                          if isinstance(row, list) and row and
-                         row[0] == combo._trigger_name), None)
-            if item is not None and field_index < len(item):
-                set_sound_combo_value(
-                    combo, item[field_index])
-                combo.setItemText(combo.findData(''), 'Off (no audio)')
-                combo._saved_trigger_sound = str(combo.currentData() or '')
+                         row[0] == route['name']), None)
+            if item is not None:
+                self._set_trigger_audio_route_values(
+                    route, CustomTrigger(*item))
         for name, mute in self._trigger_audio_mutes:
             row = next((item for item in custom_timers
                         if isinstance(item, list) and item and item[0] == name), None)
@@ -707,6 +694,140 @@ class SettingsWindow(UniformScaleDialog):
             self.audio_starting_style_status.setText(
                 'Choose a style and apply it. Nothing changes until Apply, '
                 'and nothing is stored until Save.')
+
+    @staticmethod
+    def _trigger_audio_fields(stage):
+        if stage == 'basic':
+            return {
+                'delivery': 'delivery', 'sound': 'sound_path',
+                'text': 'tts_text', 'voice': 'tts_voice',
+                'volume': 'tts_volume', 'pitch': 'tts_pitch',
+                'interrupt': 'interrupt_speech',
+            }
+        prefix = f'timer_{stage}_'
+        return {key: prefix + suffix for key, suffix in (
+            ('delivery', 'delivery'), ('sound', 'sound'), ('text', 'tts'),
+            ('voice', 'voice'), ('volume', 'volume'), ('pitch', 'pitch'),
+            ('interrupt', 'interrupt'))}
+
+    @staticmethod
+    def _trigger_audio_route_state(route):
+        return {
+            'delivery': str(route['delivery'].currentData() or 'off'),
+            'sound': str(route['sound'].currentData() or ''),
+            'text': route['text'].text().strip(),
+            'voice': str(route['voice'].currentData() or ''),
+            'volume': route['volume'].value(),
+            'pitch': route['pitch'].value(),
+            'interrupt': route['interrupt'].isChecked(),
+        }
+
+    def _set_trigger_audio_route_values(self, route, trigger):
+        fields = self._trigger_audio_fields(route['stage'])
+        set_sound_combo_value(route['sound'], getattr(trigger, fields['sound']))
+        route['sound'].setItemText(route['sound'].findData(''), 'Off (no audio)')
+        route['sound']._saved_trigger_sound = str(route['sound'].currentData() or '')
+        route['text'].setText(getattr(trigger, fields['text']))
+        CustomTriggerSettings._set_voice_combo(
+            route['voice'], getattr(trigger, fields['voice']))
+        route['volume'].setValue(getattr(trigger, fields['volume']))
+        route['pitch'].setValue(getattr(trigger, fields['pitch']))
+        route['interrupt'].setChecked(getattr(trigger, fields['interrupt']))
+        wanted = trigger.configured_audio_delivery(route['stage'])
+        route['delivery'].setCurrentIndex(route['delivery'].findData(wanted))
+        self._trigger_audio_route_changed(route)
+        route['saved'] = self._trigger_audio_route_state(route)
+        route['status'].clear()
+        route['status'].setVisible(False)
+
+    def _apply_trigger_audio_route(self, item, route):
+        """Merge edited audio fields by name; retain other settings and phases."""
+        current = self._trigger_audio_route_state(route)
+        saved = route['saved']
+        changed = {key for key, value in current.items() if value != saved[key]}
+        if not changed:
+            return False
+        trigger = CustomTrigger(*item)
+        fields = self._trigger_audio_fields(route['stage'])
+        for key in changed - {'delivery'}:
+            setattr(trigger, fields[key], current[key])
+        # Commit an edited legacy phase's selected route and visible settings.
+        # Legacy fallback could otherwise activate a newly saved inactive WAV
+        # or speech message, or keep inheriting the global speech volume.
+        legacy_phase_edit = getattr(trigger, fields['delivery']) == 'legacy'
+        if ('delivery' in changed or legacy_phase_edit
+                or ('sound' in changed and current['delivery'] == 'sound')):
+            # Clearing a selected WAV must not fall through to legacy TTS.
+            mode = ('off' if 'sound' in changed and not current['sound']
+                    and current['delivery'] == 'sound' else current['delivery'])
+            setattr(trigger, fields['delivery'], mode)
+        item[:] = trigger.to_list()
+        return True
+
+    def _trigger_audio_route_changed(self, route):
+        mode = str(route['delivery'].currentData() or 'off')
+        route['status'].clear()
+        route['status'].setVisible(False)
+        for widget, active in (
+                (route['sound_host'], mode == 'sound'),
+                (route['voice'], mode == 'tts'),
+                (route['speech_host'], mode == 'tts')):
+            widget.setVisible(active)
+            widget.setEnabled(active)
+        route['delivery'].setAccessibleDescription({
+            'sound': 'Sound or WAV is active; saved speech is retained.',
+            'tts': 'Text to speech is active; saved Sound or WAV is retained.',
+            'off': 'Audio is off for this phase; saved audio choices are retained.',
+        }[mode])
+        if self._scoped_section and hasattr(self, '_scoped_focus_controls'):
+            # A phase changes which controls are shown. Keep the feature's
+            # existing keyboard cycle in sync with the newly visible editor.
+            self._scoped_focus_controls = self._scoped_page_controls()
+            for control in self._scoped_focus_controls:
+                control.installEventFilter(self)
+
+    def _test_trigger_audio_route(self, route):
+        state = self._trigger_audio_route_state(route)
+        label = route['label']
+        mode = state['delivery']
+        mute = dict(self._trigger_audio_mutes).get(route['name'])
+        if mute is not None and mute.isChecked():
+            result = f'{label} test: this trigger is muted'
+        elif mode == 'off':
+            result = f'{label} test: audio Off'
+        elif mode == 'tts' and not state['text']:
+            result = f'{label} test: enter a speech message first'
+        else:
+            speech = re.sub(r'\$\{[^{}]+\}|\{[^{}]+\}|\$\d+', 'sample', state['text'])
+            volume = (self._fade_volume.value() if mode == 'sound' else state['volume'])
+            check = audio_preflight(
+                mode, sound=state['sound'], text=speech, volume=volume,
+                channel='spells', allow_hidden=True)
+            if not check.ready:
+                result = f'{label} test: {check.reason}'
+            elif mode == 'tts':
+                played = speak_text(
+                    speech, volume, state['interrupt'],
+                    source=f'Test · {label} · speech', channel='spells',
+                    allow_hidden=True, voice_name=state['voice'], pitch=state['pitch'])
+                result = (f'{label} test: voice queued' if played else
+                          f'{label} test: Windows voice unavailable')
+            else:
+                played = bool(state['sound'] and play_alert(
+                    state['sound'], volume, 1, source=f'Test · {label}',
+                    channel='spells', allow_hidden=True))
+                result = (f'{label} test: sound queued' if played else
+                          f'{label} test: Windows audio backend unavailable')
+        status = route['status']
+        status.setText(result)
+        status.setAccessibleName(result)
+        status.setAccessibleDescription(f'Latest trigger audio test result: {result}')
+        status.setVisible(True)
+        try:
+            QAccessible.updateAccessibility(QAccessibleAnnouncementEvent(status, result))
+        except (AttributeError, RuntimeError, TypeError):
+            pass
+        return result
 
     def _populate_route_picker(
             self, route_key, delivery, picker, _index=None, values=None):
@@ -1264,17 +1385,33 @@ class SettingsWindow(UniformScaleDialog):
                 self._notification_route_widgets[0][1])
         sound_sl.addRow('Test status', route_test_status)
 
-        def add_sound_route(label, object_name, default, volume, source,
-                            trigger_name):
-            row = QHBoxLayout()
-            row.setContentsMargins(0, 0, 0, 0)
-            row.setSpacing(3)
-            combo = QComboBox()
-            combo.setObjectName(object_name)
-            combo.setAccessibleName(f'{label} sound')
-            combo.setToolTip(f'Choose the sound used for {label.casefold()}')
-            set_sound_combo_value(combo, default)
-            row.addWidget(combo, 1)
+        def add_trigger_audio_route(trigger, stage, label):
+            host = QWidget()
+            layout = QVBoxLayout(host)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(3)
+            delivery_row = QHBoxLayout()
+            delivery = QComboBox()
+            delivery.addItem('Sound / WAV', 'sound')
+            delivery.addItem('Text to speech', 'tts')
+            delivery.addItem('Off', 'off')
+            delivery.setAccessibleName(f'{label} audio delivery')
+            delivery.setToolTip('Choose one audio action for this trigger phase')
+            delivery_row.addWidget(delivery, 1)
+            test = QPushButton('Test')
+            test.setIcon(game_icon('play'))
+            test.setAccessibleName(f'Test {label} audio')
+            test.setToolTip('Test the selected Sound, text to speech, or Off choice')
+            delivery_row.addWidget(test)
+            layout.addLayout(delivery_row)
+            sound_host = QWidget()
+            sound_row = QHBoxLayout(sound_host)
+            sound_row.setContentsMargins(0, 0, 0, 0)
+            sound_row.setSpacing(3)
+            sound = QComboBox()
+            sound.setAccessibleName(f'{label} sound')
+            sound.setToolTip(f'Choose a gallery sound or custom WAV for {label.casefold()}')
+            sound_row.addWidget(sound, 1)
             wav = QPushButton('WAV…')
             wav.setIcon(game_icon('copy'))
             wav.setAccessibleName(f'Add custom WAV for {label}')
@@ -1282,46 +1419,77 @@ class SettingsWindow(UniformScaleDialog):
                 'Copy a WAV into Vantage portable storage and select it for '
                 'this notification')
             wav.clicked.connect(
-                lambda _checked=False, combo=combo:
+                lambda _checked=False, combo=sound:
                 self._choose_notification_sound(combo))
-            row.addWidget(wav)
-            test = QPushButton('Test')
-            test.setIcon(game_icon('play'))
-            test.setAccessibleName(f'Test {label} sound')
-            test.setToolTip(f'Play the selected {label.casefold()} sound now')
-            def preview_sound():
-                mute = dict(self._trigger_audio_mutes).get(trigger_name)
-                if mute is not None and mute.isChecked():
-                    result = f'{label} test: this trigger is muted'
-                    route_test_status.setText(result)
-                    route_test_status.setAccessibleName(result)
-                    route_test_status.setVisible(True)
-                    return
-                selected = str(combo.currentData() or '')
-                check = audio_preflight(
-                    'sound' if selected else 'off', sound=selected,
-                    volume=volume(), channel='spells', allow_hidden=True)
-                if not check.ready:
-                    result = f'{label} test: {check.reason}'
-                else:
-                    played = play_alert(
-                        combo.currentData(), volume(), 1, source=source,
-                        channel='spells', allow_hidden=True)
-                    result = (f'{label} test: sound queued' if played else
-                              f'{label} test: Windows audio backend unavailable')
-                route_test_status.setText(result)
-                route_test_status.setAccessibleName(result)
-                route_test_status.setVisible(True)
-                try:
-                    QAccessible.updateAccessibility(
-                        QAccessibleAnnouncementEvent(route_test_status, result))
-                except (AttributeError, RuntimeError, TypeError):
-                    pass
-            test.clicked.connect(preview_sound)
-            row.addWidget(test)
-            sound_sl.addRow(label, row)
-            self._notification_sound_combos.append(combo)
-            return combo
+            sound_row.addWidget(wav)
+            layout.addWidget(sound_host)
+            speech_host = QWidget()
+            speech_form = polish_form(QFormLayout(speech_host))
+            speech_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+            speech_form.setContentsMargins(0, 0, 0, 0)
+            speech_form.setSpacing(3)
+            text = TokenLineEdit()
+            text.setAccessibleName(f'{label} speech message')
+            text.setPlaceholderText('Message spoken for this phase · supports trigger tokens')
+            text.setToolTip('Type the speech message; saved trigger captures are expanded during a match')
+            voice = QComboBox()
+            voice.addItem(vantage_command_voice_label(), '')
+            for name in speech_voice_names():
+                voice.addItem(name, name)
+            voice.setAccessibleName(f'{label} Windows voice')
+            voice.setToolTip(vantage_command_voice_description())
+            volume = QSpinBox()
+            volume.setRange(0, 100)
+            volume.setSuffix('%')
+            volume.setAccessibleName(f'{label} speech volume')
+            volume.setToolTip('Speech volume for this phase; Master and character volume still apply')
+            pitch = QSpinBox()
+            pitch.setRange(-10, 10)
+            pitch.setAccessibleName(f'{label} speech pitch')
+            pitch.setToolTip('Pitch adjustment for this phase only')
+            interrupt = QCheckBox('Interrupt current speech')
+            interrupt.setAccessibleName(f'{label} interrupt current speech')
+            interrupt.setToolTip('Stop current Vantage speech before this message')
+            for control in (text, voice, volume, pitch):
+                control.setMinimumHeight(34)
+                control.setStyleSheet('min-height: 30px;')
+            speech_form.addRow('Message', text)
+            speech_form.addRow('Voice', voice)
+            parameters = QHBoxLayout()
+            volume_label = QLabel('Volume')
+            volume_label.setBuddy(volume)
+            parameters.addWidget(volume_label)
+            parameters.addWidget(volume, 1)
+            pitch_label = QLabel('Pitch')
+            pitch_label.setBuddy(pitch)
+            parameters.addWidget(pitch_label)
+            parameters.addWidget(pitch, 1)
+            speech_form.addRow(parameters)
+            speech_form.addRow(interrupt)
+            layout.addWidget(speech_host)
+            status = QLabel('')
+            status.setTextFormat(Qt.TextFormat.PlainText)
+            status.setWordWrap(True)
+            status.setVisible(False)
+            status.setAccessibleName(f'{label} audio test: no result yet')
+            status.setAccessibleDescription('Result of the most recent test for this trigger phase')
+            layout.addWidget(status)
+            route = {
+                'name': trigger.name, 'stage': stage, 'label': label,
+                'delivery': delivery, 'sound': sound, 'sound_host': sound_host,
+                'speech_host': speech_host, 'text': text, 'voice': voice,
+                'volume': volume, 'pitch': pitch, 'interrupt': interrupt,
+                'test': test, 'status': status,
+            }
+            delivery.currentIndexChanged.connect(
+                lambda _index, route=route: self._trigger_audio_route_changed(route))
+            test.clicked.connect(lambda _checked=False, route=route:
+                                 self._test_trigger_audio_route(route))
+            sound_sl.addRow(label, host)
+            self._notification_sound_combos.append(sound)
+            self._trigger_audio_routes.append(route)
+            self._set_trigger_audio_route_values(route, trigger)
+            return sound
 
         self.fade_sound_path = next(
             picker for key, _delivery, picker in self._notification_route_widgets
@@ -1337,28 +1505,23 @@ class SettingsWindow(UniformScaleDialog):
                 config.data.get('spells', {}).get('custom_timers', [])):
             if not isinstance(item, list) or not item:
                 continue
-            name = str(item[0] or f'Trigger {item_index + 1}').strip()
-            for field_index, stage in (
-                    (4, 'matched'), (19, 'ending soon'), (21, 'ended')):
-                current = (
-                    str(item[field_index] or '')
-                    if len(item) > field_index else '')
-                if current:
-                    trigger_routes.append((
-                        item_index, field_index, name, stage, current))
+            trigger = CustomTrigger(*item)
+            for field_index, stage, label in (
+                    (4, 'basic', 'matched'), (19, 'ending', 'ending soon'),
+                    (21, 'ended', 'ended')):
+                fields = self._trigger_audio_fields(stage)
+                if (stage == 'basic' or getattr(trigger, fields['sound'])
+                        or getattr(trigger, fields['text'])
+                        or trigger.configured_audio_delivery(stage) != 'off'
+                        or trigger.timer_type in ('countdown', 'repeating')):
+                    trigger_routes.append((item_index, field_index, trigger, stage, label))
         if trigger_routes:
-            sound_sl.addRow(SettingsHeader('TRIGGER SOUND ACTIONS'))
-            for item_index, field_index, name, stage, current in trigger_routes:
-                combo = add_sound_route(
-                    f'{name} · {stage}', '', current,
-                    lambda: self._fade_volume.value(),
-                    f'Test · {name} · {stage}', name)
+            sound_sl.addRow(SettingsHeader('TRIGGER AUDIO ACTIONS'))
+            for item_index, field_index, trigger, stage, label in trigger_routes:
+                combo = add_trigger_audio_route(trigger, stage, f'{trigger.name} · {label}')
                 self._trigger_sound_routes.append(
                     (item_index, field_index, combo))
-                combo._trigger_name = config.data['spells'][
-                    'custom_timers'][item_index][0]
-                combo._saved_trigger_sound = str(combo.currentData() or '')
-                combo.setItemText(combo.findData(''), 'Off (no audio)')
+                combo._trigger_name = trigger.name
         sound_sl.addRow(SettingsHeader('MUTE INDIVIDUAL TRIGGERS'))
         mute_note = QLabel(
             'Mute stops Sound/WAV and speech for this trigger, including timer '
@@ -1382,7 +1545,7 @@ class SettingsWindow(UniformScaleDialog):
             self._trigger_audio_mutes.append((trigger.name, mute))
             sound_sl.addRow(trigger.name, mute)
         overrides = QLabel(
-            'Every configured trigger sound action is listed above. Saved '
+            'Trigger phases can use Sound, text to speech, or Off above. Saved '
             'Smart Timers keep their own optional alarm in each timer editor.')
         overrides.setWordWrap(True)
         overrides.setToolTip(
