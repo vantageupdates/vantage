@@ -249,5 +249,22 @@ zero errors in 1,001.44 seconds**, process exit **0**. JUnit records all 1,926
 cases. The new TTS matrix, sharing case, Market state and window-preset
 assertions passed inside this full run, not only in isolated repetitions.
 The portable candidate and production source hashes above were rechecked
-unchanged after completion. Public-release verification is the remaining
-publication step; no public availability is claimed by this section yet.
+unchanged after completion.
+
+## Public release verification
+
+[Companion 1.44.126](https://github.com/vantageupdates/vantage/releases/tag/v1.44.126)
+was published as a stable, non-draft, non-prerelease release on
+**2026-10-06 at 10:40:22 UTC** and verified as Companion Latest. The annotated
+tag resolves to tested source commit
+`5dcf0e0f73a2b2f37409cbf6e48d3e8b8fc1afc6`. Main and that tag were pushed
+atomically without force or overwriting an existing version.
+
+The release has exactly one asset, **Vantage.exe**, **75,940,262 bytes**.
+GitHub's public SHA-256 digest matches the built/self-tested candidate:
+`2768d4d33406a941f86d1f644c5ead896f73947e47d04ae4775d40310ec93e19`.
+No previous candidate was published. The user installs this release through
+Vantage's normal updater; publication did not replace their local executable
+or modify EverQuest, UI skins, character INIs, game permissions or the
+independent VantageUI release. This final evidence update is documentation
+only; the tested source tag and published executable remain immutable.
