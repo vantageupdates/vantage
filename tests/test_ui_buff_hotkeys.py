@@ -59,9 +59,9 @@ def test_pair_prepares_immutable_skins_and_never_writes_hotkeys(fixture, tmp_pat
     progress = []
     result = updater.prepare_buff_layouts(game, state, log=lambda _: None,
                                          progress=lambda stage, percent, *_: progress.append(percent))
-    assert result.action == 'buff-layouts-ready' and result.version == '1.44.106'
+    assert result.action == 'buff-layouts-ready' and result.version == '1.44.107'
     assert _registry(game)['previous'] == 'VantageUI-v1.44.104'
-    assert _registry(game)['active'] == 'VantageUI-v1.44.106'
+    assert _registry(game)['active'] == 'VantageUI-v1.44.107'
     assert progress == sorted(progress) and progress[-1] == 100
     for orientation, version in updater.BUFF_LAYOUT_VERSIONS.items():
         assert (game / 'uifiles' / updater.folder_name(version) / 'EQUI_Test.xml').read_bytes() == orientation.encode()
@@ -76,10 +76,10 @@ def test_pair_prepares_immutable_skins_and_never_writes_hotkeys(fixture, tmp_pat
 def test_normal_downgrade_remains_refused_and_preset_exception_is_narrow(fixture, tmp_path, monkeypatch):
     game, _, state = fixture
     releases = pair(tmp_path, monkeypatch)
-    updater.install_release(releases['1.44.106'], game, state, log=lambda _: None)
+    updater.install_release(releases['1.44.107'], game, state, log=lambda _: None)
     with pytest.raises(updater.SkinUpdateError, match='older release'):
         updater.install_release(releases['1.44.104'], game, state, log=lambda _: None)
-    assert updater.prepare_buff_layouts(game, state, log=lambda _: None).version == '1.44.106'
+    assert updater.prepare_buff_layouts(game, state, log=lambda _: None).version == '1.44.107'
     other = _release(tmp_path, monkeypatch, version='1.44.101', schema=2)
     with pytest.raises(updater.SkinUpdateError, match='fixed native buff presets'):
         updater.install_release(other, game, state, prepare_buff_preset=True)
@@ -88,8 +88,8 @@ def test_normal_downgrade_remains_refused_and_preset_exception_is_narrow(fixture
 def test_modified_horizontal_is_not_downgraded_or_replaced(fixture, tmp_path, monkeypatch):
     game, _, state = fixture
     releases = pair(tmp_path, monkeypatch)
-    updater.install_release(releases['1.44.106'], game, state, log=lambda _: None)
-    path = game / 'uifiles' / 'VantageUI-v1.44.106' / 'EQUI_Test.xml'
+    updater.install_release(releases['1.44.107'], game, state, log=lambda _: None)
+    path = game / 'uifiles' / 'VantageUI-v1.44.107' / 'EQUI_Test.xml'
     path.write_bytes(b'my personal edits')
     before = _tree(game / 'uifiles')
     with pytest.raises(updater.SkinUpdateError):
@@ -99,7 +99,7 @@ def test_modified_horizontal_is_not_downgraded_or_replaced(fixture, tmp_path, mo
 
 def test_newer_selection_refuses_old_pair_before_network_or_write(fixture, tmp_path, monkeypatch):
     game, _, state = fixture
-    release = _release(tmp_path, monkeypatch, version='1.44.107', schema=2)
+    release = _release(tmp_path, monkeypatch, version='1.44.108', schema=2)
     updater.install_release(release, game, state, log=lambda _: None)
     before = _tree(game / 'uifiles')
     monkeypatch.setattr(updater, 'check_release_version', lambda *_: pytest.fail('No network for obsolete pair'))
@@ -113,7 +113,7 @@ def test_second_failure_does_not_claim_ready_or_damage_first(fixture, tmp_path, 
     pair(tmp_path, monkeypatch)
     real_install = updater.install_release
     def install(release, *args, **kwargs):
-        if release.version == '1.44.106':
+        if release.version == '1.44.107':
             raise updater.SkinUpdateError('Fixture interrupted second install')
         return real_install(release, *args, **kwargs)
     monkeypatch.setattr(updater, 'install_release', install)
@@ -129,13 +129,13 @@ def test_final_ready_gate_rechecks_both_trees_after_second_install(fixture, tmp_
     real_install = updater.install_release
     def install(release, *args, **kwargs):
         result = real_install(release, *args, **kwargs)
-        if release.version == '1.44.106':
+        if release.version == '1.44.107':
             (game / 'uifiles' / 'VantageUI-v1.44.104' / 'EQUI_Test.xml').write_bytes(b'concurrent edits')
         return result
     monkeypatch.setattr(updater, 'install_release', install)
     with pytest.raises(updater.SkinUpdateError):
         updater.prepare_buff_layouts(game, state, log=lambda _: None)
-    assert updater.installed_version(game) == '1.44.106'
+    assert updater.installed_version(game) == '1.44.107'
     assert (game / 'uifiles' / 'VantageUI-v1.44.104' / 'EQUI_Test.xml').read_bytes() == b'concurrent edits'
 
 
@@ -143,11 +143,11 @@ def test_prepared_presets_survive_normal_future_cleanup(fixture, tmp_path, monke
     game, _, state = fixture
     pair(tmp_path, monkeypatch)
     updater.prepare_buff_layouts(game, state, log=lambda _: None)
-    for version in ('1.44.107', '1.44.108'):
+    for version in ('1.44.108', '1.44.109'):
         release = _release(tmp_path, monkeypatch, version=version, schema=2)
         updater.install_release(release, game, state, log=lambda _: None)
     assert set(_registry(game)['managed']) == {
-        'VantageUI-v1.44.104', 'VantageUI-v1.44.106', 'VantageUI-v1.44.107', 'VantageUI-v1.44.108'}
+        'VantageUI-v1.44.104', 'VantageUI-v1.44.107', 'VantageUI-v1.44.108', 'VantageUI-v1.44.109'}
 
 
 def test_migrating_old_prepared_pair_preserves_registered_folders(fixture, tmp_path, monkeypatch):
@@ -160,13 +160,15 @@ def test_migrating_old_prepared_pair_preserves_registered_folders(fixture, tmp_p
     pair(tmp_path, monkeypatch)
     updater.prepare_buff_layouts(game, state, log=lambda _: None)
     assert set(_registry(game)['managed']) == {
-        'VantageUI-v1.44.102', 'VantageUI-v1.44.103', 'VantageUI-v1.44.104', 'VantageUI-v1.44.106'}
+        'VantageUI-v1.44.102', 'VantageUI-v1.44.103', 'VantageUI-v1.44.104', 'VantageUI-v1.44.107'}
     assert old == {version: _tree(game / 'uifiles' / updater.folder_name(version)) for version in old}
 
 
-def test_preset_flag_does_not_allow_direct_105_to_104(fixture, tmp_path, monkeypatch):
+@pytest.mark.parametrize('old_version', ('1.44.105', '1.44.106'))
+def test_preset_flag_does_not_allow_direct_old_horizontal_to_104(fixture, tmp_path, monkeypatch,
+                                                              old_version):
     game, _, state = fixture
-    old_release = _release(tmp_path, monkeypatch, version='1.44.105', schema=2)
+    old_release = _release(tmp_path, monkeypatch, version=old_version, schema=2)
     updater.install_release(old_release, game, state, log=lambda _: None)
     releases = pair(tmp_path, monkeypatch)
     before = _tree(game / 'uifiles')
@@ -177,17 +179,18 @@ def test_preset_flag_does_not_allow_direct_105_to_104(fixture, tmp_path, monkeyp
 
 
 @pytest.mark.parametrize('existing_vertical', (False, True))
-def test_migrating_105_upgrades_before_preparing_older_vertical(fixture, tmp_path, monkeypatch,
-                                                             existing_vertical):
+@pytest.mark.parametrize('old_version', ('1.44.105', '1.44.106'))
+def test_migrating_old_horizontal_upgrades_before_preparing_older_vertical(
+        fixture, tmp_path, monkeypatch, existing_vertical, old_version):
     game, _, state = fixture
     releases = pair(tmp_path, monkeypatch)
     pair_download = updater._download
     if existing_vertical:
         updater.install_release(releases['1.44.104'], game, state, log=lambda _: None)
         vertical_tree = _tree(game / 'uifiles' / 'VantageUI-v1.44.104')
-    old_release = _release(tmp_path, monkeypatch, version='1.44.105', schema=2)
+    old_release = _release(tmp_path, monkeypatch, version=old_version, schema=2)
     updater.install_release(old_release, game, state, log=lambda _: None)
-    old_tree = _tree(game / 'uifiles' / 'VantageUI-v1.44.105')
+    old_tree = _tree(game / 'uifiles' / updater.folder_name(old_version))
     # Keep the original fetched bytes: rebuilding a fixture ZIP at a later
     # timestamp would correctly look like an overwritten immutable release.
     monkeypatch.setattr(updater, '_download', pair_download)
@@ -199,21 +202,23 @@ def test_migrating_105_upgrades_before_preparing_older_vertical(fixture, tmp_pat
     monkeypatch.setattr(updater, 'install_release', install)
     result = updater.prepare_buff_layouts(game, state, log=lambda _: None,
                                          progress=lambda stage, percent, *_: progress.append(percent))
-    assert order == ['1.44.106', '1.44.104', '1.44.106']
-    assert result.version == '1.44.106' and result.action == 'buff-layouts-ready'
+    assert order == ['1.44.107', '1.44.104', '1.44.107']
+    assert result.version == '1.44.107' and result.action == 'buff-layouts-ready'
     assert progress == sorted(progress) and progress[-1] == 100
     assert set(_registry(game)['managed']) == {
-        'VantageUI-v1.44.104', 'VantageUI-v1.44.105', 'VantageUI-v1.44.106'}
-    assert _tree(game / 'uifiles' / 'VantageUI-v1.44.105') == old_tree
+        'VantageUI-v1.44.104', updater.folder_name(old_version), 'VantageUI-v1.44.107'}
+    assert _tree(game / 'uifiles' / updater.folder_name(old_version)) == old_tree
     if existing_vertical:
         assert _tree(game / 'uifiles' / 'VantageUI-v1.44.104') == vertical_tree
 
 
-def test_migration_interruption_does_not_claim_ready_or_damage_old_105(fixture, tmp_path, monkeypatch):
+@pytest.mark.parametrize('old_version', ('1.44.105', '1.44.106'))
+def test_migration_interruption_does_not_claim_ready_or_damage_old_horizontal(
+        fixture, tmp_path, monkeypatch, old_version):
     game, _, state = fixture
-    old_release = _release(tmp_path, monkeypatch, version='1.44.105', schema=2)
+    old_release = _release(tmp_path, monkeypatch, version=old_version, schema=2)
     updater.install_release(old_release, game, state, log=lambda _: None)
-    old_tree = _tree(game / 'uifiles' / 'VantageUI-v1.44.105')
+    old_tree = _tree(game / 'uifiles' / updater.folder_name(old_version))
     pair(tmp_path, monkeypatch)
     real_install = updater.install_release
     def install(release, *args, **kwargs):
@@ -223,5 +228,5 @@ def test_migration_interruption_does_not_claim_ready_or_damage_old_105(fixture, 
     monkeypatch.setattr(updater, 'install_release', install)
     with pytest.raises(updater.SkinUpdateError, match='interrupted vertical'):
         updater.prepare_buff_layouts(game, state, log=lambda _: None)
-    assert updater.installed_version(game) == '1.44.106'
-    assert _tree(game / 'uifiles' / 'VantageUI-v1.44.105') == old_tree
+    assert updater.installed_version(game) == '1.44.107'
+    assert _tree(game / 'uifiles' / updater.folder_name(old_version)) == old_tree

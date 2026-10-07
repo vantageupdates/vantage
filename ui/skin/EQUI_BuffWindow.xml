@@ -771,7 +771,7 @@
     <ScreenID>Buff0</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>152</X>
+      <X>27</X>
       <Y>4</Y>
     </Location>
     <Size>
@@ -785,8 +785,8 @@
     <RightAnchorToLeft>true</RightAnchorToLeft>
     <TopAnchorOffset>4</TopAnchorOffset>
     <BottomAnchorOffset>28</BottomAnchorOffset>
-    <LeftAnchorOffset>152</LeftAnchorOffset>
-    <RightAnchorOffset>176</RightAnchorOffset>
+    <LeftAnchorOffset>27</LeftAnchorOffset>
+    <RightAnchorOffset>51</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -810,7 +810,7 @@
     <ScreenID>Buff1</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>328</X>
+      <X>97</X>
       <Y>4</Y>
     </Location>
     <Size>
@@ -824,8 +824,8 @@
     <RightAnchorToLeft>true</RightAnchorToLeft>
     <TopAnchorOffset>4</TopAnchorOffset>
     <BottomAnchorOffset>28</BottomAnchorOffset>
-    <LeftAnchorOffset>328</LeftAnchorOffset>
-    <RightAnchorOffset>352</RightAnchorOffset>
+    <LeftAnchorOffset>97</LeftAnchorOffset>
+    <RightAnchorOffset>121</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -849,7 +849,7 @@
     <ScreenID>Buff2</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>504</X>
+      <X>167</X>
       <Y>4</Y>
     </Location>
     <Size>
@@ -863,8 +863,8 @@
     <RightAnchorToLeft>true</RightAnchorToLeft>
     <TopAnchorOffset>4</TopAnchorOffset>
     <BottomAnchorOffset>28</BottomAnchorOffset>
-    <LeftAnchorOffset>504</LeftAnchorOffset>
-    <RightAnchorOffset>528</RightAnchorOffset>
+    <LeftAnchorOffset>167</LeftAnchorOffset>
+    <RightAnchorOffset>191</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -888,8 +888,8 @@
     <ScreenID>Buff3</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>152</X>
-      <Y>32</Y>
+      <X>237</X>
+      <Y>4</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -900,10 +900,10 @@
     <LeftAnchorToLeft>true</LeftAnchorToLeft>
     <BottomAnchorToTop>true</BottomAnchorToTop>
     <RightAnchorToLeft>true</RightAnchorToLeft>
-    <TopAnchorOffset>32</TopAnchorOffset>
-    <BottomAnchorOffset>56</BottomAnchorOffset>
-    <LeftAnchorOffset>152</LeftAnchorOffset>
-    <RightAnchorOffset>176</RightAnchorOffset>
+    <TopAnchorOffset>4</TopAnchorOffset>
+    <BottomAnchorOffset>28</BottomAnchorOffset>
+    <LeftAnchorOffset>237</LeftAnchorOffset>
+    <RightAnchorOffset>261</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -927,8 +927,8 @@
     <ScreenID>Buff4</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>328</X>
-      <Y>32</Y>
+      <X>307</X>
+      <Y>4</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -939,10 +939,10 @@
     <LeftAnchorToLeft>true</LeftAnchorToLeft>
     <BottomAnchorToTop>true</BottomAnchorToTop>
     <RightAnchorToLeft>true</RightAnchorToLeft>
-    <TopAnchorOffset>32</TopAnchorOffset>
-    <BottomAnchorOffset>56</BottomAnchorOffset>
-    <LeftAnchorOffset>328</LeftAnchorOffset>
-    <RightAnchorOffset>352</RightAnchorOffset>
+    <TopAnchorOffset>4</TopAnchorOffset>
+    <BottomAnchorOffset>28</BottomAnchorOffset>
+    <LeftAnchorOffset>307</LeftAnchorOffset>
+    <RightAnchorOffset>331</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -966,8 +966,8 @@
     <ScreenID>Buff5</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>504</X>
-      <Y>32</Y>
+      <X>377</X>
+      <Y>4</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -978,10 +978,10 @@
     <LeftAnchorToLeft>true</LeftAnchorToLeft>
     <BottomAnchorToTop>true</BottomAnchorToTop>
     <RightAnchorToLeft>true</RightAnchorToLeft>
-    <TopAnchorOffset>32</TopAnchorOffset>
-    <BottomAnchorOffset>56</BottomAnchorOffset>
-    <LeftAnchorOffset>504</LeftAnchorOffset>
-    <RightAnchorOffset>528</RightAnchorOffset>
+    <TopAnchorOffset>4</TopAnchorOffset>
+    <BottomAnchorOffset>28</BottomAnchorOffset>
+    <LeftAnchorOffset>377</LeftAnchorOffset>
+    <RightAnchorOffset>401</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1005,8 +1005,8 @@
     <ScreenID>Buff6</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>152</X>
-      <Y>60</Y>
+      <X>447</X>
+      <Y>4</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1017,10 +1017,10 @@
     <LeftAnchorToLeft>true</LeftAnchorToLeft>
     <BottomAnchorToTop>true</BottomAnchorToTop>
     <RightAnchorToLeft>true</RightAnchorToLeft>
-    <TopAnchorOffset>60</TopAnchorOffset>
-    <BottomAnchorOffset>84</BottomAnchorOffset>
-    <LeftAnchorOffset>152</LeftAnchorOffset>
-    <RightAnchorOffset>176</RightAnchorOffset>
+    <TopAnchorOffset>4</TopAnchorOffset>
+    <BottomAnchorOffset>28</BottomAnchorOffset>
+    <LeftAnchorOffset>447</LeftAnchorOffset>
+    <RightAnchorOffset>471</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1044,8 +1044,8 @@
     <ScreenID>Buff7</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>328</X>
-      <Y>60</Y>
+      <X>517</X>
+      <Y>4</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1056,10 +1056,10 @@
     <LeftAnchorToLeft>true</LeftAnchorToLeft>
     <BottomAnchorToTop>true</BottomAnchorToTop>
     <RightAnchorToLeft>true</RightAnchorToLeft>
-    <TopAnchorOffset>60</TopAnchorOffset>
-    <BottomAnchorOffset>84</BottomAnchorOffset>
-    <LeftAnchorOffset>328</LeftAnchorOffset>
-    <RightAnchorOffset>352</RightAnchorOffset>
+    <TopAnchorOffset>4</TopAnchorOffset>
+    <BottomAnchorOffset>28</BottomAnchorOffset>
+    <LeftAnchorOffset>517</LeftAnchorOffset>
+    <RightAnchorOffset>541</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1083,8 +1083,8 @@
     <ScreenID>Buff8</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>504</X>
-      <Y>60</Y>
+      <X>587</X>
+      <Y>4</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1095,10 +1095,10 @@
     <LeftAnchorToLeft>true</LeftAnchorToLeft>
     <BottomAnchorToTop>true</BottomAnchorToTop>
     <RightAnchorToLeft>true</RightAnchorToLeft>
-    <TopAnchorOffset>60</TopAnchorOffset>
-    <BottomAnchorOffset>84</BottomAnchorOffset>
-    <LeftAnchorOffset>504</LeftAnchorOffset>
-    <RightAnchorOffset>528</RightAnchorOffset>
+    <TopAnchorOffset>4</TopAnchorOffset>
+    <BottomAnchorOffset>28</BottomAnchorOffset>
+    <LeftAnchorOffset>587</LeftAnchorOffset>
+    <RightAnchorOffset>611</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1122,8 +1122,8 @@
     <ScreenID>Buff9</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>152</X>
-      <Y>88</Y>
+      <X>657</X>
+      <Y>4</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1134,10 +1134,10 @@
     <LeftAnchorToLeft>true</LeftAnchorToLeft>
     <BottomAnchorToTop>true</BottomAnchorToTop>
     <RightAnchorToLeft>true</RightAnchorToLeft>
-    <TopAnchorOffset>88</TopAnchorOffset>
-    <BottomAnchorOffset>112</BottomAnchorOffset>
-    <LeftAnchorOffset>152</LeftAnchorOffset>
-    <RightAnchorOffset>176</RightAnchorOffset>
+    <TopAnchorOffset>4</TopAnchorOffset>
+    <BottomAnchorOffset>28</BottomAnchorOffset>
+    <LeftAnchorOffset>657</LeftAnchorOffset>
+    <RightAnchorOffset>681</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1161,8 +1161,8 @@
     <ScreenID>Buff10</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>328</X>
-      <Y>88</Y>
+      <X>727</X>
+      <Y>4</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1173,10 +1173,10 @@
     <LeftAnchorToLeft>true</LeftAnchorToLeft>
     <BottomAnchorToTop>true</BottomAnchorToTop>
     <RightAnchorToLeft>true</RightAnchorToLeft>
-    <TopAnchorOffset>88</TopAnchorOffset>
-    <BottomAnchorOffset>112</BottomAnchorOffset>
-    <LeftAnchorOffset>328</LeftAnchorOffset>
-    <RightAnchorOffset>352</RightAnchorOffset>
+    <TopAnchorOffset>4</TopAnchorOffset>
+    <BottomAnchorOffset>28</BottomAnchorOffset>
+    <LeftAnchorOffset>727</LeftAnchorOffset>
+    <RightAnchorOffset>751</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1200,8 +1200,8 @@
     <ScreenID>Buff11</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>504</X>
-      <Y>88</Y>
+      <X>797</X>
+      <Y>4</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1212,10 +1212,10 @@
     <LeftAnchorToLeft>true</LeftAnchorToLeft>
     <BottomAnchorToTop>true</BottomAnchorToTop>
     <RightAnchorToLeft>true</RightAnchorToLeft>
-    <TopAnchorOffset>88</TopAnchorOffset>
-    <BottomAnchorOffset>112</BottomAnchorOffset>
-    <LeftAnchorOffset>504</LeftAnchorOffset>
-    <RightAnchorOffset>528</RightAnchorOffset>
+    <TopAnchorOffset>4</TopAnchorOffset>
+    <BottomAnchorOffset>28</BottomAnchorOffset>
+    <LeftAnchorOffset>797</LeftAnchorOffset>
+    <RightAnchorOffset>821</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1239,8 +1239,8 @@
     <ScreenID>Buff12</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>152</X>
-      <Y>116</Y>
+      <X>867</X>
+      <Y>4</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1251,10 +1251,10 @@
     <LeftAnchorToLeft>true</LeftAnchorToLeft>
     <BottomAnchorToTop>true</BottomAnchorToTop>
     <RightAnchorToLeft>true</RightAnchorToLeft>
-    <TopAnchorOffset>116</TopAnchorOffset>
-    <BottomAnchorOffset>140</BottomAnchorOffset>
-    <LeftAnchorOffset>152</LeftAnchorOffset>
-    <RightAnchorOffset>176</RightAnchorOffset>
+    <TopAnchorOffset>4</TopAnchorOffset>
+    <BottomAnchorOffset>28</BottomAnchorOffset>
+    <LeftAnchorOffset>867</LeftAnchorOffset>
+    <RightAnchorOffset>891</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1278,8 +1278,8 @@
     <ScreenID>Buff13</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>328</X>
-      <Y>116</Y>
+      <X>937</X>
+      <Y>4</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1290,10 +1290,10 @@
     <LeftAnchorToLeft>true</LeftAnchorToLeft>
     <BottomAnchorToTop>true</BottomAnchorToTop>
     <RightAnchorToLeft>true</RightAnchorToLeft>
-    <TopAnchorOffset>116</TopAnchorOffset>
-    <BottomAnchorOffset>140</BottomAnchorOffset>
-    <LeftAnchorOffset>328</LeftAnchorOffset>
-    <RightAnchorOffset>352</RightAnchorOffset>
+    <TopAnchorOffset>4</TopAnchorOffset>
+    <BottomAnchorOffset>28</BottomAnchorOffset>
+    <LeftAnchorOffset>937</LeftAnchorOffset>
+    <RightAnchorOffset>961</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1317,8 +1317,8 @@
     <ScreenID>Buff14</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>504</X>
-      <Y>116</Y>
+      <X>1007</X>
+      <Y>4</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1329,10 +1329,10 @@
     <LeftAnchorToLeft>true</LeftAnchorToLeft>
     <BottomAnchorToTop>true</BottomAnchorToTop>
     <RightAnchorToLeft>true</RightAnchorToLeft>
-    <TopAnchorOffset>116</TopAnchorOffset>
-    <BottomAnchorOffset>140</BottomAnchorOffset>
-    <LeftAnchorOffset>504</LeftAnchorOffset>
-    <RightAnchorOffset>528</RightAnchorOffset>
+    <TopAnchorOffset>4</TopAnchorOffset>
+    <BottomAnchorOffset>28</BottomAnchorOffset>
+    <LeftAnchorOffset>1007</LeftAnchorOffset>
+    <RightAnchorOffset>1031</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1356,8 +1356,8 @@
     <ScreenID>Buff15</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>152</X>
-      <Y>144</Y>
+      <X>27</X>
+      <Y>84</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1368,10 +1368,10 @@
     <LeftAnchorToLeft>true</LeftAnchorToLeft>
     <BottomAnchorToTop>true</BottomAnchorToTop>
     <RightAnchorToLeft>true</RightAnchorToLeft>
-    <TopAnchorOffset>144</TopAnchorOffset>
-    <BottomAnchorOffset>168</BottomAnchorOffset>
-    <LeftAnchorOffset>152</LeftAnchorOffset>
-    <RightAnchorOffset>176</RightAnchorOffset>
+    <TopAnchorOffset>84</TopAnchorOffset>
+    <BottomAnchorOffset>108</BottomAnchorOffset>
+    <LeftAnchorOffset>27</LeftAnchorOffset>
+    <RightAnchorOffset>51</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1395,8 +1395,8 @@
     <ScreenID>Buff16</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>328</X>
-      <Y>144</Y>
+      <X>97</X>
+      <Y>84</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1407,10 +1407,10 @@
     <LeftAnchorToLeft>true</LeftAnchorToLeft>
     <BottomAnchorToTop>true</BottomAnchorToTop>
     <RightAnchorToLeft>true</RightAnchorToLeft>
-    <TopAnchorOffset>144</TopAnchorOffset>
-    <BottomAnchorOffset>168</BottomAnchorOffset>
-    <LeftAnchorOffset>328</LeftAnchorOffset>
-    <RightAnchorOffset>352</RightAnchorOffset>
+    <TopAnchorOffset>84</TopAnchorOffset>
+    <BottomAnchorOffset>108</BottomAnchorOffset>
+    <LeftAnchorOffset>97</LeftAnchorOffset>
+    <RightAnchorOffset>121</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1434,8 +1434,8 @@
     <ScreenID>Buff17</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>504</X>
-      <Y>144</Y>
+      <X>167</X>
+      <Y>84</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1446,10 +1446,10 @@
     <LeftAnchorToLeft>true</LeftAnchorToLeft>
     <BottomAnchorToTop>true</BottomAnchorToTop>
     <RightAnchorToLeft>true</RightAnchorToLeft>
-    <TopAnchorOffset>144</TopAnchorOffset>
-    <BottomAnchorOffset>168</BottomAnchorOffset>
-    <LeftAnchorOffset>504</LeftAnchorOffset>
-    <RightAnchorOffset>528</RightAnchorOffset>
+    <TopAnchorOffset>84</TopAnchorOffset>
+    <BottomAnchorOffset>108</BottomAnchorOffset>
+    <LeftAnchorOffset>167</LeftAnchorOffset>
+    <RightAnchorOffset>191</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1473,8 +1473,8 @@
     <ScreenID>Buff18</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>152</X>
-      <Y>172</Y>
+      <X>237</X>
+      <Y>84</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1485,10 +1485,10 @@
     <LeftAnchorToLeft>true</LeftAnchorToLeft>
     <BottomAnchorToTop>true</BottomAnchorToTop>
     <RightAnchorToLeft>true</RightAnchorToLeft>
-    <TopAnchorOffset>172</TopAnchorOffset>
-    <BottomAnchorOffset>196</BottomAnchorOffset>
-    <LeftAnchorOffset>152</LeftAnchorOffset>
-    <RightAnchorOffset>176</RightAnchorOffset>
+    <TopAnchorOffset>84</TopAnchorOffset>
+    <BottomAnchorOffset>108</BottomAnchorOffset>
+    <LeftAnchorOffset>237</LeftAnchorOffset>
+    <RightAnchorOffset>261</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1512,8 +1512,8 @@
     <ScreenID>Buff19</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>328</X>
-      <Y>172</Y>
+      <X>307</X>
+      <Y>84</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1524,10 +1524,10 @@
     <LeftAnchorToLeft>true</LeftAnchorToLeft>
     <BottomAnchorToTop>true</BottomAnchorToTop>
     <RightAnchorToLeft>true</RightAnchorToLeft>
-    <TopAnchorOffset>172</TopAnchorOffset>
-    <BottomAnchorOffset>196</BottomAnchorOffset>
-    <LeftAnchorOffset>328</LeftAnchorOffset>
-    <RightAnchorOffset>352</RightAnchorOffset>
+    <TopAnchorOffset>84</TopAnchorOffset>
+    <BottomAnchorOffset>108</BottomAnchorOffset>
+    <LeftAnchorOffset>307</LeftAnchorOffset>
+    <RightAnchorOffset>331</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1551,8 +1551,8 @@
     <ScreenID>Buff20</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>504</X>
-      <Y>172</Y>
+      <X>377</X>
+      <Y>84</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1563,10 +1563,10 @@
     <LeftAnchorToLeft>true</LeftAnchorToLeft>
     <BottomAnchorToTop>true</BottomAnchorToTop>
     <RightAnchorToLeft>true</RightAnchorToLeft>
-    <TopAnchorOffset>172</TopAnchorOffset>
-    <BottomAnchorOffset>196</BottomAnchorOffset>
-    <LeftAnchorOffset>504</LeftAnchorOffset>
-    <RightAnchorOffset>528</RightAnchorOffset>
+    <TopAnchorOffset>84</TopAnchorOffset>
+    <BottomAnchorOffset>108</BottomAnchorOffset>
+    <LeftAnchorOffset>377</LeftAnchorOffset>
+    <RightAnchorOffset>401</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1590,8 +1590,8 @@
     <ScreenID>Buff21</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>152</X>
-      <Y>200</Y>
+      <X>447</X>
+      <Y>84</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1602,10 +1602,10 @@
     <LeftAnchorToLeft>true</LeftAnchorToLeft>
     <BottomAnchorToTop>true</BottomAnchorToTop>
     <RightAnchorToLeft>true</RightAnchorToLeft>
-    <TopAnchorOffset>200</TopAnchorOffset>
-    <BottomAnchorOffset>224</BottomAnchorOffset>
-    <LeftAnchorOffset>152</LeftAnchorOffset>
-    <RightAnchorOffset>176</RightAnchorOffset>
+    <TopAnchorOffset>84</TopAnchorOffset>
+    <BottomAnchorOffset>108</BottomAnchorOffset>
+    <LeftAnchorOffset>447</LeftAnchorOffset>
+    <RightAnchorOffset>471</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1629,8 +1629,8 @@
     <ScreenID>Buff22</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>328</X>
-      <Y>200</Y>
+      <X>517</X>
+      <Y>84</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1641,10 +1641,10 @@
     <LeftAnchorToLeft>true</LeftAnchorToLeft>
     <BottomAnchorToTop>true</BottomAnchorToTop>
     <RightAnchorToLeft>true</RightAnchorToLeft>
-    <TopAnchorOffset>200</TopAnchorOffset>
-    <BottomAnchorOffset>224</BottomAnchorOffset>
-    <LeftAnchorOffset>328</LeftAnchorOffset>
-    <RightAnchorOffset>352</RightAnchorOffset>
+    <TopAnchorOffset>84</TopAnchorOffset>
+    <BottomAnchorOffset>108</BottomAnchorOffset>
+    <LeftAnchorOffset>517</LeftAnchorOffset>
+    <RightAnchorOffset>541</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1668,8 +1668,8 @@
     <ScreenID>Buff23</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>504</X>
-      <Y>200</Y>
+      <X>587</X>
+      <Y>84</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1680,10 +1680,10 @@
     <LeftAnchorToLeft>true</LeftAnchorToLeft>
     <BottomAnchorToTop>true</BottomAnchorToTop>
     <RightAnchorToLeft>true</RightAnchorToLeft>
-    <TopAnchorOffset>200</TopAnchorOffset>
-    <BottomAnchorOffset>224</BottomAnchorOffset>
-    <LeftAnchorOffset>504</LeftAnchorOffset>
-    <RightAnchorOffset>528</RightAnchorOffset>
+    <TopAnchorOffset>84</TopAnchorOffset>
+    <BottomAnchorOffset>108</BottomAnchorOffset>
+    <LeftAnchorOffset>587</LeftAnchorOffset>
+    <RightAnchorOffset>611</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1707,8 +1707,8 @@
     <ScreenID>Buff24</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>152</X>
-      <Y>228</Y>
+      <X>657</X>
+      <Y>84</Y>
     </Location>
     <Size>
       <CX>24</CX>
@@ -1719,10 +1719,10 @@
     <LeftAnchorToLeft>true</LeftAnchorToLeft>
     <BottomAnchorToTop>true</BottomAnchorToTop>
     <RightAnchorToLeft>true</RightAnchorToLeft>
-    <TopAnchorOffset>228</TopAnchorOffset>
-    <BottomAnchorOffset>252</BottomAnchorOffset>
-    <LeftAnchorOffset>152</LeftAnchorOffset>
-    <RightAnchorOffset>176</RightAnchorOffset>
+    <TopAnchorOffset>84</TopAnchorOffset>
+    <BottomAnchorOffset>108</BottomAnchorOffset>
+    <LeftAnchorOffset>657</LeftAnchorOffset>
+    <RightAnchorOffset>681</RightAnchorOffset>
     <Style_Transparent>true</Style_Transparent>
     <Style_Border>false</Style_Border>
     <ButtonDrawTemplate>
@@ -1749,11 +1749,11 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>6</X>
-      <Y>10</Y>
+      <Y>32</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -1761,9 +1761,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff0_LabelBG">
     <ScreenID>Buff0Label</ScreenID>
@@ -1772,11 +1772,11 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>7</X>
-      <Y>11</Y>
+      <Y>33</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -1784,9 +1784,9 @@
       <G>0</G>
       <B>0</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff1_Label">
     <ScreenID>Buff1Label</ScreenID>
@@ -1794,12 +1794,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>182</X>
-      <Y>10</Y>
+      <X>76</X>
+      <Y>32</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -1807,9 +1807,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff1_LabelBG">
     <ScreenID>Buff1Label</ScreenID>
@@ -1817,12 +1817,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>183</X>
-      <Y>11</Y>
+      <X>77</X>
+      <Y>33</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -1830,9 +1830,9 @@
       <G>0</G>
       <B>0</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff2_Label">
     <ScreenID>Buff2Label</ScreenID>
@@ -1840,12 +1840,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>358</X>
-      <Y>10</Y>
+      <X>146</X>
+      <Y>32</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -1853,9 +1853,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff2_LabelBG">
     <ScreenID>Buff2Label</ScreenID>
@@ -1863,12 +1863,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>359</X>
-      <Y>11</Y>
+      <X>147</X>
+      <Y>33</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -1876,9 +1876,9 @@
       <G>0</G>
       <B>0</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff3_Label">
     <ScreenID>Buff3Label</ScreenID>
@@ -1886,12 +1886,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>6</X>
-      <Y>38</Y>
+      <X>216</X>
+      <Y>32</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -1899,9 +1899,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff3_LabelBG">
     <ScreenID>Buff3Label</ScreenID>
@@ -1909,12 +1909,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>7</X>
-      <Y>39</Y>
+      <X>217</X>
+      <Y>33</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -1922,9 +1922,9 @@
       <G>0</G>
       <B>0</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff4_Label">
     <ScreenID>Buff4Label</ScreenID>
@@ -1932,12 +1932,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>182</X>
-      <Y>38</Y>
+      <X>286</X>
+      <Y>32</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -1945,9 +1945,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff4_LabelBG">
     <ScreenID>Buff4Label</ScreenID>
@@ -1955,12 +1955,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>183</X>
-      <Y>39</Y>
+      <X>287</X>
+      <Y>33</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -1968,9 +1968,9 @@
       <G>0</G>
       <B>0</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff5_Label">
     <ScreenID>Buff5Label</ScreenID>
@@ -1978,12 +1978,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>358</X>
-      <Y>38</Y>
+      <X>356</X>
+      <Y>32</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -1991,9 +1991,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff5_LabelBG">
     <ScreenID>Buff5Label</ScreenID>
@@ -2001,12 +2001,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>359</X>
-      <Y>39</Y>
+      <X>357</X>
+      <Y>33</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2014,9 +2014,9 @@
       <G>0</G>
       <B>0</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff6_Label">
     <ScreenID>Buff6Label</ScreenID>
@@ -2024,12 +2024,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>6</X>
-      <Y>66</Y>
+      <X>426</X>
+      <Y>32</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2037,9 +2037,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff6_LabelBG">
     <ScreenID>Buff6Label</ScreenID>
@@ -2047,12 +2047,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>7</X>
-      <Y>67</Y>
+      <X>427</X>
+      <Y>33</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2060,9 +2060,9 @@
       <G>0</G>
       <B>0</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff7_Label">
     <ScreenID>Buff7Label</ScreenID>
@@ -2070,12 +2070,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>182</X>
-      <Y>66</Y>
+      <X>496</X>
+      <Y>32</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2083,9 +2083,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff7_LabelBG">
     <ScreenID>Buff7Label</ScreenID>
@@ -2093,12 +2093,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>183</X>
-      <Y>67</Y>
+      <X>497</X>
+      <Y>33</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2106,9 +2106,9 @@
       <G>0</G>
       <B>0</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff8_Label">
     <ScreenID>Buff8Label</ScreenID>
@@ -2116,12 +2116,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>358</X>
-      <Y>66</Y>
+      <X>566</X>
+      <Y>32</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2129,9 +2129,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff8_LabelBG">
     <ScreenID>Buff8Label</ScreenID>
@@ -2139,12 +2139,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>359</X>
-      <Y>67</Y>
+      <X>567</X>
+      <Y>33</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2152,9 +2152,9 @@
       <G>0</G>
       <B>0</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff9_Label">
     <ScreenID>Buff9Label</ScreenID>
@@ -2162,12 +2162,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>6</X>
-      <Y>94</Y>
+      <X>636</X>
+      <Y>32</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2175,9 +2175,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff9_LabelBG">
     <ScreenID>Buff9Label</ScreenID>
@@ -2185,12 +2185,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>7</X>
-      <Y>95</Y>
+      <X>637</X>
+      <Y>33</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2198,9 +2198,9 @@
       <G>0</G>
       <B>0</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff10_Label">
     <ScreenID>Buff10Label</ScreenID>
@@ -2208,12 +2208,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>182</X>
-      <Y>94</Y>
+      <X>706</X>
+      <Y>32</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2221,9 +2221,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff10_LabelBG">
     <ScreenID>Buff10Label</ScreenID>
@@ -2231,12 +2231,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>183</X>
-      <Y>95</Y>
+      <X>707</X>
+      <Y>33</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2244,9 +2244,9 @@
       <G>0</G>
       <B>0</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff11_Label">
     <ScreenID>Buff11Label</ScreenID>
@@ -2254,12 +2254,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>358</X>
-      <Y>94</Y>
+      <X>776</X>
+      <Y>32</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2267,9 +2267,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff11_LabelBG">
     <ScreenID>Buff11Label</ScreenID>
@@ -2277,12 +2277,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>359</X>
-      <Y>95</Y>
+      <X>777</X>
+      <Y>33</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2290,9 +2290,9 @@
       <G>0</G>
       <B>0</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff12_Label">
     <ScreenID>Buff12Label</ScreenID>
@@ -2300,12 +2300,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>6</X>
-      <Y>122</Y>
+      <X>846</X>
+      <Y>32</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2313,9 +2313,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff12_LabelBG">
     <ScreenID>Buff12Label</ScreenID>
@@ -2323,12 +2323,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>7</X>
-      <Y>123</Y>
+      <X>847</X>
+      <Y>33</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2336,9 +2336,9 @@
       <G>0</G>
       <B>0</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff13_Label">
     <ScreenID>Buff13Label</ScreenID>
@@ -2346,12 +2346,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>182</X>
-      <Y>122</Y>
+      <X>916</X>
+      <Y>32</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2359,9 +2359,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff13_LabelBG">
     <ScreenID>Buff13Label</ScreenID>
@@ -2369,12 +2369,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>183</X>
-      <Y>123</Y>
+      <X>917</X>
+      <Y>33</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2382,9 +2382,9 @@
       <G>0</G>
       <B>0</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff14_Label">
     <ScreenID>Buff14Label</ScreenID>
@@ -2392,12 +2392,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>358</X>
-      <Y>122</Y>
+      <X>986</X>
+      <Y>32</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2405,9 +2405,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff14_LabelBG">
     <ScreenID>Buff14Label</ScreenID>
@@ -2415,12 +2415,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>359</X>
-      <Y>123</Y>
+      <X>987</X>
+      <Y>33</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2428,9 +2428,9 @@
       <G>0</G>
       <B>0</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff15_Label">
     <ScreenID>Buff15Label</ScreenID>
@@ -2439,11 +2439,11 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>6</X>
-      <Y>150</Y>
+      <Y>112</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2451,9 +2451,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff16_Label">
     <ScreenID>Buff16Label</ScreenID>
@@ -2461,12 +2461,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>182</X>
-      <Y>150</Y>
+      <X>76</X>
+      <Y>112</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2474,9 +2474,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff17_Label">
     <ScreenID>Buff17Label</ScreenID>
@@ -2484,12 +2484,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>358</X>
-      <Y>150</Y>
+      <X>146</X>
+      <Y>112</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2497,9 +2497,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff18_Label">
     <ScreenID>Buff18Label</ScreenID>
@@ -2507,12 +2507,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>6</X>
-      <Y>178</Y>
+      <X>216</X>
+      <Y>112</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2520,9 +2520,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff19_Label">
     <ScreenID>Buff19Label</ScreenID>
@@ -2530,12 +2530,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>182</X>
-      <Y>178</Y>
+      <X>286</X>
+      <Y>112</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2543,9 +2543,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff20_Label">
     <ScreenID>Buff20Label</ScreenID>
@@ -2553,12 +2553,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>358</X>
-      <Y>178</Y>
+      <X>356</X>
+      <Y>112</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2566,9 +2566,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff21_Label">
     <ScreenID>Buff21Label</ScreenID>
@@ -2576,12 +2576,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>6</X>
-      <Y>206</Y>
+      <X>426</X>
+      <Y>112</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2589,9 +2589,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff22_Label">
     <ScreenID>Buff22Label</ScreenID>
@@ -2599,12 +2599,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>182</X>
-      <Y>206</Y>
+      <X>496</X>
+      <Y>112</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2612,9 +2612,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff23_Label">
     <ScreenID>Buff23Label</ScreenID>
@@ -2622,12 +2622,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>358</X>
-      <Y>206</Y>
+      <X>566</X>
+      <Y>112</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2635,9 +2635,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Label item="BW_Buff24_Label">
     <ScreenID>Buff24Label</ScreenID>
@@ -2645,12 +2645,12 @@
     <Font>1</Font>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>6</X>
-      <Y>234</Y>
+      <X>636</X>
+      <Y>112</Y>
     </Location>
     <Size>
-      <CX>142</CX>
-      <CY>12</CY>
+      <CX>66</CX>
+      <CY>40</CY>
     </Size>
     <Text />
     <TextColor>
@@ -2658,9 +2658,9 @@
       <G>243</G>
       <B>247</B>
     </TextColor>
-    <NoWrap>true</NoWrap>
-    <AlignCenter>false</AlignCenter>
-    <AlignRight>true</AlignRight>
+    <NoWrap>false</NoWrap>
+    <AlignCenter>true</AlignCenter>
+    <AlignRight>false</AlignRight>
   </Label>
   <Screen item="BuffWindow">
     <Text>Effects (H)</Text>
@@ -2670,8 +2670,8 @@
       <Y>395</Y>
     </Location>
     <Size>
-      <CX>544</CX>
-      <CY>168</CY>
+      <CX>1066</CX>
+      <CY>100</CY>
     </Size>
     <Style_VScroll>false</Style_VScroll>
     <Style_HScroll>false</Style_HScroll>

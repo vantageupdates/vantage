@@ -1,10 +1,12 @@
 """Lay out the existing Titanium buff controls as fixed V/H presets.
 
-This changes geometry and native window chrome only. It does not create buff
-controls, change native IDs, replace spell art, or touch a character's UI INI.
+This changes geometry, name presentation and native window chrome only. It
+does not create buff controls, change native IDs, replace spell art, or touch
+a character's UI INI.
 Both presets retain visible native spell-name labels and all native bindings.
-The compact horizontal pane fits the 15 P99 slots in three columns and five
-rows; the remaining native definitions stay below the pane, as vertically.
+The compact horizontal pane fits the 15 P99 slots in one row with centered,
+wrapping names below each icon. Remaining native definitions stay below the
+pane, as vertically.
 Native tooltips, cancellation, and titlebar clipping need a client reload to
 validate; XML geometry checks cannot certify the game renderer.
 """
@@ -21,13 +23,13 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE = ROOT / "ui" / "skin" / "EQUI_BuffWindow.xml"
 BUFF_COUNT = 25
 ICON_SIZE = 24
-GRID_COLUMNS = 3
-CELL_WIDTH = 176
-ROW_HEIGHT = 28
-ICON_X = 152
+GRID_COLUMNS = 15
+CELL_WIDTH = 70
+ROW_HEIGHT = 80
+ICON_X = 27
 ICON_Y = 4
-WINDOW_WIDTH = 544
-WINDOW_HEIGHT = 168
+WINDOW_WIDTH = 1066
+WINDOW_HEIGHT = 100
 GEOMETRY_ANCHORS = (
     "AutoStretch", "TopAnchorToTop", "LeftAnchorToLeft", "BottomAnchorToTop",
     "RightAnchorToLeft", "TopAnchorOffset", "BottomAnchorOffset",
@@ -130,23 +132,27 @@ def _validate_controls(source: str) -> ET.Element:
 
 
 def horizontal_preset(source: str) -> str:
-    """Three horizontal cells per row, with the original readable name width."""
+    """One visible P99 row, with centered names below the original icons."""
     before = _validate_controls(source)
 
     result = source
     for index in range(BUFF_COUNT):
         column, row = index % GRID_COLUMNS, index // GRID_COLUMNS
-        # Client coordinates exclude the 16px title and native frame. Names
-        # stay left of icons, as vertically; preserve Font/NoWrap/alignment.
+        # Client coordinates exclude the 16px title and native frame. Keep
+        # native Font/EQType, allowing wrapping only in the spell-name labels.
         x, y = ICON_X + CELL_WIDTH * column, ICON_Y + ROW_HEIGHT * row
         result = _change_item(result, "Button", f"BW_Buff{index}_Button", {
             "Location/X": str(x), "Location/Y": str(y)})
         result = _button_anchors(result, f"BW_Buff{index}_Button", x, y)
-        result = _change_item(result, "Label", f"BW_Buff{index}_Label",
-                              _rect(6 + CELL_WIDTH * column, 10 + ROW_HEIGHT * row, 142, 12))
+        result = _change_item(result, "Label", f"BW_Buff{index}_Label", {
+            **_rect(6 + CELL_WIDTH * column, 32 + ROW_HEIGHT * row, 66, 40),
+            "NoWrap": "false", "AlignCenter": "true", "AlignRight": "false",
+        })
         if index < 15:
-            result = _change_item(result, "Label", f"BW_Buff{index}_LabelBG",
-                                  _rect(7 + CELL_WIDTH * column, 11 + ROW_HEIGHT * row, 142, 12))
+            result = _change_item(result, "Label", f"BW_Buff{index}_LabelBG", {
+                **_rect(7 + CELL_WIDTH * column, 33 + ROW_HEIGHT * row, 66, 40),
+                "NoWrap": "false", "AlignCenter": "true", "AlignRight": "false",
+            })
         # Keep the native empty-slot numbers/Pieces but don't float them in
         # the horizontal name lane without the vertical holder artwork.
         result = _change_item(result, "Label", f"BW_Number{index}Label", _rect(4, 20, 0, 0))
@@ -182,11 +188,15 @@ def vertical_preset(source: str) -> str:
             "Location/X": "175", "Location/Y": str(1 + 25 * index)})
         result = _change_item(result, "Label", f"BW_Number{index}Label",
                               _rect(175, 7 + 25 * index, 24, 12))
-        result = _change_item(result, "Label", f"BW_Buff{index}_Label",
-                              _rect(30, 6 + 25 * index, 142, 12))
+        result = _change_item(result, "Label", f"BW_Buff{index}_Label", {
+            **_rect(30, 6 + 25 * index, 142, 12),
+            "NoWrap": "true", "AlignCenter": "false", "AlignRight": "true",
+        })
         if index < 15:
-            result = _change_item(result, "Label", f"BW_Buff{index}_LabelBG",
-                                  _rect(31, 7 + 25 * index, 142, 12))
+            result = _change_item(result, "Label", f"BW_Buff{index}_LabelBG", {
+                **_rect(31, 7 + 25 * index, 142, 12),
+                "NoWrap": "true", "AlignCenter": "false", "AlignRight": "true",
+            })
     for index in range(3):
         result = _change_item(result, "StaticAnimation", f"BW_BuffBackground{index}",
                               _rect(175, 1 + 125 * index, 24, 124))

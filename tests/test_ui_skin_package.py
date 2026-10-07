@@ -304,7 +304,8 @@ def test_repository_snapshot_parses_and_matches_release_contract():
     assert release == {key: metadata[key] for key in
                        ("schema", "version", "skin_folder", "buff_layout") if key in metadata}
     assert (release["version"], release.get("buff_layout")) in {
-        ("1.44.104", "vertical"), ("1.44.105", "horizontal"), ("1.44.106", "horizontal")}
+        ("1.44.104", "vertical"), ("1.44.105", "horizontal"), ("1.44.106", "horizontal"),
+        ("1.44.107", "horizontal")}
     manifest = package.create_manifest(assets, release)
     assert set(manifest) == {"schema", "version", "skin_folder", "files"}
     assert manifest["version"] == metadata["version"]
