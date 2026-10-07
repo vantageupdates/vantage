@@ -23,7 +23,7 @@ def test_buff_hotkeys_require_explicit_confirmation_and_stop_auto(window, monkey
     window.prepare_buffs()
     assert not calls and window.automatic.get()
     assert 'hotkeys will not be overwritten' in prompts[0]
-    assert 'H shows names below icons in one row' in prompts[0]
+    assert 'H shows names below icons in two compact rows' in prompts[0]
     assert 'three columns' not in prompts[0]
     monkeypatch.setattr(window, '_confirm', lambda *_: True)
     monkeypatch.setattr(gui.updater, 'prepare_buff_layouts', lambda *args, **kwargs: calls.append((args, kwargs)))
@@ -37,7 +37,7 @@ def test_buff_hotkeys_require_explicit_confirmation_and_stop_auto(window, monkey
 
 def test_successful_pair_opens_copyable_native_hotkeys_and_path_change_closes_dialog(window):
     window.events.put(('done', 'buff-layouts', gui.updater.InstallResult(
-        '1.44.107', 0, 'buff-layouts-ready', 'VantageUI-v1.44.107')))
+        '1.44.108', 0, 'buff-layouts-ready', 'VantageUI-v1.44.108')))
     window._pump()
     assert 'Both buff layouts are ready' in window.status.get()
     dialog = window.buff_dialog
@@ -46,17 +46,17 @@ def test_successful_pair_opens_copyable_native_hotkeys_and_path_change_closes_di
     labels = [widget.cget('text') for widget in frame.winfo_children()
               if isinstance(widget, gui.ttk.Label)]
     assert any('/loadskin VantageUI-v1.44.104 1' in text for text in labels)
-    assert any('/loadskin VantageUI-v1.44.107 1' in text for text in labels)
+    assert any('/loadskin VantageUI-v1.44.108 1' in text for text in labels)
     assert any('v1.44.104 (V)' in text and 'One column · visible names' in text for text in labels)
-    assert any('v1.44.107 (H)' in text and 'One row · names below icons' in text for text in labels)
-    assert any('Move the horizontal row using its titlebar' in text for text in labels)
+    assert any('v1.44.108 (H)' in text and 'Two compact rows · names below icons' in text for text in labels)
+    assert any('Move the horizontal panel using its titlebar' in text for text in labels)
     assert any('The rest of the UI is the same in both' in text for text in labels)
     buttons = [widget for widget in frame.winfo_children() if isinstance(widget, gui.ttk.Button)
                and widget.cget('text') == 'Copy command']
     buttons[0].invoke()
     assert window.root.clipboard_get() == '/loadskin VantageUI-v1.44.104 1'
     buttons[1].invoke()
-    assert window.root.clipboard_get() == '/loadskin VantageUI-v1.44.107 1'
+    assert window.root.clipboard_get() == '/loadskin VantageUI-v1.44.108 1'
     window.eq.set(window.eq.get() + '-different')
     assert window.buff_dialog is None
     assert not dialog.winfo_exists()

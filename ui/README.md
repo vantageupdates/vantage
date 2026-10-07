@@ -52,29 +52,31 @@ engine-level resolution upgrade or a claim of in-game verification.
 
 ## Buffs: vertical and horizontal hotkeys
 
-The matched presets are **1.44.104 (V)** and **1.44.107 (H)**. They share the
+The matched presets are **1.44.104 (V)** and **1.44.108 (H)**. They share the
 same UI features and artwork; only the buff layout and its identifying badge
 differ. `(V)` means vertical: the familiar narrow column. `(H)` means horizontal:
-a compact single row with names centered below each icon. The horizontal name
+a compact two-row panel with names centered below each icon. The horizontal name
 lane is 66×40px with native Font 1 and wrapping enabled; vertical retains its
 original 142×12px right-aligned single-line names. Names stay visible without
 hovering, with native tooltips still available. The version below the group logo
-identifies the loaded preset. Published 102/103/104/105/106 remain unchanged.
+identifies the loaded preset. Published 102/103/104/105/106/107 remain unchanged.
 
-The horizontal strip is 1066×100 outer pixels with a native dark frame/titlebar
+The horizontal panel is 576×168 outer pixels with a native dark frame/titlebar
 for dragging. The user's actual 105 screenshot showed that the client ignored
 the icons' static `Location` positions while leaving names in their source grid:
 icons stacked at the far right of an unnecessarily wide frame. The 106 correction
 uses the inherited SIDL `AutoStretch` and explicit top/left anchor offsets for
 each icon, a technique described by [P99 UI authors](https://project1999.com/forums/showthread.php?t=327046).
 Source regression checks require those anchors even if static locations look
-correct; they do not emulate or certify the game renderer. The 107 strip retains
-those anchors and places icons above centered names, following the user's
-reference. [Layout details and native verification limits](../docs/vantageui-buff-strip-1.44.107.md)
-describe this change.
+correct; they do not emulate or certify the game renderer. The107 strip retained
+those anchors with icons above centered names; the user's native screenshot
+confirmed placement but showed excessive width. The108 reduction retains those
+icon/name sizes and uses two short rows instead of one1066px row.
+[Layout details and native verification limits](../docs/vantageui-small-buffs-1.44.108.md)
+describe this change. No scroll or freely resizable geometry is introduced.
 
-It retains all 25 original XML controls and bindings. The first 15 occupy one
-row inside the strip, matching the P99 capacity assumption; the other
+It retains all 25 original XML controls and bindings. The first15 occupy two
+rows (8+7), matching the P99 capacity assumption; the other
 ten definitions remain below the visible panel, as in the vertical preset.
 The window does not shrink according to the number of active effects and does
 not add buff capacity to P99. Horizontal names may wrap across several lines
@@ -87,8 +89,8 @@ assets/files verified before they are presented as ready. Existing edited or
 unmanaged folders are preserved and refused, not repaired or silently adopted.
 If preparation fails partway through, a completed skin remains available;
 retry preparation instead of loading a partially prepared folder.
-When 105 or 106 is selected, preparation first upgrades to 107, then prepares
-104 using the narrowly verified preset downgrade exception, and reselects 107.
+When105,106 or107 is selected, preparation first upgrades to108, then prepares
+104 using the narrowly verified preset downgrade exception, and reselects108.
 This keeps the ordinary downgrade guard intact and preserves registered old
 preset folders.
 
@@ -97,21 +99,21 @@ Create two social hotkeys in P99, with one command on their first line:
 | Social name | First-line command |
 | --- | --- |
 | Buffs vertical (V) | `/loadskin VantageUI-v1.44.104 1` |
-| Buffs horizontal (H) | `/loadskin VantageUI-v1.44.107 1` |
+| Buffs horizontal (H) | `/loadskin VantageUI-v1.44.108 1` |
 
 Drag both socials to your existing hotbar. Each switches the entire skin with
 settings preserved; it is not an instant toggle inside BuffWindow. The updater
 does not create/overwrite any socials, change character INIs or load the skin
-for you. Move the horizontal strip using its titlebar. Both presets are fixed-size;
+for you. Move the horizontal panel using its titlebar. Both presets are fixed-size;
 saved-size handling after reload still needs native confirmation. If it is clipped,
 report a screenshot rather than using a settings-resetting reload to fix one window.
 Check actual icon placement, tooltips, dragging and right-click cancellation
 inside P99. Source bounds and tests are not native rendering verification.
 
-This updater retains registered 102/103/105/106 and 104/107 preset folders. Older Companion/updater
+This updater retains registered102/103/105/106/107 and104/108 preset folders. Older Companion/updater
 builds use their own active/previous-only cleanup policy; they may retire older
 presets after future UI releases. Use the current updater to prepare a matching
-pair; this updater refuses pair preparation when a UI newer than 107 is selected.
+pair; this updater refuses pair preparation when a UI newer than108 is selected.
 
 The 1.44.101 definition pass gives all buff buttons explicit positions in the
 numbered icon column and removes opaque inactive backplates, targeting the
@@ -211,7 +213,7 @@ version or tag. A UI-only release does not increment Companion and does not buil
 or publish `Vantage.exe`. After focused and complete tests, coordinate publication
 of the updater and both transport assets on a reviewed
 `vantage-ui-v<major.minor.patch>` tag in `vantageupdates/vantage`. For this
-candidate the new tag is `vantage-ui-v1.44.107`; the existing vertical 104 release
+candidate the new tag is `vantage-ui-v1.44.108`; the existing vertical104 release
 is reused without replacement. Verify public asset sizes and
 SHA-256 digests against the tested artifacts. An arbitrary source push must not
 automatically publish an unreviewed UI update. The repository
@@ -272,7 +274,7 @@ untouched.
 
 The updater retains the active managed version and its immediate previous
 selection; both are retained even when edited. This updater additionally retains
-registered native buff presets 1.44.102/103/105/106 and 1.44.104/107, never by scanning or adopting
+registered native buff presets1.44.102/103/105/106/107 and1.44.104/108, never by scanning or adopting
 arbitrary skin folders. Older updater builds do not have these preset pins. “Active”
 means the updater's selection; it does not mean EverQuest has loaded that folder.
 Only older registered cleanup candidates whose complete contents still match

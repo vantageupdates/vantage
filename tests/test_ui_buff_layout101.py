@@ -39,7 +39,9 @@ def test_buff_buttons_have_explicit_preset_locations_and_native_bindings(filenam
         assert button.findtext('ScreenID') == f'Buff{i}'
         assert button.findtext('RelativePosition') == 'true'
         horizontal = prefix == 'BW' and screen.findtext('Text') == 'Effects (H)'
-        bounds = (27 + 70 * (i % 15), 4 + 80 * (i // 15), 24, 24) if horizontal else (175, 1 + 25 * i, 24, 24)
+        column, row = ((i % 8, i // 8) if i < 15 else
+                       ((i - 15) % 8, 2 + (i - 15) // 8))
+        bounds = (27 + 70 * column, 4 + 72 * row, 24, 24) if horizontal else (175, 1 + 25 * i, 24, 24)
         assert tuple(int(button.findtext(p)) for p in
                      ('Location/X', 'Location/Y', 'Size/CX', 'Size/CY')) == bounds
         assert button.findtext('Style_Transparent') == 'true'
@@ -57,13 +59,13 @@ def test_buff_buttons_have_explicit_preset_locations_and_native_bindings(filenam
         if horizontal:
             assert tuple(int(label.findtext(p)) for p in
                          ('Location/X', 'Location/Y', 'Size/CX', 'Size/CY')) == (
-                             6 + 70 * (i % 15), 32 + 80 * (i // 15), 66, 40)
+                             6 + 70 * column, 30 + 72 * row, 66, 40)
             assert label.findtext('AlignRight') == label.findtext('NoWrap') == 'false'
             assert label.findtext('AlignCenter') == 'true'
             assert 2 * int(label.findtext('Location/X')) + int(label.findtext('Size/CX')) == (
                 2 * bounds[0] + bounds[2])
             # The name lane is below, not inside, the native icon hit box.
-            assert int(label.findtext('Location/Y')) >= bounds[1] + bounds[3] + 4
+            assert int(label.findtext('Location/Y')) == bounds[1] + bounds[3] + 2
         else:
             assert label.findtext('Location/X') == '30'
             assert label.findtext('Size/CX') == '142'

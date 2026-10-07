@@ -4,9 +4,9 @@ This changes geometry, name presentation and native window chrome only. It
 does not create buff controls, change native IDs, replace spell art, or touch
 a character's UI INI.
 Both presets retain visible native spell-name labels and all native bindings.
-The compact horizontal pane fits the 15 P99 slots in one row with centered,
-wrapping names below each icon. Remaining native definitions stay below the
-pane, as vertically.
+The compact horizontal pane fits the 15 P99 slots in two rows of eight and
+seven, with centered wrapping names below each icon. Remaining native
+definitions start below both visible rows, not in the unused sixteenth cell.
 Native tooltips, cancellation, and titlebar clipping need a client reload to
 validate; XML geometry checks cannot certify the game renderer.
 """
@@ -23,13 +23,13 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE = ROOT / "ui" / "skin" / "EQUI_BuffWindow.xml"
 BUFF_COUNT = 25
 ICON_SIZE = 24
-GRID_COLUMNS = 15
+GRID_COLUMNS = 8
 CELL_WIDTH = 70
-ROW_HEIGHT = 80
+ROW_HEIGHT = 72
 ICON_X = 27
 ICON_Y = 4
-WINDOW_WIDTH = 1066
-WINDOW_HEIGHT = 100
+WINDOW_WIDTH = 576
+WINDOW_HEIGHT = 168
 GEOMETRY_ANCHORS = (
     "AutoStretch", "TopAnchorToTop", "LeftAnchorToLeft", "BottomAnchorToTop",
     "RightAnchorToLeft", "TopAnchorOffset", "BottomAnchorOffset",
@@ -131,13 +131,21 @@ def _validate_controls(source: str) -> ET.Element:
     return before
 
 
+def _horizontal_cell(index: int) -> tuple[int, int]:
+    """Keep the unused sixteenth visible cell clear of extra Titanium IDs."""
+    if index < 15:
+        return index % GRID_COLUMNS, index // GRID_COLUMNS
+    extra = index - 15
+    return extra % GRID_COLUMNS, 2 + extra // GRID_COLUMNS
+
+
 def horizontal_preset(source: str) -> str:
-    """One visible P99 row, with centered names below the original icons."""
+    """Two smaller P99 rows, with centered names below the original icons."""
     before = _validate_controls(source)
 
     result = source
     for index in range(BUFF_COUNT):
-        column, row = index % GRID_COLUMNS, index // GRID_COLUMNS
+        column, row = _horizontal_cell(index)
         # Client coordinates exclude the 16px title and native frame. Keep
         # native Font/EQType, allowing wrapping only in the spell-name labels.
         x, y = ICON_X + CELL_WIDTH * column, ICON_Y + ROW_HEIGHT * row
@@ -145,12 +153,12 @@ def horizontal_preset(source: str) -> str:
             "Location/X": str(x), "Location/Y": str(y)})
         result = _button_anchors(result, f"BW_Buff{index}_Button", x, y)
         result = _change_item(result, "Label", f"BW_Buff{index}_Label", {
-            **_rect(6 + CELL_WIDTH * column, 32 + ROW_HEIGHT * row, 66, 40),
+            **_rect(6 + CELL_WIDTH * column, 30 + ROW_HEIGHT * row, 66, 40),
             "NoWrap": "false", "AlignCenter": "true", "AlignRight": "false",
         })
         if index < 15:
             result = _change_item(result, "Label", f"BW_Buff{index}_LabelBG", {
-                **_rect(7 + CELL_WIDTH * column, 33 + ROW_HEIGHT * row, 66, 40),
+                **_rect(7 + CELL_WIDTH * column, 31 + ROW_HEIGHT * row, 66, 40),
                 "NoWrap": "false", "AlignCenter": "true", "AlignRight": "false",
             })
         # Keep the native empty-slot numbers/Pieces but don't float them in

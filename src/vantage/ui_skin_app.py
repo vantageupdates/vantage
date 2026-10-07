@@ -483,11 +483,11 @@ class SkinWindow:
                      if self.allow_game_running else "Close EverQuest before preparation.")
         if not self._confirm(
                 "Prepare buff hotkeys",
-                "Install and verify 1.44.104 (V) — vertical and 1.44.107 (H) — horizontal icon row.\n"
+                "Install and verify 1.44.104 (V) — vertical and 1.44.108 (H) — compact horizontal panel.\n"
                 "Both share the same UI; only buff layout and its version badge differ.\n"
-                "V shows names beside icons in one column; H shows names below icons in one row.\n"
+                "V shows names beside icons in one column; H shows names below icons in two compact rows.\n"
                 "Existing skin files, character INIs and hotkeys will not be overwritten.\n"
-                "The updater will select 1.44.107; the game changes only when you load a skin.\n"
+                "The updater will select 1.44.108; the game changes only when you load a skin.\n"
                 "If interrupted, a completed skin remains installed; retry to finish the pair.\n\n" + live_copy):
             return
         self.automatic.set(False)
@@ -519,7 +519,7 @@ class SkinWindow:
         for row, (orientation, version) in enumerate(updater.BUFF_LAYOUT_VERSIONS.items(), 2):
             command = f"/loadskin {updater.folder_name(version)} 1"
             badge = "V" if orientation == "vertical" else "H"
-            detail = "One column · visible names" if badge == "V" else "One row · names below icons"
+            detail = "One column · visible names" if badge == "V" else "Two compact rows · names below icons"
             ttk.Label(frame, text=f"Buffs {orientation} — v{version} ({badge})\n{detail}\n{command}", style="Gold.TLabel").grid(
                 row=row, column=0, sticky="w", pady=8)
             def copy(value=command):
@@ -530,7 +530,7 @@ class SkinWindow:
                 self.status.set("Buff command copied. Paste it into the matching EverQuest social.")
             ttk.Button(frame, text="Copy command", command=copy).grid(row=row, column=1, padx=(20, 0))
         ttk.Label(frame, text="(V) = vertical · (H) = horizontal. The rest of the UI is the same in both.\n"
-                  "Move the horizontal row using its titlebar. Names can wrap below each icon.\n"
+                  "Move the horizontal panel using its titlebar. Names can wrap below each icon.\n"
                   "Saved geometry and fixed-size reload behavior still need confirmation in P99.",
                   wraplength=570, style="Muted.TLabel").grid(
             row=4, column=0, columnspan=2, sticky="w", pady=(12, 6))

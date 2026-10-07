@@ -191,7 +191,7 @@ def test_native_bindings_match_the_frozen_ui102_xml_reference():
     assert signature(native_contract(xml())) == signature(reference)
 
 
-def test_fifteen_p99_slots_fit_one_row_with_names_below_without_removing_native_controls():
+def test_fifteen_p99_slots_fit_two_smaller_rows_without_removing_native_controls():
     root = xml()
     screen = item(root, "Screen", "BuffWindow")
     pieces = [node.text for node in screen.findall("Pieces")]
@@ -199,26 +199,27 @@ def test_fifteen_p99_slots_fit_one_row_with_names_below_without_removing_native_
     expected_ids = [f"Buff{index}" for index in range(25)]
     assert [node.findtext("ScreenID") for node in buttons] == expected_ids
     assert len(set(expected_ids)) == len(buttons)
-    assert rect(screen) == (415, 395, 1066, 100)
+    assert rect(screen) == (415, 395, 576, 168)
     assert rect(screen)[0] + rect(screen)[2] <= 1920
     client_sizes = native_client_sizes(screen)
-    assert client_sizes == {"declared": (1058, 78), "conservative": (1058, 76)}
+    assert client_sizes == {"declared": (568, 146), "conservative": (568, 144)}
     occupied = []
     for index, button in enumerate(buttons):
         assert button.attrib["item"] == f"BW_Buff{index}_Button"
         x, y, width, height = rect(button)
-        column, row = index % 15, index // 15
-        assert (x, y, width, height) == (27 + 70 * column, 4 + 80 * row, 24, 24)
+        column, row = ((index % 8, index // 8) if index < 15 else
+                       ((index - 15) % 8, 2 + (index - 15) // 8))
+        assert (x, y, width, height) == (27 + 70 * column, 4 + 72 * row, 24, 24)
         assert anchored_rect(button) == rect(button)
         name = item(root, "Label", f"BW_Buff{index}_Label")
-        name_bounds = (6 + 70 * column, 32 + 80 * row, 66, 40)
+        name_bounds = (6 + 70 * column, 30 + 72 * row, 66, 40)
         assert rect(name) == name_bounds
         assert name.findtext("EQType") == str(500 + index)
         assert name.findtext("Font") == "1"
         assert name.findtext("NoWrap") == name.findtext("AlignRight") == "false"
         assert name.findtext("AlignCenter") == "true"
         assert 2 * x + width == 2 * name_bounds[0] + name_bounds[2]
-        assert name_bounds[1] == y + height + 4
+        assert name_bounds[1] == y + height + 2
         occupied.extend((rect(button), name_bounds))
         if index < 15:
             shadow = item(root, "Label", f"BW_Buff{index}_LabelBG")
@@ -230,7 +231,7 @@ def test_fifteen_p99_slots_fit_one_row_with_names_below_without_removing_native_
             for client_width, client_height in client_sizes.values():
                 sx, sy, sw, sh = rect(shadow)
                 assert sx + sw <= client_width - 2
-                assert sy + sh <= client_height - 2
+                assert sy + sh <= client_height - 1
         for client_width, client_height in client_sizes.values():
             assert 4 <= x and x + width <= client_width - 4
             if index < 15:
@@ -244,15 +245,16 @@ def test_fifteen_p99_slots_fit_one_row_with_names_below_without_removing_native_
         assert button.findtext("ButtonDrawTemplate/NormalDecal") == "BuffIcons"
         assert tuple(int(button.findtext(field)) for field in
                      ("DecalOffset/X", "DecalOffset/Y", "DecalSize/CX", "DecalSize/CY")) == (2, 2, 20, 20)
-    assert {rect(button)[1] for button in buttons[:15]} == {4}
-    assert {rect(button)[1] for button in buttons[15:]} == {84}
-    assert rect(buttons[14]) == (1007, 4, 24, 24)
+    assert [rect(button)[1] for button in buttons[:15]] == [4] * 8 + [76] * 7
+    assert [rect(button)[1] for button in buttons[15:]] == [148] * 8 + [220] * 2
+    assert rect(buttons[14]) == (447, 76, 24, 24)
+    assert rect(buttons[15]) == (27, 148, 24, 24)
     assert len(buttons) == 25
     for index, (x, y, width, height) in enumerate(occupied):
         for client_width, client_height in client_sizes.values():
             assert 4 <= x and x + width <= client_width - 4
             if index < 30:
-                assert 4 <= y and y + height <= client_height - 4
+                assert 4 <= y and y + height <= client_height - 2
         for other_x, other_y, other_width, other_height in occupied[index + 1:]:
             assert (x + width <= other_x or other_x + other_width <= x or
                     y + height <= other_y or other_y + other_height <= y)
@@ -263,8 +265,9 @@ def test_explicit_button_anchors_keep_names_associated_after_native_location_res
     screen = item(root, "Screen", "BuffWindow")
     client_width, _ = native_client_sizes(screen)["conservative"]
     for index, button in enumerate(root.findall("Button")):
-        column, row = index % 15, index // 15
-        expected = (27 + 70 * column, 4 + 80 * row, 24, 24)
+        column, row = ((index % 8, index // 8) if index < 15 else
+                       ((index - 15) % 8, 2 + (index - 15) // 8))
+        expected = (27 + 70 * column, 4 + 72 * row, 24, 24)
         # The supplied screenshot has the native icons stacked at the right
         # while names retain their static layout. Model a native Location reset
         # and require the separate anchor fields to retain our intended grid.
@@ -275,7 +278,28 @@ def test_explicit_button_anchors_keep_names_associated_after_native_location_res
         nx, ny, nw, nh = rect(name)
         bx, by, bw, bh = anchored_rect(button)
         assert 2 * nx + nw == 2 * bx + bw
-        assert ny == by + bh + 4 and nh == 40 and (bw, bh) == (24, 24)
+        assert ny == by + bh + 2 and nh == 40 and (bw, bh) == (24, 24)
+
+
+def test_unused_sixteenth_cell_does_not_receive_extra_titanium_icons_or_names():
+    root = xml()
+    # The second visible row ends after seven P99 slots. In particular Buff15
+    # must not use the otherwise empty eighth cell through naive index % 8.
+    reserved = (496, 76, 66, 67)
+    for node in root.findall("Button") + root.findall("Label"):
+        x, y, width, height = rect(node)
+        if not width or not height:
+            continue
+        rx, ry, rw, rh = reserved
+        assert (x + width <= rx or rx + rw <= x or
+                y + height <= ry or ry + rh <= y), node.attrib["item"]
+    for index in range(15, 25):
+        button = item(root, "Button", f"BW_Buff{index}_Button")
+        name = item(root, "Label", f"BW_Buff{index}_Label")
+        assert rect(button)[1] >= 148
+        assert rect(name)[1] >= 174
+    shadow = item(root, "Label", "BW_Buff14_LabelBG")
+    assert rect(shadow)[1] + rect(shadow)[3] == 143
 
 
 @pytest.mark.parametrize("field", GEOMETRY_ANCHORS)
@@ -409,7 +433,8 @@ def test_generator_is_idempotent_and_preserves_comments_and_native_fields():
 
 def test_exported_preset_matches_its_explicit_release_orientation():
     release = json.loads((ROOT / "ui/release.json").read_text())
-    expected = {"1.44.104": "vertical", "1.44.105": "horizontal", "1.44.106": "horizontal", "1.44.107": "horizontal"}
+    expected = {"1.44.104": "vertical", "1.44.105": "horizontal", "1.44.106": "horizontal",
+                "1.44.107": "horizontal", "1.44.108": "horizontal"}
     assert release["buff_layout"] == expected[release["version"]]
     source = (SKIN / "EQUI_BuffWindow.xml").read_bytes().decode("ascii")
     assert getattr(generator(), release["buff_layout"] + "_preset")(source) == source

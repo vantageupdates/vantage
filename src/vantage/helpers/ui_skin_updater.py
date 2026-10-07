@@ -30,9 +30,9 @@ PAYLOAD_ASSET = "VantageUI-payload.zip"
 RELEASES_API = f"https://api.github.com/repos/{REPOSITORY}/releases"
 # These immutable releases are the two native hotkey targets. Only verified,
 # registered installations qualify for retention; unknown folders are not adopted.
-BUFF_LAYOUT_VERSIONS = {"vertical": "1.44.104", "horizontal": "1.44.107"}
+BUFF_LAYOUT_VERSIONS = {"vertical": "1.44.104", "horizontal": "1.44.108"}
 # Preserve previously prepared pairs too; never enumerate or adopt unknown skins.
-BUFF_LAYOUT_RETAINED_VERSIONS = ("1.44.102", "1.44.103", "1.44.105", "1.44.106", *BUFF_LAYOUT_VERSIONS.values())
+BUFF_LAYOUT_RETAINED_VERSIONS = ("1.44.102", "1.44.103", "1.44.105", "1.44.106", "1.44.107", *BUFF_LAYOUT_VERSIONS.values())
 MAX_FILES = 2000
 MAX_FILE_BYTES = 32 * 1024 * 1024
 MAX_TOTAL_BYTES = 256 * 1024 * 1024
@@ -1253,10 +1253,10 @@ def prepare_buff_layouts(eq_dir, state_dir, log=print, allow_game_running=False,
              tuple(map(int, BUFF_LAYOUT_VERSIONS["horizontal"].split("."))),
              "A newer UI is selected. Use its current updater to prepare buff layouts.")
     releases = [check_release_version(version) for version in BUFF_LAYOUT_VERSIONS.values()]
-    # Users coming from the older horizontal 105/106 cannot select 104 first:
-    # the only allowed preparation downgrade is 104 from verified 107.
-    # Upgrade to 107, prepare 104 through that existing narrow exception,
-    # then reselect 107. Ordinary downgrades stay forbidden.
+    # Users coming from older horizontal 105/106/107 cannot select 104 first:
+    # the only allowed preparation downgrade is 104 from verified 108.
+    # Upgrade to 108, prepare 104 through that existing narrow exception,
+    # then reselect 108. Ordinary downgrades stay forbidden.
     vertical_version = tuple(map(int, BUFF_LAYOUT_VERSIONS["vertical"].split(".")))
     horizontal_version = tuple(map(int, BUFF_LAYOUT_VERSIONS["horizontal"].split(".")))
     if current and vertical_version < tuple(map(int, current.split("."))) < horizontal_version:
