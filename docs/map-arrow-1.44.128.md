@@ -33,8 +33,20 @@ the **1.44.128** version marker. Candidate **Vantage.exe** is **75,943,515
 bytes**, with SHA-256
 `1997e7112480dc0bc8672917b80c48b04dc64d74fda78a1dd0caafb05f12963a`.
 All 14 changed production/version files were hash-checked unchanged after
-build and before publication. The public-release proof will follow
-publication without changing the source tag or executable.
+build and before publication.
 
 No running Vantage, EverQuest, WinEQ, skin, character INI, or user permission
 was changed. The user installs through Vantage's normal updater.
+
+## Public release verification
+
+[Companion 1.44.128](https://github.com/vantageupdates/vantage/releases/tag/v1.44.128)
+was published at **2026-10-08 02:36:19 UTC** and verified as stable,
+non-draft, non-prerelease **Companion Latest**. Its new annotated tag resolves
+to tested source commit `c137ab5b1675f9cdfa1d0e96cb65e89bd15d42c7`.
+Main and the new tag were pushed atomically without force or tag reuse.
+
+The sole public asset is **Vantage.exe**, **75,943,515 bytes**, with GitHub
+digest `sha256:1997e7112480dc0bc8672917b80c48b04dc64d74fda78a1dd0caafb05f12963a`,
+matching the built and self-tested candidate exactly. The tagged source and
+executable remain immutable; this public verification addition is docs only.
