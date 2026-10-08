@@ -76,7 +76,7 @@ def test_package_preserves_correct_visible_version_bytes(candidate):
     assert (skin / "EQUI_GroupWindow.xml").read_bytes() == data
 
 
-@pytest.mark.parametrize("layout,suffix", [("vertical", "V"), ("horizontal", "H")])
+@pytest.mark.parametrize("layout,suffix", [("vertical", "VBuff"), ("horizontal", "HBuff")])
 def test_oriented_package_preserves_badge_bytes_and_public_manifest_contract(candidate, layout, suffix):
     skin, release, output = candidate
     metadata = json.loads(release.read_text(encoding="utf-8"))
@@ -104,12 +104,12 @@ def test_oriented_package_preserves_badge_bytes_and_public_manifest_contract(can
 
 
 @pytest.mark.parametrize("layout,suffix,opposite", [
-    ("vertical", "V", "H"), ("horizontal", "H", "V"),
+    ("vertical", "VBuff", "HBuff"), ("horizontal", "HBuff", "VBuff"),
 ])
 @pytest.mark.parametrize("badge", [
     "missing", "duplicate", "v1.44.52", "v1.44.51 ({suffix})",
     "v1.44.52 ({opposite})", "v1.44.52 (X)", "v1.44.52({suffix})",
-    "v1.44.52 ({suffix}) ", "VantageUI v1.44.52 ({suffix})",
+    "v1.44.52 ({suffix}) ", "VantageUI v1.44.52 ({suffix})", "v1.44.52 (V)", "v1.44.52 (H)",
 ])
 def test_oriented_package_refuses_missing_stale_or_wrong_badge(candidate, layout, suffix, opposite, badge):
     skin, release, output = candidate
@@ -305,7 +305,8 @@ def test_repository_snapshot_parses_and_matches_release_contract():
                        ("schema", "version", "skin_folder", "buff_layout") if key in metadata}
     assert (release["version"], release.get("buff_layout")) in {
         ("1.44.104", "vertical"), ("1.44.105", "horizontal"), ("1.44.106", "horizontal"),
-        ("1.44.107", "horizontal"), ("1.44.108", "horizontal")}
+        ("1.44.107", "horizontal"), ("1.44.108", "horizontal"),
+        ("1.44.109", "vertical"), ("1.44.110", "horizontal")}
     manifest = package.create_manifest(assets, release)
     assert set(manifest) == {"schema", "version", "skin_folder", "files"}
     assert manifest["version"] == metadata["version"]

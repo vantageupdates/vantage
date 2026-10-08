@@ -23,7 +23,7 @@ def test_buff_hotkeys_require_explicit_confirmation_and_stop_auto(window, monkey
     window.prepare_buffs()
     assert not calls and window.automatic.get()
     assert 'hotkeys will not be overwritten' in prompts[0]
-    assert 'H shows names below icons in two compact rows' in prompts[0]
+    assert 'HBuff shows names below icons in two compact rows' in prompts[0]
     assert 'three columns' not in prompts[0]
     monkeypatch.setattr(window, '_confirm', lambda *_: True)
     monkeypatch.setattr(gui.updater, 'prepare_buff_layouts', lambda *args, **kwargs: calls.append((args, kwargs)))
@@ -37,7 +37,7 @@ def test_buff_hotkeys_require_explicit_confirmation_and_stop_auto(window, monkey
 
 def test_successful_pair_opens_copyable_native_hotkeys_and_path_change_closes_dialog(window):
     window.events.put(('done', 'buff-layouts', gui.updater.InstallResult(
-        '1.44.108', 0, 'buff-layouts-ready', 'VantageUI-v1.44.108')))
+        '1.44.110', 0, 'buff-layouts-ready', 'VantageUI-v1.44.110')))
     window._pump()
     assert 'Both buff layouts are ready' in window.status.get()
     dialog = window.buff_dialog
@@ -45,18 +45,18 @@ def test_successful_pair_opens_copyable_native_hotkeys_and_path_change_closes_di
     frame = dialog.winfo_children()[0]
     labels = [widget.cget('text') for widget in frame.winfo_children()
               if isinstance(widget, gui.ttk.Label)]
-    assert any('/loadskin VantageUI-v1.44.104 1' in text for text in labels)
-    assert any('/loadskin VantageUI-v1.44.108 1' in text for text in labels)
-    assert any('v1.44.104 (V)' in text and 'One column · visible names' in text for text in labels)
-    assert any('v1.44.108 (H)' in text and 'Two compact rows · names below icons' in text for text in labels)
+    assert any('/loadskin VantageUI-v1.44.109 1' in text for text in labels)
+    assert any('/loadskin VantageUI-v1.44.110 1' in text for text in labels)
+    assert any('v1.44.109 (VBuff)' in text and 'One column · visible names' in text for text in labels)
+    assert any('v1.44.110 (HBuff)' in text and 'Two compact rows · names below icons' in text for text in labels)
     assert any('Move the horizontal panel using its titlebar' in text for text in labels)
     assert any('The rest of the UI is the same in both' in text for text in labels)
     buttons = [widget for widget in frame.winfo_children() if isinstance(widget, gui.ttk.Button)
                and widget.cget('text') == 'Copy command']
     buttons[0].invoke()
-    assert window.root.clipboard_get() == '/loadskin VantageUI-v1.44.104 1'
+    assert window.root.clipboard_get() == '/loadskin VantageUI-v1.44.109 1'
     buttons[1].invoke()
-    assert window.root.clipboard_get() == '/loadskin VantageUI-v1.44.108 1'
+    assert window.root.clipboard_get() == '/loadskin VantageUI-v1.44.110 1'
     window.eq.set(window.eq.get() + '-different')
     assert window.buff_dialog is None
     assert not dialog.winfo_exists()
@@ -68,6 +68,66 @@ def test_failed_pair_never_shows_hotkey_ready_dialog(window):
     window._pump()
     assert window.buff_dialog is None
     assert 'did not complete' in window.status.get()
+
+
+@pytest.mark.parametrize('automatic', (False, True))
+@pytest.mark.parametrize('checked_version', ('1.44.109', '1.44.110'))
+def test_normal_update_installs_pair_through_wrapper_without_disabling_auto(window, monkeypatch, automatic, checked_version):
+    window.release = SimpleNamespace(version=checked_version)
+    window.automatic.set(True)
+    prompts, calls = [], []
+    monkeypatch.setattr(window, '_confirm', lambda title, text: prompts.append(text) or True)
+    monkeypatch.setattr(gui.updater, 'install_release', lambda *args, **kwargs: pytest.fail('Single-skin primitive must not be called by the GUI'))
+    result = gui.updater.InstallResult('1.44.110', 2, 'buff-layouts-ready', 'VantageUI-v1.44.110')
+    monkeypatch.setattr(gui.updater, 'install_update', lambda *args, **kwargs: calls.append((args, kwargs)) or result)
+    def immediate(action, callback):
+        window.events.put(('done', action, callback()))
+    monkeypatch.setattr(window, '_work', immediate)
+    window.install(automatic=automatic)
+    window._pump()
+    assert len(calls) == 1 and calls[0][0][0] is window.release
+    assert calls[0][1]['allow_game_running'] is False
+    assert calls[0][1]['progress'] == window.worker_progress
+    assert window.automatic.get()
+    assert window.buff_dialog is not None
+    assert '(VBuff) + (HBuff)' in window.status.get()
+    assert '(VBuff)' in window.destination.get() and '(HBuff)' in window.destination.get()
+    if automatic:
+        assert not prompts
+    else:
+        assert '(VBuff)' in prompts[0] and '(HBuff)' in prompts[0]
+        assert 'retry to finish both' in prompts[0]
+        assert 'Restore previous selects (VBuff)' in prompts[0]
+        assert 'The selected version, its previous backup' not in prompts[0]
+
+
+def test_normal_update_pair_failure_does_not_publish_ready_commands(window):
+    window.busy = True
+    window.events.put(('error', 'install', gui.updater.SkinUpdateError('Second layout interrupted')))
+    window._pump()
+    assert window.buff_dialog is None
+    assert 'ready' not in window.status.get().lower()
+    assert str(window.copy_button['state']) == 'disabled'
+
+
+def test_success_of_a_single_skin_does_not_claim_pair_readiness(window):
+    window.events.put(('done', 'install', gui.updater.InstallResult('1.44.108', 1, 'installed', 'VantageUI-v1.44.108')))
+    window._pump()
+    assert window.buff_dialog is None
+    assert 'Both buff layouts' not in window.status.get()
+
+
+def test_obsolete_updater_error_gives_recovery_instruction_and_pauses_auto(window):
+    window.automatic.set(True)
+    window.busy = True
+    window.events.put(('error', 'install', gui.updater.SkinUpdateError(
+        'A newer UI release is available. Use its current updater to install it.')))
+    window._pump()
+    assert not window.automatic.get()
+    assert 'Download the current VantageUI-Updater.exe' in window.status.get()
+    assert 'Automatic mode paused' in window.status.get()
+    assert window.buff_dialog is None
+    assert json.loads(window.settings_path.read_text())['automatic'] is False
 
 
 def test_settings_validate_types(tmp_path):
@@ -112,7 +172,7 @@ def test_live_embedded_window_forwards_explicit_opt_in(window, monkeypatch):
         lambda title, text: prompts.append((title, text)) or True)
     calls = []
     monkeypatch.setattr(
-        gui.updater, 'install_release',
+        gui.updater, 'install_update',
         lambda *args, **kwargs: calls.append((args, kwargs)) or
         SimpleNamespace(version='1.44.51'))
     def immediate(action, callback):

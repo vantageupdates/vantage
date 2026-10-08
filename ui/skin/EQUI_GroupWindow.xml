@@ -12840,7 +12840,7 @@
     <RelativePosition>true</RelativePosition>
     <Location><X>5</X><Y>244</Y></Location>
     <Size><CX>116</CX><CY>12</CY></Size>
-    <Text>v1.44.108 (H)</Text>
+    <Text>v1.44.109 (VBuff)</Text>
     <TextColor><R>218</R><G>195</G><B>147</B></TextColor>
     <NoWrap>true</NoWrap>
     <AlignCenter>true</AlignCenter>

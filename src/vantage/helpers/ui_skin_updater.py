@@ -30,9 +30,11 @@ PAYLOAD_ASSET = "VantageUI-payload.zip"
 RELEASES_API = f"https://api.github.com/repos/{REPOSITORY}/releases"
 # These immutable releases are the two native hotkey targets. Only verified,
 # registered installations qualify for retention; unknown folders are not adopted.
-BUFF_LAYOUT_VERSIONS = {"vertical": "1.44.104", "horizontal": "1.44.108"}
+BUFF_LAYOUT_VERSIONS = {"vertical": "1.44.109", "horizontal": "1.44.110"}
 # Preserve previously prepared pairs too; never enumerate or adopt unknown skins.
-BUFF_LAYOUT_RETAINED_VERSIONS = ("1.44.102", "1.44.103", "1.44.105", "1.44.106", "1.44.107", *BUFF_LAYOUT_VERSIONS.values())
+BUFF_LAYOUT_RETAINED_VERSIONS = (
+    "1.44.102", "1.44.103", "1.44.104", "1.44.105", "1.44.106",
+    "1.44.107", "1.44.108", *BUFF_LAYOUT_VERSIONS.values())
 MAX_FILES = 2000
 MAX_FILE_BYTES = 32 * 1024 * 1024
 MAX_TOTAL_BYTES = 256 * 1024 * 1024
@@ -90,6 +92,9 @@ def error_diagnostic(error):
     if isinstance(error, SkinUpdateError) and error.args and isinstance(error.args[0], str):
         message = error.args[0].casefold()
         for marker, summary in (
+                ("newer ui release", "A newer UI release requires its current updater"),
+                ("newer ui update", "A newer UI release requires its current updater"),
+                ("newer ui is selected", "A newer UI release requires its current updater"),
                 ("links and junctions", "Links and junctions are not supported"),
                 ("contents changed", "folder contents changed"),
                 ("identity changed", "folder identity changed"),
@@ -1237,8 +1242,38 @@ def rollback_last(eq_dir, state_dir, log=print, progress=None):
         return InstallResult(_folder_version(previous), 0, "restored", previous)
 
 
+def install_update(release, eq_dir, state_dir, log=print,
+                   allow_game_running=False, progress=None):
+    """Install the checked update, preparing both layouts for the current pair.
+
+    Older releases retain the single-release installer behavior. A newer
+    release needs its own updater so this pinned pair cannot replace it.
+    """
+    _validate_release(release)
+    horizontal = BUFF_LAYOUT_VERSIONS["horizontal"]
+    _require(tuple(map(int, release.version.split("."))) <=
+             tuple(map(int, horizontal.split("."))),
+             "A newer UI release is available. Use its current updater to install it.")
+    if release.version in BUFF_LAYOUT_VERSIONS.values():
+        selected = ({"horizontal_release": release} if release.version == horizontal
+                    else {"vertical_release": release})
+        return prepare_buff_layouts(
+            eq_dir, state_dir, log=log, allow_game_running=allow_game_running,
+            progress=progress, **selected)
+    return install_release(release, eq_dir, state_dir, log=log,
+                           allow_game_running=allow_game_running,
+                           progress=progress)
+
+
+def _validate_buff_release(release, orientation):
+    _validate_release(release)
+    version = BUFF_LAYOUT_VERSIONS[orientation]
+    _require(release.version == version and release.tag == "vantage-ui-v" + version,
+             "The buff layout release does not match its fixed native preset tag.")
+
+
 def prepare_buff_layouts(eq_dir, state_dir, log=print, allow_game_running=False,
-                         progress=None):
+                         progress=None, horizontal_release=None, vertical_release=None):
     """Explicitly prepare two verified skins; never write socials or UI INIs.
 
     This prepares two immutable skins, not an atomic pair. An intermediate
@@ -1247,36 +1282,49 @@ def prepare_buff_layouts(eq_dir, state_dir, log=print, allow_game_running=False,
     completed skin remains usable, but no hotkey-ready result is returned.
     """
     progress = _monotonic_progress(progress)
+    if horizontal_release is not None:
+        _validate_buff_release(horizontal_release, "horizontal")
+    if vertical_release is not None:
+        _validate_buff_release(vertical_release, "vertical")
     _require_install_policy(allow_game_running)
     current = installed_version(eq_dir)
     _require(not current or tuple(map(int, current.split("."))) <=
              tuple(map(int, BUFF_LAYOUT_VERSIONS["horizontal"].split("."))),
              "A newer UI is selected. Use its current updater to prepare buff layouts.")
-    releases = [check_release_version(version) for version in BUFF_LAYOUT_VERSIONS.values()]
-    # Users coming from older horizontal 105/106/107 cannot select 104 first:
-    # the only allowed preparation downgrade is 104 from verified 108.
-    # Upgrade to 108, prepare 104 through that existing narrow exception,
-    # then reselect 108. Ordinary downgrades stay forbidden.
+    pair_releases = (
+        vertical_release if vertical_release is not None else
+        check_release_version(BUFF_LAYOUT_VERSIONS["vertical"]),
+        horizontal_release if horizontal_release is not None else
+        check_release_version(BUFF_LAYOUT_VERSIONS["horizontal"]))
+    for orientation, release in zip(BUFF_LAYOUT_VERSIONS, pair_releases):
+        _validate_buff_release(release, orientation)
+    releases = list(pair_releases)
+    # An intermediate selection must upgrade to horizontal before the narrow
+    # verified horizontal-to-vertical exception can prepare the older preset.
+    # Existing selections through 108 simply upgrade to vertical, then horizontal.
     vertical_version = tuple(map(int, BUFF_LAYOUT_VERSIONS["vertical"].split(".")))
     horizontal_version = tuple(map(int, BUFF_LAYOUT_VERSIONS["horizontal"].split(".")))
     if current and vertical_version < tuple(map(int, current.split("."))) < horizontal_version:
         releases = [releases[1], releases[0], releases[1]]
     warnings = []
+    changed_files = 0
     result = None
     for index, release in enumerate(releases):
         mapped = None if progress is None else lambda stage, percent, received, total, i=index: (
-            _emit_progress(progress, stage, (i * 100 + percent) // len(releases), received, total))
+            _emit_progress(progress, stage, (i * 95 + percent * 95 // 100) // len(releases), received, total))
         result = install_release(release, eq_dir, state_dir, log=log,
                                  allow_game_running=allow_game_running,
                                  progress=mapped, prepare_buff_preset=True)
+        changed_files += result.changed_files
         warnings.extend(result.warnings)
+    _emit_progress(progress, "Verifying both buff layouts", 97)
     _, target = _target(eq_dir)
     with _directory_guard(target), _target_lock(target):
         registry, snapshot = _registry(target)
         _require(registry["pending"] is None and
                  registry["active"] == folder_name(BUFF_LAYOUT_VERSIONS["horizontal"]),
                  "The buff layout selection changed; check the installation and retry.")
-        for release in releases:
+        for release in pair_releases:
             name = folder_name(release.version)
             record = registry["managed"].get(name)
             _require(record is not None and not record["quarantine"],
@@ -1287,5 +1335,6 @@ def prepare_buff_layouts(eq_dir, state_dir, log=print, allow_game_running=False,
                      marker["payload_sha256"] == release.payload_sha256,
                      "Prepared buff layout bytes do not match the selected release.")
         _registry_unchanged(target, snapshot)
-    return InstallResult(result.version, result.changed_files, "buff-layouts-ready",
-                         result.folder, tuple(warnings))
+    _emit_progress(progress, "Both buff layouts are ready", 100)
+    return InstallResult(result.version, changed_files, "buff-layouts-ready",
+                         result.folder, tuple(dict.fromkeys(warnings)))

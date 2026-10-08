@@ -173,7 +173,7 @@ def horizontal_preset(source: str) -> str:
         "DrawTemplate": "WDT_Rounded",
         "Style_Titlebar": "true",
         "Style_Border": "true",
-        "Text": "Effects (H)",
+        "Text": "Effects (HBuff)",
     })
     after = ET.fromstring(result)
     original_screen = before.find("Screen[@item='BuffWindow']")
@@ -211,7 +211,7 @@ def vertical_preset(source: str) -> str:
     return _change_item(result, "Screen", "BuffWindow", {
         **_rect(415, 395, 200, 375), "Style_Transparent": "true",
         "DrawTemplate": "WDT_RoundedNoTitle", "Style_Titlebar": "false",
-        "Style_Border": "false", "Text": "Effects (V)"})
+        "Style_Border": "false", "Text": "Effects (VBuff)"})
 
 
 def main(argv: list[str] | None = None) -> int:

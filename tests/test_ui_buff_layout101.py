@@ -38,7 +38,7 @@ def test_buff_buttons_have_explicit_preset_locations_and_native_bindings(filenam
         button = item(root, 'Button', name)
         assert button.findtext('ScreenID') == f'Buff{i}'
         assert button.findtext('RelativePosition') == 'true'
-        horizontal = prefix == 'BW' and screen.findtext('Text') == 'Effects (H)'
+        horizontal = prefix == 'BW' and screen.findtext('Text') == 'Effects (HBuff)'
         column, row = ((i % 8, i // 8) if i < 15 else
                        ((i - 15) % 8, 2 + (i - 15) // 8))
         bounds = (27 + 70 * column, 4 + 72 * row, 24, 24) if horizontal else (175, 1 + 25 * i, 24, 24)

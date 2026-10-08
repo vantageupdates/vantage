@@ -122,7 +122,7 @@ def native_contract(root):
             for field, value in NAME_PRESENTATION.items():
                 assert len(node.findall(field)) == 1, field
                 node.find(field).text = value
-        if node.tag == "Screen" and node.findtext("Text") in ("Effects (V)", "Effects (H)"):
+        if node.tag == "Screen" and node.findtext("Text") in ("Effects (VBuff)", "Effects (HBuff)"):
             node.find("Text").text = "Effects"
         for child in list(node):
             if child.tag in allowed_fields[node.tag]:
@@ -165,7 +165,7 @@ def restore_vertical_geometry(root):
                                 (175, 1 + 125 * index, 24, 124)):
             background.find(field).text = str(value)
     screen = item(root, "Screen", "BuffWindow")
-    if screen.findtext("Text") in ("Effects (V)", "Effects (H)"):
+    if screen.findtext("Text") in ("Effects (VBuff)", "Effects (HBuff)"):
         screen.find("Text").text = "Effects"
     for field, value in {
             "Location/X": "415", "Location/Y": "395", "Size/CX": "200", "Size/CY": "375",
@@ -362,7 +362,7 @@ def test_name_presentation_normalization_does_not_erase_numeric_label_changes(fi
 def test_dark_native_titlebar_is_clear_of_icon_controls():
     root = xml()
     screen = item(root, "Screen", "BuffWindow")
-    assert screen.findtext("Text") == "Effects (H)"
+    assert screen.findtext("Text") == "Effects (HBuff)"
     assert screen.findtext("DrawTemplate") == "WDT_Rounded"
     assert screen.findtext("Style_Titlebar") == screen.findtext("Style_Border") == "true"
     assert screen.findtext("Style_Transparent") == "false"
@@ -427,14 +427,15 @@ def test_generator_is_idempotent_and_preserves_comments_and_native_fields():
     generated = module.horizontal_preset(restored_source)
     assert signature(ET.fromstring(generated)) == signature(xml())
     assert tree_digest(restore_vertical_geometry(ET.fromstring(generated))) == VERTICAL_TREE
-    decorated = source.replace("<Text>Effects (H)</Text>", "<!-- retain this note -->\r\n    <Text>Effects (H)</Text>")
+    decorated = source.replace("<Text>Effects (HBuff)</Text>", "<!-- retain this note -->\r\n    <Text>Effects (HBuff)</Text>")
     assert module.horizontal_preset(decorated) == decorated
 
 
 def test_exported_preset_matches_its_explicit_release_orientation():
     release = json.loads((ROOT / "ui/release.json").read_text())
     expected = {"1.44.104": "vertical", "1.44.105": "horizontal", "1.44.106": "horizontal",
-                "1.44.107": "horizontal", "1.44.108": "horizontal"}
+                "1.44.107": "horizontal", "1.44.108": "horizontal",
+                "1.44.109": "vertical", "1.44.110": "horizontal"}
     assert release["buff_layout"] == expected[release["version"]]
     source = (SKIN / "EQUI_BuffWindow.xml").read_bytes().decode("ascii")
     assert getattr(generator(), release["buff_layout"] + "_preset")(source) == source
@@ -469,7 +470,8 @@ def test_generator_rejects_duplicate_geometry_anchor_fields(layout, field):
 @pytest.mark.parametrize("layout", ("vertical", "horizontal"))
 def test_generator_rejects_duplicate_coordinate_fields(layout):
     module = generator()
-    source = (SKIN / "EQUI_BuffWindow.xml").read_bytes().decode("ascii")
+    source = module.horizontal_preset((SKIN / "EQUI_BuffWindow.xml").read_bytes().decode("ascii"))
+    assert "<X>27</X>" in source
     source = source.replace("<X>27</X>", "<X>27</X><X>999</X>", 1)
     with pytest.raises(ValueError, match="Expected one X, found 2"):
         getattr(module, layout + "_preset")(source)

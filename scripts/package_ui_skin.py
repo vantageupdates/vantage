@@ -25,7 +25,7 @@ MANIFEST_NAME = "VantageUI-manifest.json"
 PAYLOAD_NAME = "VantageUI-payload.zip"
 MANIFEST_SCHEMA = 2
 SKIN_FOLDER_PREFIX = "VantageUI-v"
-BUFF_LAYOUT_BADGES = {"vertical": "V", "horizontal": "H"}
+BUFF_LAYOUT_BADGES = {"vertical": "VBuff", "horizontal": "HBuff"}
 VERSION_PATTERN = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
 RESERVED_NAMES = {"con", "prn", "aux", "nul"} | {
     "{}{}".format(prefix, number) for prefix in ("com", "lpt") for number in range(1, 10)

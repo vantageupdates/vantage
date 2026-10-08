@@ -138,7 +138,7 @@ class SkinWindow:
         outer.rowconfigure(11, weight=1)
         ttk.Label(outer, text="VANTAGE COMPANION", style="Gold.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(outer, text="Your UI, always up to date.", style="Title.TLabel").grid(row=1, column=0, sticky="w", pady=(3, 6))
-        ttk.Label(outer, text="VantageUI for EverQuest Titanium / Project 1999", style="Muted.TLabel").grid(row=2, column=0, sticky="w", pady=(0, 20))
+        ttk.Label(outer, text="VantageUI for EverQuest Titanium / Project 1999 · (VBuff) + (HBuff)", style="Muted.TLabel").grid(row=2, column=0, sticky="w", pady=(0, 20))
         ttk.Label(outer, text="EverQuest folder · contains eqgame.exe").grid(row=3, column=0, sticky="w", pady=(0, 6))
         path_row = ttk.Frame(outer)
         path_row.grid(row=4, column=0, sticky="ew")
@@ -292,6 +292,11 @@ class SkinWindow:
         selected = self.folder or "no versioned folder selected"
         next_folder = updater.folder_name(self.release.version) if self.release else "not checked"
         self.destination.set(f"Selected: {selected}\nNext installation: uifiles\\{next_folder}")
+        if self.release and self.release.version in updater.BUFF_LAYOUT_VERSIONS.values():
+            vertical = updater.folder_name(updater.BUFF_LAYOUT_VERSIONS["vertical"])
+            next_folder = updater.folder_name(updater.BUFF_LAYOUT_VERSIONS["horizontal"])
+            self.destination.set(
+                f"Selected: {selected}\nNext installation: (VBuff) uifiles\\{vertical} + (HBuff) uifiles\\{next_folder}")
         self.command.set(f"/loadskin {self.folder} 1" if self.folder else "Install or check a version to get its command.")
 
     def _work(self, action, callback):
@@ -340,8 +345,8 @@ class SkinWindow:
                     self.status.set("The operation did not complete. Review the log.")
                     self.progress_text.set(
                         f"Failed · {self.progress_value.get()}%")
-                    self._log("The operation failed."
-                              f"{updater.error_diagnostic(result)}")
+                    diagnostic = updater.error_diagnostic(result)
+                    self._log("The operation failed." + diagnostic)
                     sharing = (
                         getattr(result, "winerror", None) in (32, 33) or
                         getattr(result, "errno", None) in (16, 26))
@@ -354,6 +359,11 @@ class SkinWindow:
                             "and try again; do not reload the UI yet.")
                     elif isinstance(result, PermissionError):
                         self._log("Windows does not allow writing here. Close the updater, right-click it, and select Run as administrator.")
+                    elif "current updater" in diagnostic.casefold():
+                        self.automatic.set(False)
+                        self._save()
+                        self.status.set("Download the current VantageUI-Updater.exe, then retry. Automatic mode paused; no buff-pair readiness is confirmed.")
+                        self._log("A newer skin requires its matching updater. Download it from the official VantageUI release; no reload yet.")
                 elif action == "check":
                     self.release, selection = result
                     self.installed, self.folder = selection
@@ -377,8 +387,8 @@ class SkinWindow:
                             self._log(warning)
                         if result.warnings:
                             self.status.set(f"Selected installation: {self.folder}. Some folders are protected or cleanup is pending; review the log.")
-                        if action == "buff-layouts":
-                            self.status.set("Both buff layouts are ready. Create the two hotkeys in EverQuest.")
+                        if result.action == "buff-layouts-ready":
+                            self.status.set("Both buff layouts are ready: (VBuff) + (HBuff). Create the two hotkeys in EverQuest.")
                             self.show_buff_hotkeys()
                     if action in ("install", "restore"):
                         self.pending = False
@@ -441,12 +451,25 @@ class SkinWindow:
             return
         if not automatic:
             next_folder = updater.folder_name(self.release.version)
+            pair_update = self.release.version in updater.BUFF_LAYOUT_VERSIONS.values()
+            destinations = f"uifiles\\{next_folder} will be installed."
+            retention = "The selected version, its previous backup and prepared buff presets will be kept."
+            if pair_update:
+                vertical = updater.folder_name(updater.BUFF_LAYOUT_VERSIONS["vertical"])
+                next_folder = updater.folder_name(updater.BUFF_LAYOUT_VERSIONS["horizontal"])
+                destinations = (
+                    f"Both buff layouts will be installed and verified:\n"
+                    f"(VBuff) — uifiles\\{vertical}\n(HBuff) — uifiles\\{next_folder}\n"
+                    "If interrupted, a completed skin remains installed; retry to finish both.")
+                retention = (
+                    "Both new options and registered older buff presets will be kept.\n"
+                    "After success, Restore previous selects (VBuff); it does not restore the pre-update selection.")
             live_copy = (
                 "If EverQuest is open, installation will continue without closing it. "
                 "Do not reload the UI during the operation; after it succeeds, use "
                 f"/loadskin {next_folder} 1. Cleanup of older versions will wait until the game closes."
                 if self.allow_game_running else "EverQuest must be closed.")
-            if not self._confirm("Update VantageUI", f"uifiles\\{next_folder} will be installed.\nThe selected version, its previous backup and prepared buff presets will be kept.\nModified, unmanaged, and legacy VantageUI folders will not be deleted.\n\n" + live_copy):
+            if not self._confirm("Update VantageUI", destinations + "\n" + retention + "\nModified, unmanaged, and legacy VantageUI folders will not be deleted.\n\n" + live_copy):
                 self.automatic.set(False)
                 self.pending = False
                 self._save()
@@ -457,7 +480,7 @@ class SkinWindow:
         selected, eq = self.release, self.eq.get().strip()
         self.pending = False
         self.status.set("Updating — do not reload the UI yet.")
-        self._work("install", lambda: updater.install_release(
+        self._work("install", lambda: updater.install_update(
             selected, eq, self.backups, log=self.worker_log,
             allow_game_running=self.allow_game_running,
             progress=self.worker_progress))
@@ -483,11 +506,11 @@ class SkinWindow:
                      if self.allow_game_running else "Close EverQuest before preparation.")
         if not self._confirm(
                 "Prepare buff hotkeys",
-                "Install and verify 1.44.104 (V) — vertical and 1.44.108 (H) — compact horizontal panel.\n"
+                "Install and verify 1.44.109 (VBuff) — vertical and 1.44.110 (HBuff) — compact horizontal panel.\n"
                 "Both share the same UI; only buff layout and its version badge differ.\n"
-                "V shows names beside icons in one column; H shows names below icons in two compact rows.\n"
+                "VBuff shows names beside icons in one column; HBuff shows names below icons in two compact rows.\n"
                 "Existing skin files, character INIs and hotkeys will not be overwritten.\n"
-                "The updater will select 1.44.108; the game changes only when you load a skin.\n"
+                "The updater will select 1.44.110; the game changes only when you load a skin.\n"
                 "If interrupted, a completed skin remains installed; retry to finish the pair.\n\n" + live_copy):
             return
         self.automatic.set(False)
@@ -505,7 +528,7 @@ class SkinWindow:
         dialog = tk.Toplevel(self.root)
         self.buff_dialog = dialog
         prepared_eq = self.eq.get().strip()
-        dialog.title("Buffs · vertical / horizontal")
+        dialog.title("Buffs · (VBuff) / (HBuff)")
         dialog.configure(bg=BG)
         dialog.transient(self.root)
         dialog.resizable(False, False)
@@ -518,8 +541,8 @@ class SkinWindow:
                   wraplength=570).grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 12))
         for row, (orientation, version) in enumerate(updater.BUFF_LAYOUT_VERSIONS.items(), 2):
             command = f"/loadskin {updater.folder_name(version)} 1"
-            badge = "V" if orientation == "vertical" else "H"
-            detail = "One column · visible names" if badge == "V" else "Two compact rows · names below icons"
+            badge = "VBuff" if orientation == "vertical" else "HBuff"
+            detail = "One column · visible names" if orientation == "vertical" else "Two compact rows · names below icons"
             ttk.Label(frame, text=f"Buffs {orientation} — v{version} ({badge})\n{detail}\n{command}", style="Gold.TLabel").grid(
                 row=row, column=0, sticky="w", pady=8)
             def copy(value=command):
@@ -529,7 +552,7 @@ class SkinWindow:
                 self.root.clipboard_append(value)
                 self.status.set("Buff command copied. Paste it into the matching EverQuest social.")
             ttk.Button(frame, text="Copy command", command=copy).grid(row=row, column=1, padx=(20, 0))
-        ttk.Label(frame, text="(V) = vertical · (H) = horizontal. The rest of the UI is the same in both.\n"
+        ttk.Label(frame, text="(VBuff) = vertical · (HBuff) = horizontal. The rest of the UI is the same in both.\n"
                   "Move the horizontal panel using its titlebar. Names can wrap below each icon.\n"
                   "Saved geometry and fixed-size reload behavior still need confirmation in P99.",
                   wraplength=570, style="Muted.TLabel").grid(

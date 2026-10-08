@@ -52,14 +52,14 @@ engine-level resolution upgrade or a claim of in-game verification.
 
 ## Buffs: vertical and horizontal hotkeys
 
-The matched presets are **1.44.104 (V)** and **1.44.108 (H)**. They share the
+The matched presets are **1.44.109 (VBuff)** and **1.44.110 (HBuff)**. They share the
 same UI features and artwork; only the buff layout and its identifying badge
-differ. `(V)` means vertical: the familiar narrow column. `(H)` means horizontal:
+differ. `(VBuff)` means vertical: the familiar narrow column. `(HBuff)` means horizontal:
 a compact two-row panel with names centered below each icon. The horizontal name
 lane is 66×40px with native Font 1 and wrapping enabled; vertical retains its
 original 142×12px right-aligned single-line names. Names stay visible without
 hovering, with native tooltips still available. The version below the group logo
-identifies the loaded preset. Published 102/103/104/105/106/107 remain unchanged.
+identifies the loaded preset. Published 102 through 108 remain unchanged.
 
 The horizontal panel is 576×168 outer pixels with a native dark frame/titlebar
 for dragging. The user's actual 105 screenshot showed that the client ignored
@@ -83,14 +83,17 @@ not add buff capacity to P99. Horizontal names may wrap across several lines
 within finite label bounds; native Font 1 wrapping still needs an in-game check.
 This is fixed geometry, not automatic orientation, scaling or responsive layout.
 
-In either new standalone **VantageUI-Updater**, choose **Buff hotkeys…** and
-confirm preparation. Both releases are fetched by exact stable tags and their
+In the new standalone **VantageUI-Updater**, choose **Check for updates** then
+**Update UI**. Updating to 110 installs and verifies both presets automatically;
+opt-in automatic updates use the same pair operation. **Buff hotkeys…** remains
+available to prepare or verify the pair. Both releases are fetched by exact stable tags and their
 assets/files verified before they are presented as ready. Existing edited or
 unmanaged folders are preserved and refused, not repaired or silently adopted.
 If preparation fails partway through, a completed skin remains available;
 retry preparation instead of loading a partially prepared folder.
-When105,106 or107 is selected, preparation first upgrades to108, then prepares
-104 using the narrowly verified preset downgrade exception, and reselects108.
+Coming from 108 or earlier, preparation installs 109 then 110. When 110 is
+already selected, preparation verifies it before selecting 109 through the
+narrow preset downgrade exception, and reselects 110.
 This keeps the ordinary downgrade guard intact and preserves registered old
 preset folders.
 
@@ -98,8 +101,8 @@ Create two social hotkeys in P99, with one command on their first line:
 
 | Social name | First-line command |
 | --- | --- |
-| Buffs vertical (V) | `/loadskin VantageUI-v1.44.104 1` |
-| Buffs horizontal (H) | `/loadskin VantageUI-v1.44.108 1` |
+| Buffs vertical (VBuff) | `/loadskin VantageUI-v1.44.109 1` |
+| Buffs horizontal (HBuff) | `/loadskin VantageUI-v1.44.110 1` |
 
 Drag both socials to your existing hotbar. Each switches the entire skin with
 settings preserved; it is not an instant toggle inside BuffWindow. The updater
@@ -110,10 +113,11 @@ report a screenshot rather than using a settings-resetting reload to fix one win
 Check actual icon placement, tooltips, dragging and right-click cancellation
 inside P99. Source bounds and tests are not native rendering verification.
 
-This updater retains registered102/103/105/106/107 and104/108 preset folders. Older Companion/updater
+This updater retains registered 102 through 108 and 109/110 preset folders. Older Companion/updater
 builds use their own active/previous-only cleanup policy; they may retire older
 presets after future UI releases. Use the current updater to prepare a matching
-pair; this updater refuses pair preparation when a UI newer than108 is selected.
+pair; this updater refuses pair preparation when a UI newer than 110 is selected.
+[Dual-update behavior and safety](../docs/vantageui-dual-buffs-1.44.109-110.md).
 
 The 1.44.101 definition pass gives all buff buttons explicit positions in the
 numbered icon column and removes opaque inactive backplates, targeting the
@@ -298,6 +302,8 @@ operations on a worker thread, keeping the host UI responsive:
 - `loadskin_command(eq_dir)` returns the manual command for the selected folder.
 - `install_release(release, eq_dir, state_dir, log=...)` stages and verifies a
   new versioned sibling folder first.
+- `install_update(release, eq_dir, state_dir, log=...)` prepares both current
+  buff variants when updating to 110; the single-release primitive stays unchanged.
 - `rollback_last(eq_dir, state_dir, log=...)` selects the retained previous
   version without rewriting its files, or refuses if that target was modified.
 - `recover_pending(eq_dir, state_dir, log=...)` handles interrupted operations.
