@@ -142,22 +142,19 @@ class PointOfInterest:
 
 
 class DirectionArrow(QGraphicsPathItem):
-    """Crisp Vantage player-heading arrow that remains sharp at any zoom."""
+    """Red, pointed player-heading dart that remains sharp at any zoom."""
 
     def __init__(self):
         path = QPainterPath(QPointF(0, -16))
-        path.lineTo(9, -1)
-        path.lineTo(4, -3)
-        path.lineTo(4, 10)
-        path.lineTo(-4, 10)
-        path.lineTo(-4, -3)
-        path.lineTo(-9, -1)
+        path.lineTo(9, 10)
+        path.lineTo(0, 5)
+        path.lineTo(-9, 10)
         path.closeSubpath()
         super().__init__(path)
         self.setPen(QPen(
             QColor('#071014'), 2.2, Qt.PenStyle.SolidLine,
-            Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-        self.setBrush(QBrush(QColor('#e0c66e')))
+            Qt.PenCapStyle.FlatCap, Qt.PenJoinStyle.MiterJoin))
+        self.setBrush(QBrush(QColor('#ff4b4b')))
         self.setTransformOriginPoint(0, 0)
         self.setToolTip('Your direction of travel')
         self.setVisible(False)

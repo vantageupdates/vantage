@@ -8,10 +8,11 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QPointF, Qt
+from PySide6.QtGui import QColor, QImage, QPainter, QTransform
 from PySide6.QtWidgets import (
-    QApplication, QGraphicsItem, QGraphicsPathItem, QGraphicsView)
+    QApplication, QGraphicsItem, QGraphicsPathItem, QGraphicsView,
+    QStyleOptionGraphicsItem)
 
 from vantage.helpers import config
 from vantage.parsers.maps.mapcanvas import MapCanvas
@@ -534,8 +535,55 @@ def test_player_heading_uses_crisp_vantage_direction_arrow():
     assert isinstance(player.directional, QGraphicsPathItem)
     assert not player.directional.path().isEmpty()
     assert player.directional.isVisible()
-    assert player.directional.brush().color().name() == '#e0c66e'
+    assert player.directional.brush().color().name() == '#ff4b4b'
+    assert player.directional.pen().joinStyle() == Qt.PenJoinStyle.MiterJoin
+    assert player.directional.pen().color().name() == '#071014'
+    path = player.directional.path()
+    assert [(path.elementAt(i).x, path.elementAt(i).y)
+            for i in range(path.elementCount())] == [
+        (0, -16), (9, 10), (0, 5), (-9, 10), (0, -16)]
+    assert path.contains(QPointF(0, 0))
+    assert not path.contains(QPointF(0, 9))
     assert player.directional.toolTip() == 'Your direction of travel'
+
+
+@pytest.mark.parametrize('x,y,heading', [
+    (0, -10, 0), (10, 0, 90), (0, 10, -180), (-10, 0, -90)])
+def test_red_heading_arrow_keeps_direction_and_size_at_each_zoom(x, y, heading):
+    _app()
+    player = Player(
+        name='__you__', previous_location=MapPoint(x=0, y=0),
+        location=MapPoint(x=x, y=y))
+    baseline = None
+    for zoom in (0.1, 1.0, 4.0):
+        player.update_(1.0 / zoom)
+        assert player.directional.rotation() == pytest.approx(heading)
+        assert (player.pos().x(), player.pos().y()) == (x, y)
+        rect = player.directional.deviceTransform(
+            QTransform().scale(zoom, zoom)).mapRect(
+                player.directional.boundingRect())
+        size = (rect.width(), rect.height())
+        if baseline is None:
+            baseline = size
+        assert size == pytest.approx(baseline)
+
+
+def test_heading_arrow_paints_red_with_a_notched_pointed_silhouette():
+    _app()
+    player = Player(name='__you__')
+    image = QImage(64, 64, QImage.Format.Format_ARGB32)
+    image.fill(QColor('#071014'))
+    painter = QPainter(image)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.translate(32, 32)
+    player.directional.paint(painter, QStyleOptionGraphicsItem(), None)
+    painter.end()
+    assert image.pixelColor(32, 32).name() == '#ff4b4b'
+    assert image.pixelColor(32, 40).name() == '#071014'
+    # The narrow tip blends with its outline under antialiasing, but stays red.
+    tip = image.pixelColor(32, 20)
+    assert tip.red() > 2 * max(tip.green(), tip.blue())
+    assert image.pixelColor(42, 20).name() == '#071014'
 
 
 def test_map_timers_are_draggable_restartable_and_expire_cleanly():
