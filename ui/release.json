@@ -1,6 +1,6 @@
 {
   "schema": 2,
-  "version": "1.44.109",
-  "skin_folder": "VantageUI-v1.44.109",
-  "buff_layout": "vertical"
+  "version": "1.44.110",
+  "skin_folder": "VantageUI-v1.44.110",
+  "buff_layout": "horizontal"
 }
