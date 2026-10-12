@@ -133,6 +133,14 @@ Distribuido bajo GNU GPL v3; consulta `LICENSE` y `SOURCE-NOTICE.md` para los av
 
 ## VantageUI
 
+Las últimas cuatro **skins completas** están guardadas en Git y listas para
+copiar desde el [catálogo de descargas](ui/downloads/README.md), además del
+actualizador. La principal es **1.44.109 (VBuff)**, la última vertical publicada:
+`/loadskin VantageUI-v1.44.109 1`. El catálogo explica ambas formas de instalar
+y cómo conservar tus carpetas existentes. También incluye un ZIP con la pareja
+completa **VBuff 109 + HBuff 110** para copiar ambas carpetas a `uifiles`.
+Cada futura entrega incluirá las dos opciones, con la vertical como prioridad.
+
 Companion incluye un panel independiente **VantageUI** para instalar y mantener
 la skin opcional incluida en este repositorio. Cada lanzamiento UI se instala en
 una carpeta propia como `EverQuest\uifiles\VantageUI-v1.44.80`; la carpeta

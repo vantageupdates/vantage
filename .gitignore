@@ -30,6 +30,8 @@ var/
 .installed.cfg
 *.egg
 *.zip
+!ui/downloads/VantageUI-v*-*.zip
+!ui/downloads/VantageUI-BuffPair-v*.zip
 
 # Installer logs
 pip-log.txt

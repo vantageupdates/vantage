@@ -1,2 +1,5 @@
 # Skin assets are a byte-preserving export; never normalize XML line endings.
 ui/skin/* -text
+# Published manifests and manual bundles retain their exact delivered bytes.
+ui/downloads/*.json -text
+ui/downloads/*.zip -text

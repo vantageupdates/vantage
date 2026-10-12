@@ -39,3 +39,36 @@ For a UI-only release:
    independent update channel. Local installation must use the same verified
    published release, not an unmanaged local-only copy. Always use a new matching
    `VantageUI-v<version>` folder; preserve existing versions and Companion Latest.
+
+## Complete UI downloads and vertical priority
+
+The user requires the latest four published UI skins to be available in Git,
+not only as updater executables. Maintain `ui/downloads` with four complete,
+ready-to-copy versioned-folder ZIPs, a source-pinned catalog and installation
+instructions. Derive them from the verified published manifests and payloads;
+keep every XML/image byte, numeric folder name, historical badge and tag intact.
+Do not include executables, character INIs, updater markers or shared registry
+state in these manual bundles. Preserve older release history.
+
+Every future UI delivery must publish matching vertical and horizontal skins
+from the same UI base and make both available in `uifiles` through the updater
+and a complete paired manual ZIP. Do not alternate one orientation per delivery.
+The current pair is 1.44.109 (VBuff) / 1.44.110 (HBuff). The canonical numeric
+folder contract requires distinct patch versions for the two presets; do not
+rename them with V/H suffixes or invent counterparts under old published tags.
+Maintain the paired download in Git alongside the latest-four catalog. Before
+publishing a new pair, update the updater's paired-version targets, release both
+fully tested candidates and verify both complete installations. Preserve existing
+skins, INIs and socials. Historical releases remain unchanged.
+
+Prioritize the vertical buff layout for future UI improvements. Highlight the
+newest published vertical `(VBuff)` download and its exact `/loadskin` command;
+keep the horizontal option available. This preference does not authorize
+silently changing an existing published skin or the updater's selection logic.
+
+Repackaging already published, byte-identical skins for this download catalog
+does not change the UI or Companion version and must not replace existing
+release assets/tags. Verify all bundled files against their pinned published
+manifest, run archive/package regression tests, and verify the public Git
+downloads. New skin or updater behavior still follows the full release policy
+above, including new versions, complete tests, build and self-test.

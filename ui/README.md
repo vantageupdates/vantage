@@ -52,6 +52,21 @@ engine-level resolution upgrade or a claim of in-game verification.
 
 ## Buffs: vertical and horizontal hotkeys
 
+The latest four **complete skins**, ready to copy without an executable, are
+tracked in [the manual download catalog](downloads/README.md). The newest
+vertical **1.44.109 (VBuff)** is highlighted as the primary option; future polish
+prioritizes vertical while retaining horizontal. Manual bundles preserve the
+published asset bytes and require no new UI version. See the catalog before
+choosing manual installation: manually copied folders are not adopted by the
+managed updater.
+
+Every future delivery must include both matched presets, not just the newest
+orientation. The catalog also provides one paired manual ZIP containing both
+canonical folders for `uifiles`. Distinct numeric patch versions continue to
+identify the presets without changing the updater's schema-2 folder contract.
+Historical releases remain immutable; future behavior changes follow the full
+independent UI release gates.
+
 The matched presets are **1.44.109 (VBuff)** and **1.44.110 (HBuff)**. They share the
 same UI features and artwork; only the buff layout and its identifying badge
 differ. `(VBuff)` means vertical: the familiar narrow column. `(HBuff)` means horizontal:
@@ -206,7 +221,7 @@ repository folder rejects unexpected files rather than silently publishing them.
 Review the resulting Git diff and asset changes before publishing. Increment the
 independent UI patch version in `ui/release.json`; update the canonical
 `EQUI_GroupWindow.xml` label `GW_VantageVersionLabel` to exactly
-`v<version> (V)` or `v<version> (H)` before exporting, matching the internal
+`v<version> (VBuff)` or `v<version> (HBuff)` before exporting, matching the internal
 `buff_layout` (`vertical`/`horizontal`) in release metadata. Legacy metadata
 without an orientation still requires exactly `v<version>`. Orientation is not
 added to the downloaded schema-2 manifest, so existing clients retain their
@@ -217,8 +232,9 @@ version or tag. A UI-only release does not increment Companion and does not buil
 or publish `Vantage.exe`. After focused and complete tests, coordinate publication
 of the updater and both transport assets on a reviewed
 `vantage-ui-v<major.minor.patch>` tag in `vantageupdates/vantage`. For this
-candidate the new tag is `vantage-ui-v1.44.108`; the existing vertical104 release
-is reused without replacement. Verify public asset sizes and
+matched pair the tags are `vantage-ui-v1.44.109` (vertical) and
+`vantage-ui-v1.44.110` (horizontal); their existing assets are preserved. New
+skin changes must use new versions/tags. Verify public asset sizes and
 SHA-256 digests against the tested artifacts. An arbitrary source push must not
 automatically publish an unreviewed UI update. The repository
 [release policy](../AGENTS.md) records the separation between Companion and UI
@@ -229,8 +245,9 @@ This source-level integration does not authorize or require publishing a new
 `Vantage.exe` with an independent UI release. The UI build script builds only
 the UI updater; it must not rebuild Companion or change its Latest release.
 
-The generated files in ignored `dist/ui` are internal updater transport, not
-an additional user-facing ZIP delivery:
+The generated files in ignored `dist/ui` are internal updater transport.
+The separate, tracked `ui/downloads` ZIPs wrap verified published payloads in
+their numeric skin folder for manual delivery; they do not replace this format:
 
 - `VantageUI-manifest.json`: schema 2, stable UI version, the exact matching
   `VantageUI-v<version>` folder, and each flat file's name, byte size, and SHA-256.

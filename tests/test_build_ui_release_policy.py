@@ -125,7 +125,8 @@ def test_ui_only_orchestration_runs_tests_packages_builds_and_hashes_only_three_
     assert [e["kind"] for e in events] == ["python"] * 4 + ["process", "hash"]
     assert events[0]["argv"][:3] == ["-m", "pytest", "-q"]
     assert {"tests/test_ui_skin_updater.py", "tests/test_ui_skin_versioned.py",
-            "tests/test_ui_skin_package.py", "tests/test_ui_skin_app.py"} <= set(events[0]["argv"])
+            "tests/test_ui_skin_package.py", "tests/test_ui_skin_archive.py",
+            "tests/test_ui_skin_app.py"} <= set(events[0]["argv"])
     assert events[1]["argv"] == ["-m", "pytest", "-q"]
     assert events[2]["argv"] == ["scripts/package_ui_skin.py"]
     assert events[3]["argv"] == ["-m", "PyInstaller", "--noconfirm", "vantage_ui_updater.spec"]

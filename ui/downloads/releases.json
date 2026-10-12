@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "preferred_layout": "vertical",
+  "preferred_version": "1.44.109",
+  "releases": [
+    {
+      "version": "1.44.110",
+      "buff_layout": "horizontal",
+      "badge": "HBuff",
+      "release_tag": "vantage-ui-v1.44.110",
+      "manifest": {
+        "size": 29078,
+        "sha256": "78a2c1ee7921a8e41bd286c9970059284bdfaddba004382531dea3685c8bfd93"
+      },
+      "payload": {
+        "size": 14782703,
+        "sha256": "67749c217552c67e6c1bedc28695d0b198b67b3497cb91bc2f9e8d90ecdb8283"
+      }
+    },
+    {
+      "version": "1.44.109",
+      "buff_layout": "vertical",
+      "badge": "VBuff",
+      "release_tag": "vantage-ui-v1.44.109",
+      "manifest": {
+        "size": 29078,
+        "sha256": "3d4d1cb34c9cae083275e793868e4007828e0a87b922665131b988608d28dee6"
+      },
+      "payload": {
+        "size": 14772800,
+        "sha256": "3c3b363dda88942870fcb370622ced60d8b2f4e7e72610f3801387efd3ad4b82"
+      }
+    },
+    {
+      "version": "1.44.108",
+      "buff_layout": "horizontal",
+      "badge": "H",
+      "release_tag": "vantage-ui-v1.44.108",
+      "manifest": {
+        "size": 29078,
+        "sha256": "fb98131d511e22684f01569d443119ccf255786aaae0c3bd20407a27cc0226e3"
+      },
+      "payload": {
+        "size": 14782695,
+        "sha256": "aaf1988f296af227b0f5906e03c989363c0a4f6c3ae3c03346c06a5947066d58"
+      }
+    },
+    {
+      "version": "1.44.107",
+      "buff_layout": "horizontal",
+      "badge": "H",
+      "release_tag": "vantage-ui-v1.44.107",
+      "manifest": {
+        "size": 29078,
+        "sha256": "d34cecfb1b7a1fe46e312889f21b92e308812f786cc8dbe2293331e279f2523a"
+      },
+      "payload": {
+        "size": 14782663,
+        "sha256": "06d623de32b8660c388a10b230397969e0ffab975adfb7d1e56e3e4a2c3ab046"
+      }
+    }
+  ]
+}

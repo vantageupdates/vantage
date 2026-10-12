@@ -1,0 +1,97 @@
+{
+  "buff_pair": {
+    "archive": {
+      "filename": "VantageUI-BuffPair-v1.44.109-v1.44.110.zip",
+      "files": 372,
+      "sha256": "de7c1341a17872fa45af267425667c361584bb31412165dd3dcd6efad68d6770",
+      "size": 4960187
+    },
+    "horizontal": "1.44.110",
+    "vertical": "1.44.109"
+  },
+  "preferred_layout": "vertical",
+  "preferred_version": "1.44.109",
+  "releases": [
+    {
+      "archive": {
+        "filename": "VantageUI-v1.44.110-HBuff.zip",
+        "files": 186,
+        "sha256": "0a4290bad25c64fa4981cb298a02b214118e5f06a6973da0872e1706d6e81ff0",
+        "size": 2480199
+      },
+      "badge": "HBuff",
+      "buff_layout": "horizontal",
+      "manifest": {
+        "sha256": "78a2c1ee7921a8e41bd286c9970059284bdfaddba004382531dea3685c8bfd93",
+        "size": 29078
+      },
+      "payload": {
+        "sha256": "67749c217552c67e6c1bedc28695d0b198b67b3497cb91bc2f9e8d90ecdb8283",
+        "size": 14782703
+      },
+      "release_tag": "vantage-ui-v1.44.110",
+      "version": "1.44.110"
+    },
+    {
+      "archive": {
+        "filename": "VantageUI-v1.44.109-VBuff.zip",
+        "files": 186,
+        "sha256": "9867ae000b9e337eb5f5e120870f8ab063f9a722dc39b0a336c57fb5248934ec",
+        "size": 2480010
+      },
+      "badge": "VBuff",
+      "buff_layout": "vertical",
+      "manifest": {
+        "sha256": "3d4d1cb34c9cae083275e793868e4007828e0a87b922665131b988608d28dee6",
+        "size": 29078
+      },
+      "payload": {
+        "sha256": "3c3b363dda88942870fcb370622ced60d8b2f4e7e72610f3801387efd3ad4b82",
+        "size": 14772800
+      },
+      "release_tag": "vantage-ui-v1.44.109",
+      "version": "1.44.109"
+    },
+    {
+      "archive": {
+        "filename": "VantageUI-v1.44.108-H.zip",
+        "files": 186,
+        "sha256": "0079f00da4267e6efdd8f49d3b235973274fb6c149d4a1dc0df17b78647727e2",
+        "size": 2480192
+      },
+      "badge": "H",
+      "buff_layout": "horizontal",
+      "manifest": {
+        "sha256": "fb98131d511e22684f01569d443119ccf255786aaae0c3bd20407a27cc0226e3",
+        "size": 29078
+      },
+      "payload": {
+        "sha256": "aaf1988f296af227b0f5906e03c989363c0a4f6c3ae3c03346c06a5947066d58",
+        "size": 14782695
+      },
+      "release_tag": "vantage-ui-v1.44.108",
+      "version": "1.44.108"
+    },
+    {
+      "archive": {
+        "filename": "VantageUI-v1.44.107-H.zip",
+        "files": 186,
+        "sha256": "c4b4cb0daaf1c8fab3e0ad657b6efbbeaf82a428e1fb59e51a5c78675b694233",
+        "size": 2480202
+      },
+      "badge": "H",
+      "buff_layout": "horizontal",
+      "manifest": {
+        "sha256": "d34cecfb1b7a1fe46e312889f21b92e308812f786cc8dbe2293331e279f2523a",
+        "size": 29078
+      },
+      "payload": {
+        "sha256": "06d623de32b8660c388a10b230397969e0ffab975adfb7d1e56e3e4a2c3ab046",
+        "size": 14782663
+      },
+      "release_tag": "vantage-ui-v1.44.107",
+      "version": "1.44.107"
+    }
+  ],
+  "schema": 1
+}
