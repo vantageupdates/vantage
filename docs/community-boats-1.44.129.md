@@ -111,3 +111,22 @@ variant remain readable; larger text scrolls inside the body. In an artificial
 150%-text stress on a fixed narrow timer panel, two long route headings crowd
 their countdown; native-size headings are intact and full names are available
 through tooltips. These isolated previews do not certify in-game behavior.
+
+## Public release verification
+
+[Companion 1.44.129](https://github.com/vantageupdates/vantage/releases/tag/v1.44.129)
+was published at **2026-10-12 22:34:56 UTC**, verified stable, non-draft,
+non-prerelease, and **Companion Latest**. The new annotated tag dereferences to
+tested source `84c2c95d19b6cd4b4d9a0fbb4bc1d3e4df503ca9`. Main and the new
+tag were pushed atomically without force, tag reuse, or another release.
+
+Its sole public asset is **Vantage.exe**, **75,973,402 bytes**, with GitHub
+digest `sha256:95ccd3a279747014316985efff9e1bb4ed3ba0c3012e37835f18445f4c40ab4a`,
+matching the frozen-source, built, and self-tested candidate exactly. The VPS
+public health endpoint was checked healthy at handoff.
+
+The initial source push used the machine's unrelated default GitHub account
+and was correctly denied. The already-saved authorized Vantage credential
+was scoped only to the publishing processes; no global account or credential
+routing was changed. This verification addition is documentation only and
+does not alter the immutable tag, executable, installed app, or VantageUI.
