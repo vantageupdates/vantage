@@ -1070,6 +1070,11 @@ def verify_settings():
         lambda x: isinstance(x, list))
     data['spells']['show_boat_schedules'] = get_setting(
         data['spells'].get('show_boat_schedules', False), False)
+    data['spells']['boat_view_server'] = get_setting(
+        data['spells'].get('boat_view_server', 'Green'), 'Green',
+        lambda value: value in ('Green', 'Blue'))
+    data['spells']['boat_reporter'] = str(
+        data['spells'].get('boat_reporter', '') or '')[:48]
     data['spells']['bard_count_enabled'] = get_setting(
         data['spells'].get('bard_count_enabled', False), False)
     data['spells']['bard_count_overlay'] = get_setting(

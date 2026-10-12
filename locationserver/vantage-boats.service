@@ -1,0 +1,40 @@
+[Unit]
+Description=Vantage Boats community arrival service
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=vantage-boats
+Group=vantage-boats
+WorkingDirectory=/opt/vantage-boats
+ExecStart=/usr/bin/python3 -I /opt/vantage-boats/boat_server.py --host 127.0.0.1 --port 8790 --db /var/lib/vantage-boats/boats.sqlite3
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+UMask=0077
+StateDirectory=vantage-boats
+StateDirectoryMode=0700
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_UNIX
+ReadWritePaths=/var/lib/vantage-boats
+MemoryHigh=96M
+MemoryMax=128M
+TasksMax=64
+LimitNOFILE=128
+
+[Install]
+WantedBy=multi-user.target

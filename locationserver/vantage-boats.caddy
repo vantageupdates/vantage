@@ -1,0 +1,12 @@
+vantage-boats.217-216-55-237.sslip.io {
+    request_body {
+        max_size 2KB
+    }
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+    }
+    reverse_proxy 127.0.0.1:8790 {
+        header_up X-Vantage-Client-IP {http.request.remote.host}
+    }
+}

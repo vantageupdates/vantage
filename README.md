@@ -11,6 +11,8 @@ Aplicación comunitaria gratuita, nativa, ligera y de un solo ejecutable para Wi
 
 ## Funciones principales
 
+- **Community boat timers**: separate Green/Blue views, manual **Boat arrived · Sync** reports with public reporter name and observation age, cached offline estimates, and labelled PigParse fallback. No account or automatic log upload. See the [community boats guide](docs/community-boats-1.44.129.md).
+
 - **Keyword triggers**: new rules default to **Contains text**, matching any literal word or phrase anywhere in a log line, regardless of capitalization. Saved rules retain their previous full-line behavior; change **Text match** explicitly to broaden one. Native packs/codes preserve the choice. See the [keyword matching guide](docs/trigger-keywords-1.44.127.md).
 
 - Splash compacto y responsivo con progreso real mientras carga el núcleo: ajusta texto, estado y máscara redondeada al escalado de Windows y fuentes grandes sin recortar contenido. Settings, Mobile, Spell Library y sus dependencias pesadas se crean sólo al abrirlas; las actualizaciones de red empiezan después de que la bandeja y los paneles están listos.

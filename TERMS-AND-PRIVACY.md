@@ -1,6 +1,6 @@
 # Vantage Terms & Privacy Notice
 
-**Notice version: 2026-09-15.1**
+**Notice version: 2026-10-12.1**
 
 Please read this notice before using Vantage. Select the acceptance checkbox and
 choose **Accept & Continue** to start Vantage. If you do not agree, choose
@@ -35,6 +35,21 @@ Depending on the features you choose, Vantage may make network connections for:
   device you pair on your local network; and
 - optional Device Sync, which uses Syncthing as an encrypted device-to-device
   transport between PCs you explicitly pair.
+
+Optional community boat timers connect to the Vantage Boats service. Reading
+timers does not upload your logs, buffs, profiles, or character settings.
+Publishing an arrival requires an explicit confirmation and shares the boat,
+dock, game server, arrival time, and the public name you supply. Names are
+self-reported, not verified identities. Accepted reports are publicly readable;
+report records expire after seven days. No Vantage account is required.
+A private device credential is saved locally; service authorization expires
+after 90 days. Hashed credential references can remain with report records
+for their seven-day lifetime. Hashed network-address keys used for rate limiting expire within
+24 hours. Expired records are purged when the service processes requests.
+Network addresses necessarily reach the hosting and HTTPS
+infrastructure. Keep private information out of your public reporter name.
+Community estimates may be inaccurate; corrections can require another device
+to confirm them. Disabling boat schedules stops periodic boat-data requests.
 
 Those providers and community resources have their own terms and privacy
 practices. Vantage does not control them. If you enable Mobile Host or Device

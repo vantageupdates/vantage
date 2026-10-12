@@ -1,15 +1,16 @@
 """P99 boat observations and deterministic arrival schedules.
 
 The route constants and phase calculation mirror the observable behavior of
-the MIT-licensed EQTool boat scheduler.  PigParse remains the remote source;
-Vantage labels old observations instead of presenting a long extrapolation as
-fresh fact.
+the MIT-licensed EQTool boat scheduler. Vantage Community supplies manual
+arrivals, with PigParse as a labelled fallback. Old observations remain
+explicit extrapolations rather than fresh facts.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 import datetime
+from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,9 @@ class BoatSchedule:
     remaining_seconds: int
     source: str
     stale: bool
+    reporter: str = ""
+    confidence: str = ""
+    phase_origin_at: Optional[datetime.datetime] = None
 
 
 BOAT_ROUTES = (

@@ -29,6 +29,8 @@ from vantage.helpers.audio import (
 from vantage.helpers.bard_counts import BardAeCounter
 from vantage.helpers.boats import (
     BOAT_ROUTES, route_for_announcement, schedules_from_activities)
+from vantage.helpers.boat_community import CommunityBoatClient
+from vantage.helpers.boat_dialog import BoatArrivalDialog
 from vantage.helpers.icons import game_icon, game_pixmap
 from vantage.helpers.log_events import extract_killed_mob
 from vantage.helpers.portable import data_dir, store_portable_file
@@ -536,8 +538,13 @@ class Spells(ParserWindow):
         self._boat_network = QNetworkAccessManager(self)
         self._boat_pending = False
         self._boat_server = ''
+        self._boat_fallback_attempts = {}
+        self._boat_arrival_dialog = None
+        self._boat_community = CommunityBoatClient(self)
+        self._boat_community.schedules_ready.connect(self._community_boats_ready)
+        self._boat_community.status_changed.connect(self._community_boats_status)
         self._boat_refresh_timer = QTimer(self)
-        self._boat_refresh_timer.setInterval(5 * 60 * 1000)
+        self._boat_refresh_timer.setInterval(60 * 1000)
         self._boat_refresh_timer.timeout.connect(self._refresh_boat_schedules)
         self._boat_refresh_timer.start()
         if self._boat_toggle.isChecked():
@@ -645,24 +652,29 @@ class Spells(ParserWindow):
         self._boat_toggle.setProperty('HeaderPriority', 1)
         self._boat_toggle.setProperty('HeaderAlwaysVisible', True)
         self._boat_toggle.setToolTip(
-            'Show or hide compact P99 boat arrivals; use the arrow to refresh or inspect the PigParse source')
+            'Show Green/Blue boat timers; choose a server and share a visible arrival. PigParse is a labelled fallback.')
         self._boat_toggle.setPopupMode(
             QToolButton.ToolButtonPopupMode.MenuButtonPopup)
         boat_menu = QMenu(self._boat_toggle)
         boat_menu.setToolTipsVisible(True)
         refresh = boat_menu.addAction('Refresh boat data')
         refresh.setToolTip(
-            'Fetch the latest Green, Blue, Red, or Quarm observation from PigParse')
+            'Fetch community arrivals for the selected Green or Blue server')
         refresh.triggered.connect(self._manual_refresh_boats)
-        source = boat_menu.addAction('Open PigParse source')
+        report = boat_menu.addAction('Sync a boat arrival…')
+        report.setToolTip('Choose the arrival point, confirm it arrived, and share a public reporter name')
+        report.triggered.connect(lambda _=False: self._show_boat_arrival_dialog())
+        source = boat_menu.addAction('Open PigParse fallback source')
         source.setToolTip(
-            'Open the public PigParse page used as the remote source of truth')
+            'PigParse supplies labelled fallback estimates when community reports are missing')
         source.triggered.connect(lambda: QDesktopServices.openUrl(
             QUrl('https://pigparse.azurewebsites.net/')))
         self._boat_toggle.setMenu(boat_menu)
         self._boat_toggle.clicked.connect(self._toggle_boat_schedules)
         self.menu_area.addWidget(self._boat_toggle)
         self._boat_group.set_enabled(self._boat_toggle.isChecked())
+        self._boat_group.server_changed.connect(self._change_boat_view_server)
+        self._boat_group.report_requested.connect(self._show_boat_arrival_dialog)
         self._library_button = QPushButton()
         self._library_button.setIcon(game_icon('search'))
         self._library_button.setAccessibleName('Open P99 Spells and Skills')
@@ -1272,7 +1284,8 @@ class Spells(ParserWindow):
                 not self._boat_pending):
             QTimer.singleShot(0, self._refresh_boat_schedules)
         observed_boat = route_for_announcement(text)
-        if observed_boat and self._boat_toggle.isChecked():
+        if (observed_boat and self._boat_toggle.isChecked() and
+                self._boat_character_server() == server):
             schedules = schedules_from_activities([{
                 'startPoint': observed_boat.start_point,
                 'boat': observed_boat.boat_id,
@@ -2704,14 +2717,76 @@ class Spells(ParserWindow):
         if config_updated is not None:
             config_updated.emit()
 
-    def _boat_server_name(self):
+    def _boat_character_server(self):
         value = str(getattr(self, '_active_server', '') or '').casefold()
         for token, label in (
                 ('green', 'Green'), ('blue', 'Blue'), ('red', 'Red'),
                 ('quarm', 'Quarm')):
             if token in value:
                 return label
-        return 'Green'
+        return value
+
+    def _boat_server_name(self):
+        group = getattr(self, '_boat_group', None)
+        selector = getattr(group, 'server_selector', None)
+        if selector is not None:
+            return selector.currentText()
+        value = config.data['spells'].get('boat_view_server', 'Green')
+        return value if value in ('Green', 'Blue') else 'Green'
+
+    def _change_boat_view_server(self, server):
+        if server not in ('Green', 'Blue'):
+            return
+        config.data['spells']['boat_view_server'] = server
+        config.save()
+        self._boat_server = server
+        # Clear immediately; late Green replies must never appear under Blue.
+        self._boat_group.update_schedules([], server)
+        if hasattr(self, '_boat_community'):
+            cached = self._boat_community.cached_schedules(server)
+            if cached:
+                self._boat_group.update_schedules(cached, server)
+                self._boat_group.set_status(f'{server} · cached estimates · refreshing…')
+            self._refresh_boat_schedules()
+
+    def _show_boat_arrival_dialog(self, route_key=None):
+        if getattr(self, '_boat_arrival_dialog', None) is not None:
+            self._boat_arrival_dialog.show()
+            self._boat_arrival_dialog.raise_()
+            self._boat_arrival_dialog.activateWindow()
+            return
+        dialog = BoatArrivalDialog(
+            self._boat_community, self, active_server=self._boat_character_server(),
+            viewed_server=self._boat_server_name(),
+            reporter=getattr(self, '_active_character', '') or
+            config.data['spells'].get('boat_reporter', ''), route_key=route_key,
+            active_server_provider=self._boat_character_server)
+        self._boat_arrival_dialog = dialog
+        dialog.finished.connect(lambda _: setattr(self, '_boat_arrival_dialog', None))
+        dialog.show()
+
+    def _community_boats_status(self, server, status):
+        if server == self._boat_server_name() and self._boat_toggle.isChecked():
+            self._boat_group.set_status(status)
+
+    def _community_boats_ready(self, server, schedules, status):
+        if server != self._boat_server_name() or not self._boat_toggle.isChecked():
+            return
+        # Keep local log/fallback rows, but replace the community snapshot as
+        # a whole (expired/removed community reports cannot become ghosts).
+        merged = {
+            (row._schedule.route.boat_id, row._schedule.route.start_point): row._schedule
+            for row in self._boat_group.rows()
+            if not row._schedule.source.startswith('Vantage Community')}
+        for schedule in schedules:
+            key = (schedule.route.boat_id, schedule.route.start_point)
+            old = merged.get(key)
+            if not (old and old.source.startswith('EQ log') and
+                    old.last_seen > schedule.last_seen):
+                merged[key] = schedule
+        self._boat_group.update_schedules(list(merged.values()), server)
+        self._boat_group.set_status(status)
+        self._refresh_pigparse_boats()
 
     def _toggle_boat_schedules(self, checked):
         config.data['spells']['show_boat_schedules'] = bool(checked)
@@ -2729,19 +2804,38 @@ class Spells(ParserWindow):
         self._refresh_boat_schedules()
 
     def _refresh_boat_schedules(self):
+        if not self._boat_toggle.isChecked():
+            return
+        server = self._boat_server_name()
+        self._boat_server = server
+        if not self._boat_group.rows():
+            cached = self._boat_community.cached_schedules(server)
+            if cached:
+                self._boat_group.update_schedules(cached, server)
+        self._boat_community.refresh(server)
+        self._refresh_pigparse_boats()
+
+    def _refresh_pigparse_boats(self):
         if not self._boat_toggle.isChecked() or self._boat_pending:
             return
         server = self._boat_server_name()
+        if len({row._schedule.route.boat_id for row in self._boat_group.rows()
+                if row._schedule.source.startswith('Vantage Community')}) == 4:
+            return
+        if time.monotonic() - self._boat_fallback_attempts.get(server, -1000) < 300:
+            return
+        self._boat_fallback_attempts[server] = time.monotonic()
         self._boat_pending = True
-        self._boat_server = server
-        self._boat_group.set_status(
-            f'BOAT SCHEDULES · syncing PigParse · {server}')
         request = QNetworkRequest(QUrl(
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.128')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.129')
+        request.setTransferTimeout(10_000)
         reply = self._boat_network.get(request)
+        reply.downloadProgress.connect(
+            lambda received, total, reply=reply:
+            reply.abort() if received > 65536 else None)
         reply.finished.connect(
             lambda reply=reply, server=server:
             self._boat_reply_finished(reply, server))
@@ -2749,24 +2843,32 @@ class Spells(ParserWindow):
     def _boat_reply_finished(self, reply, server):
         self._boat_pending = False
         try:
-            if reply.error() != QNetworkReply.NetworkError.NoError:
-                self._boat_group.set_status(
-                    f'BOAT SCHEDULES · PigParse unavailable · {server}')
+            if server != self._boat_server_name() or not self._boat_toggle.isChecked():
                 return
-            payload = json.loads(bytes(reply.readAll()).decode(
+            if reply.error() != QNetworkReply.NetworkError.NoError:
+                return
+            body = bytes(reply.readAll())
+            if len(body) > 65536:
+                return
+            payload = json.loads(body.decode(
                 'utf-8', errors='replace'))
             schedules = schedules_from_activities(
                 payload, source=f'PigParse API · {server}')
             if not schedules:
-                self._boat_group.set_status(
-                    f'BOAT SCHEDULES · no observations · {server}')
                 return
-            self._boat_group.update_schedules(schedules, server)
+            community_boats = {row._schedule.route.boat_id
+                               for row in self._boat_group.rows()
+                               if row._schedule.source.startswith('Vantage Community')}
+            fallback = [s for s in schedules if s.route.boat_id not in community_boats]
+            status = self._boat_group.status.text()
+            self._boat_group.update_schedules(fallback, server, replace=False)
+            self._boat_group.set_status(status + ' · PigParse fallback estimates')
         except (TypeError, ValueError, json.JSONDecodeError):
-            self._boat_group.set_status(
-                f'BOAT SCHEDULES · invalid PigParse response · {server}')
+            pass
         finally:
             reply.deleteLater()
+            if server != self._boat_server_name() and self._boat_toggle.isChecked():
+                QTimer.singleShot(0, self._refresh_pigparse_boats)
 
 
 class BoatScheduleWidget(QFrame):
@@ -2817,6 +2919,13 @@ class BoatScheduleWidget(QFrame):
             'Time remaining relative to one modeled boat cycle')
         source_row.addWidget(self.progress, 1)
         details.addLayout(source_row)
+        self.reporter_label = QLabel()
+        self.reporter_label.setObjectName('BoatScheduleContributor')
+        self.reporter_label.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.reporter_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.reporter_label.setWordWrap(True)
+        details.addWidget(self.reporter_label)
         layout.addLayout(details, 1)
         self.set_schedule(schedule)
 
@@ -2859,12 +2968,24 @@ class BoatScheduleWidget(QFrame):
         stale = age > route.trip_seconds * 3
         source_kind = (
             'LOG' if self._schedule.source.casefold().startswith('eq log')
+            else 'COMM' if self._schedule.source.startswith('Vantage Community')
             else 'PIG')
         self.source_label.setText(
             f'{source_kind} · {"STALE " if stale else ""}'
             f'{self._age_text(age)}')
         self.time_label.setText(format_time(
             datetime.timedelta(seconds=max(0, int(remaining)))))
+        self.reporter_label.setVisible(bool(self._schedule.reporter))
+        if self._schedule.reporter:
+            display_name = re.sub(
+                r'\S{14}(?=\S)', lambda part: part.group(0) + '\u200b',
+                self._schedule.reporter)
+            self.reporter_label.setText(
+                f'Reported by {display_name} · {self._age_text(age)} · '
+                f'{self._schedule.confidence or "unconfirmed"}')
+            self.reporter_label.setAccessibleName(
+                f'Reported by {self._schedule.reporter} · {self._age_text(age)} · '
+                f'{self._schedule.confidence or "unconfirmed"}')
         self.progress.setValue(max(0, int(remaining)))
         freshness = (
             'The observation is older than three modeled trips; the countdown '
@@ -2875,6 +2996,10 @@ class BoatScheduleWidget(QFrame):
             f'Source: {self._schedule.source}\n'
             f'Last observed: {self._schedule.last_seen.astimezone():%Y-%m-%d %H:%M:%S}\n'
             f'{freshness}')
+        if self._schedule.reporter:
+            tooltip += (f'\nReported by: {self._schedule.reporter} (self-reported name)'
+                        f'\nCommunity confidence: {self._schedule.confidence}')
+        self.reporter_label.setToolTip(tooltip)
         self.setToolTip(tooltip)
         self.name_label.setToolTip(tooltip)
         self.source_label.setToolTip(tooltip)
@@ -2883,6 +3008,9 @@ class BoatScheduleWidget(QFrame):
 
 class BoatScheduleGroup(QFrame):
     """Compact source-labelled boat rows embedded in the buff window."""
+
+    server_changed = Signal(str)
+    report_requested = Signal(object)
 
     def __init__(self):
         super().__init__()
@@ -2896,13 +3024,30 @@ class BoatScheduleGroup(QFrame):
         self.header.setProperty('TargetType', 0)
         self.header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.header.setToolTip(
-            'P99 boat arrivals calculated from dated PigParse or local EQ log observations')
+            'Shared Green/Blue arrivals, with local log observations and labelled fallback estimates')
         self._layout.addWidget(self.header)
-        self.status = QLabel('BOAT SCHEDULES · waiting for PigParse')
+        controls = QHBoxLayout()
+        controls.setContentsMargins(4, 3, 4, 3)
+        self.server_selector = QComboBox()
+        self.server_selector.addItems(['Green', 'Blue'])
+        self.server_selector.setCurrentText(config.data['spells'].get('boat_view_server', 'Green'))
+        self.server_selector.setAccessibleName('Boat timers server to view')
+        self.server_selector.setToolTip('View Green or Blue separately; reporting uses the actual character server')
+        self.server_selector.currentTextChanged.connect(self.server_changed)
+        controls.addWidget(self.server_selector)
+        self.sync_button = QPushButton('Sync arrival…')
+        self.sync_button.setAccessibleName('Open manual boat arrival sync')
+        self.sync_button.setToolTip('Press when a boat reaches its arrival point; choose the dock and public reporter name')
+        self.sync_button.clicked.connect(lambda _=False: self.report_requested.emit(None))
+        controls.addWidget(self.sync_button, 1)
+        self._layout.addLayout(controls)
+        self.status = QLabel('BOAT SCHEDULES · waiting for community reports')
         self.status.setObjectName('BoatScheduleStatus')
         self.status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status.setTextFormat(Qt.TextFormat.PlainText)
+        self.status.setWordWrap(True)
         self.status.setToolTip(
-            'PigParse supplies the observation; Vantage labels stale extrapolations')
+            'Reports are estimates; names are self-reported. Cached or stale data is labelled.')
         self._layout.addWidget(self.status)
         self._clock = QTimer(self)
         self._clock.setInterval(1000)
@@ -2935,6 +3080,17 @@ class BoatScheduleGroup(QFrame):
                     row.deleteLater()
         for key, schedule in incoming.items():
             if key in self._rows:
+                existing = self._rows[key]._schedule
+                if existing is schedule:
+                    # A merge is not a new observation. Keep its running
+                    # countdown rather than adding the original remaining time
+                    # again on each minute's community refresh.
+                    continue
+                if (existing.last_seen > schedule.last_seen and
+                        (existing.source.startswith('EQ log') or
+                         existing.source.startswith('Vantage Community') ==
+                         schedule.source.startswith('Vantage Community'))):
+                    continue
                 self._rows[key].set_schedule(schedule)
             else:
                 self._rows[key] = BoatScheduleWidget(schedule)
@@ -2943,7 +3099,7 @@ class BoatScheduleGroup(QFrame):
             for index, route in enumerate(BOAT_ROUTES)}
         ordered = sorted(
             self._rows.items(), key=lambda item: route_order[item[0]])
-        for index, (_key, row) in enumerate(ordered, 2):
+        for index, (_key, row) in enumerate(ordered, 3):
             self._layout.insertWidget(index, row)
         now = datetime.datetime.now(datetime.timezone.utc)
         stale = sum(

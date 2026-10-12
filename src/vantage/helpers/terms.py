@@ -17,7 +17,7 @@ from vantage.helpers import config, resource_path
 from vantage.helpers.responsive import ResponsiveActionBar
 
 
-TERMS_VERSION = "2026-09-15.1"
+TERMS_VERSION = "2026-10-12.1"
 TERMS_FILENAME = "TERMS-AND-PRIVACY.md"
 
 

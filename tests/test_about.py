@@ -38,7 +38,7 @@ print(json.dumps({
     "gpl": "GNU GENERAL PUBLIC LICENSE" in notices.toPlainText(),
     "credits": "nParse project and contributors" in credits.toPlainText(),
     "non_affiliation": "not affiliated with" in credits.toPlainText(),
-    "terms_version": "2026-09-15.1" in terms.toPlainText(),
+    "terms_version": "2026-10-12.1" in terms.toPlainText(),
     "terms_tab": any(tabs.tabText(index) == "Terms & Privacy"
                      for index in range(tabs.count())),
     "creator": creator.text(),

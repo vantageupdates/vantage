@@ -27,7 +27,7 @@ def _app():
 def test_notice_matches_current_version_and_product_scope():
     notice = (ROOT / "TERMS-AND-PRIVACY.md").read_text(encoding="utf-8")
 
-    assert terms.TERMS_VERSION == "2026-09-15.1"
+    assert terms.TERMS_VERSION == "2026-10-12.1"
     assert terms.TERMS_VERSION in notice
     assert "GPL-3.0" in notice
     assert "does not sell your data" in notice
