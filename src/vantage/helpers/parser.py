@@ -21,6 +21,7 @@ from vantage.helpers.scaled_tooltip import (
 DESIGN_SIZES = {
     "quickbar": QSize(679, 67),
     "maps": QSize(400, 400),
+    "boats": QSize(400, 560),
     # The 260 px logical width fits every authored header control. Physical
     # resizing still scales the entire replica down uniformly.
     "spells": QSize(260, 400),

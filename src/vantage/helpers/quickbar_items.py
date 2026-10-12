@@ -4,6 +4,7 @@
 QUICKBAR_ITEMS = (
     # key, label, icon, group
     ("maps", "Maps", "ph-map", "windows"),
+    ("boats", "Boat Schedules", "ph-boat", "windows"),
     ("spells", "Buffs", "ph-wand", "windows"),
     ("triggers", "Triggers", "bolt", "windows"),
     ("timers", "Smart Timers", "ph-countdown", "windows"),

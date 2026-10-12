@@ -159,7 +159,10 @@ def test_shared_headers_keep_readable_inset_chrome_and_geometry(
         check=True, capture_output=True, text=True, timeout=45)
     result = json.loads(completed.stdout.strip().splitlines()[-1])
     windows = set(result) - {'caption', 'constrained', 'mute', 'vertical'}
-    assert len(windows) == 16
+    assert windows == {
+        'quickbar', 'maps', 'spells', 'boats', 'vitals', 'tick', 'timers',
+        'combat', 'random_parser', 'heals', 'market', 'opendkp', 'zones',
+        'quests', 'items_notes', 'log_searcher', 'vantage_ui'}
     for name in windows:
         panel = result[name]
         assert panel['normal']['size'] == panel['design'], name

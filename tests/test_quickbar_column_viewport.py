@@ -247,8 +247,10 @@ def test_saved_column_scrolls_and_reveals_all_authored_actions(display_scale):
     result = json.loads(completed.stdout.strip().splitlines()[-1])
     assert result['saved'] == {
         'rect': [10, 0, 30, 767], 'pref': [10, 0, 30, 767],
-        'design': [30, 791], 'logical_height': 791, 'targets': True,
-        'footer': [True, 24, 24], 'range': 48, 'scale': 1.0}
+        # Boat Schedules adds one 24px action to the authored column. The
+        # saved 30x767 viewport stays identical; only its scroll range grows.
+        'design': [30, 815], 'logical_height': 815, 'targets': True,
+        'footer': [True, 24, 24], 'range': 72, 'scale': 1.0}
     assert all(result['tab_walk']), result['tab_walk']
     assert all(result['presets'])
     for name, value in result.items():

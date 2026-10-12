@@ -267,16 +267,17 @@ def test_scaled_panels_keep_keyboard_pointer_and_tooltips(tmp_path):
         result["timer_required_single"] * 300 / 520)
     assert result["missing_timer_tooltips"] == []
     assert result["map_manual_pan"] is True
-    # The visible Triggers label widens the authored row (852 x 72 here),
-    # not its targets or height. Keep the 292px recovery width and verify
-    # the exact uniform aspect-derived minimum, rather than the old 779px
-    # catalog's fixed 27px result (the new catalog yields 25px).
+    # Catalog additions widen the authored row, not its targets or height.
+    # Both recovery floors apply: at least 292px across and 18px for the
+    # interactive lane. With Boat Schedules the height floor can dominate,
+    # so derive both exact minimum dimensions from the same uniform scale.
     quickbar_width, quickbar_height = result["quickbar_design"]
     quickbar_scale = max(.25, 292 / quickbar_width,
                          18 / (quickbar_height - 19))
     assert result["minimum_sizes"] == {
-            "quickbar": [292, round(quickbar_height * quickbar_scale)],
-        "maps": [100, 100], "spells": [65, 100],
+            "quickbar": [round(quickbar_width * quickbar_scale),
+                         round(quickbar_height * quickbar_scale)],
+        "maps": [100, 100], "boats": [100, 140], "spells": [65, 100],
         "tick": [65, 36],
         "timers": [130, min(
             result["timer_required_physical_height"],
@@ -295,7 +296,7 @@ def test_scaled_panels_keep_keyboard_pointer_and_tooltips(tmp_path):
             result["timer_required_physical_height"],
             result["timer_screen_height"])]
     assert result["missing_by_panel"] == {
-        "quickbar": [], "maps": [], "spells": [], "tick": [],
+        "quickbar": [], "maps": [], "boats": [], "spells": [], "tick": [],
         "timers": [], "combat": [],
         "random_parser": [],
         "heals": [], "market": [], "opendkp": [], "zones": [], "quests": [],

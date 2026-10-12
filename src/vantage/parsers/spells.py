@@ -644,15 +644,15 @@ class Spells(ParserWindow):
         self.menu_area.addWidget(self._custom_timer_toggle)
         self._boat_toggle = QToolButton()
         self._boat_toggle.setObjectName('CompactMenuButton')
-        self._boat_toggle.setIcon(game_icon('timer'))
+        self._boat_toggle.setIcon(game_icon('ph-boat'))
         self._boat_toggle.setCheckable(True)
         self._boat_toggle.setChecked(
             config.data['spells'].get('show_boat_schedules', False))
-        self._boat_toggle.setAccessibleName('Show P99 boat schedules')
+        self._boat_toggle.setAccessibleName('Open Boat Schedules')
         self._boat_toggle.setProperty('HeaderPriority', 1)
         self._boat_toggle.setProperty('HeaderAlwaysVisible', True)
         self._boat_toggle.setToolTip(
-            'Show Green/Blue boat timers; choose a server and share a visible arrival. PigParse is a labelled fallback.')
+            'Open Boat Schedules for Green/Blue arrivals and manual arrival sync')
         self._boat_toggle.setPopupMode(
             QToolButton.ToolButtonPopupMode.MenuButtonPopup)
         boat_menu = QMenu(self._boat_toggle)
@@ -670,7 +670,7 @@ class Spells(ParserWindow):
         source.triggered.connect(lambda: QDesktopServices.openUrl(
             QUrl('https://pigparse.azurewebsites.net/')))
         self._boat_toggle.setMenu(boat_menu)
-        self._boat_toggle.clicked.connect(self._toggle_boat_schedules)
+        self._boat_toggle.clicked.connect(self._boat_header_clicked)
         self.menu_area.addWidget(self._boat_toggle)
         self._boat_group.set_enabled(self._boat_toggle.isChecked())
         self._boat_group.server_changed.connect(self._change_boat_view_server)
@@ -2756,7 +2756,8 @@ class Spells(ParserWindow):
             self._boat_arrival_dialog.activateWindow()
             return
         dialog = BoatArrivalDialog(
-            self._boat_community, self, active_server=self._boat_character_server(),
+            self._boat_community, getattr(self, '_boat_window', None) or self,
+            active_server=self._boat_character_server(),
             viewed_server=self._boat_server_name(),
             reporter=getattr(self, '_active_character', '') or
             config.data['spells'].get('boat_reporter', ''), route_key=route_key,
@@ -2796,6 +2797,18 @@ class Spells(ParserWindow):
         if checked:
             self._refresh_boat_schedules()
 
+    def _boat_header_clicked(self, checked):
+        window = getattr(self, '_boat_window', None)
+        if window is None:
+            self._toggle_boat_schedules(checked)
+            return
+        # This legacy header is now a second launcher, not a switch that can
+        # hide all the rows in the independent Boat Schedules window.
+        self._boat_toggle.setChecked(True)
+        if not config.data['spells'].get('show_boat_schedules', False):
+            self._toggle_boat_schedules(True)
+        window.toggle()
+
     def _manual_refresh_boats(self):
         if not self._boat_toggle.isChecked():
             self._boat_toggle.setChecked(True)
@@ -2830,7 +2843,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.129')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.130')
         request.setTransferTimeout(10_000)
         reply = self._boat_network.get(request)
         reply.downloadProgress.connect(
@@ -3007,7 +3020,7 @@ class BoatScheduleWidget(QFrame):
 
 
 class BoatScheduleGroup(QFrame):
-    """Compact source-labelled boat rows embedded in the buff window."""
+    """Compact source-labelled boat rows shared with the boat window."""
 
     server_changed = Signal(str)
     report_requested = Signal(object)

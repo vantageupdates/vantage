@@ -852,6 +852,10 @@ QMenu::separator { height: 1px; background: #2D3238; margin: 4px 7px; }
 }
 #BoatScheduleSource { color: #AAB2B8; font-size: 10px; }
 #BoatScheduleContributor { color: #CAC4B6; font-size: 11px; padding: 1px 0; }
+QScrollArea#BoatScheduleScroll, QWidget#BoatScheduleViewport, QWidget#BoatScheduleBody {
+    background-color: #0C0E11;
+    border: none;
+}
 QScrollArea#BoatArrivalScroll, QWidget#BoatArrivalViewport, QWidget#BoatArrivalBody {
     background-color: #090A0C;
     border: none;

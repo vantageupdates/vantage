@@ -37,6 +37,7 @@ from vantage.helpers.update_toast import QuickUpdateToast
 from vantage.helpers.update_handoff import (
     consume_spell_handoff, read_spell_handoff, write_spell_handoff)
 from vantage.parsers.combat import Combat
+from vantage.parsers.boats import BoatSchedules
 from vantage.parsers.heals import HealChain
 from vantage.parsers.maps import Maps
 from vantage.parsers.maps.window import MapsSignals
@@ -63,7 +64,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=129,
+    patch=130,
     build=""
 )
 
@@ -344,6 +345,7 @@ class VantageApp(QApplication):
         maps = Maps()
         self._splash.step("Indexing buffs, icons, and triggers…", 42)
         spells = Spells()
+        boats = BoatSchedules(spells)
         vitals = Vitals()
         self._splash.step("Restoring Smart Timers and Server Tick…", 58)
         tick = ServerTick()
@@ -366,6 +368,7 @@ class VantageApp(QApplication):
         self._parsers_dict = {
             "maps": maps,
             "spells": spells,
+            "boats": boats,
             "vitals": vitals,
             "tick": tick,
             "timers": timers,
@@ -386,6 +389,7 @@ class VantageApp(QApplication):
             self._parsers_dict["quickbar"],
             self._parsers_dict["maps"],
             self._parsers_dict["spells"],
+            self._parsers_dict["boats"],
             self._parsers_dict["vitals"],
             self._parsers_dict["tick"],
             self._parsers_dict["timers"],
@@ -1512,6 +1516,7 @@ class VantageApp(QApplication):
             label = {
                 "quickbar": "Quick Bar",
                 "spells": "Buffs & Triggers",
+                "boats": "Boat Schedules",
                 "tick": "Server Tick",
                 "timers": "Smart Timers",
                 "heals": "Heal Chain",

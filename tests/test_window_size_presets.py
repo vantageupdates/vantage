@@ -103,7 +103,7 @@ def test_every_window_size_preset_rollup_and_tray_restore_are_effective(
         'Compact replica · 50%', 'Comfortable · 75%',
         'Original · 100%']
     assert set(result) == {
-        'maps', 'spells', 'tick', 'timers', 'combat', 'heals', 'market',
+        'maps', 'spells', 'boats', 'tick', 'timers', 'combat', 'heals', 'market',
         'random_parser',
         'opendkp', 'zones', 'quests', 'items_notes', 'vantage_ui',
         'log_searcher', 'vitals'}

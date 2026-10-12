@@ -68,6 +68,14 @@ UI_PRESENTATION_DEFAULTS = {
     ('maps', 'always_on_top'): True,
     ('maps', 'frameless'): True,
     ('maps', 'collapsed'): False,
+    ('boats', 'geometry'): [450, 80, 400, 560],
+    ('boats', 'toggled'): False,
+    ('boats', 'opacity'): 94,
+    ('boats', 'clickthrough'): False,
+    ('boats', 'auto_hide_menu'): False,
+    ('boats', 'always_on_top'): True,
+    ('boats', 'frameless'): True,
+    ('boats', 'collapsed'): False,
     ('spells', 'geometry'): [400, 0, 200, 400],
     ('spells', 'toggled'): False,
     ('spells', 'opacity'): 80,
@@ -1134,6 +1142,29 @@ def verify_settings():
     data['tick']['mode'] = get_setting(
         data['tick'].get('mode', 'player'), 'player',
         lambda value: value in ('player', 'target'))
+
+    # Independent Boat Schedules presentation. Arrival data and public-report
+    # preferences remain owned by the existing Spells boat controller.
+    data['boats'] = data.get('boats', {})
+    if not isinstance(data['boats'], dict):
+        data['boats'] = {}
+    data['boats']['geometry'] = get_setting(
+        data['boats'].get('geometry', [450, 80, 400, 560]),
+        [450, 80, 400, 560],
+        lambda value: (isinstance(value, list) and len(value) == 4 and
+                       all(type(item) is int for item in value) and
+                       value[2] > 0 and value[3] > 0))
+    for key, default in (
+            ('toggled', False), ('auto_hide_menu', False),
+            ('always_on_top', True), ('frameless', True),
+            ('collapsed', False)):
+        data['boats'][key] = get_setting(
+            data['boats'].get(key, default), default)
+    # Server selection and manual Sync must always remain interactive.
+    data['boats']['clickthrough'] = False
+    data['boats']['opacity'] = get_setting(
+        data['boats'].get('opacity', 94), 94,
+        lambda value: 25 <= value <= 100)
 
     # Smart spawn timers
     data['timers'] = data.get('timers', {})

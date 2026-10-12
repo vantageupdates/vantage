@@ -84,5 +84,7 @@ def test_boat_rows_preserve_sources_freshness_and_tooltips(tmp_path):
         'pig_source_before': True,
         'local_source_after': True,
         'status_after_local': 'BOATS · 7 arrivals · Green · 2 stale source',
-        'empty_hidden': True,
+        # Boat Schedules no longer occupies the Buffs window: a boat row
+        # must not suppress its "No active buffs" empty state.
+        'empty_hidden': False,
     }
