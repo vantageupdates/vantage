@@ -69,9 +69,25 @@ Windows file/product versions also match. Candidate **Vantage.exe** is
 **75,978,458 bytes**, SHA-256
 `5c5564c93207968c75b07b0065a4e4839c83b52464784d50b6007ba5705b1d93`.
 The archive includes `vantage.parsers.boats` and `data/ui/icons/ph-boat.svg`.
-Public asset evidence will be recorded after publication.
+Public release verification is recorded below.
 
 Native previews use an isolated profile with external network, game capture,
 audio, log discovery, and background services disabled; they do not replace
 in-game verification. Normal and 150%-text previews show a dark scroll body;
 large text uses vertical scrolling without clipping the controls.
+
+## Public release verification
+
+[Companion 1.44.130](https://github.com/vantageupdates/vantage/releases/tag/v1.44.130)
+was published at **2026-10-12 23:21:39 UTC**. Anonymous HTTPS reads confirm
+stable, non-draft, non-prerelease status and **Companion Latest**. Its sole
+asset is **Vantage.exe**, **75,978,458 bytes**, GitHub digest
+`sha256:5c5564c93207968c75b07b0065a4e4839c83b52464784d50b6007ba5705b1d93`,
+exactly matching the frozen-source, built, and self-tested candidate.
+
+The new annotated tag dereferences to verified source
+`da568c51ac3347c0a7f8c3ab61867e64b35b73ff`; source and tag were pushed atomically,
+without force or reuse. Publication used the already-saved Vantage credential
+only in the publishing process; the machine's global GitHub account was not
+changed. No installed executable was replaced, and no game, skin, or character
+INI was modified. VantageUI retained its independent authority and channel.
