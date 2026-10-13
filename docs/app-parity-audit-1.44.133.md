@@ -183,6 +183,12 @@ scrollbar on the wide Combat table remains.
   all three JUnit reports, complete-suite proof, build log and portable proof;
   `SideKick/work/app-parity-133/native/` contains the screenshots.
 
-Public release verification is appended after publication. Earlier top-level
-candidate artifacts were superseded before publication; only the `final/`
-candidate passed the final gate.
+Published [stable Companion 1.44.133](https://github.com/vantageupdates/vantage/releases/tag/v1.44.133)
+from `a1ae196d8473bdc38e64f71147c3d0d47d38bdb0` at
+2026-10-13 08:31:47 UTC. Anonymous GitHub API verification confirmed the release
+is Latest, non-draft and non-prerelease, with exactly one uploaded `Vantage.exe`.
+Public asset **636402679** matched the candidate's size and SHA-256 above
+(release **411456246**). The running local installation was not replaced.
+
+Earlier top-level candidate artifacts were superseded before publication; only
+the `final/` candidate passed the final gate.
