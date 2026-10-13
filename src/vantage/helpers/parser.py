@@ -7,10 +7,10 @@ if sys.platform == "win32":
 from PySide6.QtCore import QEvent, QObject, QPoint, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import QCursor, QPainter, QPainterPath, QRegion
 from PySide6.QtWidgets import (
-    QAbstractButton, QAbstractSpinBox, QApplication, QComboBox, QHBoxLayout,
+    QAbstractButton, QAbstractSpinBox, QApplication, QComboBox, QDoubleSpinBox, QHBoxLayout,
     QLabel, QLineEdit, QMenu, QPlainTextEdit, QPushButton, QFrame, QGraphicsItem,
     QGraphicsOpacityEffect, QGraphicsScene, QGraphicsView, QSizePolicy,
-    QTextEdit, QToolButton, QVBoxLayout, QWidget)
+    QSpinBox, QTextEdit, QToolButton, QVBoxLayout, QWidget, QWidgetAction)
 
 from vantage.helpers import config
 from vantage.helpers.icons import WINDOW_ICONS, game_icon, game_pixmap
@@ -348,10 +348,9 @@ class ParserWindow(QWidget):
     # the complete replica; vertical resizing changes the logical viewport height
     # so lists reveal or hide rows without changing font or control size.
     _native_surface = False
-    # Dense overlay bodies may be scaled down, but selected windows can keep
-    # their title chrome at a readable physical size. Subclasses opt in when
-    # they are routinely used as narrow HUD panels.
-    _keep_header_readable = False
+    # Body replicas can be tiny or enlarged; their title chrome stays at its
+    # authored screen size so rolling a panel never changes its controls.
+    _keep_header_readable = True
     _minimum_readable_width = 0
     # The complete logical surface can be reduced to one quarter size.  This
     # is deliberately a uniform transform: controls, text, rows and spacing
@@ -650,6 +649,7 @@ class ParserWindow(QWidget):
             "font_pixels": max(1, widget.fontInfo().pixelSize()),
             "icon_width": max(0, icon_size.width()),
             "icon_height": max(0, icon_size.height()),
+            "stylesheet": widget.styleSheet(),
         }
         self._header_widget_metrics[widget] = metrics
         return metrics
@@ -664,7 +664,13 @@ class ParserWindow(QWidget):
         if not self._keep_header_readable or not getattr(self, "_menu", None):
             return
         surface_scale = max(.01, float(surface_scale or 1.0))
-        factor = 1.0 / min(1.0, surface_scale)
+        factor = 1.0 / surface_scale
+        # Normal-size panels also need the fixed strip before their body is
+        # hidden. Otherwise a first roll can stretch the header to body height.
+        self._menu.setFixedHeight(max(1, self._scaled_header_metric(
+            self._authored_header_height(), factor)))
+        if abs(factor - self._header_metric_factor) < .0001:
+            return
         self._header_metric_factor = factor
 
         def scaled_margins(values):
@@ -683,6 +689,12 @@ class ParserWindow(QWidget):
                 self._header_menu_base_spacing, factor)))
 
         widgets = [self._menu, *self._menu.findChildren(QWidget)]
+        # Capture ALL authored metrics before changing a parent's stylesheet.
+        # Native popups are outside the replica and must never be compensated.
+        widgets = [widget for widget in widgets
+                   if not self._has_native_menu_ancestor(widget)]
+        for widget in widgets:
+            self._remember_header_widget_metrics(widget)
         for widget in widgets:
             if isinstance(widget, QMenu) or widget is self._title_icon:
                 continue
@@ -692,9 +704,16 @@ class ParserWindow(QWidget):
                 1, self._scaled_header_metric(
                     metrics["font_pixels"], factor)))
             widget.setFont(font)
+            # Application QSS fixes fonts at 12px and otherwise overrides
+            # setFont. Local metrics must win without replacing authored colors.
+            metric_id = str(id(widget))
+            widget.setProperty("VantageHeaderMetricId", metric_id)
+            selector = f'QWidget[VantageHeaderMetricId="{metric_id}"]'
+            widget.setStyleSheet(metrics["stylesheet"] +
+                f"\n{selector} {{ font-size: {font.pixelSize()}px; }}")
 
             if isinstance(widget, QAbstractButton):
-                if factor <= 1.001:
+                if abs(factor - 1.0) < .001:
                     widget.setMinimumSize(
                         metrics["minimum_width"],
                         metrics["minimum_height"])
@@ -722,7 +741,7 @@ class ParserWindow(QWidget):
                         max(1, self._scaled_header_metric(
                             metrics["icon_height"], factor))))
             elif isinstance(widget, (QLineEdit, QComboBox, QAbstractSpinBox)):
-                if factor <= 1.001:
+                if abs(factor - 1.0) < .001:
                     widget.setMinimumSize(
                         metrics["minimum_width"],
                         metrics["minimum_height"])
@@ -742,6 +761,21 @@ class ParserWindow(QWidget):
                         1, self._scaled_header_metric(base_height, factor))
                     widget.setMinimumHeight(height)
                     widget.setMaximumHeight(height)
+            elif isinstance(widget, QLabel) and widget is not self._title:
+                widget.setMinimumWidth(self._scaled_header_metric(
+                    metrics["minimum_width"], factor))
+                widget.setMaximumWidth(
+                    self._scaled_header_metric(metrics["maximum_width"], factor)
+                    if metrics["maximum_width"] < 16777215 else 16777215)
+            elif widget not in (self._menu, self._parser_menu_area):
+                # Fixed composites (Quick Bar volume, for example) must grow
+                # along with their children, not clip compensated buttons.
+                if metrics["maximum_width"] < 16777215:
+                    widget.setFixedWidth(self._scaled_header_metric(
+                        metrics["maximum_width"], factor))
+                if metrics["maximum_height"] < 16777215:
+                    widget.setFixedHeight(self._scaled_header_metric(
+                        metrics["maximum_height"], factor))
 
         # The title artwork is rasterized at the inverse logical size so the
         # final transformed icon still resolves to a crisp authored 14 px.
@@ -749,11 +783,27 @@ class ParserWindow(QWidget):
         self._title_icon.setMinimumWidth(icon_width)
         self._title_icon.setMaximumWidth(icon_width)
         self._refresh_title_icon()
+        # Body layouts with large minimum hints must not squeeze the title bar.
+        self._menu.setFixedHeight(max(1, self._scaled_header_metric(
+            self._authored_header_height(), factor)))
         self.menu_area.invalidate()
         self._menu_content.invalidate()
         self.menu_area.activate()
         self._menu_content.activate()
         self._pack_header_controls()
+
+    def _authored_header_height(self):
+        return 28
+
+    @staticmethod
+    def _has_native_menu_ancestor(widget):
+        current = widget
+        while current is not None:
+            if (isinstance(current, QMenu) or
+                    current.windowType() == Qt.WindowType.Popup):
+                return True
+            current = current.parentWidget()
+        return False
 
     def _schedule_header_pack(self):
         timer = getattr(self, "_header_pack_timer", None)
@@ -792,9 +842,7 @@ class ParserWindow(QWidget):
 
     def _header_menu_available_width(self, overflow_visible=False):
         """Return the safe logical width left between title and chrome."""
-        logical_width = max(
-            1, getattr(self, "_logical_surface_width", 0),
-            self._design_size.width())
+        logical_width = max(1, getattr(self, "_logical_surface_width", 0))
         margins = self._menu_content.contentsMargins()
         fixed = [widget for widget in (
             self._button, self._title_icon, self._settings_button,
@@ -803,8 +851,9 @@ class ParserWindow(QWidget):
         fixed_width = sum(self._header_widget_width(widget) for widget in fixed)
         title_pixels = self._title.fontMetrics().horizontalAdvance(
             self._title.text()) + 8
-        title_reserve = (0 if self._title.isHidden() else max(36, min(
-            title_pixels, max(36, round(logical_width * 0.45)))))
+        title_floor = self._scaled_header_metric(36, self._header_metric_factor)
+        title_reserve = (0 if self._title.isHidden() else max(title_floor, min(
+            title_pixels, max(title_floor, round(logical_width * 0.45)))))
         self._title.setMinimumWidth(title_reserve)
         root_widgets = (len(fixed) + int(not self._title.isHidden()) +
                         int(not self._parser_menu_area.isHidden()) +
@@ -813,9 +862,10 @@ class ParserWindow(QWidget):
         overflow_width = (
             self._header_widget_width(self._header_overflow_button)
             if overflow_visible else 0)
-        return max(
-            0, logical_width - margins.left() - margins.right() -
-            fixed_width - title_reserve - root_spacing - overflow_width)
+        # A negative budget is meaningful even when there are no tool actions:
+        # the title/chrome themselves need packing (e.g. a long rolled title).
+        return (logical_width - margins.left() - margins.right() -
+                fixed_width - title_reserve - root_spacing - overflow_width)
 
     @staticmethod
     def _header_control_label(control):
@@ -914,12 +964,25 @@ class ParserWindow(QWidget):
                     widget.show()
                 except RuntimeError:
                     pass
+            if getattr(self, "_header_decoration_hidden", False):
+                self._title_icon.show()
+                self._header_decoration_hidden = False
             self._header_overflowed = []
             self._header_overflow_button.hide()
             self.menu_area.activate()
             self._menu_content.activate()
 
             widgets = self._header_menu_widgets()
+            for widget in widgets:
+                if (isinstance(widget, QAbstractButton) and
+                        widget.property("HeaderTextAction") is True):
+                    # Counts can change after initialization (0/0 → 123/123).
+                    # Their text is never constrained to icon-only metrics.
+                    width = (widget.fontMetrics().horizontalAdvance(widget.text()) +
+                             widget.iconSize().width() +
+                             self._scaled_header_metric(20, self._header_metric_factor))
+                    widget.setFixedWidth(max(width, self._scaled_header_metric(
+                        44, self._header_metric_factor)))
             required = self._header_menu_required_width(widgets)
             focus_to_overflow = False
             newly_hidden_focus = None
@@ -933,6 +996,11 @@ class ParserWindow(QWidget):
                     self._button, self._minimize_button,
                     self._settings_button, self._roll_button)
                     if not widget.isHidden())
+                # At true Mini/Tiny widths even primary inputs cannot all fit.
+                # Keep them accessible through native menu editors instead of
+                # squeezing the whole strip beyond its viewport.
+                candidates.extend(widget for widget in widgets
+                    if widget not in candidates and not widget.isHidden())
                 for widget in candidates:
                     contains_focus = bool(
                         focused is widget or
@@ -951,13 +1019,17 @@ class ParserWindow(QWidget):
                     if required <= available:
                         break
                 if required > available and not self._title.isHidden():
-                    # Inputs/readouts are never overflowed. If a long caption
-                    # still competes with them after all optional actions have
-                    # moved, shorten its painted viewport, not its full text.
+                    # Decorative artwork yields before the last action or
+                    # caption. Full titles remain available in the tooltip.
+                    self._title_icon.hide()
+                    self._header_decoration_hidden = True
+                    available = self._header_menu_available_width(True)
                     self._title.setMinimumWidth(max(
-                        36, self._title.minimumWidth() - required + available))
+                        0, self._title.minimumWidth() - required + available))
             self._header_overflow_button.setVisible(
                 bool(self._header_overflowed))
+            self._header_overflow_button.setToolTip(
+                f"{self._title.text()} — More window actions")
             if focus_to_overflow and self._header_overflowed:
                 self._header_focus_restore = newly_hidden_focus
                 self._scale_scene.setFocusItem(self._scale_proxy)
@@ -974,7 +1046,10 @@ class ParserWindow(QWidget):
                         Qt.FocusReason.TabFocusReason)
             elif not self._header_overflowed:
                 self._header_focus_restore = None
-            self._rebuild_header_overflow_menu()
+            # A live menu editor must not be destroyed by a status refresh or
+            # by its own valueChanged signal. Rebuild on the next opening.
+            if not self._header_overflow_menu.isVisible():
+                self._rebuild_header_overflow_menu()
             self.menu_area.activate()
             self._menu_content.activate()
             self._menu.updateGeometry()
@@ -1023,6 +1098,14 @@ class ParserWindow(QWidget):
             return
         menu.clear()
         for widget in self._header_overflowed:
+            if isinstance(widget, (QComboBox, QSpinBox, QDoubleSpinBox)):
+                self._add_header_input_to_overflow(menu, widget)
+                continue
+            if isinstance(widget, QLabel):
+                action = menu.addAction(
+                    f"{self._header_control_label(widget)}: {widget.text()}")
+                action.setEnabled(False)
+                continue
             buttons = (
                 [widget] if isinstance(widget, QAbstractButton) else
                 widget.findChildren(QAbstractButton))
@@ -1034,6 +1117,42 @@ class ParserWindow(QWidget):
                     self._add_header_button_to_overflow(submenu, button)
             elif buttons:
                 self._add_header_button_to_overflow(menu, buttons[0])
+
+    def _add_header_input_to_overflow(self, menu, source):
+        """Native-scale editor for a squeezed header input, never reparent it."""
+        host = QWidget(menu)
+        layout = QHBoxLayout(host)
+        label = QLabel(self._header_control_label(source), host)
+        layout.addWidget(label)
+        if isinstance(source, QComboBox):
+            editor = QComboBox(host)
+            editor.setModel(source.model())
+            editor.setModelColumn(source.modelColumn())
+            editor.setRootModelIndex(source.rootModelIndex())
+            editor.setCurrentIndex(source.currentIndex())
+            editor.setEditable(source.isEditable())
+            if source.isEditable():
+                editor.setEditText(source.currentText())
+                editor.editTextChanged.connect(source.setEditText)
+            editor.currentIndexChanged.connect(source.setCurrentIndex)
+        else:
+            editor = QDoubleSpinBox(host) if isinstance(source, QDoubleSpinBox) else QSpinBox(host)
+            if isinstance(source, QDoubleSpinBox):
+                editor.setDecimals(source.decimals())
+            editor.setRange(source.minimum(), source.maximum())
+            editor.setSingleStep(source.singleStep())
+            editor.setPrefix(source.prefix())
+            editor.setSuffix(source.suffix())
+            editor.setValue(source.value())
+            editor.valueChanged.connect(source.setValue)
+        label.setBuddy(editor)
+        editor.setAccessibleName(self._header_control_label(source))
+        editor.setToolTip(source.toolTip())
+        editor.setEnabled(source.isEnabled())
+        layout.addWidget(editor)
+        action = QWidgetAction(menu)
+        action.setDefaultWidget(host)
+        menu.addAction(action)
 
     def _parser_settings_config_update_watcher(self):
         requies_redraw = False
@@ -1078,8 +1197,11 @@ class ParserWindow(QWidget):
         geometry = settings.get("geometry", self._geometry)
         self._geometry_save_timer.stop()
         desired_collapsed = bool(settings.get("collapsed", False))
-        if self._collapsed != desired_collapsed:
-            self._set_collapsed(desired_collapsed)
+        # Incoming geometry describes the expanded rectangle, not the fixed
+        # header strip. Release rolled constraints before applying it, then
+        # capture the NEW rectangle if the incoming mode is still rolled.
+        if self._collapsed:
+            self._set_collapsed(False)
         self._geometry = list(geometry)
         self._always_on_top = bool(settings.get("always_on_top", True))
         self._auto_hide_menu = bool(settings.get("auto_hide_menu", True))
@@ -1092,6 +1214,9 @@ class ParserWindow(QWidget):
         self.setWindowOpacity(self._window_opacity / 100)
         self.setGeometry(*self._geometry)
         self._fit_to_available_screen()
+        self._update_uniform_scale()
+        if desired_collapsed:
+            self._set_collapsed(True)
         fitted_geometry = self.geometry()
         self._set_header_revealed(
             self._collapsed or not self._auto_hide_menu)
@@ -1700,14 +1825,13 @@ class ParserWindow(QWidget):
 
     def _set_collapsed(self, collapsed):
         collapsed = bool(collapsed)
+        if collapsed == self._collapsed:
+            return
         # Publish the state before either branch lays itself out. Subclass
         # minimum-canvas hooks must know that a rolled panel is header-only.
         self._collapsed = collapsed
-        # Rolled headers are already rendered 1:1. Reset any inverse metrics
-        # left by a narrow expanded replica before measuring its natural width.
         if collapsed:
-            self._update_header_scale_compensation(1.0)
-        if collapsed:
+            self._update_uniform_scale()
             self._pack_header_controls()
             # Restore the exact size the user just chose. Keeping the largest
             # historical dimensions made a Mini/Compact panel jump back to a
@@ -1716,24 +1840,27 @@ class ParserWindow(QWidget):
             self._expanded_height = self.height()
             self._expanded_minimum_width = self.minimumWidth()
             self._expanded_minimum_height = self.minimumHeight()
+            self._collapsed_content_visibility = {}
             for index in range(1, self.content.count()):
                 widget = self.content.itemAt(index).widget()
                 if widget:
+                    self._collapsed_content_visibility[widget] = not widget.isHidden()
                     widget.hide()
             self._set_header_revealed(True)
-            # A rolled panel is a compact tool strip, not a full-width empty
-            # canvas. Preserve the expanded size for restoration, but fit the
-            # rolled window tightly around its actual controls and title.
-            bar_height = max(24, self._menu.sizeHint().height())
-            bar_width = self._compact_header_width()
-            scaled_width = max(96, bar_width)
+            # Roll only the body away. Preserve the actual viewport width and
+            # transform; neither the caption nor the controls should jump when
+            # a Mini, large, or native-map panel becomes a title strip.
+            scale = max(.01, float(self._scale_view.transform().m11()))
+            bar_height = max(self._menu.height(), round(24 / scale))
+            bar_width = self._logical_surface_width
+            scaled_width = max(self._collapsed_header_minimum_width(), self.width())
             self._logical_surface_height = bar_height
             self._logical_surface_width = bar_width
             self._surface.setFixedSize(bar_width, bar_height)
             self._resize_scale_proxy(bar_width, bar_height)
             self._scale_scene.setSceneRect(
                 QRectF(0, 0, bar_width, bar_height))
-            scaled_height = max(22, bar_height)
+            scaled_height = max(22, round(bar_height * scale))
             self.setMinimumWidth(scaled_width)
             self.setMaximumWidth(scaled_width)
             self.setMinimumHeight(scaled_height)
@@ -1765,7 +1892,8 @@ class ParserWindow(QWidget):
             for index in range(1, self.content.count()):
                 widget = self.content.itemAt(index).widget()
                 if widget:
-                    widget.show()
+                    widget.setVisible(getattr(
+                        self, "_collapsed_content_visibility", {}).get(widget, True))
             self.resize(max(
                 getattr(self, "_expanded_width", 0), self.minimumWidth()), max(
                 getattr(self, "_expanded_height", 0), self.minimumHeight()))
@@ -1782,6 +1910,9 @@ class ParserWindow(QWidget):
         self._schedule_header_pack()
         config.data[self.name]["collapsed"] = collapsed
         self._save_geometry()
+
+    def _collapsed_header_minimum_width(self):
+        return 48
 
     def _compact_header_width(self):
         """Return the logical width required by the visible header only."""
@@ -1841,7 +1972,8 @@ class ParserWindow(QWidget):
         available_width = max(1, area.width() - chrome_width)
         available_height = max(1, area.height() - chrome_height)
         if self._collapsed:
-            width = min(max(96, client.width()), available_width)
+            width = min(max(self._collapsed_header_minimum_width(), client.width()),
+                        available_width)
             height = min(max(22, client.height()), available_height)
         else:
             width = min(max(self.minimumWidth(), client.width()), available_width)
@@ -1918,6 +2050,11 @@ class ParserWindow(QWidget):
         """Scale by width while making height a real list viewport."""
         if self._scale_view and self._scale_proxy:
             viewport = self._scale_view.viewport().size()
+            if not self.isVisible():
+                # Qt defers hidden children's resize events. A panel resized
+                # before its first show must not use the stale 64px viewport
+                # to measure/pack its rolled header at the minimum scale.
+                viewport = self.size()
             design_width = max(1, int(self._design_size.width()))
             if (self._native_surface and not self._collapsed and
                     viewport.width() >= design_width):

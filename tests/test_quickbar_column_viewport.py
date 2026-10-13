@@ -47,6 +47,7 @@ result = {'saved': {
     'pref': list(config.data['quickbar']['geometry']),
     'design': [bar._design_size.width(), bar._design_size.height()],
     'logical_height': bar._logical_surface_height,
+    'header_height': bar._menu.height() * bar._scale_view.transform().m11(),
     'targets': all((b.width(), b.height()) == (24, 24)
                    for b in bar._buttons.values()),
     'footer': [footer.isVisible(), footer.width(), footer.height()],
@@ -227,9 +228,25 @@ result['presets'] = []
 for scale in (.5, .75, 1):
     bar._set_replica_scale(scale)
     QTest.qWait(15)
-    result['presets'].append([bar.width(), bar.height()] == [
-        round(bar._design_size.width() * scale),
-        round(bar._design_size.height() * scale)])
+    transform = bar._scale_view.transform().m11()
+    def physical_rect(widget):
+        corner = widget.mapTo(bar._surface, QPoint(0, 0))
+        return QRectF(corner.x() * transform, corner.y() * transform,
+                      widget.width() * transform, widget.height() * transform)
+    header_rect = physical_rect(bar._menu)
+    command_rect = physical_rect(bar.action_frame)
+    ticker_rect = physical_rect(bar.notification_rail)
+    viewport_rect = QRectF(bar.rect())
+    # A replica scales the command/ticker lanes, not the readable 30px chrome.
+    # Validate rendered geometry instead of the former fully-scaled height.
+    result['presets'].append(
+        bar.width() == round(bar._design_size.width() * scale) and
+        29 <= header_rect.height() <= 31 and
+        viewport_rect.contains(command_rect) and
+        viewport_rect.contains(ticker_rect) and
+        command_rect.top() + .5 >= header_rect.bottom() and
+        command_rect.bottom() <= ticker_rect.top() + .5 and
+        bar._horizontal_required_height(transform) == bar.height())
 print(json.dumps(result))
 app.quit()
 '''
@@ -247,10 +264,11 @@ def test_saved_column_scrolls_and_reveals_all_authored_actions(display_scale):
     result = json.loads(completed.stdout.strip().splitlines()[-1])
     assert result['saved'] == {
         'rect': [10, 0, 30, 767], 'pref': [10, 0, 30, 767],
-        # Boat Schedules adds one 24px action to the authored column. The
+        # A native 24px header gives the logo clear vertical insets. The
         # saved 30x767 viewport stays identical; only its scroll range grows.
-        'design': [30, 815], 'logical_height': 815, 'targets': True,
-        'footer': [True, 24, 24], 'range': 72, 'scale': 1.0}
+        'design': [30, 819], 'logical_height': 819,
+        'header_height': 24, 'targets': True,
+        'footer': [True, 24, 24], 'range': 76, 'scale': 1.0}
     assert all(result['tab_walk']), result['tab_walk']
     assert all(result['presets'])
     for name, value in result.items():

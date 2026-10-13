@@ -12,6 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = r"""
 import json
 import math
+from native_audit_fixture import isolate
+isolate()
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
@@ -23,18 +25,26 @@ from vantage.helpers.spawn_timer import SpawnTimerState
 
 
 def click_scaled(window, child):
+    assert child.isVisibleTo(window._surface), child.objectName()
     logical = child.mapTo(window._surface, child.rect().center())
     scene = window._scale_proxy.mapToScene(QPointF(logical))
     viewport = window._scale_view.mapFromScene(scene)
+    assert window._scale_view.viewport().rect().contains(viewport)
+    hit = window.childAt(window._scale_view.viewport().mapTo(window, viewport))
+    assert hit is not None and not hit.objectName().startswith('ParserWindowResize_')
     QTest.mouseClick(
         window._scale_view.viewport(), Qt.MouseButton.LeftButton,
         pos=viewport)
 
 
 def drag_scaled(window, child):
+    assert child.isVisibleTo(window._surface), child.objectName()
     logical = child.mapTo(window._surface, child.rect().center())
     scene = window._scale_proxy.mapToScene(QPointF(logical))
     start = window._scale_view.mapFromScene(scene)
+    assert window._scale_view.viewport().rect().contains(start)
+    hit = window.childAt(window._scale_view.viewport().mapTo(window, start))
+    assert hit is not None and not hit.objectName().startswith('ParserWindowResize_')
     end = start + window._scale_view.mapFromScene(QPointF(28, 18)) \
         - window._scale_view.mapFromScene(QPointF(0, 0))
     QTest.mousePress(
@@ -97,6 +107,7 @@ market_layout_before = {
     'tabs': [market.tabs.x(), market.tabs.y(),
              market.tabs.width(), market.tabs.height()],
 }
+market_body_before = [market._market_body.width(), market._market_body.height()]
 click_scaled(market, market.search)
 QTest.keyClicks(market._scale_view.viewport(), 'manastone')
 search_focus_after_click = market.search.hasFocus()
@@ -108,6 +119,7 @@ market_layout_after = {
     'tabs': [market.tabs.x(), market.tabs.y(),
              market.tabs.width(), market.tabs.height()],
 }
+market_body_after = [market._market_body.width(), market._market_body.height()]
 
 timer = SpawnTimerState('Scaled test', 1800, kill_seconds=90)
 timers._refresh_zone_filter('')
@@ -204,6 +216,8 @@ print(json.dumps({
     'market_size': [market.width(), market.height()],
     'market_layout_before': market_layout_before,
     'market_layout_after': market_layout_after,
+    'market_body_before': market_body_before,
+    'market_body_after': market_body_after,
     'timer_running': timer.running,
     'timer_size': single_timer_size,
     'timer_surface': single_timer_surface,
@@ -227,6 +241,8 @@ print(json.dumps({
     },
     'quickbar_design': [app._parsers_dict['quickbar']._design_size.width(),
                         app._parsers_dict['quickbar']._design_size.height()],
+    'quickbar_lanes': [app._parsers_dict['quickbar'].action_frame.sizeHint().height(),
+                      app._parsers_dict['quickbar'].notification_rail.height()],
     'missing_by_panel': missing_by_panel,
     'replicas': replicas,
     'header_reveal': header_reveal,
@@ -239,7 +255,7 @@ app.quit()
 def test_scaled_panels_keep_keyboard_pointer_and_tooltips(tmp_path):
     env = os.environ.copy()
     env["QT_QPA_PLATFORM"] = "offscreen"
-    env["PYTHONPATH"] = str(ROOT / "src")
+    env["PYTHONPATH"] = os.pathsep.join((str(ROOT / "tests"), str(ROOT / "src")))
     env["VANTAGE_DATA_DIR"] = str(tmp_path / "profile")
     completed = subprocess.run(
         [sys.executable, "-c", SCRIPT], cwd=ROOT, env=env,
@@ -248,7 +264,16 @@ def test_scaled_panels_keep_keyboard_pointer_and_tooltips(tmp_path):
 
     assert result["search"] == "manastone"
     assert result["search_focus"] is True
-    assert result["market_layout_after"] == result["market_layout_before"]
+    before, after = result["market_layout_before"], result["market_layout_after"]
+    assert after["search"] == before["search"]
+    assert after["tabs"][:3] == before["tabs"][:3]
+    assert result["market_body_after"][0] == result["market_body_before"][0]
+    # Native-height headers change the remaining list viewport, not the
+    # authored control layout. Every list-height pixel must come from that
+    # body's height adjustment, with no horizontal reflow or hidden controls.
+    assert after["tabs"][3] - before["tabs"][3] == (
+        result["market_body_after"][1] - result["market_body_before"][1])
+    assert after["tabs"][3] >= 220
     assert result["timer_running"] is True
     assert result["timer_surface"][0] == 520
     assert result["timer_surface"][1] >= result["timer_required_single"]
@@ -267,16 +292,19 @@ def test_scaled_panels_keep_keyboard_pointer_and_tooltips(tmp_path):
         result["timer_required_single"] * 300 / 520)
     assert result["missing_timer_tooltips"] == []
     assert result["map_manual_pan"] is True
-    # Catalog additions widen the authored row, not its targets or height.
-    # Both recovery floors apply: at least 292px across and 18px for the
-    # interactive lane. With Boat Schedules the height floor can dominate,
-    # so derive both exact minimum dimensions from the same uniform scale.
+    # The header stays 30 physical pixels high at every replica size. Only
+    # the command/ticker lanes scale, with the same recovery width/target
+    # floors as before. Treating the header as a scaled body lane would
+    # incorrectly accept a clipped 27px-tall whole Quick Bar.
     quickbar_width, quickbar_height = result["quickbar_design"]
     quickbar_scale = max(.25, 292 / quickbar_width,
                          18 / (quickbar_height - 19))
+    quickbar_minimum_height = math.ceil(
+        (round(30 / quickbar_scale) + sum(result["quickbar_lanes"])) *
+        quickbar_scale)
     assert result["minimum_sizes"] == {
             "quickbar": [round(quickbar_width * quickbar_scale),
-                         round(quickbar_height * quickbar_scale)],
+                         quickbar_minimum_height],
         "maps": [100, 100], "boats": [100, 140], "spells": [65, 100],
         "tick": [65, 36],
         "timers": [130, min(

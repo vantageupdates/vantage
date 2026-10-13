@@ -10,9 +10,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 SCRIPT = r"""
 import json
+from native_audit_fixture import isolate
+isolate()
 
-from PySide6.QtCore import QEvent, QPointF, Qt
+from PySide6.QtCore import QEvent, QPointF, QTimer, Qt
 from PySide6.QtGui import QHelpEvent, QMouseEvent
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QToolTip, QWidget
 
 from vantage.helpers.application import VantageApp
@@ -21,9 +24,11 @@ from vantage.parsers.timers import TimerEditDialog
 
 
 def panel_tooltip(panel, control):
+    assert control.isVisibleTo(panel._surface), control.accessibleName()
     logical = control.mapTo(panel._surface, control.rect().center())
     scene = panel._scale_proxy.mapToScene(QPointF(logical))
     point = panel._scale_view.mapFromScene(scene)
+    assert panel._scale_view.viewport().rect().contains(point)
     event = QHelpEvent(
         QEvent.Type.ToolTip, point,
         panel._scale_view.viewport().mapToGlobal(point))
@@ -34,9 +39,11 @@ def panel_tooltip(panel, control):
 
 
 def panel_hover_tooltip(panel, control):
+    assert control.isVisibleTo(panel._surface), control.accessibleName()
     logical = control.mapTo(panel._surface, control.rect().center())
     scene = panel._scale_proxy.mapToScene(QPointF(logical))
     point = panel._scale_view.mapFromScene(scene)
+    assert panel._scale_view.viewport().rect().contains(point)
     viewport = panel._scale_view.viewport()
     global_point = viewport.mapToGlobal(point)
     event = QMouseEvent(
@@ -46,6 +53,41 @@ def panel_hover_tooltip(panel, control):
     QApplication.sendEvent(viewport, event)
     app.processEvents()
     return panel._scale_view.viewport().toolTip()
+
+
+def overflow_roll_tooltip(panel):
+    # Read the native menu action reached by the visible Mini launcher.
+    control = panel._header_overflow_button
+    assert control.isVisibleTo(panel._surface)
+    result = {}
+
+    def inspect_menu():
+        menu = panel._header_overflow_menu
+        result['menu_visible'] = menu.isVisible()
+        action = next(action for action in menu.actions()
+                      if action.text() == panel._roll_button.accessibleName())
+        point = menu.actionGeometry(action).center()
+        result['action_inside'] = menu.rect().contains(point)
+        result['action_at_pointer'] = menu.actionAt(point) is action
+        result['action_tooltip'] = action.toolTip()
+        menu.setActiveAction(action)
+        result['keyboard_action'] = menu.activeAction() is action
+        event = QHelpEvent(QEvent.Type.ToolTip, point, menu.mapToGlobal(point))
+        QToolTip.hideText()
+        QApplication.sendEvent(menu, event)
+        app.processEvents()
+        result['shown_tooltip'] = QToolTip.text()
+        QTest.keyClick(menu, Qt.Key.Key_Escape)
+
+    QTimer.singleShot(30, inspect_menu)
+    logical = control.mapTo(panel._surface, control.rect().center())
+    scene = panel._scale_proxy.mapToScene(QPointF(logical))
+    point = panel._scale_view.mapFromScene(scene)
+    QTest.mouseClick(panel._scale_view.viewport(), Qt.MouseButton.LeftButton,
+                     pos=point)
+    app.processEvents()
+    result['closed_with_escape'] = not panel._header_overflow_menu.isVisible()
+    return result
 
 
 def dialog_tooltip(dialog, control):
@@ -97,13 +139,21 @@ archive_enabled = settings.scaled_surface.findChild(
 archive_size = settings.scaled_surface.findChild(
     QWidget, 'general:log_archive_size_mb')
 
+header_control = (timers._roll_button
+                  if timers._roll_button.isVisibleTo(timers._surface)
+                  else timers._header_overflow_button)
+header_hover = panel_hover_tooltip(timers, header_control)
+roll_overflow = overflow_roll_tooltip(timers)
+
 print(json.dumps({
     'panel_button': panel_tooltip(timers, row.play_button),
     'panel_button_expected': row.play_button.toolTip(),
     'inner_timer_hover': panel_hover_tooltip(timers, row.restart_button),
     'inner_timer_hover_expected': row.restart_button.toolTip(),
-    'header_hover': panel_hover_tooltip(timers, timers._roll_button),
-    'header_hover_expected': timers._roll_button.toolTip(),
+    'header_hover': header_hover,
+    'header_hover_expected': header_control.toolTip(),
+    'roll_overflow': roll_overflow,
+    'roll_tooltip_expected': timers._roll_button.toolTip(),
     'dialog_lineedit': dialog_tooltip(editor, editor.respawn),
     'dialog_lineedit_expected': editor.respawn.toolTip(),
     'dialog_spinbox': dialog_tooltip(editor, editor.warning),
@@ -126,7 +176,7 @@ app.quit()
 def test_scaled_surfaces_forward_real_tooltip_events(tmp_path):
     env = os.environ.copy()
     env['QT_QPA_PLATFORM'] = 'offscreen'
-    env['PYTHONPATH'] = str(ROOT / 'src')
+    env['PYTHONPATH'] = os.pathsep.join((str(ROOT / 'tests'), str(ROOT / 'src')))
     env['VANTAGE_DATA_DIR'] = str(tmp_path / 'profile')
     completed = subprocess.run(
         [sys.executable, '-c', SCRIPT], cwd=ROOT, env=env,
@@ -136,6 +186,13 @@ def test_scaled_surfaces_forward_real_tooltip_events(tmp_path):
     assert result['panel_button'] == result['panel_button_expected']
     assert result['inner_timer_hover'] == result['inner_timer_hover_expected']
     assert result['header_hover'] == result['header_hover_expected']
+    assert result['roll_overflow']['menu_visible'] is True
+    assert result['roll_overflow']['action_inside'] is True
+    assert result['roll_overflow']['action_at_pointer'] is True
+    assert result['roll_overflow']['keyboard_action'] is True
+    assert result['roll_overflow']['closed_with_escape'] is True
+    assert result['roll_overflow']['action_tooltip'] == result['roll_tooltip_expected']
+    assert result['roll_overflow']['shown_tooltip'] == result['roll_tooltip_expected']
     assert result['dialog_lineedit'] == result['dialog_lineedit_expected']
     assert result['dialog_spinbox'] == result['dialog_spinbox_expected']
     assert result['dialog_volume'] == result['dialog_volume_expected']

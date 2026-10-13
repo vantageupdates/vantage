@@ -39,7 +39,7 @@ import copy
 import json
 from native_audit_fixture import isolate
 isolate()
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, QRectF, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QDialog, QPushButton, QVBoxLayout, QWidget
 from vantage.helpers import config
@@ -185,21 +185,39 @@ preset_cases = []
 for scale in (.5, .75, 1):
     bar._set_replica_scale(scale)
     QTest.qWait(30)
-    preset_cases.append([bar.width(), bar.height()] == [
-        round(bar._design_size.width() * scale),
-        round(bar._design_size.height() * scale)])
+    transform = bar._scale_view.transform().m11()
+    def physical_rect(widget):
+        corner = widget.mapTo(bar._surface, QPoint(0, 0))
+        return QRectF(corner.x() * transform, corner.y() * transform,
+                      widget.width() * transform, widget.height() * transform)
+    viewport_rect = QRectF(bar.rect())
+    header_rect = physical_rect(bar._menu)
+    command_rect = physical_rect(bar.action_frame)
+    ticker_rect = physical_rect(bar.notification_rail)
+    # The body is a replica, but chrome stays physically readable at 30px.
+    # Its launch target and notification lane must stay fully inside it.
+    preset_cases.append(
+        bar.width() == round(bar._design_size.width() * scale) and
+        bar.height() == bar._horizontal_required_height(transform) and
+        29 <= header_rect.height() <= 31 and
+        viewport_rect.contains(physical_rect(button)) and
+        viewport_rect.contains(command_rect) and
+        viewport_rect.contains(ticker_rect) and
+        command_rect.top() + .5 >= header_rect.bottom() and
+        command_rect.bottom() <= ticker_rect.top() + .5)
 result['presets'] = preset_cases
-config.data['quickbar']['orientation'] = 'vertical'
-bar._apply_quickbar_settings(preserve_scale=False)
+bar.toggle_orientation()
 QTest.qWait(30)
 result['vertical'] = {
     'size': [button.width(), button.height()], 'text': button.text(),
     'design_width': bar._design_size.width(),
     'name': button.accessibleName(),
     'visible': button.isVisibleTo(bar._surface),
+    'header_height': bar._menu.height() * bar._scale_view.transform().m11(),
 }
-config.data['quickbar']['orientation'] = 'horizontal'
-bar._apply_quickbar_settings(preserve_scale=False)
+# This is a second intentional click, not the second release of one gesture.
+QTest.qWait(max(250, app.doubleClickInterval()) + 30)
+bar.toggle_orientation()
 QTest.qWait(30)
 result['horizontal_restored'] = button.text() == 'Triggers' and \
     button.width() > 24 and button.height() == 24
@@ -239,4 +257,4 @@ def test_triggers_is_a_visible_cached_owned_nonmodal_action(display_scale):
     assert all(result['presets'])
     assert result['vertical'] == {
         'size': [24, 24], 'text': '', 'design_width': 30,
-        'name': 'Triggers', 'visible': True}
+        'name': 'Triggers', 'visible': True, 'header_height': 24}

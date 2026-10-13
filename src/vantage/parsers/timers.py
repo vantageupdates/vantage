@@ -2235,7 +2235,8 @@ class SpawnTimers(ParserWindow):
         self.menu_area.addWidget(add)
 
         self.keyword_rules_button = QPushButton("0/0")
-        self.keyword_rules_button.setIcon(game_icon("trigger"))
+        self.keyword_rules_button.setIcon(game_icon("bolt"))
+        self.keyword_rules_button.setProperty('HeaderTextAction', True)
         self.keyword_rules_button.setProperty('HeaderPriority', 75)
         self.keyword_rules_button.setAccessibleDescription(
             "Opens editable, optional own-/say keyword rules for Start, Reset, "

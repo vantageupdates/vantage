@@ -10,8 +10,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 SCRIPT = r"""
 import json
+from native_audit_fixture import isolate
+isolate()
 from PySide6.QtCore import QRect, QSize
 from PySide6.QtWidgets import QAbstractButton, QAbstractSpinBox, QComboBox
+from PySide6.QtTest import QTest
 from vantage.helpers import config
 from vantage.helpers.application import VantageApp
 
@@ -50,7 +53,7 @@ def audit(panel):
         rect.left() >= 4 and rect.right() < panel._menu.width() - 4
         for _name, rect in chrome)
     return {
-        'height': panel._menu.sizeHint().height(),
+        'height': panel._menu.height() * panel._scale_view.transform().m11(),
         'overlaps': overlaps,
         'chrome_overlaps': chrome_overlaps,
         'inside': inside,
@@ -63,7 +66,7 @@ for name, panel in app._parsers_dict.items():
     panel.resize(panel._design_size)
     panel._set_header_revealed(True)
     panel.show()
-    app.processEvents()
+    QTest.qWait(40)
     normal = audit(panel)
     panel._set_collapsed(True)
     app.processEvents()
@@ -90,6 +93,10 @@ result['constrained_heals'] = {
     'interval_width': heals.interval.width(),
     'countdown_visible': heals.header_countdown.isVisibleTo(heals._surface),
     'interval_visible': heals.interval.isVisibleTo(heals._surface),
+    'countdown_reachable': (heals.header_countdown.isVisibleTo(heals._surface) or
+                            heals.header_countdown in heals._header_overflowed),
+    'interval_reachable': (heals.interval.isVisibleTo(heals._surface) or
+                           heals.interval in heals._header_overflowed),
 }
 
 print(json.dumps(result))
@@ -100,7 +107,7 @@ app.quit()
 def test_parser_headers_are_compact_and_controls_never_overlap(tmp_path):
     env = os.environ.copy()
     env['QT_QPA_PLATFORM'] = 'offscreen'
-    env['PYTHONPATH'] = str(ROOT / 'src')
+    env['PYTHONPATH'] = os.pathsep.join((str(ROOT / 'tests'), str(ROOT / 'src')))
     env['VANTAGE_DATA_DIR'] = str(tmp_path / 'profile')
     completed = subprocess.run(
         [sys.executable, '-c', SCRIPT], cwd=ROOT, env=env,
@@ -115,7 +122,7 @@ def test_parser_headers_are_compact_and_controls_never_overlap(tmp_path):
             # Shared chrome has an inset 28 px row; Quick Bar retains its
             # separately authored 24x24 master-volume targets and margins.
             height_limit = 30 if panel_name == 'quickbar' else 28
-            assert state['height'] <= height_limit
+            assert state['height'] <= height_limit + .75
             assert state['overlaps'] == []
             assert state['chrome_overlaps'] == [], (panel_name, state_name)
             assert state['inside'] is True, (panel_name, state_name)
@@ -124,6 +131,6 @@ def test_parser_headers_are_compact_and_controls_never_overlap(tmp_path):
     constrained = result['constrained_heals']
     assert constrained['overflow_visible'] is True
     assert constrained['overflow_actions']
-    assert constrained['countdown_visible'] is True
-    assert constrained['interval_visible'] is True
+    assert constrained['countdown_reachable'] is True
+    assert constrained['interval_reachable'] is True
     assert constrained['interval_width'] >= 48

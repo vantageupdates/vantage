@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
+import math
 import time
 
 from shiboken6 import isValid
@@ -672,6 +673,7 @@ class QuickBar(ParserWindow):
         self._announced_update_receipt = ""
         self._update_receipt_announcement_pending = False
         super().__init__()
+        self._header_root_base_margins = (5, 3, 5, 3)
         # Qt normally suppresses tooltips while EverQuest owns focus. This
         # attribute keeps hover help available without activating Vantage.
         self.setAttribute(Qt.WidgetAttribute.WA_AlwaysShowToolTips, True)
@@ -1172,6 +1174,9 @@ class QuickBar(ParserWindow):
 
     def _rebuild_header_overflow_menu(self):
         """Expose the hidden volume slider inside More actions as well."""
+        if self._header_overflow_menu.isVisible():
+            # Native slider/focus objects must live until the popup closes.
+            return
         self._overflow_master_mute_button = None
         self._overflow_master_mute_dot = None
         self._overflow_volume_slider = None
@@ -1458,8 +1463,40 @@ class QuickBar(ParserWindow):
             return
         logo = application.windowIcon()
         if not logo.isNull():
+            factor = (1.0 if self._orientation == "vertical" else
+                      getattr(self, "_header_metric_factor", 1.0))
+            logical_size = max(1, round(18 * factor))
             title_icon.setPixmap(logo.pixmap(
-                QSize(18, 18), max(1.0, self.devicePixelRatioF())))
+                QSize(logical_size, logical_size),
+                max(1.0, self.devicePixelRatioF())))
+
+    def _horizontal_body_height(self):
+        """Authored command/ticker lanes, independent of header compensation."""
+        # The frame's two border pixels are outside the layout's size hint.
+        # Omitting them squeezes the action row under the compensated header
+        # and clips the final ticker pixel at fractional replica scales.
+        action_height = max(0, self.action_frame.sizeHint().height())
+        rail = getattr(self, "notification_rail", None)
+        rail_height = (
+            rail.height() if rail is not None and
+            config.data.get("quickbar", {}).get(
+                "show_notification_ticker", True) else 0)
+        return action_height + rail_height
+
+    def _horizontal_header_height(self):
+        if not getattr(self, "_header_visible", True):
+            return 0
+        # Size hints change when inverse metrics and visibility are repolished.
+        # Re-ceiling those mutable hints adds a pixel on each settings refresh.
+        return self._authored_header_height()
+
+    def _authored_header_height(self):
+        return 24 if self._orientation == "vertical" else 30
+
+    def _horizontal_required_height(self, scale):
+        logical_header = round(self._horizontal_header_height() / scale)
+        return max(1, math.ceil(
+            (logical_header + self._horizontal_body_height()) * scale))
 
     def _update_uniform_scale(self):
         """Keep a command strip tight instead of creating an empty viewport."""
@@ -1475,6 +1512,16 @@ class QuickBar(ParserWindow):
             self._sync_column_scroll_hint()
             return
         self._layout_column_scroll_hint()
+        if not self._collapsed:
+            scale = max(
+                self._effective_minimum_scale(),
+                self.width() / max(1, self._design_size.width()))
+            self._update_header_scale_compensation(scale)
+            required_height = self._horizontal_required_height(scale)
+            if self.height() < required_height and not self._snapping_height:
+                self._snapping_height = True
+                self.resize(self.width(), required_height)
+                self._snapping_height = False
         if getattr(self, "_preserving_saved_geometry", False):
             return super()._update_uniform_scale()
         saved = getattr(self, "_saved_presentation_geometry", None)
@@ -1492,7 +1539,7 @@ class QuickBar(ParserWindow):
                 self.width() / max(1, self._design_size.width())))
             target_width = max(1, round(
                 self._design_size.width() * scale))
-            target_height = max(1, round(self._design_size.height() * scale))
+            target_height = self._horizontal_required_height(scale)
             if (abs(self.width() - target_width) > 1 or
                     abs(self.height() - target_height) > 1):
                 self._snapping_height = True
@@ -1503,13 +1550,54 @@ class QuickBar(ParserWindow):
     def _minimum_logical_surface_height(self):
         if self._orientation == "vertical" and not self._collapsed:
             return self._design_size.height()
+        if self._orientation == "horizontal" and not self._collapsed:
+            scale = max(
+                self._effective_minimum_scale(),
+                self.width() / max(1, self._design_size.width()))
+            return max(1, round(self._horizontal_header_height() / scale) +
+                       self._horizontal_body_height())
         return super()._minimum_logical_surface_height()
+
+    def _update_header_scale_compensation(self, surface_scale):
+        """The authored vertical column already renders at native size."""
+        if getattr(self, "_orientation", "horizontal") != "vertical":
+            super()._update_header_scale_compensation(surface_scale)
+            factor = getattr(self, "_header_metric_factor", 1.0)
+            self._title_icon.setFixedSize(
+                max(1, round(19 * factor)), max(1, round(18 * factor)))
+            self._refresh_title_icon()
+            # The shared logo is 15px; this branded mark is 19px. Repack after
+            # applying that larger inverse-size target so a cached caption
+            # rectangle cannot overlap the mark at fractional desktop DPI.
+            self._menu_content.invalidate()
+            self._menu_content.activate()
+            self._pack_header_controls()
+            return
+        # A compact horizontal launcher may leave inverse-size fonts and
+        # controls behind. Restore those once before entering the 1:1 column,
+        # then retain its own narrow drag-handle margins and full-size logo.
+        if abs(getattr(self, "_header_metric_factor", 1.0) - 1.0) > .0001:
+            super()._update_header_scale_compensation(1.0)
+        self._header_metric_factor = 1.0
+        self._menu_content.setContentsMargins(3, 2, 3, 2)
+        self._menu.setFixedHeight(self._authored_header_height())
+        self._title_icon.setMinimumWidth(18)
+        self._title_icon.setMaximumWidth(16777215)
+        self._title_icon.setMinimumHeight(0)
+        self._title_icon.setMaximumHeight(18)
+        self._refresh_title_icon()
 
     def _set_scaled_minimum_size(self):
         if self._orientation == "vertical" and not self._collapsed:
             # Enough room for one authored target and a discoverable scroll
             # control; the full catalog remains in the logical canvas.
             self.setMinimumSize(self._design_size.width(), 54)
+            return
+        if self._orientation == "horizontal" and not self._collapsed:
+            scale = self._effective_minimum_scale()
+            self.setMinimumSize(
+                round(self._design_size.width() * scale),
+                self._horizontal_required_height(scale))
             return
         super()._set_scaled_minimum_size()
 
@@ -1792,6 +1880,8 @@ class QuickBar(ParserWindow):
             self.width() / max(1, self._design_size.width()))
         self._orientation = settings.get("orientation", "horizontal")
         vertical = self._orientation == "vertical"
+        if vertical:
+            self._update_header_scale_compensation(1.0)
         # Keep the growing catalog inside the established authored footprint
         # by packing adjacent 24 px targets without shrinking any target.
         # Overflow remains available at physically narrow saved sizes.
@@ -1817,8 +1907,10 @@ class QuickBar(ParserWindow):
         self._roll_button.setVisible(not vertical)
         self._minimize_button.setVisible(not vertical)
         header_margin = 3 if vertical else 5
+        header_vertical_margin = 2 if vertical else 3
         self._menu_content.setContentsMargins(
-            header_margin, 0, header_margin, 0)
+            header_margin, header_vertical_margin,
+            header_margin, header_vertical_margin)
         direction = (
             QBoxLayout.Direction.TopToBottom if vertical else
             QBoxLayout.Direction.LeftToRight)
@@ -1887,8 +1979,7 @@ class QuickBar(ParserWindow):
         if self._header_visible:
             header_height = self._menu.sizeHint().height()
             if not vertical:
-                header_height = max(
-                    header_height, self.volume_rocker.height())
+                header_height = self._horizontal_header_height()
         else:
             header_height = 0
         header_width = (
@@ -1921,7 +2012,14 @@ class QuickBar(ParserWindow):
             action_height = (
                 margins.top() + margins.bottom() +
                 max((widget.height() for widget in visible_widgets), default=24))
+            action_height = max(
+                action_height, self.action_frame.sizeHint().height())
             authored_width = max(779, action_width, header_width)
+            if preserve_scale and prior_orientation == self._orientation:
+                # Brief status/catalog changes must not shrink the canvas and
+                # enlarge its body at an unchanged physical viewport width.
+                # That rounding cycle made hide/show refreshes grow the bar.
+                authored_width = max(authored_width, self._design_size.width())
             # The rail spans the authored Quick Bar minus the final 24 px
             # action target. Deriving it from action_width alone left a thin,
             # inconsistent gap when zero-spacing packing kept the catalog
@@ -2081,7 +2179,25 @@ class QuickBar(ParserWindow):
         logo_width = max(
             self._title_icon.minimumSizeHint().width(),
             self._title_icon.sizeHint().width(), 18)
-        return max(24, margins.left() + margins.right() + logo_width + 2)
+        action_margins = self.action_layout.contentsMargins()
+        targets = [self.orientation_button, *self._buttons.values(),
+                   self.tick_readout]
+        column_width = (
+            action_margins.left() + action_margins.right() +
+            max((widget.width() for widget in targets
+                 if not widget.isHidden()), default=24))
+        # The collapsed logical canvas and native column must have exactly
+        # the same width. A natural 27px logo strip inside a 30px column still
+        # magnifies the header, even after removing the generic 96px floor.
+        return max(
+            24, column_width,
+            margins.left() + margins.right() + logo_width + 2)
+
+    def _collapsed_header_minimum_width(self):
+        """A vertical launcher rolls into its own 1:1 branded drag handle."""
+        if self._orientation == "vertical":
+            return self._compact_header_width()
+        return super()._collapsed_header_minimum_width()
 
     def _server_tick_update(self, snapshot, _compact=False):
         self._tick_snapshot = snapshot

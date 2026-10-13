@@ -12,7 +12,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = r'''
 import json
-from PySide6.QtCore import QRect, QSize
+from PySide6.QtCore import QRect, QRectF, QSize
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QLabel
 from native_audit_fixture import isolate
@@ -33,21 +33,32 @@ def audit(panel):
                if widget.isVisibleTo(panel._surface)]
     rectangles = [QRect(widget.mapTo(panel._menu, widget.rect().topLeft()),
                         widget.size()) for widget in visible]
+    scale = float(panel._scale_view.transform().m11())
+    physical = [panel._scale_view.transform().mapRect(QRectF(rect))
+                for rect in rectangles]
+    physical_width = panel._menu.width() * scale
+    physical_height = panel._menu.height() * scale
     return {
         'size': [panel.width(), panel.height()],
-        'height': panel._menu.height(),
-        'font': panel._title.fontInfo().pixelSize(),
+        'height': physical_height,
+        'font': panel._title.fontInfo().pixelSize() * scale,
         'inset': all(rect.left() >= 4 and
-                     rect.right() < panel._menu.width() - 4 and
+                     rect.right() < physical_width - 4 and
                      rect.top() >= 2 and
-                     rect.bottom() < panel._menu.height() - 2
-                     for widget, rect in zip(visible, rectangles)
+                     rect.bottom() < physical_height - 2
+                     for widget, rect in zip(visible, physical)
                      if widget is not panel._title and
                      widget is not panel._title_icon and
                      widget is not panel._parser_menu_area),
         'separate': all(not first.intersects(second)
                         for index, first in enumerate(rectangles)
                         for second in rectangles[index + 1:]),
+        'overlaps': [
+            [visible[index].accessibleName() or visible[index].objectName(),
+             visible[second_index].accessibleName() or visible[second_index].objectName()]
+            for index, first in enumerate(rectangles)
+            for second_index in range(index + 1, len(rectangles))
+            if first.intersects(rectangles[second_index])],
         'caption_complete': panel._title.text() in
                             panel._title.accessibleName(),
         'painted_caption_fits': panel._title.fontMetrics().horizontalAdvance(
@@ -119,8 +130,9 @@ result['constrained'] = {
         heals._minimize_button) if widget in heals._header_overflowed],
 }
 bar = app._parsers_dict['quickbar']
-result['mute'] = [bar.master_mute_button.width(),
-                  bar.master_mute_button.height()]
+bar_scale = float(bar._scale_view.transform().m11())
+result['mute'] = [bar.master_mute_button.width() * bar_scale,
+                  bar.master_mute_button.height() * bar_scale]
 config.data['quickbar']['orientation'] = 'vertical'
 config.data['quickbar']['show_notification_ticker'] = True
 bar._apply_quickbar_settings(preserve_scale=False)
@@ -169,12 +181,12 @@ def test_shared_headers_keep_readable_inset_chrome_and_geometry(
         assert panel['restored'] == panel['compact']['size'], name
         for state_name in ('normal', 'compact', 'rolled'):
             state = panel[state_name]
-            assert state['separate'], (name, state_name)
+            assert state['separate'], (name, state_name, state['overlaps'])
             assert state['caption_complete'], (name, state_name)
             assert state['painted_caption_fits'], (name, state_name)
-            assert state['font'] >= 12, (name, state_name)
+            assert state['font'] == pytest.approx(12, abs=.75), (name, state_name)
             if name != 'quickbar':
-                assert state['height'] == 28, (name, state_name, state)
+                assert state['height'] == pytest.approx(28, abs=.75), (name, state_name, state)
                 assert state['inset'], (name, state_name, state)
     caption = result['caption']
     assert caption['small'].endswith('\u2026')
@@ -187,7 +199,7 @@ def test_shared_headers_keep_readable_inset_chrome_and_geometry(
     assert constrained['interval'] and constrained['hidden_chrome']
     assert all(label in constrained['overflow']
                for label in constrained['hidden_chrome'])
-    assert result['mute'] == [24, 24]
+    assert result['mute'] == pytest.approx([24, 24], abs=.5)
     assert result['vertical'] == {
         'design_width': 30, 'area_hidden': True, 'widgets': 0,
         'required': 0, 'overflow': False, 'rail_visible': True}

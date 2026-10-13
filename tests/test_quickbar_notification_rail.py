@@ -12,6 +12,10 @@ SCRIPT = r"""
 import json
 import time
 from types import SimpleNamespace
+from native_audit_fixture import isolate
+# Keep real queue, marquee, painting, focus, and history behavior. External
+# updates and a running character's logs must not mutate this synthetic burst.
+isolate()
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
@@ -271,6 +275,7 @@ real_reopen = {
 # A realistic burst must not disappear at the former 40/20 deque caps.
 rail.discard_all()
 bar.toggle()
+history_before_burst = len(app.quickbar_notice_history())
 for index in range(75):
     app._queue_quickbar_notice(f'Burst event {index + 1}', channel='timers')
 burst_count_hidden = len(app._quickbar_notice_queue)
@@ -280,7 +285,10 @@ large_burst = {
     'held': burst_count_hidden,
     'current': rail._label.text(),
     'pending': len(rail._pending),
-    'history': len(app.quickbar_notice_history()),
+    'history_added': len(app.quickbar_notice_history()) - history_before_burst,
+    'history_messages': [
+        notice['message'] for notice in app.quickbar_notice_history()
+        if notice['message'].startswith('Burst event ')],
 }
 rail.discard_all()
 
@@ -456,11 +464,12 @@ app.quit()
 def test_quickbar_notification_rail_shows_one_event_then_clears(tmp_path):
     env = os.environ.copy()
     env['QT_QPA_PLATFORM'] = 'offscreen'
-    env['PYTHONPATH'] = str(ROOT / 'src')
+    env['PYTHONPATH'] = os.pathsep.join((str(ROOT / 'tests'), str(ROOT / 'src')))
     env['VANTAGE_DATA_DIR'] = str(tmp_path / 'profile')
     completed = subprocess.run(
         [sys.executable, '-c', SCRIPT], cwd=ROOT, env=env,
-        check=True, capture_output=True, text=True, timeout=30)
+        check=False, capture_output=True, text=True, timeout=30)
+    assert completed.returncode == 0, completed.stderr[-6000:]
     result = json.loads(completed.stdout.strip().splitlines()[-1])
 
     assert result['empty']['visible'] is True
@@ -556,9 +565,11 @@ def test_quickbar_notification_rail_shows_one_event_then_clears(tmp_path):
         'held': 75,
         'current': 'Burst event 71',
         'pending': 4,
-        # Every exact event remains available even though the transient rail
-        # prioritizes the latest part of a burst.
-        'history': 90,
+        # Every exact event remains available in newest-first order even
+        # though the transient rail prioritizes the latest part of a burst.
+        # Unrelated startup notices are not part of this synthetic contract.
+        'history_added': 75,
+        'history_messages': [f'Burst event {index}' for index in range(75, 0, -1)],
     }
     assert result['history']['visible'] is True
     assert result['history']['accessible'] == 'Notification History'

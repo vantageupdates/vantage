@@ -47,7 +47,7 @@ def valid_utc_timestamp(value):
 UI_PRESENTATION_DEFAULTS = {
     ('general', 'startup_window_state'): 'rolled',
     ('general', 'table_column_widths'): {},
-    ('quickbar', 'geometry'): [10, 10, 779, 72],
+    ('quickbar', 'geometry'): [10, 10, 779, 75],
     ('quickbar', 'toggled'): True,
     ('quickbar', 'auto_hide_menu'): False,
     ('quickbar', 'always_on_top'): True,
@@ -737,8 +737,8 @@ def verify_settings():
     # interactive and never creates another normal Windows taskbar entry.
     data['quickbar'] = data.get('quickbar', {})
     data['quickbar']['geometry'] = get_setting(
-        data['quickbar'].get('geometry', [10, 10, 779, 72]),
-        [10, 10, 779, 72],
+        data['quickbar'].get('geometry', [10, 10, 779, 75]),
+        [10, 10, 779, 75],
         lambda value: isinstance(value, list) and len(value) == 4)
     for key, default in (
             ('toggled', True), ('auto_hide_menu', False),

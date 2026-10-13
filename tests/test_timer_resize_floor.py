@@ -11,6 +11,9 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = r"""
 import json
 
+from native_audit_fixture import isolate
+isolate()
+
 from PySide6.QtCore import QPointF, Qt, QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QAbstractSlider
@@ -64,7 +67,7 @@ three_row_state = {
 # exceptional overflow through the graphics view instead.
 panel.compact.setChecked(False)
 config.data['timers']['compact'] = False
-for index in range(3, 15):
+for index in range(3, 25):
     timer = SpawnTimerState(f'Timer {index + 1}', 1800)
     panel._states[timer.timer_id] = timer
     panel._add_row(timer)
@@ -79,13 +82,20 @@ last_row.play_button.setFocus(Qt.FocusReason.TabFocusReason)
 # Reproduce the late QGraphicsView scrollbar reset seen under full-suite load:
 # focus reveal may run before the proxy widget's deferred range/layout pass.
 QTimer.singleShot(10, lambda: scroll.setValue(scroll.minimum()))
-QTest.qWait(100)
+# Wait for the bounded deferred reveal, not an arbitrary event-loop speed.
+# A readable physical header leaves the fifteenth row's top control visible;
+# use a genuinely overflowing zone so this exercises a required scroll.
+for _attempt in range(75):
+    QTest.qWait(20)
+    if panel._pending_timer_focus_control is None:
+        break
 logical_point = last_row.play_button.mapTo(
     panel._surface, last_row.play_button.rect().center())
 scene_point = panel._scale_proxy.mapToScene(QPointF(logical_point))
 viewport_point = panel._scale_view.mapFromScene(scene_point)
 screen = panel.screen() or app.primaryScreen()
 many_row_state = {
+    'count': len(panel._rows),
     'all_visible': all(not row.isHidden() for row in panel._rows.values()),
     'minimum': panel.minimumHeight(),
     'screen_height': screen.availableGeometry().height(),
@@ -132,7 +142,7 @@ app.quit()
 def test_timer_resize_floor_keeps_all_four_rows_visible(tmp_path):
     env = os.environ.copy()
     env['QT_QPA_PLATFORM'] = 'offscreen'
-    env['PYTHONPATH'] = str(ROOT / 'src')
+    env['PYTHONPATH'] = os.pathsep.join((str(ROOT / 'tests'), str(ROOT / 'src')))
     env['VANTAGE_DATA_DIR'] = str(tmp_path / 'profile')
     completed = subprocess.run(
         [sys.executable, '-c', SCRIPT], cwd=ROOT, env=env,
@@ -147,6 +157,7 @@ def test_timer_resize_floor_keeps_all_four_rows_visible(tmp_path):
     assert result['three']['all_visible'] is True
     assert result['three']['minimum'] < result['four']['minimum']
     assert result['many']['all_visible'] is True
+    assert result['many']['count'] == 25
     assert result['many']['minimum'] <= result['many']['screen_height']
     assert result['many']['scroll_policy'] == result['many']['expected_policy']
     assert result['many']['scroll_maximum'] > 0

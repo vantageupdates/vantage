@@ -67,6 +67,13 @@ QDialog, QMessageBox, QMenu, QToolTip {
     padding: 0;
 }
 
+/* More already uses its own menu icon; suppress the tiny native corner arrow. */
+#ParserWindowSettingsButton::menu-indicator {
+    image: none;
+    width: 0;
+    height: 0;
+}
+
 #ParserWindowMenu QPushButton {
     color: #8F959B;
     background-color: transparent;
@@ -77,6 +84,13 @@ QDialog, QMessageBox, QMenu, QToolTip {
     min-height: 20px;
     max-height: 20px;
     padding: 0;
+}
+
+/* Counters are text-bearing actions, not 20px icon-only chrome. */
+#ParserWindowMenu QPushButton[HeaderTextAction="true"] {
+    min-width: 44px;
+    max-width: 16777215px;
+    padding: 0 3px;
 }
 
 #ParserWindowMoveButton:hover, #ParserWindowSettingsButton:hover,

@@ -60,6 +60,10 @@ def contrast_ratio(first, second):
         reverse=True)
     return round((lighter + 0.05) / (darker + 0.05), 2)
 
+def physical_size(widget):
+    scale = bar._scale_view.transform().m11()
+    return [round(widget.width() * scale), round(widget.height() * scale)]
+
 initial = {
     'orientation': bar._orientation,
     'design': [bar._design_size.width(), bar._design_size.height()],
@@ -92,19 +96,16 @@ initial = {
         bar._buttons[key].isCheckable() for key in bar._DIALOG_ACTIONS),
     'volume_visible': bar.volume_rocker.isVisible(),
     'volume_priority': bar.volume_rocker.property('HeaderPriority'),
-    'volume_compact': bar.volume_rocker.width() <= 130,
-    'volume_control_size': [
-        bar.volume_rocker.width(), bar.volume_rocker.height()],
-    'volume_slider_size': [
-        bar.volume_slider.width(), bar.volume_slider.height()],
+    'volume_compact': physical_size(bar.volume_rocker)[0] <= 130,
+    'volume_control_size': physical_size(bar.volume_rocker),
+    'volume_slider_size': physical_size(bar.volume_slider),
     'mute_semantics': {
         'native': isinstance(bar.master_mute_button, QToolButton),
         'checkable': bar.master_mute_button.isCheckable(),
         'checked': bar.master_mute_button.isChecked(),
         'name': bar.master_mute_button.accessibleName(),
         'description': bar.master_mute_button.accessibleDescription(),
-        'size': [bar.master_mute_button.width(),
-                 bar.master_mute_button.height()],
+        'size': physical_size(bar.master_mute_button),
         'dot_state': bar._master_mute_dot.property('State'),
         'dot_visible': bar._master_mute_dot.isVisible(),
         'dot_name': bar._master_mute_dot.accessibleName(),

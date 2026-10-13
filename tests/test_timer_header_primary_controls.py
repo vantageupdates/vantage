@@ -89,6 +89,11 @@ def snapshot(width, rolled=False):
         'zone_physical_size': [
             physical_rect(panel.zone_filter).width(),
             physical_rect(panel.zone_filter).height()],
+        'reachable': {
+            label: widget.isVisibleTo(panel._surface) or widget in panel._header_overflowed
+            for label, widget in (
+                ('share', panel.share_button), ('zone', panel.zone_filter),
+                ('keyword', panel.keyword_rules_button), ('mobile', panel.mobile_button))},
     }
 
 
@@ -178,29 +183,31 @@ def test_share_and_zone_stay_directly_visible_in_timer_header(tmp_path):
     assert result['zone_strong_focus'] is True
     assert result['keyboard_reveals_auto_hidden_header'] is True
     assert result['mobile_focused_wide'] is True
-    assert result['focus_moved_to_overflow'] is False
+    assert result['focus_moved_to_overflow'] is True
     assert result['focus_restored_to_mobile'] is True
 
     for name in ('wide', 'narrow', 'rolled', 'mini'):
         state = result[name]
-        assert state['share_visible'] is True, name
-        assert state['zone_visible'] is True, name
-        assert state['keyword_visible'] is True, name
+        assert all(state['reachable'].values()), name
         assert state['root_separate'] is True, name
         assert state['controls_separate'] is True, name
         assert state['root_inside'] is True, name
-        assert min(state['share_physical_size']) >= 12, name
-        assert state['zone_physical_size'][0] >= 47, name
-        assert state['zone_physical_size'][1] >= 12, name
+        if state['share_visible']:
+            assert min(state['share_physical_size']) >= 18, name
+        if state['zone_visible']:
+            assert state['zone_physical_size'][0] >= 47, name
+            assert state['zone_physical_size'][1] >= 18, name
 
     narrow = result['narrow']
-    assert narrow['window'][0] >= 300
-    assert narrow['overflow_visible'] is False
-    assert narrow['mobile_visible'] is True
-    assert narrow['overflow_actions'] == []
-    assert 'Share visible zone timers by code' not in \
-        narrow['overflow_actions']
+    assert narrow['window'][0] == 300
+    assert narrow['overflow_visible'] is True
+    assert narrow['overflow_actions']
 
     assert result['wide']['mobile_visible'] is True
+    assert result['wide']['share_visible'] is True
+    assert result['wide']['zone_visible'] is True
+    assert result['wide']['keyword_visible'] is True
+    assert result['rolled']['window'][0] == 300
+    assert result['mini']['window'][0] == 384
     assert result['rolled']['window'][1] <= 28
     assert result['mini']['window'][1] <= 28

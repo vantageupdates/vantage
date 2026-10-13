@@ -11,6 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = r"""
 import datetime
 import json
+from native_audit_fixture import isolate
+isolate()
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 from vantage.helpers.application import VantageApp
@@ -18,6 +20,8 @@ from vantage.helpers.application import VantageApp
 app = VantageApp([])
 heals = app._parsers_dict['heals']
 heals._set_collapsed(False)
+heals.resize(heals._design_size)
+QTest.qWait(40)
 heals.parse(
     datetime.datetime.now(),
     "Althea tells the guild, 'AAA - CH - Dain'")
@@ -89,7 +93,7 @@ app.quit()
 def test_each_window_has_local_settings_and_heal_timer_stays_in_header(tmp_path):
     env = os.environ.copy()
     env['QT_QPA_PLATFORM'] = 'offscreen'
-    env['PYTHONPATH'] = str(ROOT / 'src')
+    env['PYTHONPATH'] = os.pathsep.join((str(ROOT / 'tests'), str(ROOT / 'src')))
     env['VANTAGE_DATA_DIR'] = str(tmp_path / 'profile')
     completed = subprocess.run(
         [sys.executable, '-c', SCRIPT], cwd=ROOT, env=env,

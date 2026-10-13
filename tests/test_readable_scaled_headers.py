@@ -90,8 +90,8 @@ result = {
 }
 result['timers_tall'] = snapshot(timers, 323, 300)
 
-# Rolling from either side of the former 215 px Spells breakpoint must produce
-# one stable, fully measured header rather than swapping controls afterward.
+# Rolling preserves the selected width/transform on either side of the former
+# 215 px breakpoint. Only the body disappears; chrome never changes size.
 rolled = []
 for width in (214, 216):
     spells._set_collapsed(False)
@@ -157,13 +157,15 @@ def test_scaled_spell_and_timer_headers_stay_separate_and_roll_cleanly(
         result['timers_tall']['menu_height']
 
     rolled = result['spells_rolled']
-    assert rolled[0]['rolled_width'] == rolled[1]['rolled_width']
+    assert [state['rolled_width'] for state in rolled] == [214, 216]
     assert all(
         state['surface_height'] == state['header_height']
-        and state['rolled_scale'] == 1.0
+        and state['rolled_scale'] == state['scale']
         for state in rolled)
 
     timers_rolled = result['timers_rolled']
-    assert timers_rolled['window'][1] == timers_rolled['menu'][1]
+    assert timers_rolled['window'][0] == 323
+    assert timers_rolled['window'][1] == round(
+        timers_rolled['menu'][1] * timers_rolled['scale'])
     assert timers_rolled['surface'][1] == timers_rolled['menu'][1]
-    assert timers_rolled['scale'] == 1.0
+    assert timers_rolled['scale'] == result['timers_tall']['scale']
