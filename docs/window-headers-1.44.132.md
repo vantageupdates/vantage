@@ -54,4 +54,12 @@ skin, or independent UI release metadata was changed.
 - Independent final code review found no actionable blockers; an additional
   20-cycle Qt ownership probe retained source actions and nested menus.
 
-Public-release verification is recorded after publication succeeds.
+## Public release verification
+
+Published stable [Vantage Companion 1.44.132](https://github.com/vantageupdates/vantage/releases/tag/v1.44.132)
+at `2026-10-13T06:38:08Z`, from commit
+`f061a08f8a08ad12d57e0612939fd78e9965c779`.
+Anonymous GitHub API checks confirmed Companion Latest is `v1.44.132`, not a
+draft or prerelease, with exactly one uploaded `Vantage.exe`. Its 75,986,218-byte
+size and GitHub SHA-256 digest match the tested portable candidate above.
+Release ID: `411362770`; asset ID: `636144015`.
