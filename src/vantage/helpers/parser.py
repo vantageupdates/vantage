@@ -1063,26 +1063,35 @@ class ParserWindow(QWidget):
             submenu = menu.addMenu(button.icon(), label)
             submenu.setToolTipsVisible(True)
             submenu.menuAction().setToolTip(button.toolTip())
-            if button.popupMode() != QToolButton.ToolButtonPopupMode.InstantPopup:
-                primary = submenu.addAction(button.icon(), label)
-                primary.setCheckable(button.isCheckable())
-                primary.setChecked(button.isChecked())
-                primary.setEnabled(button.isEnabled())
-                primary.setToolTip(button.toolTip())
-                primary.triggered.connect(
-                    lambda _checked=False, control=button: control.click())
-                submenu.addSeparator()
-            for original in button_menu.actions():
-                if original.isSeparator():
+            submenu.menuAction().setEnabled(button.isEnabled())
+
+            def populate(refresh=False):
+                # Detach borrowed actions first: PySide's clear() invalidates
+                # their Python handles even when another menu still owns the
+                # C++ actions. Only our primary action/separator are cleared.
+                for action in submenu.actions():
+                    if action.parent() is not submenu:
+                        submenu.removeAction(action)
+                submenu.clear()
+                if refresh:
+                    # Dynamic menus (Combat overlay routes/rows, for example)
+                    # must build from current state each time More opens them.
+                    button_menu.aboutToShow.emit()
+                if button.popupMode() != QToolButton.ToolButtonPopupMode.InstantPopup:
+                    primary = submenu.addAction(button.icon(), label)
+                    primary.setCheckable(button.isCheckable())
+                    primary.setChecked(button.isChecked())
+                    primary.setEnabled(button.isEnabled())
+                    primary.setToolTip(button.toolTip())
+                    primary.triggered.connect(
+                        lambda _checked=False, control=button: control.click())
                     submenu.addSeparator()
-                    continue
-                proxy = submenu.addAction(original.icon(), original.text())
-                proxy.setCheckable(original.isCheckable())
-                proxy.setChecked(original.isChecked())
-                proxy.setEnabled(original.isEnabled())
-                proxy.setToolTip(original.toolTip())
-                proxy.triggered.connect(
-                    lambda _checked=False, action=original: action.trigger())
+                # Share the real QAction tree so nested submenus, exclusive
+                # groups, disabled states and future actions behave normally.
+                submenu.addActions(button_menu.actions())
+
+            populate()
+            submenu.aboutToShow.connect(lambda: populate(refresh=True))
             return
         action = menu.addAction(button.icon(), label)
         action.setCheckable(button.isCheckable())

@@ -9,7 +9,7 @@ import time
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QComboBox, QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton,
-    QToolButton, QVBoxLayout)
+    QToolButton, QVBoxLayout, QWidgetAction)
 
 from vantage.helpers import config
 from vantage.helpers.combat import DOT
@@ -100,6 +100,10 @@ class ServerTick(ParserWindow):
 
     def __init__(self):
         self.name = "tick"
+        self._overflow_tick_host = None
+        self._overflow_tick_countdown = None
+        self._overflow_tick_progress = None
+        self._overflow_tick_token = None
         super().__init__()
         self.setWindowTitle("Server Tick")
         self._title.setText("Server Tick")
@@ -220,6 +224,74 @@ class ServerTick(ParserWindow):
         controls.addWidget(self.clear_button, 0)
         layout.addLayout(controls)
         self.content.addWidget(panel, 1)
+
+    def _clear_overflow_tick_readout(self, token=None):
+        if token is None or token is self._overflow_tick_token:
+            self._overflow_tick_host = None
+            self._overflow_tick_countdown = None
+            self._overflow_tick_progress = None
+            self._overflow_tick_token = None
+
+    def _rebuild_header_overflow_menu(self):
+        """Keep the composite tick readout available at the menu's native size."""
+        menu = getattr(self, "_header_overflow_menu", None)
+        if menu is None or menu.isVisible():
+            # Keep existing popup widgets alive while the user is reading it.
+            return
+        self._clear_overflow_tick_readout()
+        super()._rebuild_header_overflow_menu()
+        if getattr(self, "header_tick", None) not in self._header_overflowed:
+            return
+        host = QFrame(menu)
+        host.setObjectName("ServerTickOverflowReadout")
+        host.setAccessibleName(self.header_tick.accessibleName())
+        layout = QVBoxLayout(host)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(3)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Server Tick", host))
+        countdown = QLabel(host)
+        countdown.setObjectName("ServerTickOverflowCountdown")
+        countdown.setAlignment(Qt.AlignmentFlag.AlignRight)
+        countdown.setAccessibleName(self.header_countdown.accessibleName())
+        row.addWidget(countdown)
+        layout.addLayout(row)
+        progress = QProgressBar(host)
+        # Reuse the normal tick phase styling, including its pulse color.
+        progress.setObjectName(self.progress.objectName())
+        progress.setRange(
+            self.header_progress.minimum(), self.header_progress.maximum())
+        progress.setTextVisible(False)
+        progress.setAccessibleName(self.header_progress.accessibleName())
+        layout.addWidget(progress)
+        action = QWidgetAction(menu)
+        action.setText("Server Tick")
+        action.setDefaultWidget(host)
+        menu.insertAction(menu.actions()[0] if menu.actions() else None, action)
+        self._overflow_tick_host = host
+        self._overflow_tick_countdown = countdown
+        self._overflow_tick_progress = progress
+        token = self._overflow_tick_token = object()
+        host.destroyed.connect(
+            lambda _object=None, current=token:
+            self._clear_overflow_tick_readout(current))
+        self._sync_overflow_tick_readout()
+
+    def _sync_overflow_tick_readout(self):
+        if self._overflow_tick_countdown is None:
+            return
+        self._overflow_tick_countdown.setText(self.header_countdown.text())
+        description = self.header_countdown.accessibleDescription()
+        self._overflow_tick_countdown.setAccessibleDescription(description)
+        progress = self._overflow_tick_progress
+        progress.setValue(self.header_progress.value())
+        progress.setAccessibleDescription(description)
+        progress.setProperty("Pulse", self.header_progress.property("Pulse"))
+        progress.setProperty("Synced", self.header_progress.property("Synced"))
+        progress.setStyle(progress.style())
+        source = self.source.text()
+        self._overflow_tick_host.setAccessibleDescription(source)
+        self._overflow_tick_host.setToolTip(f"{description}\n{source}")
 
     def resizeEvent(self, event):
         """Never expose a clipped half-control state in this fixed dashboard."""
@@ -360,4 +432,5 @@ class ServerTick(ParserWindow):
             "Not synchronized")
         self.header_countdown.setAccessibleDescription(
             self.countdown.accessibleDescription())
+        self._sync_overflow_tick_readout()
         self.tray_state_changed.emit(snapshot, compact)
