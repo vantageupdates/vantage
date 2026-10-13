@@ -36,6 +36,31 @@ SAMPLE_XML = b"""<?xml version='1.0' encoding='utf-8'?>
 </Triggers></TriggerGroup></TriggerGroups></SharedData>"""
 
 
+@pytest.mark.parametrize('length', [312, 4100])
+def test_gina_display_and_phase_speech_preserve_more_than_a_name(tmp_path, length):
+    text = ('A longer raid instruction. ' * 200)[:length].strip()
+    xml = f'''<SharedData><TriggerGroups><TriggerGroup><Name>Raid</Name><Triggers>
+    <Trigger><Name>Long instruction</Name><TriggerText>Begin event</TriggerText>
+    <UseText>True</UseText><DisplayText>{text}</DisplayText>
+    <UseTextToVoice>True</UseTextToVoice><TextToVoiceText>{text}</TextToVoiceText>
+    <TimerType>Timer</TimerType><TimerDuration>60</TimerDuration>
+    <UseTimerEnding>True</UseTimerEnding><TimerEndingTime>10</TimerEndingTime>
+    <TimerEndingTrigger><UseText>True</UseText><DisplayText>{text}</DisplayText>
+    <UseTextToVoice>True</UseTextToVoice><TextToVoiceText>{text}</TextToVoiceText>
+    </TimerEndingTrigger><UseTimerEnded>True</UseTimerEnded>
+    <TimerEndedTrigger><UseText>True</UseText><DisplayText>{text}</DisplayText>
+    <UseTextToVoice>True</UseTextToVoice><TextToVoiceText>{text}</TextToVoiceText>
+    </TimerEndedTrigger></Trigger></Triggers></TriggerGroup></TriggerGroups></SharedData>'''
+    package = tmp_path / 'long-text.xml'
+    package.write_text(xml, encoding='utf-8')
+    imported = import_gina_package(package)
+    for field in ('alert_text', 'tts_text', 'timer_ending_alert',
+                  'timer_ending_tts', 'timer_ended_alert', 'timer_ended_tts'):
+        assert getattr(imported[0], field) == text[:4096]
+    assert sum(warning['code'] == 'text-truncated' for warning in imported.warnings) == (
+        3 if length > 4096 else 0)
+
+
 def test_gina_package_imports_as_disabled_editable_copies(tmp_path):
     package = tmp_path / "sample.gtp"
     with zipfile.ZipFile(package, "w", zipfile.ZIP_DEFLATED) as archive:

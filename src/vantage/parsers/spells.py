@@ -45,7 +45,9 @@ from vantage.helpers.trigger_groups import (
 
 
 TOKEN_RX = re.compile(r"\{([A-Za-z][A-Za-z0-9_]*)\}")
-GROUP_REF_RX = re.compile(r"\$(?:\{(\d+)\}|(\d+))")
+TRIGGER_OUTPUT_RX = re.compile(
+    r"\$\{([A-Za-z][A-Za-z0-9_]*|\d+)\}|\$(\d+)|"
+    r"\{([A-Za-z][A-Za-z0-9_]*)\}")
 EXTERNAL_CAST_RX = re.compile(
     r"^(?P<mob>[A-Za-z0-9'` .-]{1,80}?) begins to cast a spell\.$",
     re.IGNORECASE)
@@ -387,16 +389,68 @@ def render_trigger_text(template, match, trigger):
     if character and character != 'ConfigureMe':
         values.update({'c': character, 'C': character})
     values['COUNTER'] = str(trigger.counter)
-    rendered = TOKEN_RX.sub(lambda token: values.get(
-        token.group(1), values.get(token.group(1).casefold(), token.group(0))), template)
+    def replacement(reference):
+        token = next(value for value in reference.groups() if value is not None)
+        if token.isdigit():
+            if match is None:
+                return reference.group(0)
+            try:
+                return match.group(int(token)) or ''
+            except IndexError:
+                return ''
+        return values.get(
+            token, values.get(token.casefold(), reference.group(0))) or ''
 
-    def numeric_group(reference):
-        try:
-            return match.group(int(reference.group(1) or reference.group(2))) or ''
-        except (IndexError, AttributeError):
-            return ''
+    # Substitute once: captured log text may itself contain $1 or {tokens}.
+    return TRIGGER_OUTPUT_RX.sub(replacement, template)
 
-    return GROUP_REF_RX.sub(numeric_group, rendered) if match else rendered
+
+def _trigger_profile_identity(character='', server=''):
+    character = str(character or '').strip().casefold()
+    if character == 'configureme':
+        character = ''
+    return character, str(server or '').strip().casefold()
+
+
+def _trigger_profile_key(key, character='', server=''):
+    profile = _trigger_profile_identity(character, server)
+    return ('profile:' + json.dumps([*profile, key], separators=(',', ':'))
+            if any(profile) else key)
+
+
+def _trigger_captures(match):
+    """Keep named identities and only genuinely unnamed positional groups."""
+    if match is None:
+        return {}
+    captures = dict(match.groupdict())
+    named_indices = set(match.re.groupindex.values())
+    captures.update({index: value for index, value in enumerate(match.groups(), 1)
+                     if index not in named_indices})
+    return captures
+
+
+def _trigger_ender_matches_run(run, match):
+    ending = _trigger_captures(match)
+    if not ending:
+        return True  # A capture-free rule explicitly applies to every run.
+    starting = dict(run.get('captures', {}))
+    # Capture-free starts have no target identity to correlate. Preserve raw
+    # regex enders that use ordinary parentheses only for structure/alternation.
+    # Unmatched named captures still cannot identify a specific target safely.
+    if not starting and all(isinstance(key, int) for key in ending):
+        return True
+    character = run.get('character', '')
+    if character:
+        starting.update(c=character, C=character)
+    shared = starting.keys() & ending.keys()
+    # A captured ender with no shared identity must not become a stop-all.
+    identities = ending.keys() - {'c', 'C'}
+    if identities and not (shared & identities):
+        return False
+    return bool(shared) and all(
+        starting[key] is not None and ending[key] is not None and
+        str(starting[key]).strip().casefold() ==
+        str(ending[key]).strip().casefold() for key in shared)
 
 
 @functools.lru_cache(maxsize=1)
@@ -1362,6 +1416,9 @@ class Spells(ParserWindow):
                 active_character = (
                     self._active_character or
                     config.data['sharing'].get('player_name', ''))
+                active_server = getattr(self, '_active_server', '')
+                active_profile = _trigger_profile_identity(
+                    active_character, active_server)
                 end_matches = [
                     match for end_rx in end_rxs
                     if (match := end_rx.match(text)) is not None]
@@ -1374,17 +1431,14 @@ class Spells(ParserWindow):
                         character = str(run.get('character') or '').strip()
                         if (not Spells._trigger_delivery_enabled(
                                     run['trigger'], character) or
-                                (character and active_character and
-                                 character.casefold() !=
-                                 active_character.casefold()) or
+                                _trigger_profile_identity(
+                                    character, run.get('server', '')) !=
+                                active_profile or
                                 (ct.zone and ct.zone.casefold() !=
                                  self._current_zone.casefold())):
                             continue
                         if not any(
-                                not end_match.groupdict().get('c') or
-                                not character or
-                                end_match.groupdict()['c'].casefold() ==
-                                character.casefold()
+                                _trigger_ender_matches_run(run, end_match)
                                 for end_match in end_matches):
                             continue
                         removed = self._end_trigger_run(run_key) or removed
@@ -1414,23 +1468,28 @@ class Spells(ParserWindow):
                     match_key = (
                         str(match.groupdict().get('mob') or '').casefold()
                         if ct.match_filter == 'external_npc_cast' else '')
+                    state = ct.runtime_by_profile.setdefault(active_profile, {
+                        'counter': 0, 'last_fired': 0.0, 'last_fired_by_key': {}})
                     last_fired = (
-                        ct.last_fired_by_key.get(match_key, 0.0)
-                        if match_key else ct.last_fired)
+                        state['last_fired_by_key'].get(match_key, 0.0)
+                        if match_key else state['last_fired'])
                     if now - last_fired < ct.match_cooldown_seconds:
                         continue
-                    if (ct.counter_reset_seconds and ct.last_fired and
-                            now - ct.last_fired > ct.counter_reset_seconds):
-                        ct.counter = 0
-                    ct.last_fired = now
+                    if (ct.counter_reset_seconds and state['last_fired'] and
+                            now - state['last_fired'] > ct.counter_reset_seconds):
+                        state['counter'] = 0
+                    state['last_fired'] = now
                     if match_key:
-                        ct.last_fired_by_key[match_key] = now
-                        if len(ct.last_fired_by_key) > 128:
+                        state['last_fired_by_key'][match_key] = now
+                        if len(state['last_fired_by_key']) > 128:
                             oldest = min(
-                                ct.last_fired_by_key,
-                                key=ct.last_fired_by_key.get)
-                            ct.last_fired_by_key.pop(oldest, None)
-                    ct.counter += 1
+                                state['last_fired_by_key'],
+                                key=state['last_fired_by_key'].get)
+                            state['last_fired_by_key'].pop(oldest, None)
+                    state['counter'] += 1
+                    ct.counter = state['counter']
+                    ct.last_fired = state['last_fired']
+                    ct.last_fired_by_key = state['last_fired_by_key']
                     ct.runtime_character = active_character
                     timer_name = render_trigger_text(
                         ct.timer_name or ct.name, match, ct)
@@ -1465,6 +1524,8 @@ class Spells(ParserWindow):
                                 run_key = f"timer:{timer_name.casefold()}"
                             else:
                                 run_key = ct.name
+                            run_key = _trigger_profile_key(
+                                run_key, active_character, active_server)
                             if duration > 0:
                                 spell = Spell(
                                     name=display_name,
@@ -1478,10 +1539,7 @@ class Spells(ParserWindow):
                                     spell, timestamp, '__custom__',
                                     active_character,
                                 getattr(self, '_active_server', ''))
-                            if ct.restart_behavior == 'new':
-                                ct.active_names.append(run_key)
-                            else:
-                                ct.active_names[:] = [run_key]
+                            ct.active_names.append(run_key)
                             self._start_trigger_run(
                                 ct, run_key, display_name, duration, match,
                                 timestamp)
@@ -1861,13 +1919,17 @@ class Spells(ParserWindow):
 
     def _matching_trigger_runs(self, trigger, display_name):
         """Apply GINA's optional cross-trigger TimerName restart scope."""
-        if trigger.restart_based_on_timer_name:
-            folded = str(display_name or '').casefold()
-            return [
-                (key, run) for key, run in self._trigger_runs.items()
-                if str(run.get('name') or '').casefold() == folded]
-        run = self._trigger_runs.get(trigger.name)
-        return [(trigger.name, run)] if run else []
+        profile = _trigger_profile_identity(
+            getattr(trigger, 'runtime_character', ''),
+            getattr(self, '_active_server', ''))
+        folded = str(display_name or '').casefold()
+        return [
+            (key, run) for key, run in self._trigger_runs.items()
+            if _trigger_profile_identity(
+                run.get('character', ''), run.get('server', '')) == profile and
+            (str(run.get('name') or '').casefold() == folded
+             if trigger.restart_based_on_timer_name else
+             getattr(run.get('trigger'), 'name', '') == trigger.name)]
 
     def _end_trigger_run(self, run_key):
         """Remove one internal run plus its visible buff and overlay rows."""
@@ -1915,6 +1977,7 @@ class Spells(ParserWindow):
             'ended_tts': render_trigger_text(
                 trigger.timer_ended_tts, match, trigger),
             'timestamp': timestamp,
+            'captures': _trigger_captures(match),
             'character': getattr(trigger, 'runtime_character', ''),
             'server': getattr(self, '_active_server', ''),
         }
@@ -2843,7 +2906,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.132')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.133')
         request.setTransferTimeout(10_000)
         reply = self._boat_network.get(request)
         reply.downloadProgress.connect(
@@ -5426,6 +5489,7 @@ class CustomTrigger:
         self.counter = 0
         self.last_fired = 0.0
         self.last_fired_by_key = {}
+        self.runtime_by_profile = {}
         self.active_names = []
         self.runtime_character = ''
 

@@ -295,14 +295,14 @@ def test_contains_start_does_not_broaden_early_enders(runtime):
         overlay_id='timers',
         end_patterns=[{'text': 'Stop timer', 'regex': False}])
     runtime.owner.parse(datetime.datetime.now(), 'prefix START TIMER suffix')
-    run = runtime.owner._trigger_runs['Keyword']
+    run = next(iter(runtime.owner._trigger_runs.values()))
     assert run['duration'] == 10.0 and run['deadline'] == 110.0
     runtime.owner.parse(datetime.datetime.now(), 'prefix Stop timer suffix')
-    assert runtime.owner._trigger_runs['Keyword'] is run
+    assert runtime.owner._trigger_runs[run['key']] is run
     runtime.owner.parse(datetime.datetime.now(), 'STOP TIMER')
     assert not runtime.owner._trigger_runs
-    assert runtime.removed[0][1]['runtime_key'] == 'Keyword'
-    assert runtime.dismissed == ['Keyword']
+    assert runtime.removed[0][1]['runtime_key'] == run['key']
+    assert runtime.dismissed == [run['key']]
     assert trigger.counter == 1
 
 
@@ -313,7 +313,7 @@ def test_contains_literal_timespan_token_uses_fixed_timer_not_dynamic(runtime):
     assert runtime.owner.test_trigger_line('prefix {TS} suffix') == 1
     assert 'countdown · 10s' in runtime.owner._trigger_history[0]['output']
     runtime.owner.parse(datetime.datetime.now(), 'prefix {TS} suffix')
-    assert runtime.owner._trigger_runs['Keyword']['duration'] == 10.0
+    assert next(iter(runtime.owner._trigger_runs.values()))['duration'] == 10.0
     assert CustomTrigger(
         text='{ts}', time='00:00:00', timer_type='countdown',
         match_mode='contains').timer_type == 'none'

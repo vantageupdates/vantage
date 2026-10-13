@@ -41,7 +41,8 @@ heal_settings = {
     'enabled': heals.monitor_enabled.isChecked(),
     'format': heals.hotkey_format.text(),
 }
-for _ in range(7):
+# The compact settings page now includes a keyboard-reachable scrollbar.
+for _ in range(8):
     QTest.keyClick(app.focusWidget(), Qt.Key.Key_Tab)
     app.processEvents()
 heal_settings['tab_wrap'] = heals._surface.focusWidget().accessibleName()

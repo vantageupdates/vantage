@@ -7,12 +7,26 @@ import re
 
 
 CHAT = re.compile(
-    r"^(?P<speaker>.+?) (?:tells you|tells the group|tells the guild|"
-    r"tells your party|tell your guild|tell your party|says|auctions|shouts|"
-    r"oocs),? '(?P<message>.*)'$", re.IGNORECASE)
+    r"^(?P<speaker>.+?) (?:tells? (?:you|the group|the guild|the raid|"
+    r"your party|your group|your guild|your raid)|says?(?: out of character)?|"
+    r"auctions?|shouts?|oocs?),? '(?P<message>.*)'$", re.IGNORECASE)
 INTERVAL_COMMAND = re.compile(r"!KI\s*([1-9])", re.IGNORECASE)
 OTHER_INTERRUPTED = re.compile(
     r"^(?P<cleric>.+?)'s casting is interrupted!$", re.IGNORECASE)
+DEFAULT_FORMAT = "### - CH - tankname"
+_TANK = r"[A-Za-z][A-Za-z'`-]{0,31}(?:\s+[A-Za-z][A-Za-z'`-]{0,31}){0,3}"
+_MARKER = r"[A-Za-z0-9]{1,6}"
+_TAG = r"(?:[A-Za-z][A-Za-z0-9]{0,7}\s+)?"
+# Ordered call shapes, not a broad search for the word CH. Custom templates
+# remain strict filters. These formats also support named pets as heal targets.
+_COMMON_CALLS = tuple(re.compile(pattern, re.IGNORECASE) for pattern in (
+    rf"^{_TAG}(?P<marker>{_MARKER})\s+(?:-+\s*)?R?CH[\s<>-]+"
+    rf"(?P<tank>{_TANK}?)(?:\s*(?:[<>-]\s*)+(?P=marker)?)?\s*$",
+    rf"^{_TAG}RCH\s+(?P<marker>{_MARKER})\s+(?:CH\s+)?[-<>]+\s*"
+    rf"(?P<tank>{_TANK})\s*$",
+    rf"^CH\s*[-<>]+\s*(?P<tank>{_TANK}?)\s*[-<>]+\s*"
+    rf"(?P<marker>{_MARKER})\s*$",
+))
 
 
 @dataclass
@@ -59,21 +73,36 @@ class HealChainTracker:
         if self._announcement is not None:
             return self._announcement
         template = self.hotkey_format.strip()
-        if "###" not in template or "tankname" not in template.casefold():
-            template = "### - CH - tankname"
+        if template.count("###") != 1 or template.casefold().count("tankname") != 1:
+            template = DEFAULT_FORMAT
         parts = re.split(r"(###|tankname)", template, flags=re.IGNORECASE)
         pattern = []
         for part in parts:
             if part == "###":
-                pattern.append(r"(?P<marker>[A-Za-z0-9]{1,3})")
+                pattern.append(rf"(?P<marker>{_MARKER})")
             elif part.casefold() == "tankname":
-                pattern.append(r"(?P<tank>[A-Za-z][A-Za-z'`-]{0,31})")
+                pattern.append(rf"(?P<tank>{_TANK})")
             else:
                 escaped = re.escape(part)
                 pattern.append(escaped.replace(r"\ ", r"\s*"))
         self._announcement = re.compile(
             r"^\s*" + "".join(pattern) + r"\s*$", re.IGNORECASE)
         return self._announcement
+
+    def _match_announcement(self, message):
+        matched = self._announcement_regex().fullmatch(message)
+        if matched is not None or self.hotkey_format.strip() != DEFAULT_FORMAT:
+            return matched
+        for pattern in _COMMON_CALLS:
+            matched = pattern.fullmatch(message.strip())
+            if matched is None:
+                continue
+            marker = matched.group("marker").upper()
+            if (marker.isdecimal() or len(set(marker)) == 1 or
+                    marker in ("R11", "R22") or
+                    re.fullmatch(r"RAMP\d{1,2}", marker)):
+                return matched
+        return None
 
     @staticmethod
     def _increment_marker(marker):
@@ -91,6 +120,8 @@ class HealChainTracker:
             else:
                 return ""
             return next_char * len(marker)
+        if marker.isdecimal():
+            return str((int(marker) + 1) % (10 ** len(marker))).zfill(len(marker))
         return ""
 
     def next_marker(self, tank, current_marker):
@@ -112,9 +143,10 @@ class HealChainTracker:
         self.local_marker = ""
         self.revision += 1
 
-    def _interrupt(self, cleric):
+    def _interrupt(self, cleric, timestamp):
         for cast in reversed(self.casts):
             if (not cast.interrupted and
+                    0 <= (timestamp - cast.started_at).total_seconds() < self.cast_seconds and
                     cast.cleric.casefold() == cleric.casefold()):
                 cast.interrupted = True
                 self.revision += 1
@@ -124,26 +156,29 @@ class HealChainTracker:
     def ingest(self, timestamp, text):
         """Return `(event_name, payload)` when a chain event is recognized."""
         text = text.strip()
-        interval = INTERVAL_COMMAND.search(text)
+        chat = CHAT.fullmatch(text)
+        interval = INTERVAL_COMMAND.fullmatch(
+            (chat.group("message") if chat else text).strip())
         if interval:
             self.interval = int(interval.group(1))
             self.revision += 1
             return "interval", self.interval
 
-        if "clearcch is not online at this time" in text.casefold():
+        if text.casefold().rstrip(".") == "clearcch is not online at this time":
             self.clear()
             return "clear", None
 
         if text.casefold() == "your spell is interrupted.":
-            return "interrupt", self._interrupt("You")
+            cast = self._interrupt("You", timestamp)
+            return ("interrupt", cast) if cast else None
         interrupted = OTHER_INTERRUPTED.match(text)
         if interrupted:
-            return "interrupt", self._interrupt(interrupted.group("cleric"))
+            cast = self._interrupt(interrupted.group("cleric"), timestamp)
+            return ("interrupt", cast) if cast else None
 
-        chat = CHAT.match(text)
         if not chat:
             return None
-        announcement = self._announcement_regex().match(chat.group("message"))
+        announcement = self._match_announcement(chat.group("message"))
         if not announcement:
             return None
         marker = announcement.group("marker").upper()

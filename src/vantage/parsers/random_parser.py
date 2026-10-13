@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import (
-    QAccessible, QAccessibleAnnouncementEvent, QColor)
+    QAccessible, QAccessibleAnnouncementEvent, QColor, QFontMetrics)
 from PySide6.QtWidgets import (
     QAbstractItemView, QFrame, QHBoxLayout, QHeaderView, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QVBoxLayout)
@@ -36,10 +36,12 @@ class RandomParser(ParserWindow):
         self.setWindowTitle("Random Parser")
         self._title.setText("Random Parser")
         self._pending_roll = None
-        # Hidden parsers continue receiving the live log; bound the scoreboard
-        # so an unattended session cannot grow memory without limit.
+        # Bound visible history while retaining every accepted participant's
+        # eligibility and the round's result until an explicit round reset.
         self._rolls = deque(maxlen=500)
         self._accepted_players = set()
+        self._highest_roll = None
+        self._winning_players = []
         self._locked_high = None
         self._round = 1
         self._build_ui()
@@ -113,6 +115,15 @@ class RandomParser(ParserWindow):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        # The column manager preserves the first shown widths, often before
+        # any rolls exist. Reserve the full status text while the table is
+        # empty instead of letting the short "Result" heading set its width.
+        result_metrics = QFontMetrics(self._winner_font(self.table.font()))
+        result_width = max(
+            result_metrics.horizontalAdvance(text)
+            for text in ("Winner", "Tied winner", "Participant")) + 16
+        self.table.horizontalHeaderItem(2).setSizeHint(QSize(
+            result_width, header.sizeHint().height()))
         layout.addWidget(self.table, 1)
         self.content.addWidget(panel, 1)
 
@@ -151,13 +162,18 @@ class RandomParser(ParserWindow):
             self._locked_high = high
         self._accepted_players.add(player_key)
         self._rolls.append(RandomRoll(pending[1], value, high))
+        if self._highest_roll is None or value > self._highest_roll:
+            self._highest_roll = value
+            self._winning_players = [pending[1]]
+        elif value == self._highest_roll:
+            self._winning_players.append(pending[1])
         self._render(announce=True)
 
     def _render(self, announce=False):
         ordered = sorted(
             enumerate(self._rolls), key=lambda entry: (-entry[1].value, entry[0]))
-        highest = max((roll.value for roll in self._rolls), default=None)
-        winners = [roll.player for roll in self._rolls if roll.value == highest]
+        highest = self._highest_roll
+        winners = self._winning_players
         tied = len(winners) > 1
         self.table.setRowCount(len(ordered))
         for row, (_index, roll) in enumerate(ordered):
@@ -185,6 +201,10 @@ class RandomParser(ParserWindow):
             status_text = (
                 f"ROUND {self._round} · RANGE 0–{self._locked_high} · "
                 f"WINNER: {winners[0]} · {highest}")
+        accepted = len(self._accepted_players)
+        if accepted > len(self._rolls):
+            status_text += (
+                f" · Showing latest {len(self._rolls)} of {accepted} rolls")
         self.summary.setText(status_text)
         self.summary.setAccessibleDescription(status_text)
         active_range = (
@@ -205,6 +225,8 @@ class RandomParser(ParserWindow):
         self._pending_roll = None
         self._rolls.clear()
         self._accepted_players.clear()
+        self._highest_roll = None
+        self._winning_players.clear()
         self._locked_high = None
         self._render()
         self.new_round_button.setFocus(Qt.FocusReason.OtherFocusReason)
@@ -214,6 +236,8 @@ class RandomParser(ParserWindow):
         self._pending_roll = None
         self._rolls.clear()
         self._accepted_players.clear()
+        self._highest_roll = None
+        self._winning_players.clear()
         self._locked_high = None
         self._render()
         self.new_round_button.setFocus(Qt.FocusReason.OtherFocusReason)
@@ -223,6 +247,8 @@ class RandomParser(ParserWindow):
         self._pending_roll = None
         self._rolls.clear()
         self._accepted_players.clear()
+        self._highest_roll = None
+        self._winning_players.clear()
         self._locked_high = None
         self._render()
         self.reset_button.setFocus(Qt.FocusReason.OtherFocusReason)

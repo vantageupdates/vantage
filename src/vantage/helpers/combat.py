@@ -1038,12 +1038,11 @@ class CombatTracker:
         """Resolve a defensive line without treating NPC defense as tanking."""
         attacker = str(attacker or "").strip()
         tank = self._caster_name(tank)
+        encounter = self.active.get(attacker.casefold())
+        if encounter is not None:
+            return encounter
         if tank == "You":
             return self._encounter(attacker, timestamp)
-        encounter = self._current_for_non_damage()
-        if (encounter and attacker and
-                encounter.target.casefold() == attacker.casefold()):
-            return encounter
         return None
 
     def _tank_stats(self, encounter, tank):
@@ -1285,6 +1284,10 @@ class CombatTracker:
             changed = True
         damage = self.parse_damage(text)
         if damage:
+            # Close idle fights before a new hit can refresh their last_at.
+            # Keep kill-line finalization ahead of the usual expiry below so
+            # a delayed death message can still finish its active opponent.
+            self.expire(timestamp)
             attacker, target, amount, kind, spell_name = damage
             critical_type, reported_critical = self._consume_critical(
                 timestamp, attacker)
@@ -1701,13 +1704,18 @@ class CombatTracker:
                 timestamp, "Heal", healer, target, amount, "Visible heal")
 
     def finalize_target(self, target, timestamp, killed=False):
-        folded = target.casefold()
-        candidates = [
-            key for key in self.active
-            if key == folded or folded in key or key in folded]
-        if not candidates:
+        folded = target.strip().casefold()
+        if not folded:
             return None
-        key = max(candidates, key=lambda candidate: self.active[candidate].last_at)
+        key = folded
+        if key not in self.active:
+            candidates = [
+                candidate for candidate in self.active
+                if folded in candidate or candidate in folded]
+            # Partial names cannot safely distinguish simultaneous opponents.
+            if len(candidates) != 1:
+                return None
+            key = candidates[0]
         encounter = self.active.pop(key)
         encounter.last_at = max(encounter.last_at, timestamp)
         encounter.killed = killed
@@ -1772,7 +1780,18 @@ class CombatTracker:
         combined.archived_from_previous_session = all(
             getattr(encounter, "archived_from_previous_session", False)
             for encounter in encounters)
+        profiles = {
+            (str(getattr(encounter, "archive_character", "") or ""),
+             str(getattr(encounter, "archive_server", "") or ""))
+            for encounter in encounters}
+        # Mixed or unknown source profiles must not acquire false ownership.
+        combined.archive_character, combined.archive_server = (
+            next(iter(profiles)) if len(profiles) == 1 else ("", ""))
         for encounter in encounters:
+            if encounter.damage_started_at is not None:
+                combined.touch_damage(encounter.damage_started_at)
+            if encounter.damage_last_at is not None:
+                combined.touch_damage(encounter.damage_last_at)
             for player, stats in encounter.attackers.items():
                 combined.attackers.setdefault(
                     player, AttackerStats(player)).merge(stats)

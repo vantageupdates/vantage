@@ -26,6 +26,7 @@ MAX_MEDIA_BYTES = 8 * 1024 * 1024
 MAX_UNPACKED_BYTES = 24 * 1024 * 1024
 MAX_TRIGGERS = 1500
 MAX_PATTERN_LENGTH = 4096
+MAX_OUTPUT_LENGTH = 4096
 
 
 class GinaImportError(ValueError):
@@ -130,9 +131,19 @@ def _gina_compatibility(element, trigger, media, warnings):
         has_voice = _truth(_child_text(stage, "UseTextToVoice"))
         if has_sound and has_voice:
             _warning(warnings, trigger.name, "combined-audio",
-                     f"{label}: GINA can play Sound and Voice together. Vantage uses "
+                     f"{label}: this package enables both Sound and Voice. Vantage uses "
                      "one audio route per phase; Sound takes priority. Both choices "
                      "are retained for editing, not simultaneous playback.")
+        phase_enabled = label == "Match" or _truth(_child_text(
+            element, "UseTimerEnding" if label == "Timer ending" else "UseTimerEnded"))
+        if phase_enabled and any(
+                _truth(_child_text(stage, flag)) and
+                len(_child_text(stage, field)) > MAX_OUTPUT_LENGTH
+                for flag, field in (("UseText", "DisplayText"),
+                                    ("UseTextToVoice", "TextToVoiceText"))):
+            _warning(warnings, trigger.name, "text-truncated",
+                     f"{label}: display or speech text exceeds {MAX_OUTPUT_LENGTH} "
+                     "characters and was shortened. Review the imported message.")
         if has_sound and _media_id(stage) not in media:
             _warning(warnings, trigger.name, "missing-audio",
                      f"{label}: no valid packaged WAV was found; a Vantage gallery "
@@ -236,9 +247,9 @@ def _subtrigger(trigger, name):
         _child_text(element, "TextToVoiceText")
         if _truth(_child_text(element, "UseTextToVoice")) else "")
     return {
-        "alert": _safe_name(alert, "") if alert else "",
+        "alert": _safe_output(alert),
         "sound": _gallery_sound(element, has_media),
-        "tts": _safe_name(tts, "") if tts else "",
+        "tts": _safe_output(tts),
         "interrupt": _truth(_child_text(element, "InterruptSpeech")),
         "media_id": _media_id(element) if has_media else None,
     }
@@ -271,6 +282,11 @@ def _duration(seconds):
 def _safe_name(value, fallback):
     value = re.sub(r"[\x00-\x1f]+", " ", str(value or "")).strip()
     return (value or fallback)[:120]
+
+
+def _safe_output(value):
+    value = re.sub(r"[\x00-\x1f]+", " ", str(value or "")).strip()
+    return value[:MAX_OUTPUT_LENGTH]
 
 
 def _gallery_sound(trigger, has_audio):
@@ -400,7 +416,7 @@ def _import_gtt(path):
                 _gallery_sound_from_text(" ".join((
                     name, pattern, fields.get("soundlink", ""))))
                 if has_audio else ""),
-            alert_text=_safe_name(alert_text, "") if alert_text else "",
+            alert_text=_safe_output(alert_text),
             enabled=False,
             regex=False,
             source=f"Imported GTT · {pack_name}",
@@ -439,6 +455,10 @@ def _import_gtt(path):
             _warning(warnings, name, "combined-audio",
                      "Sound and Voice together are not supported: Vantage uses "
                      "one route per phase. Sound takes priority; speech is retained for editing.")
+        if len(alert_text) > MAX_OUTPUT_LENGTH:
+            _warning(warnings, name, "text-truncated",
+                     f"Display text exceeds {MAX_OUTPUT_LENGTH} characters and "
+                     "was shortened. Review the imported message.")
         _validate_patterns(trigger, warnings)
         imported.append(trigger)
     if not imported:
@@ -614,7 +634,7 @@ def import_gina_package(path):
             time=_duration(timer_seconds),
             zone="",
             sound_path=_gallery_sound(element, has_audio),
-            alert_text=_safe_name(display, "") if display else "",
+            alert_text=_safe_output(display),
             enabled=False,
             regex=_truth(_child_text(element, "EnableRegex")),
             source=f"Imported pack · {pack_name}",
@@ -645,7 +665,7 @@ def import_gina_package(path):
                 if _truth(_child_text(element, "CopyToClipboard")) else ""),
             end_patterns=early_enders,
             tts_text=(
-                _child_text(element, "TextToVoiceText")
+                _safe_output(_child_text(element, "TextToVoiceText"))
                 if _truth(_child_text(element, "UseTextToVoice")) else ""),
             interrupt_speech=_truth(
                 _child_text(element, "InterruptSpeech")),

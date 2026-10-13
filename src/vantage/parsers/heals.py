@@ -14,7 +14,7 @@ from vantage.helpers.heal_chain import HealChainTracker
 from vantage.helpers.icons import game_icon
 from vantage.helpers.parser import ParserWindow
 from vantage.helpers.responsive import (
-    ensure_table_header_tooltips, ensure_tab_tooltips)
+    ensure_table_header_tooltips, ensure_tab_tooltips, scrollable)
 
 
 class HealChain(ParserWindow):
@@ -174,11 +174,11 @@ class HealChain(ParserWindow):
         form.addRow("Announcement format", self.hotkey_format)
 
         self.own_marker = QLineEdit()
-        self.own_marker.setMaxLength(3)
+        self.own_marker.setMaxLength(6)
         self.own_marker.setPlaceholderText("Auto-detect")
         self.own_marker.setAccessibleName("Your cleric order")
         self.own_marker.setToolTip(
-            "Optional marker such as AAA; blank learns it from your own call")
+            "Optional marker such as AAA, 001, or RAMP1; blank learns it from your own call")
         form.addRow("Your cleric order", self.own_marker)
 
         self.notify_turn = QCheckBox("Alert when your marker is next")
@@ -187,7 +187,9 @@ class HealChain(ParserWindow):
 
         note = QLabel(
             "Changes save here immediately. Required format tokens: "
-            "### = cleric order · tankname = heal target.")
+            "### = cleric order · tankname = heal target. The default also "
+            "recognizes common CH/RCH calls such as 001 CH -- Tank. "
+            "A custom format only matches that format.")
         note.setObjectName("CombatDataNotice")
         note.setWordWrap(True)
         form.addRow("", note)
@@ -202,7 +204,10 @@ class HealChain(ParserWindow):
         self.own_marker.editingFinished.connect(
             self._save_embedded_settings)
         self.notify_turn.toggled.connect(self._save_embedded_settings)
-        return page
+        area = scrollable(page, "HealChainSettingsScroll")
+        area.setAccessibleName("Heal Chain settings")
+        area.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        return area
 
     def _load_embedded_settings(self):
         settings = config.data["heals"]
@@ -369,6 +374,9 @@ class HealChain(ParserWindow):
             self.interval.blockSignals(True)
             self.interval.setValue(payload)
             self.interval.blockSignals(False)
+            self.settings_interval.blockSignals(True)
+            self.settings_interval.setValue(payload)
+            self.settings_interval.blockSignals(False)
             config.data["heals"]["interval"] = payload
             config.save()
         elif event == "cast":
