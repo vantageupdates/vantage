@@ -65,3 +65,13 @@ self-test, and anonymous public asset verification succeed.
 - Stress audit: all 17 windows, 1,122 state records, zero findings or exceptions.
   Popup clones are audited in their native menu coordinates, not misclassified
   as hidden authored header controls.
+
+### Public release verification
+
+Published stable [Vantage Companion 1.44.131](https://github.com/vantageupdates/vantage/releases/tag/v1.44.131)
+at `2026-10-13T06:11:57Z`, from commit
+`f33cd02a708e80c792b44e58770f53cb12be1c5a`.
+Anonymous GitHub API checks confirmed Companion Latest is `v1.44.131`, not a
+draft or prerelease, with exactly one uploaded `Vantage.exe`. Its 75,984,270-byte
+size and GitHub SHA-256 digest match the tested portable candidate above.
+Release ID: `411342512`; asset ID: `636090180`.
