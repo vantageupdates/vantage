@@ -1,6 +1,6 @@
 {
   "publishedOn": "2026-10-14",
-  "policy": "Real application or in-game captures only. Copied byte-for-byte from approved source images; no generated interface artwork or retouching. Demo data and historical versions are labeled. Private messages, credentials, QR codes and local account paths were checked before publication.",
+  "policy": "Real application or in-game captures only. Six Companion images are copied byte-for-byte from approved source assets. The main VantageUI image uses direct-pixel privacy redaction of five chat-message bodies, not AI; all other pixels remain unchanged. Its two detail images are pixel-exact crops without scaling. Only the redacted copy and safe details are published and linked full-size. Demo data, captured versions and privacy processing are labeled. Private messages, credentials, QR codes and local account paths were checked before publication.",
   "images": [
     {
       "file": "companion-quickbar.png",
@@ -75,45 +75,81 @@
       "caption": "Boat schedules: keep route countdowns nearby and report a boat arrival."
     },
     {
-      "file": "vantageui-in-game.png",
-      "sha256": "3244d1266b339ca9bac5aa2a490ea84770323f7f1f48b092cae48817ee0eb397",
-      "width": 1920, "height": 1080,
-      "source": "user-attachment/codex-clipboard-f8a056c9-fe43-4ee7-b2fe-0b36d537a3c7.png",
+      "file": "vantageui-in-game-private.png",
+      "sha256": "2af9045fce8590f65af908c4b105da27f6d2480aacbbb1c4a6d003dde20df894",
+      "width": 2875, "height": 1766,
+      "source": "user-attachment/codex-clipboard-07f881c0-c05f-42e7-8098-778cd99fde7e.png",
+      "sourceSha256": "54ffd2a9fe2fcf4401a719ebe7d0874ecb2c7d2a7cf1267aab49dad519523445",
       "sourceKind": "in-game-screenshot",
       "dataKind": "gameplay",
-      "version": "1.44.99",
-      "versionBasis": "visible version label in screenshot",
-      "date": "2026-10-04",
+      "version": "1.44.109",
+      "versionBasis": "visible VantageUI v1.44.109 (VBuff) label in the source screenshot",
+      "date": "2026-10-14",
       "dateBasis": "attachment date",
-      "caption": "The skin in-game: spell gems, pet controls and chat arranged around the world view."
+      "privacyRedaction": {
+        "method": "direct-pixel-solid-fill",
+        "aiGenerated": false,
+        "pixelsOutsideRectanglesPreserved": true,
+        "rectangleConvention": "0-based x/y; right and bottom excluded",
+        "fillRgba": [16, 32, 39, 255],
+        "rectangles": [
+          { "name": "Chat 2 message body", "x": 336, "y": 1438, "width": 276, "height": 276 },
+          { "name": "Chat 1 message body", "x": 659, "y": 1438, "width": 374, "height": 271 },
+          { "name": "Main Chat message body", "x": 1078, "y": 1438, "width": 590, "height": 273 },
+          { "name": "Chat 3 message body", "x": 1932, "y": 1438, "width": 400, "height": 277 },
+          { "name": "Chat 4 message body", "x": 2382, "y": 1438, "width": 440, "height": 277 }
+        ],
+        "verification": {
+          "changedPixelsOutsideRedactionRegions": 0,
+          "incorrectOrNonOpaquePixelsInsideRedactionRegions": 0,
+          "sourceFileUnchanged": true
+        }
+      },
+      "caption": "Your interface, in game: spellbook, inventory, bags and item details together in your EverQuest view. Chat text hidden for privacy."
     },
     {
-      "file": "vantageui-inventory.png",
-      "sha256": "166d9f8e3716149ed565cdcc813bfcba2c18bc82632fe8a63eea2b200ec34f58",
-      "width": 1785, "height": 1587,
-      "source": "vantage-ui-premium-1.44.100/.artifacts/source-inventory-3x.png",
+      "file": "vantageui-inventory-current.png",
+      "sha256": "fd1a1e17504b51b62f26e60b2489bd3f56623891a9fa6f26feeffd3d4f1af1d9",
+      "width": 585, "height": 539,
+      "source": "vantageui-in-game-private.png",
+      "sourceSha256": "2af9045fce8590f65af908c4b105da27f6d2480aacbbb1c4a6d003dde20df894",
       "sourceKind": "in-game-screenshot-crop",
       "dataKind": "gameplay",
-      "version": null,
-      "versionBasis": "unconfirmed; the audit folder name does not prove the depicted skin version",
-      "date": "2026-10-03",
-      "dateBasis": "source crop creation date",
-      "priorProcessing": "User in-game attachment cropped and enlarged 3x by review_native_polish.py before website work. Original crop dimensions: 595x529. No further image edits for publication.",
+      "version": "1.44.109",
+      "versionBasis": "visible version label in the full source screenshot",
+      "date": "2026-10-14",
+      "dateBasis": "source attachment date",
+      "crop": {
+        "method": "direct-pixel-crop",
+        "aiGenerated": false,
+        "resampled": false,
+        "rectangleConvention": "0-based x/y; right and bottom excluded",
+        "rectangle": { "x": 1100, "y": 595, "width": 585, "height": 539 },
+        "mismatchedPixelsVersusSourceRegion": 0
+      },
       "caption": "Inventory & character stats: equipment, attributes and carried items together in the game."
     },
     {
-      "file": "vantageui-bags.png",
-      "sha256": "3a2d4503e5596cc7b27fc2ffc224cb3cea626903ff238d319909421d4ff0020e",
-      "width": 930, "height": 1551,
-      "source": "vantage-ui-premium-1.44.100/.artifacts/source-bags-3x.png",
+      "file": "vantageui-bags-current.png",
+      "sha256": "96654873acf55931506959703ef2f98afa5f98bf0bd6745b4e6f00b5c23c0f27",
+      "width": 600, "height": 539,
+      "source": "vantageui-in-game-private.png",
+      "sourceSha256": "2af9045fce8590f65af908c4b105da27f6d2480aacbbb1c4a6d003dde20df894",
       "sourceKind": "in-game-screenshot-crop",
       "dataKind": "gameplay",
-      "version": null,
-      "versionBasis": "unconfirmed; the audit folder name does not prove the depicted skin version",
-      "date": "2026-10-03",
-      "dateBasis": "source crop creation date",
-      "priorProcessing": "User in-game attachment cropped and enlarged 3x by review_native_polish.py before website work. Original crop dimensions: 310x517. No further image edits for publication.",
-      "caption": "Bags & item slots: two open backpacks from an actual play session."
+      "version": "1.44.109",
+      "versionBasis": "visible version label in the full source screenshot",
+      "date": "2026-10-14",
+      "dateBasis": "source attachment date",
+      "crop": {
+        "method": "direct-pixel-crop",
+        "aiGenerated": false,
+        "resampled": false,
+        "rectangleConvention": "0-based x/y; right and bottom excluded",
+        "rectangle": { "x": 1685, "y": 595, "width": 600, "height": 539 },
+        "mismatchedPixelsVersusSourceRegion": 0
+      },
+      "caption": "Bags & containers: four open containers keep items visible beside your inventory."
     }
   ]
 }

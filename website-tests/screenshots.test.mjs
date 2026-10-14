@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
 const root = new URL('../', import.meta.url);
@@ -43,7 +43,7 @@ test('static gallery gives every screenshot a descriptive same-tab full-size lin
     assert.match(figure, /loading="lazy"/);
     assert.match(figure, /<figcaption><strong>[^<]+<\/strong><p>[^<]+<\/p><small>[^<]+<\/small><\/figcaption>/);
     assert.doesNotMatch(figure, /target=|onclick=|role="button"|tabindex=|<button/);
-    assert.match(figure, entry.dataKind === 'demo' ? /Real app · demo data/ : /In-game (?:capture|crop)/);
+    assert.match(figure, entry.dataKind === 'demo' ? /Real app · demo data/ : /In-game (?:capture|crop|detail)/);
     if (entry.version) assert.ok(figure.includes(`v${entry.version}`));
     else assert.match(figure, /version unconfirmed/);
   }
@@ -66,4 +66,49 @@ test('screenshots navigation and real hero replace the illustrative timer mockup
   assert.match(css, /\.screenshot-image img\s*\{[^}]*object-fit:\s*contain/);
   assert.doesNotMatch(css, /object-fit:\s*cover/);
   assert.match(css, /\.screenshot-grid\s*\{[^}]*grid-template-columns:\s*1fr/);
+});
+
+test('VantageUI showcase only links the direct-pixel privacy copy, never its unredacted source', () => {
+  const entry = manifest.images.find((image) => image.file === 'vantageui-in-game-private.png');
+  assert.ok(entry);
+  assert.equal(entry.version, '1.44.109');
+  assert.equal(entry.width, 2875);
+  assert.equal(entry.height, 1766);
+  assert.match(entry.sourceSha256, /^[a-f0-9]{64}$/);
+  assert.notEqual(entry.sha256, entry.sourceSha256);
+  assert.equal(entry.privacyRedaction.method, 'direct-pixel-solid-fill');
+  assert.equal(entry.privacyRedaction.aiGenerated, false);
+  assert.equal(entry.privacyRedaction.pixelsOutsideRectanglesPreserved, true);
+  assert.ok(entry.privacyRedaction.rectangles.length >= 5);
+  for (const rectangle of entry.privacyRedaction.rectangles) {
+    const { x, y, width, height } = rectangle;
+    for (const value of [x, y, width, height]) assert.ok(Number.isInteger(value));
+    assert.ok(x >= 0 && y >= 0 && width > 0 && height > 0);
+    assert.ok(x + width <= entry.width && y + height <= entry.height);
+  }
+  const screenshotRoot = new URL('landing-assets/screenshots/', root);
+  for (const file of readdirSync(screenshotRoot).filter((name) => name.endsWith('.png'))) {
+    assert.notEqual(createHash('sha256').update(readFileSync(new URL(file, screenshotRoot))).digest('hex'), entry.sourceSha256, `${file} must not contain the unredacted source`);
+  }
+  assert.match(manifest.policy, /direct-pixel/i);
+  assert.match(html, /id="vantageui-screenshots"/);
+  assert.match(gallery, /In-game capture · VantageUI v1\.44\.109 · Chat text hidden for privacy/);
+  assert.match(gallery, /alt="Open full-size VantageUI in-game screenshot[^"\n]*chat text hidden"/);
+  assert.doesNotMatch(gallery, /vantageui-in-game\.png|codex-clipboard-/);
+  for (const name of ['vantageui-inventory-current.png', 'vantageui-bags-current.png']) {
+    const detail = manifest.images.find((image) => image.file === name);
+    assert.ok(detail);
+    assert.equal(detail.version, entry.version);
+    assert.equal(detail.sourceKind, 'in-game-screenshot-crop');
+    assert.equal(detail.dataKind, 'gameplay');
+    assert.equal(detail.source, entry.file);
+    assert.equal(detail.sourceSha256, entry.sha256);
+    assert.equal(detail.crop.method, 'direct-pixel-crop');
+    assert.equal(detail.crop.aiGenerated, false);
+    assert.equal(detail.crop.resampled, false);
+    assert.equal(detail.crop.mismatchedPixelsVersusSourceRegion, 0);
+    assert.equal(detail.crop.rectangle.width, detail.width);
+    assert.equal(detail.crop.rectangle.height, detail.height);
+  }
+  assert.doesNotMatch(gallery, /vantageui-inventory\.png|vantageui-bags\.png|version unconfirmed|enlarged 3×/);
 });
