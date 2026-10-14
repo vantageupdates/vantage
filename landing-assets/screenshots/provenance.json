@@ -1,0 +1,119 @@
+{
+  "publishedOn": "2026-10-14",
+  "policy": "Real application or in-game captures only. Copied byte-for-byte from approved source images; no generated interface artwork or retouching. Demo data and historical versions are labeled. Private messages, credentials, QR codes and local account paths were checked before publication.",
+  "images": [
+    {
+      "file": "companion-quickbar.png",
+      "sha256": "e21564609d54c398246dcd7cd8a4e325552be53c3eb6bbf7a9e66f75de189923",
+      "width": 876, "height": 80,
+      "source": "app-parity-133/native/quickbar-expanded.png",
+      "sourceKind": "native-qt-window",
+      "dataKind": "demo",
+      "version": "1.44.133",
+      "date": "2026-10-13",
+      "dateBasis": "audit capture date",
+      "caption": "Quick Bar: your tool shortcuts and sound controls in one compact strip."
+    },
+    {
+      "file": "companion-map.png",
+      "sha256": "cd74c143ab86211931c5aaa8fef5233e04a5e51deb8ece6e69acb68541921bec",
+      "width": 400, "height": 400,
+      "source": "app-parity-133/native/maps-expanded.png",
+      "sourceKind": "native-qt-window",
+      "dataKind": "demo",
+      "version": "1.44.133",
+      "date": "2026-10-13",
+      "dateBasis": "audit capture date",
+      "caption": "Interactive maps: a compact map window with landmarks and zone connections."
+    },
+    {
+      "file": "companion-combat.png",
+      "sha256": "36360d20898d663654af791e67aa7c2174884ada8b3643fdfb1bf2a70308694c",
+      "width": 520, "height": 300,
+      "source": "app-parity-133/native/combat-expanded.png",
+      "sourceKind": "native-qt-window",
+      "dataKind": "demo",
+      "version": "1.44.133",
+      "date": "2026-10-13",
+      "dateBasis": "audit capture date",
+      "caption": "Combat parser: review the fight summary and the numbers behind your damage."
+    },
+    {
+      "file": "companion-heal-chain.png",
+      "sha256": "7f71df07927c2b8d6136f325e37a4480580db83debf0e566ac41032f5429a468",
+      "width": 520, "height": 220,
+      "source": "app-parity-133/native/heals-expanded.png",
+      "sourceKind": "native-qt-window",
+      "dataKind": "demo",
+      "version": "1.44.133",
+      "date": "2026-10-13",
+      "dateBasis": "audit capture date",
+      "caption": "Heal Chain: follow the current heal, the next slot and your chain’s timing."
+    },
+    {
+      "file": "companion-triggers.png",
+      "sha256": "6ae2967994bff4ef72a6d245475a5467a669ffdf2575908b7a79b732c8baee78",
+      "width": 1152, "height": 912,
+      "source": "triggers-125/captures-1-5/triggers-default.png",
+      "sourceKind": "native-qt-window",
+      "dataKind": "demo",
+      "version": "1.44.125",
+      "date": "2026-10-04",
+      "dateBasis": "audit capture date",
+      "caption": "Triggers & spoken alerts: edit log patterns, organize groups, choose delivery and test an alert."
+    },
+    {
+      "file": "companion-boats.png",
+      "sha256": "3792470c13da8782cef7ed657994ad593d6bb7fce35da5023f6b033c801b4d57",
+      "width": 400, "height": 560,
+      "source": "boat-quickbar-130/boats-100.png",
+      "sourceKind": "native-qt-window",
+      "dataKind": "demo",
+      "version": "1.44.130",
+      "date": "2026-10-12",
+      "dateBasis": "audit capture date",
+      "caption": "Boat schedules: keep route countdowns nearby and report a boat arrival."
+    },
+    {
+      "file": "vantageui-in-game.png",
+      "sha256": "3244d1266b339ca9bac5aa2a490ea84770323f7f1f48b092cae48817ee0eb397",
+      "width": 1920, "height": 1080,
+      "source": "user-attachment/codex-clipboard-f8a056c9-fe43-4ee7-b2fe-0b36d537a3c7.png",
+      "sourceKind": "in-game-screenshot",
+      "dataKind": "gameplay",
+      "version": "1.44.99",
+      "versionBasis": "visible version label in screenshot",
+      "date": "2026-10-04",
+      "dateBasis": "attachment date",
+      "caption": "The skin in-game: spell gems, pet controls and chat arranged around the world view."
+    },
+    {
+      "file": "vantageui-inventory.png",
+      "sha256": "166d9f8e3716149ed565cdcc813bfcba2c18bc82632fe8a63eea2b200ec34f58",
+      "width": 1785, "height": 1587,
+      "source": "vantage-ui-premium-1.44.100/.artifacts/source-inventory-3x.png",
+      "sourceKind": "in-game-screenshot-crop",
+      "dataKind": "gameplay",
+      "version": null,
+      "versionBasis": "unconfirmed; the audit folder name does not prove the depicted skin version",
+      "date": "2026-10-03",
+      "dateBasis": "source crop creation date",
+      "priorProcessing": "User in-game attachment cropped and enlarged 3x by review_native_polish.py before website work. Original crop dimensions: 595x529. No further image edits for publication.",
+      "caption": "Inventory & character stats: equipment, attributes and carried items together in the game."
+    },
+    {
+      "file": "vantageui-bags.png",
+      "sha256": "3a2d4503e5596cc7b27fc2ffc224cb3cea626903ff238d319909421d4ff0020e",
+      "width": 930, "height": 1551,
+      "source": "vantage-ui-premium-1.44.100/.artifacts/source-bags-3x.png",
+      "sourceKind": "in-game-screenshot-crop",
+      "dataKind": "gameplay",
+      "version": null,
+      "versionBasis": "unconfirmed; the audit folder name does not prove the depicted skin version",
+      "date": "2026-10-03",
+      "dateBasis": "source crop creation date",
+      "priorProcessing": "User in-game attachment cropped and enlarged 3x by review_native_polish.py before website work. Original crop dimensions: 310x517. No further image edits for publication.",
+      "caption": "Bags & item slots: two open backpacks from an actual play session."
+    }
+  ]
+}

@@ -11,9 +11,20 @@ The root landing page is plain static HTML. It preserves the Vantage dark/gold d
 - `landing-assets/downloads.mjs`: live status, version check/retry and link updates.
 - `landing-assets/releases.mjs`: public GitHub release selection and dated snapshot.
 - `landing-assets/`: copied source emblem, social image and local font assets. Geist and Geist Mono use the included SIL Open Font License (`OFL.txt`).
+- `landing-assets/screenshots/`: nine real, unchanged PNG captures and their `provenance.json` (dimensions, SHA-256, source type, data type, date and version evidence).
 - `website-tests/*.test.mjs`: focused Node tests; run `node --test website-tests/*.test.mjs`.
 
 All local resources use relative paths so they work below `/vantage/`. Social and canonical URLs include that public base path. The page has no authentication, cookies, browser storage, analytics, external font requests or API server. Release checks use the public GitHub API with `credentials: omit` and no token.
+
+## Real screenshots
+
+The `#screenshots` gallery separates Companion from the optional VantageUI skin. The hero uses the actual Companion map capture instead of an illustrative HTML buff preview. Every screenshot opens its original PNG in the same browser tab, without JavaScript, a carousel or a modal. Use browser Back to return. Images keep their full aspect ratio with `object-fit: contain`; below-fold images load lazily and all images reserve their intrinsic dimensions.
+
+Six Companion images come from real Qt app windows with demo data: Quick Bar, West Freeport map, combat parser and Heal Chain (1.44.133 audit, October 13); Triggers (1.44.125 audit, October 4); and Boat Schedules (1.44.130 audit, October 12). Captions explicitly identify the demo data; boat countdowns and fight results are not live. These are not web reconstructions or generated artwork.
+
+Three VantageUI images come from actual gameplay. The full-screen October 4 attachment visibly identifies skin version 1.44.99. Inventory and bags are existing October 3 in-game crops enlarged 3× before this website task; their skin version is unconfirmed, and the audit directory’s version must not be presented as proof. The source crop sizes were 595×529 and 310×517. All three are labeled historical examples, not screenshots of the latest release. Do not use them to infer current download versions.
+
+Publication copies are byte-for-byte identical to the reviewed source assets. The manifest uses logical audit paths and attachment identifiers, never local user account paths. Before adding or replacing an image, inspect its actual pixels for private conversations, QR codes, connection tokens, IP addresses, credentials and personal file paths. Keep honest version/date/demo labels, meaningful action-oriented linked-image alt text and a useful adjacent caption. Add its dimensions and checksum to the manifest, then run the screenshot tests alongside the existing release tests.
 
 ## Release confirmation
 

@@ -35,7 +35,9 @@ test('static content gives both confirmed executable downloads without JavaScrip
   assert.doesNotMatch(html, /Latest stable/);
   assert.match(html, /<button[^>]+id="check-versions"[^>]+hidden>/);
   assert.match(html, /<noscript>/);
-  assert.doesNotMatch(html, /1\.44\.121|1\.44\.99/);
+  const downloads = html.match(/<section id="downloads"[\s\S]*?<\/section>/)?.[0];
+  assert.ok(downloads);
+  assert.doesNotMatch(downloads, /1\.44\.121|1\.44\.99/);
 });
 
 test('migration retains complete feature groups, creator and independent support details', () => {
