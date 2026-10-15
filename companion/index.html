@@ -2,9 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
   <meta name="theme-color" content="#10171b">
-  <meta name="description" content="Offline P99 item and spell reference, plus private live Vantage Companion tools through the PC QR session.">
+  <meta name="description" content="Your saved guild records and P99 Market, Spells, Zones and Quests, available from one permanent Home Screen app.">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon-256.png">
   <link rel="apple-touch-icon" href="icon-1254.png">
@@ -18,7 +20,7 @@
       <img src="icon-256.png" alt="" width="42" height="42">
       <div>
         <strong>Vantage Companion</strong>
-        <span>Permanent Market & Spells · live tools via PC QR</span>
+        <span>Saved references · live tools via PC QR</span>
       </div>
     </div>
     <div class="header-actions">
@@ -28,19 +30,35 @@
   </header>
 
   <nav class="tabs" role="tablist" aria-label="Companion sections">
-    <button id="market-tab" class="tab active" role="tab" type="button" data-page="market" aria-controls="market" aria-selected="true">Market</button>
+    <button id="guild-tab" class="tab" role="tab" type="button" data-page="guild" aria-controls="guild" aria-selected="false" tabindex="-1">Guild</button>
     <button id="spells-tab" class="tab" role="tab" type="button" data-page="spells" aria-controls="spells" aria-selected="false" tabindex="-1">Spells</button>
-    <button id="offline-tab" class="tab" role="tab" type="button" data-page="offline" aria-controls="offline" aria-selected="false" tabindex="-1">Offline Help</button>
+    <button id="market-tab" class="tab active" role="tab" type="button" data-page="market" aria-controls="market" aria-selected="true">Market</button>
+    <button id="zones-tab" class="tab" role="tab" type="button" data-page="zones" aria-controls="zones" aria-selected="false" tabindex="-1">Zones</button>
+    <button id="quests-tab" class="tab" role="tab" type="button" data-page="quests" aria-controls="quests" aria-selected="false" tabindex="-1">Quests</button>
+    <button id="offline-tab" class="tab" role="tab" type="button" data-page="offline" aria-controls="offline" aria-selected="false" tabindex="-1">Saved & Help</button>
   </nav>
 
-  <main id="main">
+  <main id="main" tabindex="-1">
+    <p id="offline-status" class="save-status" role="status" aria-live="polite">Checking saved data on this device…</p>
+    <p id="search-announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+    <section id="guild" class="page" role="tabpanel" hidden aria-labelledby="guild-tab">
+      <div class="section-heading"><div><p class="eyebrow">YOUR SAVED COPY</p><h1 id="guild-title" tabindex="-1">Guild records</h1></div><button class="import-shortcut" type="button">Import copy</button></div>
+      <p id="guild-meta" class="meta" role="status">No guild copy saved on this device yet.</p>
+      <div class="filters guild-filters" role="search" aria-label="Saved guild records">
+        <label class="search-field">Search all saved records<input id="guild-search" type="search" autocomplete="off" placeholder="Character, item, raid, or class"></label>
+        <label>Records<select id="guild-view"><option value="standings">DKP standings</option><option value="loot">Loot history</option><option value="raids">Raids</option><option value="sheets">Sheet links</option></select></label>
+      </div>
+      <p id="guild-count" class="result-count"></p>
+      <div id="guild-results" class="results"></div>
+      <button id="guild-more" class="show-more" type="button" hidden>Show more saved records</button>
+    </section>
     <section id="market" class="page" role="tabpanel" aria-labelledby="market-tab">
       <div class="section-heading">
         <div>
           <p class="eyebrow">PIGPARSE GREEN SNAPSHOT</p>
           <h1 id="market-title" tabindex="-1">Item Market</h1>
         </div>
-        <button id="refresh" type="button">Refresh Data</button>
+        <button id="refresh" type="button" data-refresh="items">Refresh Market</button>
       </div>
       <p id="market-meta" class="meta" aria-live="polite">Loading item catalog…</p>
       <div class="filters" role="search">
@@ -58,15 +76,16 @@
           <option value="haste">Best Haste</option><option value="astr">Best STR</option><option value="aint">Best INT</option><option value="awis">Best WIS</option>
         </select></label>
       </div>
-      <p id="market-count" class="result-count" aria-live="polite"></p>
+      <p id="market-count" class="result-count"></p>
       <div id="market-results" class="results" aria-busy="true"></div>
     </section>
 
     <section id="spells" class="page" role="tabpanel" hidden aria-labelledby="spells-tab">
       <div class="section-heading">
         <div><p class="eyebrow">BUNDLED P99 CLASSIC DATA</p><h1 id="spells-title" tabindex="-1">Spell Library</h1></div>
+        <button type="button" data-refresh="spells">Refresh Spells</button>
       </div>
-      <p id="spell-meta" class="meta">Loading spell catalog…</p>
+      <p id="spell-meta" class="meta" role="status">Loading spell catalog…</p>
       <div class="filters spell-filters" role="search">
         <label class="search-field">Search spell or description
           <input id="spell-search" type="search" autocomplete="off" placeholder="e.g. Clarity, invisibility">
@@ -74,31 +93,55 @@
         <label>Class<select id="spell-class"></select></label>
         <label>Available level<select id="spell-level"><option value="">Any available level</option></select></label>
       </div>
-      <p id="spell-count" class="result-count" aria-live="polite"></p>
+      <p id="spell-count" class="result-count"></p>
       <div id="spell-results" class="results" aria-busy="true"></div>
     </section>
 
+    <section id="zones" class="page" role="tabpanel" hidden aria-labelledby="zones-tab">
+      <div class="section-heading"><div><p class="eyebrow">P99 REFERENCE</p><h1 id="zones-title" tabindex="-1">Zones</h1></div><button type="button" data-refresh="zones">Refresh Zones</button></div>
+      <p id="zones-meta" class="meta" role="status">Loading zone catalog…</p>
+      <div class="filters reference-filters" role="search" aria-label="Zone catalog"><label>Search zone names<input id="zones-search" type="search" autocomplete="off" placeholder="e.g. South Karana"></label></div>
+      <p id="zones-count" class="result-count"></p><div id="zones-results" class="results" aria-busy="true"></div>
+    </section>
+    <section id="quests" class="page" role="tabpanel" hidden aria-labelledby="quests-tab">
+      <div class="section-heading"><div><p class="eyebrow">P99 REFERENCE</p><h1 id="quests-title" tabindex="-1">Quests</h1></div><button type="button" data-refresh="quests">Refresh Quests</button></div>
+      <p id="quests-meta" class="meta" role="status">Loading quest catalog…</p>
+      <div class="filters reference-filters" role="search" aria-label="Quest catalog"><label>Search quest titles<input id="quests-search" type="search" autocomplete="off" placeholder="e.g. Jboots"></label></div>
+      <p id="quests-count" class="result-count"></p><div id="quests-results" class="results" aria-busy="true"></div>
+      <button id="quests-more" class="show-more" type="button" hidden>Show more quest titles</button>
+    </section>
     <section id="offline" class="page help" role="tabpanel" hidden aria-labelledby="offline-tab">
-      <p class="eyebrow">NO QR REQUIRED AFTER INSTALL</p>
-      <h1 id="offline-title" tabindex="-1">Keep Market & Spells on your phone</h1>
+      <p class="eyebrow">ONE PERMANENT HOME SCREEN APP</p>
+      <h1 id="offline-title" tabindex="-1">Saved data & installation</h1>
+      <article class="limits">
+        <h2>Save your PC reference copy</h2>
+        <p>While connected to the PC QR session, choose its offline copy export. Save that file on your phone, then open this installed app and import it here.</p>
+        <p>The copy contains the selected guild and the current zone and quest details. It is a dated reference; refreshing public catalogs does not update guild records.</p>
+        <label class="file-label" for="import-file">Choose Vantage offline file (up to 8 MiB)</label>
+        <input id="import-file" type="file" accept=".json,application/json" aria-describedby="import-status">
+        <p id="import-status" class="meta" role="status" aria-live="polite">Nothing is uploaded. You will review the copy before replacing saved data.</p>
+        <div class="saved-actions"><button id="backup" type="button" disabled>Export saved copy</button><button id="forget" type="button" disabled aria-haspopup="dialog">Forget saved copy</button><button id="refresh-all" type="button">Refresh public catalogs</button></div>
+        <p id="saved-summary" class="meta"></p>
+      </article>
       <div class="help-grid">
         <article>
           <h2>iPhone or iPad</h2>
-          <ol><li>Open this page in Safari.</li><li>Tap Share.</li><li>Choose <b>Add to Home Screen</b>.</li><li>Enable <b>Open as Web App</b>, then tap Add.</li></ol>
+          <ol><li>Open the permanent <b>vantageupdates.github.io/vantage/companion/</b> address in Safari.</li><li>Tap Share, then <b>Add to Home Screen</b>.</li><li>Enable <b>Open as Web App</b>, then tap Add.</li><li>Open the new icon while online and wait for the sections you need to say <b>Ready offline</b>.</li><li>Import your guild copy inside the installed app. Safari and the Home Screen app can keep separate data.</li></ol>
         </article>
         <article>
           <h2>Android or desktop Chrome</h2>
-          <ol><li>Tap <b>Install App</b> above.</li><li>If the prompt is unavailable, open the browser menu.</li><li>Choose <b>Install app</b> or <b>Add to Home screen</b>.</li></ol>
+          <ol><li>Tap <b>Install App</b> above.</li><li>If unavailable, use the browser menu → <b>Install app</b> or <b>Add to Home screen</b>.</li><li>Open the installed app online once, check <b>Ready offline</b>, then import your saved copy there.</li></ol>
         </article>
       </div>
       <article class="limits">
         <h2>What remains available</h2>
         <ul>
-          <li><b>Offline:</b> item stats, effects, filters, spell class/level data, and the last Market price snapshot successfully loaded on this phone.</li>
+          <li><b>Offline after saving:</b> full Market and Spell search; zone names and quest titles; imported guild records and imported zone/quest details.</li>
           <li><b>Needs internet:</b> refreshing PigParse prices and opening Project 1999 Wiki pages.</li>
-          <li><b>Needs the PC QR session:</b> live timers and controls, active buff timers, Guild DKP & More, Zones, Quests, and the read-only EverQuest view.</li>
+          <li><b>Needs the PC QR session:</b> live timers, buffs, controls and <b>EverQuest Live</b>. Open the private QR link with the PC running on the same Wi-Fi. Live images are never saved here.</li>
         </ul>
-        <p>Your cached catalogs remain on this device. Vantage does not upload your EverQuest logs to this website.</p>
+        <p>If your old icon opens a local PC address, replace it with this permanent HTTPS icon once. Keep the private PC QR link for live tools.</p>
+        <p>Saved copies stay on this device. Browser data clearing or device storage cleanup can remove them; keep an exported backup. No OpenDKP password or PC connection key is imported.</p>
       </article>
       <button id="open-market" class="primary" type="button">Open Offline Market</button>
     </section>
@@ -112,11 +155,21 @@
     <form method="dialog"><button class="dialog-close" aria-label="Close installation help">×</button></form>
     <div class="dialog-content"><p class="eyebrow">INSTALL VANTAGE COMPANION</p><h2 id="install-title">Add this app to your Home Screen</h2><p id="install-copy"></p></div>
   </dialog>
+  <dialog id="import-review" aria-labelledby="import-title">
+    <form method="dialog"><button class="dialog-close" aria-label="Cancel import">×</button></form>
+    <div class="dialog-content"><h2 id="import-title">Review this offline copy</h2><div id="import-preview"></div><p>This replaces the saved guild, zone and quest copy on this device. Public catalogs remain saved.</p><p id="import-review-status" role="status"></p><div class="saved-actions"><button id="import-confirm" class="primary" type="button">Save this copy</button><button id="import-cancel" type="button">Cancel</button></div></div>
+  </dialog>
+  <dialog id="forget-review" aria-labelledby="forget-title">
+    <form method="dialog"><button class="dialog-close" aria-label="Cancel forgetting saved copy">×</button></form>
+    <div class="dialog-content"><h2 id="forget-title">Forget the imported copy?</h2><p>This removes the saved guild and imported zone/quest details from this app. Keep an exported backup if you want to restore them. Public catalogs stay saved.</p><p id="forget-status" role="status"></p><button id="forget-confirm" type="button">Forget saved copy</button></div>
+  </dialog>
 
   <footer>
     <span>Free log-reading companion · Created by Mindflux/Harmflux · P99 Green</span>
     <a href="https://buymeacoffee.com/vantagecompanion" rel="noreferrer">Buy Me a Coffee</a>
   </footer>
+  <script src="storage.js" defer></script>
+  <script src="offline.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>
