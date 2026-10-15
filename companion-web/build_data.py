@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 from datetime import datetime, timezone
 import gzip
 import json
@@ -16,7 +17,7 @@ from urllib.request import Request, urlopen
 
 PIGPARSE_URL = "https://pigparse.azurewebsites.net/api/item/getall/Green"
 P99_DB_URL = "https://p99planner.com/data/p99.sqlite.gz"
-USER_AGENT = "Vantage-Companion-Data/1.44.122"
+USER_AGENT = "Vantage-Companion-Data/1.44.135"
 ROOT = Path(__file__).resolve().parents[1]
 STAT_FIELDS = (
     "ac", "hp", "mana", "astr", "asta", "adex", "aagi", "aint",
@@ -97,7 +98,7 @@ def load_items(database_path, price_rows, era_path):
         *STAT_FIELDS, *(field for _label, field in EFFECT_FIELDS),
     )
     query = "SELECT " + ", ".join(fields) + " FROM items ORDER BY name COLLATE NOCASE"
-    with sqlite3.connect(database_path) as database:
+    with closing(sqlite3.connect(database_path)) as database:
         rows = database.execute(query).fetchall()
     items = []
     for row in rows:
@@ -213,6 +214,22 @@ def write_json(path, payload):
         encoding="utf-8")
 
 
+def load_reference_index(path, kind):
+    """Publish bundled names and canonical Wiki links, never PC/private state."""
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    values = payload.get("zones" if kind == "zones" else "titles", [])
+    names = set()
+    for value in values if isinstance(values, list) else ():
+        name = value.get("name") if kind == "zones" and isinstance(value, dict) else value
+        if not isinstance(name, str):
+            continue
+        name = " ".join(name.split())[:160]
+        if name:
+            names.add(name)
+    return [{"name": name, "wiki": "https://wiki.project1999.com/" + quote(
+        name.replace(" ", "_"), safe="")} for name in sorted(names, key=str.casefold)]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
@@ -235,22 +252,31 @@ def main():
     prices = get_json(PIGPARSE_URL)
     items = load_items(database_path, prices, args.eras)
     spells = load_spells(args.spells)
+    zones = load_reference_index(ROOT / "data/reference/zone_catalog.json", "zones")
+    quests = load_reference_index(ROOT / "data/reference/quest_catalog.json", "quests")
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    write_json(args.output / "items.json", {"items": items})
-    write_json(args.output / "spells.json", {"spells": spells})
+    write_json(args.output / "items.json", {"generatedAt": generated_at, "items": items})
+    write_json(args.output / "spells.json", {"generatedAt": generated_at, "spells": spells})
+    write_json(args.output / "zones.json", {"generatedAt": generated_at, "zones": zones})
+    write_json(args.output / "quests.json", {"generatedAt": generated_at, "quests": quests})
     write_json(args.output / "meta.json", {
         "generatedAt": generated_at,
         "server": "Project 1999 Green",
         "priceSource": "PigParse Green",
         "itemSource": "P99 Planner / Project 1999 Wiki snapshot",
         "spellSource": "Bundled P99 classic spell data",
+        "referenceSource": "Bundled P99 zone and quest indexes; names and Wiki links only",
         "itemCount": len(items),
         "pricedItemCount": sum(bool(row["price"]) for row in items),
         "spellCount": len(spells),
+        "zoneCount": len(zones),
+        "questCount": len(quests),
         "limitations": (
             "Prices are the latest published PigParse snapshot and may be stale "
-            "while offline. Timers, zone sync, and EQ Live require a running "
-            "Vantage session on the PC."),
+            "while offline. Zone and quest catalogs contain names and Wiki "
+            "links; full saved details require a private PC snapshot import. "
+            "Guild records are the last imported snapshot. Timers, current "
+            "buffs, zone sync, and EQ Live require the same-Wi-Fi PC session."),
     })
     if temporary:
         temporary.cleanup()

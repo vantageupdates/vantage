@@ -13,6 +13,7 @@ import os
 import re
 import secrets
 import socket
+import sys
 import threading
 from urllib.request import Request, urlopen
 from urllib.parse import parse_qs, quote, urlsplit
@@ -32,6 +33,7 @@ from PySide6.QtWidgets import (
 from vantage.helpers import config, resource_path
 from vantage.helpers.game_capture import GameWindowCapture
 from vantage.helpers.icons import game_icon
+from vantage.helpers.mobile_offline import encode_offline_snapshot
 from vantage.helpers.portable import data_dir
 from vantage.helpers.responsive import ResponsiveActionBar, scrollable
 from vantage.helpers.scaled_dialog import UniformScaleDialog
@@ -121,7 +123,7 @@ def load_mobile_spell_detail(name):
     request = Request(
         P99_SPELL_DETAIL_API.format(
             slug=quote(str(name).strip().replace(" ", "_"), safe="")),
-        headers={"User-Agent": "Vantage/1.44.134"})
+        headers={"User-Agent": "Vantage/1.44.135"})
     with urlopen(request, timeout=8) as response:
         payload_bytes = response.read(2_000_001)
     if len(payload_bytes) > 2_000_000:
@@ -411,7 +413,7 @@ def load_mobile_item_detail(item):
     request = Request(
         P99_ITEM_DETAIL_API.format(
             slug=quote(name.replace(" ", "_"), safe="")),
-        headers={"User-Agent": "Vantage/1.44.134"})
+        headers={"User-Agent": "Vantage/1.44.135"})
     with urlopen(request, timeout=8) as response:
         payload_bytes = response.read(MAX_WIKI_RESPONSE + 1)
     if len(payload_bytes) > MAX_WIKI_RESPONSE:
@@ -505,7 +507,7 @@ dialog{width:min(92vw,620px);max-height:84vh;overflow:auto;border:1px solid #6e6
 </head>
 <body>
 <a id="skipLink" class="skip-link" href="#main-content">Skip to content</a>
-<header><div class="head"><div class="brand-row"><h1 class="brand"><img class="mark" src="/icon.png" alt="" width="24" height="24"><span>VANTAGE<span class="sr-only"> P99 Companion</span></span></h1><button id="installApp" class="install-button" type="button" aria-haspopup="dialog">SAVE TO HOME</button><span id="state">Connecting…</span></div><div class="sub">P99 companion · personal session</div></div>
+<header><div class="head"><div class="brand-row"><h1 class="brand"><img class="mark" src="/icon.png" alt="" width="24" height="24"><span>VANTAGE<span class="sr-only"> P99 Companion</span></span></h1><button id="installApp" class="install-button" type="button" aria-haspopup="dialog">PHONE APP</button><span id="state">Connecting…</span></div><div class="sub">P99 companion · personal session</div></div>
 <div class="tabs" role="tablist" aria-label="Mobile companion views">
 <button id="tabTimers" class="on" type="button" role="tab" aria-selected="true" aria-controls="timers" tabindex="0">TIMERS</button>
 <button id="tabBuffs" type="button" role="tab" aria-selected="false" aria-controls="buffsPage" tabindex="-1">BUFFS</button>
@@ -562,10 +564,65 @@ function restoreCached(path,root,render){const cached=readCached(path);if(!cache
 async function post(path,data){const r=await fetch(path,{method:'POST',cache:'no-store',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(data)});if(!r.ok)throw Error(String(r.status));return r.json()}
 function saved(key,fallback){try{const value=localStorage.getItem(key);return value===null?fallback:value==='true'}catch(_){return fallback}}function save(key,value){try{localStorage.setItem(key,String(value))}catch(_){}}
 let zoomLocked=saved('vantageZoomLock',true),nativeSize=saved('vantageNativeSize',false);function applyGameView(){gameShell.classList.toggle('zoom-locked',zoomLocked);gameShell.classList.toggle('native',nativeSize);zoomLock.textContent=zoomLocked?'EQ VIEW LOCKED':'EQ VIEW FREE';zoomLock.setAttribute('aria-pressed',String(zoomLocked));zoomLock.setAttribute('aria-label',zoomLocked?'Unlock pinch gestures inside the EverQuest live image':'Lock pinch gestures inside the EverQuest live image');gameSize.textContent=nativeSize?'1:1 PIXELS':'FIT TO SCREEN'}applyGameView();
-window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();deferredInstallPrompt=event;installApp.textContent='INSTALL APP'});
 if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js',{scope:'/'}).catch(()=>{}));
-function showInstallHelp(){detailRequest+=1;detailDialog.setAttribute('aria-busy','false');detailStatus.textContent='';detailTitle.textContent='Save Vantage to your Home Screen';detailBody.replaceChildren();const intro=node('p','summary','Keep this mobile view one tap away. Its last successful data stays visible while Vantage reconnects.');const steps=node('ol','install-steps');const ios=/iphone|ipad|ipod/i.test(navigator.userAgent);for(const text of (ios?['Open this page in Safari.','Tap Share.','Choose Add to Home Screen, then tap Add.']:['Open your browser menu.','Choose Add to Home screen or Install app.','Confirm Add.']))steps.append(node('li','',text));const limit=node('p','limitation','Vantage restarts this saved same-Wi-Fi Mobile Host automatically. If the saved port is busy, Vantage shows a refreshed QR; scan that new QR once. An explicit Stop Mobile Host keeps saved data and the pairing key, but pauses reconnection until you start it again.');detailBody.append(intro,steps,limit);showDetailDialog()}
-installApp.addEventListener('click',async()=>{if(deferredInstallPrompt){deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null;installApp.textContent='SAVE TO HOME';return}showInstallHelp()});
+const phoneAppUrl='https://vantageupdates.github.io/vantage/companion/',phoneAppOrigin=new URL(phoneAppUrl).origin,offlineLimit=8*1024*1024;
+let cancelPhoneTransfer=null;
+async function fetchOfflineSnapshot(){
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000);
+  try{
+    const response=await fetch('/api/offline-snapshot',{cache:'no-store',signal:controller.signal,headers:{Authorization:'Bearer '+token}});
+    if(!response.ok)throw Error('Could not save the PC snapshot. Reconnect to Vantage and try again.');
+    if(Number(response.headers.get('Content-Length'))>offlineLimit)throw Error('The snapshot is too large to save.');
+    const blob=await response.blob();if(blob.size>offlineLimit)throw Error('The snapshot is too large to save.');
+    const snapshot=JSON.parse(await blob.text());
+    if(snapshot.format!=='vantage-offline'||snapshot.schema!==1)throw Error('This snapshot format is not supported.');
+    return snapshot;
+  }finally{clearTimeout(timeout)}
+}
+async function downloadPhoneSnapshot(status,button){
+  button.disabled=true;announce(status,'Preparing a private snapshot file…');
+  try{
+    const snapshot=await fetchOfflineSnapshot(),blob=new Blob([JSON.stringify(snapshot)],{type:'application/json'}),url=URL.createObjectURL(blob),link=node('a','','Download private snapshot');
+    link.href=url;link.download='vantage-private-offline.json';document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+    announce(status,'Private file prepared. Open the installed phone app, choose Import snapshot, and select vantage-private-offline.json. Keep this file private.');
+  }catch(_){announce(status,'Snapshot download failed. Keep this phone connected to the PC on the same Wi-Fi and try again.')}finally{button.disabled=false}
+}
+function sendSnapshotToPhone(status,button){
+  if(cancelPhoneTransfer)cancelPhoneTransfer();
+  if(!window.crypto||!crypto.getRandomValues){announce(status,'Use Download private snapshot, then import the file inside the phone app.');return}
+  const bytes=crypto.getRandomValues(new Uint8Array(32)),nonce=Array.from(bytes,value=>value.toString(16).padStart(2,'0')).join(''),deadline=Date.now()+60000;
+  let popup=null,snapshot=null,ready=false,sent=false,finished=false,expiry;
+  const finish=message=>{if(finished)return;finished=true;clearTimeout(expiry);window.removeEventListener('message',receive);button.disabled=false;cancelPhoneTransfer=null;if(message)announce(status,message)};
+  const send=()=>{if(finished||sent||!ready||!snapshot||Date.now()>deadline||!popup||popup.closed)return;sent=true;popup.postMessage({type:'vantage-offline-snapshot',schema:1,nonce,snapshot},phoneAppOrigin)};
+  const receive=event=>{
+    if(finished||Date.now()>deadline||event.origin!==phoneAppOrigin||event.source!==popup)return;
+    const data=event.data;if(!data||typeof data!=='object'||data.schema!==1||data.nonce!==nonce)return;
+    if(data.type==='vantage-offline-ready'){ready=true;send()}
+    else if(sent&&data.type==='vantage-offline-result'&&typeof data.accepted==='boolean')finish(data.accepted?'Snapshot saved in the browser window. Open the installed phone app and verify it appears there; if not, download and import the private file inside the installed app.':'Import cancelled. Your previous saved data remains available.');
+  };
+  window.addEventListener('message',receive);
+  // Keep the opener only for this short, exact-origin import handshake.
+  popup=window.open(phoneAppUrl+'#import?nonce='+nonce+'&origin='+encodeURIComponent(location.origin),'_blank');
+  if(!popup){finish('The browser blocked the phone app window. Use Download private snapshot, then import the file inside the phone app.');return}
+  button.disabled=true;cancelPhoneTransfer=()=>finish('Transfer cancelled. Use the private file to import later.');
+  expiry=setTimeout(()=>finish('Transfer timed out. Use Download private snapshot, then import the file inside the phone app.'),60000);
+  announce(status,'Open the phone app window and review the snapshot before saving. No pairing key is transferred.');
+  fetchOfflineSnapshot().then(value=>{snapshot=value;send()}).catch(()=>finish('Could not read the PC snapshot. Reconnect on the same Wi-Fi and try again.'));
+}
+function showInstallHelp(){
+  detailRequest+=1;detailDialog.setAttribute('aria-busy','false');detailStatus.textContent='';detailTitle.textContent='Save Vantage to your Home Screen';detailBody.replaceChildren();
+  const intro=node('p','summary','Install the permanent HTTPS phone app to reopen Market, Spells, zone and quest indexes, and saved guild data while the PC is off. This private LAN page needs the PC when reopened.'),open=node('a','source-link','Open permanent phone app (new tab)');
+  open.href=phoneAppUrl;open.target='_blank';open.rel='noopener noreferrer';
+  const steps=node('ol','install-steps'),ios=/iphone|ipad|ipod/i.test(navigator.userAgent);
+  for(const text of (ios?['Open the permanent phone app in Safari.','Tap Share, choose Add to Home Screen, enable Open as Web App, and tap Add.','Open the new Home Screen app while online and wait for its offline-ready message.']:['Open the permanent phone app.','Use the browser menu to Install app or Add to Home screen.','Open the installed app while online and wait for its offline-ready message.']))steps.append(node('li','',text));
+  const copy=node('p','summary','Save the selected guild and the current zone and quest details from this PC. This is a snapshot of already loaded records, not a fresh server refresh. It contains no PC pairing key. Keep downloaded guild files private.'),actions=node('div','game-tools'),transfer=node('button','tool-button','Save to phone app'),download=node('button','tool-button','Download private snapshot'),status=node('p','market-note','');
+  transfer.type='button';download.type='button';status.setAttribute('role','status');status.setAttribute('aria-live','polite');status.setAttribute('aria-atomic','true');
+  transfer.addEventListener('click',()=>sendSnapshotToPhone(status,transfer));download.addEventListener('click',()=>downloadPhoneSnapshot(status,download));actions.append(transfer,download);
+  const limit=node('p','limitation','On iPhone, Safari and the installed app may keep separate data. If saved records do not appear in the Home Screen app, download the private file here and import it inside that app. EQ Live, timer controls, and current buffs require this same-Wi-Fi PC link.');
+  detailBody.append(intro,open,steps,copy,actions,status,limit);showDetailDialog();
+}
+installApp.addEventListener('click',showInstallHelp);
+window.addEventListener('pagehide',()=>{if(cancelPhoneTransfer)cancelPhoneTransfer()});
 zoomLock.addEventListener('click',()=>{zoomLocked=!zoomLocked;save('vantageZoomLock',zoomLocked);applyGameView()});gameSize.addEventListener('click',()=>{nativeSize=!nativeSize;save('vantageNativeSize',nativeSize);applyGameView()});gameShell.addEventListener('touchmove',event=>{if(zoomLocked&&event.touches.length>1)event.preventDefault()},{passive:false});for(const eventName of ['gesturestart','gesturechange','gestureend'])gameShell.addEventListener(eventName,event=>{if(zoomLocked)event.preventDefault()},{passive:false});
 async function loadGame(){clearTimeout(gameDelay);if(gamePanel.hidden||document.hidden)return;if(gameLoading){gameDelay=setTimeout(loadGame,180);return}gameLoading=true;let delay=500;try{const status=await get('/api/game/status');delay=Math.max(100,Math.round(1000/(Number(status.fps)||5)));announce(gameState,(status.title?status.title+' · ':'')+String(status.message||'')+(status.image_quality_label?' · '+status.image_quality_label:''));if(!status.enabled||!status.available){gameFrame.hidden=true;gameHelp.hidden=false;gameHelp.textContent=String(status.message||'View unavailable.');return}const response=await fetch('/api/game/frame',{cache:'no-store',headers:{Authorization:'Bearer '+token}});if(!response.ok){let failure={};try{failure=await response.json()}catch(_){}const message=String(failure.message||(response.status===403?'EverQuest Live is available only through the local Wi-Fi link.':'The EverQuest window could not be captured.'));gameFrame.hidden=true;gameHelp.hidden=false;gameHelp.textContent=message;announce(gameState,(failure.title?String(failure.title)+' · ':'')+message);delay=1000;return}const blob=await response.blob(),next=URL.createObjectURL(blob),old=gameObjectUrl;gameObjectUrl=next;gameFrame.onload=()=>{if(old)URL.revokeObjectURL(old)};gameFrame.src=next;gameFrame.hidden=false;gameHelp.hidden=true}catch(_){gameFrame.hidden=true;gameHelp.hidden=false;gameHelp.textContent='Local connection to Vantage was lost. Retrying…';announce(gameState,gameHelp.textContent);delay=1000}finally{gameLoading=false;if(!gamePanel.hidden&&!document.hidden)gameDelay=setTimeout(loadGame,delay)}}
 function announceConnectionPolitely(message){pendingPoliteConnection=message;clearTimeout(connectionAnnouncementDelay);const publish=()=>{if(!pendingPoliteConnection||pendingPoliteConnection===lastPoliteConnection)return;announce(connectionStatus,pendingPoliteConnection);lastPoliteConnection=pendingPoliteConnection;lastPoliteConnectionAt=Date.now()};const wait=Math.max(0,8000-(Date.now()-lastPoliteConnectionAt));if(wait)connectionAnnouncementDelay=setTimeout(publish,wait);else publish()}
@@ -646,7 +703,7 @@ class _ShareHTTPServer(ThreadingHTTPServer):
 
 
 class _ShareHandler(BaseHTTPRequestHandler):
-    server_version = "VantageMobile/1.44.134"
+    server_version = "VantageMobile/1.44.135"
 
     def log_message(self, *_):
         # Do not write access paths or the user's network details to disk.
@@ -758,6 +815,22 @@ class _ShareHandler(BaseHTTPRequestHandler):
             if not self._authorized():
                 self._send(403, b'{"error":"forbidden"}', "application/json")
                 return
+        if path == "/api/offline-snapshot":
+            # The live application owns the runtime version. Avoid importing
+            # it here: that would initialize Qt/config in standalone hosts.
+            application = sys.modules.get("vantage.helpers.application")
+            version = str(getattr(application, "CURRENT_VERSION", "unknown"))
+            try:
+                payload = encode_offline_snapshot(
+                    self.server.snapshot_provider(), source_version=version)
+            except ValueError:
+                self._send(413, b'{"error":"snapshot_too_large"}', "application/json")
+                return
+            self._send(
+                200, payload, "application/json; charset=utf-8",
+                extra_headers=(("Content-Disposition",
+                                'attachment; filename="vantage-private-offline.json"'),))
+            return
         if path.startswith("/api/game/"):
             if not self._authorized(lan_only=True):
                 self._send(

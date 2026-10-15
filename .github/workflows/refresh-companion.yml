@@ -10,6 +10,8 @@ on:
       - "companion-web/**"
       - "data/market/item_eras.json"
       - "data/spells/spells_us.txt"
+      - "data/reference/zone_catalog.json"
+      - "data/reference/quest_catalog.json"
       - "data/ui/icon.png"
       - "data/ui/icon-master.png"
       - ".github/workflows/refresh-companion.yml"
@@ -47,6 +49,8 @@ jobs:
           cp source/companion-web/share.html site/companion/
           cp source/companion-web/app.css site/companion/
           cp source/companion-web/app.js site/companion/
+          cp source/companion-web/storage.js site/companion/
+          cp source/companion-web/offline.js site/companion/
           cp source/companion-web/sw.js site/companion/
           cp source/companion-web/manifest.webmanifest site/companion/
           cp source/data/ui/icon.png site/companion/icon-256.png

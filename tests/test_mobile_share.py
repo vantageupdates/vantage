@@ -305,6 +305,71 @@ def test_mobile_page_restores_cached_data_and_retains_it_on_fetch_failure():
     assert "saved buff data remains visible" in _MOBILE_PAGE
 
 
+def test_offline_export_requires_auth_and_downloads_projected_data_without_cors(monkeypatch):
+    calls = []
+
+    def snapshot():
+        calls.append(True)
+        source = _snapshot()
+        source["lan_token"] = "PRIVATE-PAIRING-KEY"
+        source["guild"]["standings"] = [
+            {"name": f"Character {index:03}", "password": "PRIVATE-PASSWORD"}
+            for index in range(625)]
+        return source
+
+    monkeypatch.setitem(sys.modules, "vantage.helpers.application",
+                        SimpleNamespace(CURRENT_VERSION="1.2.3"))
+    server = _ShareHTTPServer(("127.0.0.1", 0), "secret", snapshot)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        for supplied in (None, "wrong-key"):
+            try:
+                _request(base, "/api/offline-snapshot", supplied)
+                assert False, "private exports must require the pairing bearer"
+            except HTTPError as error:
+                assert error.code == 403
+        assert calls == []
+        status, payload, headers = _request(base, "/api/offline-snapshot", "secret")
+        assert status == 200
+        exported = json.loads(payload)
+        assert exported["format"] == "vantage-offline"
+        assert exported["schema"] == 1
+        assert exported["source_version"] == "1.2.3"
+        assert len(exported["guild"]["standings"]) == 625
+        assert exported["guild"]["standings"][-1]["name"] == "Character 624"
+        assert b"PRIVATE-PAIRING-KEY" not in payload
+        assert b"PRIVATE-PASSWORD" not in payload
+        assert "timers" not in exported and "buffs" not in exported
+        assert len(payload) <= 8 * 1024 * 1024
+        assert headers["Content-Disposition"] == 'attachment; filename="vantage-private-offline.json"'
+        assert headers["Cache-Control"] == "no-store, max-age=0"
+        assert headers["Referrer-Policy"] == "no-referrer"
+        assert "Access-Control-Allow-Origin" not in headers
+        assert "connect-src 'self'" in headers["Content-Security-Policy"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_phone_app_handoff_has_private_download_fallback_and_expiring_exact_window_binding():
+    assert "Download private snapshot" in _MOBILE_PAGE
+    assert "Save to phone app" in _MOBILE_PAGE
+    assert "This private LAN page needs the PC when reopened." in _MOBILE_PAGE
+    assert "window.open(phoneAppUrl+'#import?nonce='+nonce+'&origin='+encodeURIComponent(location.origin)" in _MOBILE_PAGE
+    assert "event.origin!==phoneAppOrigin||event.source!==popup" in _MOBILE_PAGE
+    assert "data.schema!==1||data.nonce!==nonce" in _MOBILE_PAGE
+    assert "Date.now()+60000" in _MOBILE_PAGE
+    assert "crypto.getRandomValues(new Uint8Array(32))" in _MOBILE_PAGE
+    assert "window.removeEventListener('message',receive)" in _MOBILE_PAGE
+    assert "postMessage({type:'vantage-offline-snapshot',schema:1,nonce,snapshot},phoneAppOrigin)" in _MOBILE_PAGE
+    assert "fetch('/api/offline-snapshot',{cache:'no-store'" in _MOBILE_PAGE
+    assert "get('/api/offline-snapshot')" not in _MOBILE_PAGE
+    assert "Safari and the installed app may keep separate data" in _MOBILE_PAGE
+
+
 def test_mobile_config_defaults_and_validates_persistent_session_settings():
     original = config.data
     try:
@@ -1147,9 +1212,8 @@ def test_mobile_item_detail_ui_uses_safe_links_live_status_and_offline_fallback(
     assert "['dmg','dly'].includes(key)?String(value)" in _MOBILE_PAGE
     assert "label+'; opens in a new tab'" in _MOBILE_PAGE
     assert ".innerHTML" not in _MOBILE_PAGE
-    assert "restarts this saved same-Wi-Fi Mobile Host automatically" in (
-        _MOBILE_PAGE)
-    assert "An explicit Stop Mobile Host keeps saved data" in _MOBILE_PAGE
+    assert "Install the permanent HTTPS phone app" in _MOBILE_PAGE
+    assert "This private LAN page needs the PC when reopened." in _MOBILE_PAGE
     assert _safe_p99_url(
         "javascript:alert(1)", fallback_name="Jade Mace") == (
             "https://wiki.project1999.com/Jade_Mace")

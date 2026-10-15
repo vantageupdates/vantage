@@ -1,9 +1,9 @@
 {
   "name": "Vantage Companion · P99 Green",
   "short_name": "Vantage",
-  "description": "Offline Market and Spells reference for Vantage Companion on Project 1999 Green.",
+  "description": "Saved guild records, Market, Spells, Zones and Quests for Vantage Companion.",
   "id": "/vantage/companion/",
-  "start_url": "/vantage/companion/#market",
+  "start_url": "/vantage/companion/",
   "scope": "/vantage/companion/",
   "display": "standalone",
   "orientation": "any",
@@ -15,6 +15,7 @@
     {"src": "icon-1254.png", "sizes": "1254x1254", "type": "image/png", "purpose": "any maskable"}
   ],
   "shortcuts": [
+    {"name": "Guild", "url": "/vantage/companion/#guild"},
     {"name": "Market", "url": "/vantage/companion/#market"},
     {"name": "Spells", "url": "/vantage/companion/#spells"}
   ]

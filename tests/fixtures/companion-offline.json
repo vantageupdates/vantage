@@ -1,0 +1,20 @@
+{
+  "format": "vantage-offline",
+  "schema": 1,
+  "exported_at": "2026-10-15T16:00:00+00:00",
+  "source_version": "fixture",
+  "guild": {
+    "name": "Synthetic Guild", "slug": "synthetic",
+    "standings": [
+      {"name":"Aster","class":"Enchanter","level":"60","rank":"Raider","dkp":"125.0","attendance":"75%"},
+      {"name":"Last Member","class":"Cleric","level":"60","rank":"Member","dkp":"-","attendance":"-"}
+    ],
+    "standings_total": 2,
+    "loot": [{"date":"Oct 14, 2026","item":"Synthetic Crown","character":"Aster","dkp":"80.0","raid":"Synthetic Raid","wiki_url":"https://wiki.project1999.com/Synthetic_Crown"}],
+    "raids": [{"date":"Oct 14, 2026","name":"Synthetic Raid","items":"3","awarded":"12.0","spent":"80.0"}],
+    "sheets": [{"name":"Guild Sheet","url":"https://docs.google.com/spreadsheets/d/synthetic-fixture/edit"}]
+  },
+  "zone": {"name":"South Karana","era":"Classic","levels":"10–40","summary":"Synthetic zone detail for offline testing.","wiki_url":"https://wiki.project1999.com/South_Karana","unique_items":["Pegasus Feather Cloak"],"mobs":[{"name":"Quillmane","level":"30","class":"Warrior","race":"Pegasus","location":"Wanders","loot":"Pegasus Feather Cloak","named":true}]},
+  "quest": {"title":"Jboots","summary":"Synthetic quest detail for offline testing.","wiki_url":"https://wiki.project1999.com/Jboots","metadata":{"Start Zone":"Rathe Mountains","Quest Giver":"Hasten","Minimum Level":"1","Classes":"All"},"rewards":["Journeyman's Boots"],"steps":[{"text":"Find Hasten","kind":"action"},{"text":"Complete the turn-in","kind":"action"}],"checked":[0]},
+  "truncated": []
+}
