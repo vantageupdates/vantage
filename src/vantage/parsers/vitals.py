@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from copy import deepcopy
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
@@ -27,11 +28,14 @@ from vantage.helpers.parser import ParserWindow
 from vantage.helpers.portable import store_portable_file
 from vantage.helpers.responsive import ResponsiveActionBar, polish_form, scrollable
 from vantage.helpers.vitals import (
-    MIN_CONFIDENCE, NUMBER_FORMATS, OWN_VITAL_TYPES, VitalReading,
+    MAX_VITAL_BARS, MIN_CONFIDENCE, NUMBER_FORMATS, OWN_VITAL_TYPES, VitalReading,
     VitalStopTracker, default_vital_bar, default_vital_stop, denormalize_rect,
     normalize_rect, preset_percentages, read_visible_current_max,
-    read_visible_percent, read_vital_bar, sanitize_vital_bar,
+    read_visible_percent, sanitize_vital_bar,
     sanitize_vital_bars, sanitize_vital_stop)
+from vantage.helpers.vitals_polling import (
+    MAX_SAMPLE_AGE_SECONDS, VitalPollWorker, eligible_vital_bar,
+    inactive_vital_reading)
 
 
 TYPE_LABELS = {
@@ -1145,9 +1149,13 @@ class Vitals(ParserWindow):
         self._last_live_frame = None
         self._last_live_rect = ()
         self._last_live_at = 0.0
+        self._poll_generation = 0
+        self._poll_shutdown = False
+        self._poll_worker = VitalPollWorker()
+        self._capture_executable = config.data.get("mobile", {}).get(
+            "eq_executable", "")
         self._capture = GameWindowCapture(
-            config.data.get("mobile", {}).get("eq_executable", ""),
-            profile="native")
+            self._capture_executable, profile="native")
         super().__init__()
         self.setWindowTitle("Vantage Vitals Monitor")
         self._title.setText("Vitals")
@@ -1206,6 +1214,11 @@ class Vitals(ParserWindow):
         self._poll_timer = QTimer(self)
         self._poll_timer.setInterval(config.data["vitals"]["poll_ms"])
         self._poll_timer.timeout.connect(self.poll_now)
+        self._poll_result_timer = QTimer(self)
+        self._poll_result_timer.setInterval(20)
+        self._poll_result_timer.timeout.connect(self._drain_poll_result)
+        QApplication.instance().aboutToQuit.connect(self._shutdown_polling)
+        self.destroyed.connect(self._poll_worker.close)
         self._poll_timer.start()
         QTimer.singleShot(0, self.poll_now)
 
@@ -1311,6 +1324,7 @@ class Vitals(ParserWindow):
         return control.hasFocus() or self._surface.focusWidget() is control
 
     def _persist(self):
+        self._poll_generation += 1
         config.data["vitals"]["bars"] = [dict(bar) for bar in self._bars]
         config.save()
 
@@ -1364,38 +1378,89 @@ class Vitals(ParserWindow):
             self._persist()
 
     def poll_now(self):
+        """Request one sample; capture and OCR never run on the Qt UI thread."""
+        if self._poll_shutdown:
+            return
+        self._drain_poll_result()
         calibration = getattr(self, '_calibration_context', None)
         if calibration is not None:
             index = self._bar_index(calibration[0])
             name = self._bars[index]['name'] if index >= 0 else 'vital bar'
             self._set_status(f"CALIBRATING · {name}")
             return
-        status, image, _window_rect = self._capture.image_frame(
-            require_enabled=False, require_foreground=True)
+        bars = deepcopy(self._bars[:MAX_VITAL_BARS])
+        if not any(eligible_vital_bar(bar) for bar in bars):
+            for bar in bars:
+                self._set_reading(bar["id"], inactive_vital_reading(bar))
+            self._set_status(
+                "NO READING · calibrate a visible vital number" if any(
+                    bar["enabled"] for bar in bars) else
+                "NO READING · monitoring is off")
+            return
+        if self._poll_worker.start(self._poll_generation, self._capture, bars):
+            self._poll_result_timer.setInterval(20)
+            self._poll_result_timer.start()
+
+    def _drain_poll_result(self):
+        result = self._poll_worker.take_result()
+        if not self._poll_worker.busy:
+            self._poll_result_timer.stop()
+        elif (not self._poll_shutdown and self._calibration_context is None
+              and time.monotonic() - self._poll_worker.started_at >
+              MAX_SAMPLE_AGE_SECONDS):
+            # Native PrintWindow cannot be safely interrupted. Keep its sole
+            # slot occupied, slow completion checks, and stop claiming LIVE.
+            self._poll_result_timer.setInterval(250)
+            self._set_status("NO READING · waiting for delayed capture")
+            self._invalidate_poll_readings("Waiting for delayed capture; alerts paused")
+        if result is None or self._poll_shutdown:
+            return
+        generation, capture, bars, started, sample = result
+        # A previous monitor/ROI/alert configuration must never issue an alert
+        # after edit, remove, disable, calibration, or changing the game path.
+        if (generation != self._poll_generation or capture is not self._capture
+                or bars != self._bars[:MAX_VITAL_BARS]
+                or self._calibration_context is not None or sample is None):
+            return
+        if time.monotonic() - started > MAX_SAMPLE_AGE_SECONDS:
+            self._set_status("NO READING · delayed capture; retrying")
+            self._invalidate_poll_readings("Delayed capture discarded; retrying")
+            return
+        self._apply_poll_sample(sample)
+
+    def _invalidate_poll_readings(self, message):
+        """Remove stale LIVE values without advancing thresholds or audio."""
+        for bar in self._bars:
+            reading = (VitalReading(None, 0.0, False, message)
+                       if eligible_vital_bar(bar) else inactive_vital_reading(bar))
+            self._set_reading(bar["id"], reading)
+
+    def _set_reading(self, bar_id, reading):
+        if self._readings.get(bar_id) == reading:
+            return
+        self._readings[bar_id] = reading
+        card = self._cards.get(bar_id)
+        if card is not None:
+            card.set_reading(reading)
+
+    def _apply_poll_sample(self, sample):
+        """Apply a completed snapshot and emit thresholds only on the GUI."""
+        status = sample.status
         if not status.get("available"):
             message = str(status.get("message") or "No visual reading")
             self._set_status("NO READING · " + message)
             for bar in self._bars:
-                reading = VitalReading(None, 0.0, False, message)
-                self._readings[bar["id"]] = reading
-                card = self._cards.get(bar["id"])
-                if card is not None:
-                    card.set_reading(reading)
+                self._set_reading(bar["id"], sample.readings.get(
+                    bar["id"], inactive_vital_reading(bar)))
             return
-        self._last_live_frame = image.copy()
-        self._last_live_rect = tuple(_window_rect)
-        self._last_live_at = time.monotonic()
+        self._last_live_frame = sample.image
+        self._last_live_rect = sample.window_rect
+        self._last_live_at = sample.captured_at
         valid_count = 0
         low_count = 0
         for bar in self._bars:
-            if not bar["enabled"]:
-                reading = VitalReading(None, 0.0, False, "Monitoring is off")
-            else:
-                reading = read_vital_bar(image, bar)
-            self._readings[bar["id"]] = reading
-            card = self._cards.get(bar["id"])
-            if card is not None:
-                card.set_reading(reading)
+            reading = sample.readings.get(bar["id"], inactive_vital_reading(bar))
+            self._set_reading(bar["id"], reading)
             if reading.valid:
                 valid_count += 1
                 for stop, crossed in self._tracker.update(
@@ -1411,6 +1476,13 @@ class Vitals(ParserWindow):
             self._set_status("NO READING · low confidence; alerts paused")
         else:
             self._set_status("NO READING · calibrate a visible vital number")
+
+    def _shutdown_polling(self):
+        self._poll_shutdown = True
+        self._poll_generation += 1
+        self._poll_timer.stop()
+        self._poll_result_timer.stop()
+        self._poll_worker.close()
 
     def _deliver_stop(self, bar, stop, percent, crossed):
         message = (
@@ -1483,6 +1555,7 @@ class Vitals(ParserWindow):
         index = self._bar_index(bar_id)
         if index < 0:
             return
+        self._poll_generation += 1
         # Replacing one modeless calibration must not queue focus restoration
         # to the old card after the new dialog has focused its X field.
         self._finish_calibration(restore_focus=False)
@@ -1683,8 +1756,12 @@ class Vitals(ParserWindow):
 
     def _parser_settings_config_update_watcher(self):
         super()._parser_settings_config_update_watcher()
-        self._capture.set_executable(
-            config.data.get("mobile", {}).get("eq_executable", ""))
+        executable = config.data.get("mobile", {}).get("eq_executable", "")
+        if executable != getattr(self, "_capture_executable", executable):
+            # Do not mutate a capture object while its worker owns it.
+            self._poll_generation += 1
+            self._capture = GameWindowCapture(executable, profile="native")
+        self._capture_executable = executable
         self._poll_timer.setInterval(config.data["vitals"]["poll_ms"])
 
     def closeEvent(self, event):

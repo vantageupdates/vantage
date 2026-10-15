@@ -7,7 +7,8 @@ from pathlib import Path
 import re
 
 from PySide6.QtCore import (
-    QMimeData, QObject, QSignalBlocker, QSize, QThread, Qt, QTimer, Signal, Slot)
+    QItemSelectionModel, QMimeData, QObject, QSignalBlocker, QSize, QThread,
+    Qt, QTimer, Signal, Slot)
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QApplication, QAbstractItemView, QCheckBox, QComboBox, QDialog,
@@ -418,6 +419,10 @@ class Combat(ParserWindow):
         self._spell_signature = None
         self._context_revision = None
         self._combat_profile = ("", "")
+        self._parse_revision = 0
+        self._scope_cache_key = None
+        self._scope_cache_value = None
+        self._view_signatures = {}
 
         self.mode = QComboBox()
         for label, value in (
@@ -797,8 +802,19 @@ class Combat(ParserWindow):
             del blocker
         self.summary_panel.setVisible(label not in {
             "Pets", "Loot", "Randoms", "Faction", "Chat", "Log Search"})
-        if label == "Chat":
-            self._refresh_chat_view(rebuild_channels=True)
+        if hasattr(self, "_refresh_timer"):
+            self.refresh()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if hasattr(self, "_refresh_timer"):
+            self.refresh()
+
+    def _set_collapsed(self, collapsed):
+        was_collapsed = self._collapsed
+        super()._set_collapsed(collapsed)
+        if was_collapsed and not self._collapsed and hasattr(self, "_refresh_timer"):
+            self.refresh()
 
     def _live_overlay_toggled(self, enabled):
         self._overlay_enabled_toggled("damage", enabled)
@@ -2064,11 +2080,11 @@ class Combat(ParserWindow):
         rows = sorted({
             item.row() for item in self.tables["Pets"].selectedItems()},
             reverse=True)
-        visible = self._tracker.pet_rows()
         changed = False
         for row in rows:
-            if 0 <= row < len(visible):
-                changed = self._tracker.remove_pet(visible[row]["pet"]) or changed
+            item = self.tables["Pets"].item(row, 0)
+            if item:
+                changed = self._tracker.remove_pet(item.text()) or changed
         if changed:
             self._save_pet_links()
             self._refresh_pets()
@@ -2079,7 +2095,6 @@ class Combat(ParserWindow):
             value["pet"]: value["owner"]
             for value in self._tracker.pet_rows()}
         config.save()
-        self._pet_revision = self._tracker.pet_revision
 
     def _refresh_pets(self):
         if self._pet_revision == self._tracker.pet_revision:
@@ -2353,6 +2368,7 @@ class Combat(ParserWindow):
             self._summary_layout.addWidget(self.duration, 1, 2)
 
     def parse(self, timestamp, text):
+        self._parse_revision += 1
         self._tracker.timeout = config.data["combat"]["encounter_timeout"]
         previous_pet_revision = self._tracker.pet_revision
         self._sync_character_context()
@@ -2484,28 +2500,56 @@ class Combat(ParserWindow):
             return self._tracker.current()
         if mode == "last":
             return self._tracker.last()
+        archive_ids = [record.archive_id
+                       for record in self._selected_fight_records()]
+        # Session aggregation and archived fight decoding are snapshots, not
+        # clock-driven work. Reuse them until their inputs actually change.
+        key = (
+            mode, self._parse_revision if mode == "session" else None,
+            id(self._fight_records),
+            self._tracker.pet_revision, tuple(archive_ids),
+            tuple(self._encounter_signature(encounter) for encounter in (
+                *self._tracker.active.values(), *self._tracker.completed))
+            if mode == "session" else None)
+        if key == self._scope_cache_key:
+            return self._scope_cache_value
         if mode == "session":
-            return self._tracker.session()
-        archive_ids = [
-            self._fight_records[index].archive_id
-            for index in self._selected_fight_rows()
-            if 0 <= index < len(self._fight_records)]
-        selected = self._combat_archive.load(archive_ids)
-        return self._tracker.combine(
-            selected, f"Selected · {len(selected)} fights")
+            encounter = self._tracker.session()
+        else:
+            selected = self._combat_archive.load(archive_ids)
+            encounter = self._tracker.combine(
+                selected, f"Selected · {len(selected)} fights")
+        self._scope_cache_key = key
+        self._scope_cache_value = encounter
+        return encounter
+
+    @staticmethod
+    def _encounter_signature(encounter):
+        if encounter is None:
+            return None
+        return (
+            id(encounter), encounter.target, encounter.started_at,
+            encounter.last_at, encounter.killed, encounter.total_damage,
+            encounter.total_healing, len(encounter.events),
+            len(encounter.spell_casts))
 
     def _selected_fight_rows(self):
         return sorted({
             item.row() for item in self.tables['Fights'].selectedItems()})
 
+    def _selected_fight_records(self):
+        """Resolve displayed selections by archive ID, never a stale row rank."""
+        rendered_ids = getattr(self, "_rendered_fight_ids", ())
+        records = {record.archive_id: record for record in self._fight_records}
+        return [records[rendered_ids[row]]
+                for row in self._selected_fight_rows()
+                if row < len(rendered_ids) and rendered_ids[row] in records]
+
     def _combine_selected_fights(self, _checked=False, by_target=False):
-        rows = self._selected_fight_rows()
-        if len(rows) < 2:
+        records = self._selected_fight_records()
+        if len(records) < 2:
             self.fight_status.setText('Select at least two fights to combine')
             return
-        records = [
-            self._fight_records[row] for row in rows
-            if 0 <= row < len(self._fight_records)]
         selected = self._combat_archive.load(
             record.archive_id for record in records)
         if len(selected) < 2:
@@ -2516,7 +2560,7 @@ class Combat(ParserWindow):
             targets = [record.target for record in records]
             unique = list(dict.fromkeys(targets))
             suggested = (
-                f'{unique[0]} · {len(rows)} fights' if len(unique) == 1 else
+                f'{unique[0]} · {len(records)} fights' if len(unique) == 1 else
                 ' + '.join(unique[:3]))
             name, accepted = QInputDialog.getText(
                 self, 'Combine Fights', 'Combined encounter name:',
@@ -2575,19 +2619,17 @@ class Combat(ParserWindow):
                     if item:
                         item.setSelected(True)
         self.fight_status.setText(
-            f'Combined {len(rows)} selected fights into '
+            f'Combined {len(records)} selected fights into '
             f'{len(combined)} encounter' + ('s' if len(combined) != 1 else ''))
         self._update_fight_actions()
         self.refresh()
 
     def _rename_selected_fight(self):
-        rows = self._selected_fight_rows()
-        if len(rows) != 1:
+        records = self._selected_fight_records()
+        if len(records) != 1:
             self.fight_status.setText('Select exactly one fight to rename')
             return
-        if not 0 <= rows[0] < len(self._fight_records):
-            return
-        record = self._fight_records[rows[0]]
+        record = records[0]
         loaded = self._combat_archive.load([record.archive_id])
         if not loaded:
             self.fight_status.setText('The selected fight could not be loaded')
@@ -2624,11 +2666,11 @@ class Combat(ParserWindow):
         self.refresh()
 
     def _delete_selected_fights(self):
-        rows = self._selected_fight_rows()
-        if not rows:
+        records = self._selected_fight_records()
+        if not records:
             self.fight_status.setText('Select one or more fights to delete')
             return
-        count = len(rows)
+        count = len(records)
         answer = QMessageBox.question(
             self, 'Delete Selected Fights',
             f'Delete {count} selected saved fight' +
@@ -2639,9 +2681,6 @@ class Combat(ParserWindow):
             QMessageBox.StandardButton.Cancel)
         if answer != QMessageBox.StandardButton.Yes:
             return
-        records = [
-            self._fight_records[row] for row in rows
-            if 0 <= row < len(self._fight_records)]
         removed_ids = [record.archive_id for record in records]
         removed = self._combat_archive.load(removed_ids)
         session_flags = [
@@ -2689,7 +2728,7 @@ class Combat(ParserWindow):
     def _update_fight_actions(self):
         if not hasattr(self, 'fight_combine'):
             return
-        count = len(self._selected_fight_rows())
+        count = len(self._selected_fight_records())
         self.fight_combine.setEnabled(count >= 2)
         self.fight_rename.setEnabled(count == 1)
         self.fight_delete.setEnabled(count >= 1)
@@ -2776,15 +2815,78 @@ class Combat(ParserWindow):
         return rows
 
     def _set_rows(self, table, rows):
-        table.setRowCount(len(rows))
-        for row, values in enumerate(rows):
-            for column, value in enumerate(values):
-                item = QTableWidgetItem(str(value))
-                if column:
-                    item.setTextAlignment(
-                        Qt.AlignmentFlag.AlignRight |
-                        Qt.AlignmentFlag.AlignVCenter)
-                table.setItem(row, column, item)
+        values = tuple(tuple(str(value) for value in row) for row in rows)
+        previous = getattr(table, "_combat_rows", None)
+        if previous == values and table.rowCount() == len(values):
+            return
+        # Keep selected/current actors, not their old ranks, as tables reorder.
+        # Immutable timestamped events need the complete row identity: multiple
+        # different rolls or loot messages can share the same second.
+        header = table.horizontalHeaderItem(0)
+        event_rows = header is not None and header.text() == "Time"
+        def row_keys(data):
+            counts = {}
+            result = []
+            for row in data:
+                name = row if event_rows else (row[0] if row else "")
+                occurrence = counts.get(name, 0)
+                result.append((name, occurrence))
+                counts[name] = occurrence + 1
+            return result
+
+        old_keys = row_keys(previous or ())
+        new_keys = row_keys(values)
+        selected = {
+            old_keys[item.row()] for item in table.selectedItems()
+            if item.row() < len(old_keys)}
+        current_row, current_column = table.currentRow(), table.currentColumn()
+        current_key = (
+            old_keys[current_row] if 0 <= current_row < len(old_keys) else None)
+        vertical = table.verticalScrollBar().value()
+        horizontal = table.horizontalScrollBar().value()
+        blocker = QSignalBlocker(table)
+        updates_enabled = table.updatesEnabled()
+        table.setUpdatesEnabled(False)
+        try:
+            table.setRowCount(len(values))
+            for row, cells in enumerate(values):
+                if previous and row < len(previous) and previous[row] == cells:
+                    # Appending one event must not revisit every old cell in a
+                    # multi-thousand-row timeline.
+                    if table.item(row, 0) is not None:
+                        continue
+                for column, value in enumerate(cells):
+                    item = table.item(row, column)
+                    if item is None:
+                        item = QTableWidgetItem(value)
+                        if column:
+                            item.setTextAlignment(
+                                Qt.AlignmentFlag.AlignRight |
+                                Qt.AlignmentFlag.AlignVCenter)
+                        table.setItem(row, column, item)
+                    elif item.text() != value:
+                        item.setText(value)
+            if selected:
+                table.clearSelection()
+                for row, key in enumerate(new_keys):
+                    if key in selected:
+                        for column in range(table.columnCount()):
+                            item = table.item(row, column)
+                            if item:
+                                item.setSelected(True)
+            if current_key is not None:
+                if current_key in new_keys:
+                    table.setCurrentCell(
+                        new_keys.index(current_key), max(0, current_column),
+                        QItemSelectionModel.SelectionFlag.NoUpdate)
+                else:
+                    table.selectionModel().clearCurrentIndex()
+            table._combat_rows = values
+            table.verticalScrollBar().setValue(vertical)
+            table.horizontalScrollBar().setValue(horizontal)
+        finally:
+            table.setUpdatesEnabled(updates_enabled)
+            del blocker
 
     @staticmethod
     def _real_attacker_names(stats):
@@ -2957,7 +3059,12 @@ class Combat(ParserWindow):
             for encounter in completed)
         if signature == self._history_signature:
             return
-        selected = {item.row() for item in self.tables["Fights"].selectedItems()}
+        table = self.tables["Fights"]
+        old_ids = getattr(self, "_rendered_fight_ids", ())
+        selected = {old_ids[item.row()] for item in table.selectedItems()
+                    if item.row() < len(old_ids)}
+        current_row, current_column = table.currentRow(), table.currentColumn()
+        current_id = old_ids[current_row] if 0 <= current_row < len(old_ids) else None
         rows = []
         for encounter in completed:
             rows.append((
@@ -2970,20 +3077,33 @@ class Combat(ParserWindow):
                 f"{encounter.total_damage:,}",
                 f"{encounter.dps:,.1f}",
                 "Killed" if encounter.killed else "Timed out"))
-        self._set_rows(self.tables["Fights"], rows)
-        for row in selected:
-            if row < self.tables["Fights"].rowCount():
-                self.tables["Fights"].selectRow(row)
+        blocker = QSignalBlocker(table)
+        self._set_rows(table, rows)
+        table.clearSelection()
+        self._rendered_fight_ids = tuple(row.archive_id for row in completed)
+        for row, archive_id in enumerate(self._rendered_fight_ids):
+            if archive_id in selected:
+                for column in range(table.columnCount()):
+                    table.item(row, column).setSelected(True)
+        if current_id is not None:
+            if current_id in self._rendered_fight_ids:
+                table.setCurrentCell(
+                    self._rendered_fight_ids.index(current_id),
+                    max(0, current_column), QItemSelectionModel.SelectionFlag.NoUpdate)
+            else:
+                table.selectionModel().clearCurrentIndex()
+        del blocker
         self._history_signature = signature
         self._update_fight_actions()
 
-    def _refresh_activity(self):
+    def _refresh_activity(self, views=None):
+        views = set(views) if views is not None else set(self.TABS)
         chat = list(self._tracker.chat)
         loot = list(self._tracker.loot)
         coins = list(self._tracker.coins)
         randoms = list(self._tracker.randoms)
         faction = list(self._tracker.faction)
-        if hasattr(self, 'loot_profile'):
+        if "Loot" in views and hasattr(self, 'loot_profile'):
             loot_events = loot + coins
             profiles = sorted({
                 self._activity_profile(event) for event in loot_events},
@@ -2998,7 +3118,7 @@ class Combat(ParserWindow):
             self._sync_filter_combo(
                 self.loot_zone,
                 [(label, label.casefold()) for label in zones], 'All zones')
-        if hasattr(self, 'faction_profile'):
+        if "Faction" in views and hasattr(self, 'faction_profile'):
             profiles = sorted({
                 self._activity_profile(event) for event in faction},
                 key=str.casefold)
@@ -3026,6 +3146,7 @@ class Combat(ParserWindow):
             self.faction_change.currentData(),
             self.faction_profile.currentData(), self.faction_zone.currentData())
         signature = (
+            tuple(sorted(views)),
             len(chat),
             ((chat[0].timestamp, chat[0].channel, chat[0].speaker,
               chat[0].message) if chat else None),
@@ -3044,106 +3165,133 @@ class Combat(ParserWindow):
               faction[0].change) if faction else None), faction_filters)
         if signature == self._activity_signature:
             return
-        self._refresh_chat_view(chat, rebuild_channels=True)
-        loot_query, loot_profile, loot_zone = loot_filters
-        visible_loot = [event for event in loot if (
-            (loot_profile == '*' or
-             self._activity_profile(event).casefold() == loot_profile) and
-            (loot_zone == '*' or event.zone.casefold() == loot_zone) and
-            (not loot_query or loot_query in ' '.join((
-                event.looter, event.item, event.source, event.zone,
-                self._activity_profile(event))).casefold()))]
-        visible_coins = [event for event in coins if (
-            (loot_profile == '*' or
-             self._activity_profile(event).casefold() == loot_profile) and
-            (loot_zone == '*' or event.zone.casefold() == loot_zone) and
-            (not loot_query or loot_query in ' '.join((
-                event.amount, event.kind, event.source, event.item, event.zone,
-                self._activity_profile(event))).casefold()))]
-        self._set_rows(self.tables["Loot"], [(
-            event.timestamp.strftime("%H:%M:%S"), event.looter,
-            event.item, event.count, event.source or '—', event.zone or '—',
-            self._activity_profile(event)) for event in visible_loot])
-        self._set_rows(self.tables['Coin'], [(
-            event.timestamp.strftime('%H:%M:%S'), event.amount,
-            f'{event.copper:,}',
-            ' · '.join(filter(None, (event.kind, event.source, event.item))),
-            event.zone or '—', self._activity_profile(event))
-            for event in visible_coins])
-        if hasattr(self, 'loot_notice'):
-            total_copper = sum(event.copper for event in visible_coins)
-            total_items = sum(event.count for event in visible_loot)
-            stored = 'persistent' if self._activity_archive.available else 'session only'
-            self.loot_notice.setText(
-                f'LOOT · {total_items:,} items · {len(visible_coins):,} coin '
-                f'events · {self._format_coin(total_copper)} · {stored}')
-        self._set_rows(self.tables["Randoms"], [(
-            event.timestamp.strftime("%H:%M:%S"), event.player,
-            f"{event.low:,}–{event.high:,}", f"{event.value:,}")
-            for event in randoms])
-        random_sets = build_random_sets(
-            randoms, random_policy, random_gap, self._random_breaks)
-        self._set_rows(self.tables["Roll Sets"], [(
-            values["started"].strftime("%H:%M:%S"),
-            f'{values["low"]:,}–{values["high"]:,}',
-            values["rolls"], values["players"], values["duplicates"],
-            values["winner"],
-            (f'{values["winning_value"]:,}'
-             if values["winning_value"] is not None else "—"))
-            for values in random_sets])
-        if hasattr(self, "random_notice"):
-            policy_label = self.random_policy.currentText().casefold()
-            self.random_notice.setText(
-                f"ROLL SETS · {len(randoms)} rolls · {len(random_sets)} sets · "
-                f"duplicates use {policy_label}")
-        faction_query, faction_change, faction_profile, faction_zone = (
-            faction_filters)
-        visible_faction = []
-        for event in faction:
-            change_folded = event.change.casefold()
-            if faction_profile != '*' and (
-                    self._activity_profile(event).casefold() != faction_profile):
-                continue
-            if faction_zone != '*' and event.zone.casefold() != faction_zone:
-                continue
-            if faction_query and faction_query not in ' '.join((
-                    event.faction, event.change, event.zone,
-                    self._activity_profile(event))).casefold():
-                continue
-            if faction_change == 'gain' and not (
-                    event.delta > 0 or change_folded == 'got better'):
-                continue
-            if faction_change == 'loss' and not (
-                    event.delta < 0 or change_folded == 'got worse'):
-                continue
-            if faction_change == 'cap' and not change_folded.startswith(
-                    'could not possibly'):
-                continue
-            if faction_change == 'numeric' and not event.change.startswith(
-                    ('+', '-')):
-                continue
-            visible_faction.append(event)
-        self._set_rows(self.tables["Faction"], [(
-            event.timestamp.strftime("%H:%M:%S"), event.faction,
-            event.change, event.zone or "—", self._activity_profile(event))
-            for event in visible_faction])
-        if hasattr(self, 'faction_notice'):
-            stored = 'persistent local history' if self._activity_archive.available else 'session only'
-            self.faction_notice.setText(
-                f'FACTION · {len(visible_faction):,}/{len(faction):,} shown · '
-                f'{stored} · EQ log remains authoritative')
+        if "Chat" in views:
+            self._refresh_chat_view(chat, rebuild_channels=True)
+        if "Loot" in views:
+            loot_query, loot_profile, loot_zone = loot_filters
+            visible_loot = [event for event in loot if (
+                (loot_profile == '*' or
+                 self._activity_profile(event).casefold() == loot_profile) and
+                (loot_zone == '*' or event.zone.casefold() == loot_zone) and
+                (not loot_query or loot_query in ' '.join((
+                    event.looter, event.item, event.source, event.zone,
+                    self._activity_profile(event))).casefold()))]
+            visible_coins = [event for event in coins if (
+                (loot_profile == '*' or
+                 self._activity_profile(event).casefold() == loot_profile) and
+                (loot_zone == '*' or event.zone.casefold() == loot_zone) and
+                (not loot_query or loot_query in ' '.join((
+                    event.amount, event.kind, event.source, event.item, event.zone,
+                    self._activity_profile(event))).casefold()))]
+            self._set_rows(self.tables["Loot"], [(
+                event.timestamp.strftime("%H:%M:%S"), event.looter,
+                event.item, event.count, event.source or '—', event.zone or '—',
+                self._activity_profile(event)) for event in visible_loot])
+            self._set_rows(self.tables['Coin'], [(
+                event.timestamp.strftime('%H:%M:%S'), event.amount,
+                f'{event.copper:,}',
+                ' · '.join(filter(None, (event.kind, event.source, event.item))),
+                event.zone or '—', self._activity_profile(event))
+                for event in visible_coins])
+            if hasattr(self, 'loot_notice'):
+                total_copper = sum(event.copper for event in visible_coins)
+                total_items = sum(event.count for event in visible_loot)
+                stored = 'persistent' if self._activity_archive.available else 'session only'
+                self.loot_notice.setText(
+                    f'LOOT · {total_items:,} items · {len(visible_coins):,} coin '
+                    f'events · {self._format_coin(total_copper)} · {stored}')
+        if "Randoms" in views:
+            self._set_rows(self.tables["Randoms"], [(
+                event.timestamp.strftime("%H:%M:%S"), event.player,
+                f"{event.low:,}–{event.high:,}", f"{event.value:,}")
+                for event in randoms])
+            random_sets = build_random_sets(
+                randoms, random_policy, random_gap, self._random_breaks)
+            self._set_rows(self.tables["Roll Sets"], [(
+                values["started"].strftime("%H:%M:%S"),
+                f'{values["low"]:,}–{values["high"]:,}',
+                values["rolls"], values["players"], values["duplicates"],
+                values["winner"],
+                (f'{values["winning_value"]:,}'
+                 if values["winning_value"] is not None else "—"))
+                for values in random_sets])
+            if hasattr(self, "random_notice"):
+                policy_label = self.random_policy.currentText().casefold()
+                self.random_notice.setText(
+                    f"ROLL SETS · {len(randoms)} rolls · {len(random_sets)} sets · "
+                    f"duplicates use {policy_label}")
+        if "Faction" in views:
+            faction_query, faction_change, faction_profile, faction_zone = (
+                faction_filters)
+            visible_faction = []
+            for event in faction:
+                change_folded = event.change.casefold()
+                if faction_profile != '*' and (
+                        self._activity_profile(event).casefold() != faction_profile):
+                    continue
+                if faction_zone != '*' and event.zone.casefold() != faction_zone:
+                    continue
+                if faction_query and faction_query not in ' '.join((
+                        event.faction, event.change, event.zone,
+                        self._activity_profile(event))).casefold():
+                    continue
+                if faction_change == 'gain' and not (
+                        event.delta > 0 or change_folded == 'got better'):
+                    continue
+                if faction_change == 'loss' and not (
+                        event.delta < 0 or change_folded == 'got worse'):
+                    continue
+                if faction_change == 'cap' and not change_folded.startswith(
+                        'could not possibly'):
+                    continue
+                if faction_change == 'numeric' and not event.change.startswith(
+                        ('+', '-')):
+                    continue
+                visible_faction.append(event)
+            self._set_rows(self.tables["Faction"], [(
+                event.timestamp.strftime("%H:%M:%S"), event.faction,
+                event.change, event.zone or "—", self._activity_profile(event))
+                for event in visible_faction])
+            if hasattr(self, 'faction_notice'):
+                stored = 'persistent local history' if self._activity_archive.available else 'session only'
+                self.faction_notice.setText(
+                    f'FACTION · {len(visible_faction):,}/{len(faction):,} shown · '
+                    f'{stored} · EQ log remains authoritative')
         self._activity_signature = signature
 
-    def refresh(self, *_):
+    def refresh(self, *_, visible_only=True):
+        """Advance tracking, then render only the view the user can see.
+
+        Full snapshots are explicit and used by complete encounter exports.
+        Neither hidden windows nor rolled headers should rebuild data tables.
+        """
         self._tracker.expire(datetime.datetime.now())
         self._sync_combat_archive()
-        self._refresh_fights()
-        self._refresh_activity()
-        self._refresh_pets()
-        self._refresh_threat()
         self._refresh_live_combat_overlay()
+        if visible_only and (
+                not self.isVisible() or self.isMinimized() or self._collapsed):
+            return
+        label = self.tabs.tabText(self.tabs.currentIndex())
+        wanted = {label} if visible_only else set(self.TABS)
+        if "Fights" in wanted:
+            self._refresh_fights()
+        if wanted.intersection({"Loot", "Randoms", "Faction", "Chat"}):
+            self._refresh_activity(views=wanted)
+        if "Pets" in wanted:
+            self._refresh_pets()
+        if "Threat" in wanted:
+            self._refresh_threat()
+        if visible_only and label in {
+                "Pets", "Loot", "Randoms", "Faction", "Chat", "Log Search"}:
+            return
         encounter = self._scope()
-        self._refresh_chart(encounter)
+        if "Charts" in wanted:
+            self._refresh_chart(encounter)
+        signature = (
+            self.mode.currentData(), self._encounter_signature(encounter),
+            self._parse_revision,
+            self._tracker.pet_revision,
+            config.data["combat"].get("merge_pets", True))
         if not encounter:
             self.target.setText("Waiting for combat")
             self.total.setText("0 damage")
@@ -3156,8 +3304,13 @@ class Combat(ParserWindow):
                     "Direct Damage", "Damage over Time", "Damage Mods",
                     "Timeline", "Healing", "Damage Breakdown",
                     "Healer Breakdown"):
-                self.tables[name].setRowCount(0)
-            self._spell_scope = None
+                if name in wanted or (
+                        "Spells" in wanted and name.startswith("Spell ")):
+                    self._set_rows(self.tables[name], [])
+            if "Spells" in wanted:
+                self._spell_scope = None
+            for name in wanted:
+                self._view_signatures[name] = signature
             return
 
         duration = max(1.0, encounter.duration)
@@ -3167,110 +3320,131 @@ class Combat(ParserWindow):
         self.total.setText(f"{total:,} damage")
         self.dps.setText(f"{total / duration:,.1f} DPS")
         self.duration.setText(self._format_duration(duration))
+        if visible_only and self._view_signatures.get(label) == signature:
+            return
 
         attackers = sorted(
             self._tracker.display_attackers(
                 encounter, config.data["combat"].get("merge_pets", True)),
-            key=lambda value: value.damage, reverse=True)
-        self._set_rows(
-            self.tables["Overview"],
-            self._gamparse_overview_rows(encounter, attackers))
-        self._set_rows(self.tables["Player DPS"], [(
-            stats.name, f"{stats.damage:,}",
-            f"{stats.damage / stats.active_duration:,.1f}",
-            f"{stats.damage / duration:,.1f}",
-            self._format_duration(stats.active_duration),
-            stats.hits, stats.attempts, f"{stats.accuracy:.1f}%",
-            stats.min_hit, stats.max_hit,
-            f"{stats.damage / max(1, stats.hits):,.1f}")
-            for stats in attackers])
-        breakdown_rows = []
-        for stats in attackers:
-            for attack in sorted(
-                    stats.by_type.values(), key=lambda value: value.damage,
-                    reverse=True):
-                breakdown_rows.append((
-                    stats.name, attack.name, f"{attack.damage:,}",
-                    f"{attack.damage / stats.damage * 100:.1f}%"
-                    if stats.damage else "0.0%",
-                    attack.hits, attack.min_hit,
-                    f"{attack.damage / max(1, attack.hits):,.1f}",
-                    attack.max_hit))
-        self._set_rows(self.tables["Damage Breakdown"], breakdown_rows)
+            key=lambda value: value.damage, reverse=True) if wanted.intersection({
+                "Overview", "Player DPS", "Damage Breakdown"}) else []
+        if "Overview" in wanted:
+            self._set_rows(
+                self.tables["Overview"],
+                self._gamparse_overview_rows(encounter, attackers))
+        if "Player DPS" in wanted:
+            self._set_rows(self.tables["Player DPS"], [(
+                stats.name, f"{stats.damage:,}",
+                f"{stats.damage / stats.active_duration:,.1f}",
+                f"{stats.damage / duration:,.1f}",
+                self._format_duration(stats.active_duration),
+                stats.hits, stats.attempts, f"{stats.accuracy:.1f}%",
+                stats.min_hit, stats.max_hit,
+                f"{stats.damage / max(1, stats.hits):,.1f}")
+                for stats in attackers])
+        if "Damage Breakdown" in wanted:
+            breakdown_rows = []
+            for stats in attackers:
+                for attack in sorted(
+                        stats.by_type.values(), key=lambda value: value.damage,
+                        reverse=True):
+                    breakdown_rows.append((
+                        stats.name, attack.name, f"{attack.damage:,}",
+                        f"{attack.damage / stats.damage * 100:.1f}%"
+                        if stats.damage else "0.0%",
+                        attack.hits, attack.min_hit,
+                        f"{attack.damage / max(1, attack.hits):,.1f}",
+                        attack.max_hit))
+            self._set_rows(self.tables["Damage Breakdown"], breakdown_rows)
 
         tanks = sorted(
             encounter.tanks.values(), key=lambda value: value.damage,
-            reverse=True)
-        self._set_rows(self.tables["Tanking"], [(
-            stats.name, f"{stats.damage:,}",
-            f"{stats.damage / duration:,.1f}",
-            f"{stats.average_hit:,.1f}", stats.attempts,
-            stats.invulnerable, stats.misses, stats.ripostes,
-            stats.parries, stats.dodges, stats.blocks, stats.defended,
-            f"{stats.defended_percent:.1f}%", stats.absorbed,
-            stats.real_hits, f"{stats.accuracy:.1f}%",
-            stats.min_hit, stats.max_hit) for stats in tanks])
-        detail_rows = []
-        for stats in tanks:
-            detail_rows.append(self._tanking_detail_row(
-                stats.name, "Total", stats))
-            for hit_type, values in sorted(
-                    stats.by_type.items(),
-                    key=lambda item: (item[1].damage, item[1].attempts),
-                    reverse=True):
+            reverse=True) if wanted.intersection({
+                "Tanking", "Tanking Details", "Hit Distribution"}) else []
+        if "Tanking" in wanted:
+            self._set_rows(self.tables["Tanking"], [(
+                stats.name, f"{stats.damage:,}",
+                f"{stats.damage / duration:,.1f}",
+                f"{stats.average_hit:,.1f}", stats.attempts,
+                stats.invulnerable, stats.misses, stats.ripostes,
+                stats.parries, stats.dodges, stats.blocks, stats.defended,
+                f"{stats.defended_percent:.1f}%", stats.absorbed,
+                stats.real_hits, f"{stats.accuracy:.1f}%",
+                stats.min_hit, stats.max_hit) for stats in tanks])
+        if "Tanking Details" in wanted:
+            detail_rows = []
+            for stats in tanks:
                 detail_rows.append(self._tanking_detail_row(
-                    stats.name, hit_type, values))
-        self._set_rows(self.tables["Tanking Details"], detail_rows)
-        self._set_rows(
-            self.tables["Hit Distribution"], self._tanking_hit_rows(tanks))
+                    stats.name, "Total", stats))
+                for hit_type, values in sorted(
+                        stats.by_type.items(),
+                        key=lambda item: (item[1].damage, item[1].attempts),
+                        reverse=True):
+                    detail_rows.append(self._tanking_detail_row(
+                        stats.name, hit_type, values))
+            self._set_rows(self.tables["Tanking Details"], detail_rows)
+        if "Hit Distribution" in wanted:
+            self._set_rows(
+                self.tables["Hit Distribution"], self._tanking_hit_rows(tanks))
 
         spells = sorted(
             encounter.spells.values(),
-            key=lambda value: (value.damage, value.casts), reverse=True)
-        self._refresh_spells(encounter)
-        self._set_rows(self.tables["Direct Damage"], [(
-            stats.name, f"{stats.direct_damage:,}",
-            f"{stats.direct_damage / max(1, stats.damage) * 100:.1f}%",
-            stats.direct_hits,
-            f"{stats.direct_damage / max(1, stats.direct_hits):,.1f}",
-            stats.direct_max)
-            for stats in spells if stats.direct_damage])
-        self._set_rows(self.tables["Damage over Time"], [(
-            stats.name, f"{stats.dot_damage:,}",
-            f"{stats.dot_damage / max(1, stats.damage) * 100:.1f}%",
-            stats.dot_ticks,
-            f"{stats.dot_damage / max(1, stats.dot_ticks):,.1f}",
-            stats.dot_max)
-            for stats in spells if stats.dot_damage])
-        self._refresh_damage_mods(encounter)
-        self._set_rows(self.tables["Timeline"], [(
-            event.timestamp.strftime("%H:%M:%S"), event.kind,
-            event.actor or "—", event.target or "—",
-            f"{event.amount:,}" if event.amount else "—", event.detail or "—")
-            for event in encounter.events])
+            key=lambda value: (value.damage, value.casts), reverse=True
+        ) if wanted.intersection({"Direct Damage", "Damage over Time"}) else []
+        if "Spells" in wanted:
+            self._refresh_spells(encounter)
+        if "Direct Damage" in wanted:
+            self._set_rows(self.tables["Direct Damage"], [(
+                stats.name, f"{stats.direct_damage:,}",
+                f"{stats.direct_damage / max(1, stats.damage) * 100:.1f}%",
+                stats.direct_hits,
+                f"{stats.direct_damage / max(1, stats.direct_hits):,.1f}",
+                stats.direct_max)
+                for stats in spells if stats.direct_damage])
+        if "Damage over Time" in wanted:
+            self._set_rows(self.tables["Damage over Time"], [(
+                stats.name, f"{stats.dot_damage:,}",
+                f"{stats.dot_damage / max(1, stats.damage) * 100:.1f}%",
+                stats.dot_ticks,
+                f"{stats.dot_damage / max(1, stats.dot_ticks):,.1f}",
+                stats.dot_max)
+                for stats in spells if stats.dot_damage])
+        if "Damage Mods" in wanted:
+            self._refresh_damage_mods(encounter)
+        if "Timeline" in wanted:
+            self._set_rows(self.tables["Timeline"], [(
+                event.timestamp.strftime("%H:%M:%S"), event.kind,
+                event.actor or "—", event.target or "—",
+                f"{event.amount:,}" if event.amount else "—", event.detail or "—")
+                for event in encounter.events])
 
         healers = sorted(
             encounter.healers.values(), key=lambda value: value.healing,
-            reverse=True)
-        self._set_rows(self.tables["Healing"], [(
-            stats.name, f"{stats.healing:,}", "—", "—",
-            f"{stats.healing / duration:,.1f}", "—", stats.heals,
-            f"{stats.healing / max(1, stats.heals):,.1f}", stats.max_heal,
-            (f"{max(stats.by_target.items(), key=lambda item: item[1]['healing'])[0]}"
-             f" · {max(values['healing'] for values in stats.by_target.values()):,}"
-             if stats.by_target else "—"))
-            for stats in healers])
-        healer_rows = []
-        for stats in healers:
-            for target, values in sorted(
-                    stats.by_target.items(),
-                    key=lambda item: item[1]["healing"], reverse=True):
-                healer_rows.append((
-                    stats.name, target, f"{values['healing']:,}",
-                    values["heals"],
-                    f"{values['healing'] / max(1, values['heals']):,.1f}",
-                    values["max_heal"]))
-        self._set_rows(self.tables["Healer Breakdown"], healer_rows)
+            reverse=True) if wanted.intersection({
+                "Healing", "Healer Breakdown"}) else []
+        if "Healing" in wanted:
+            self._set_rows(self.tables["Healing"], [(
+                stats.name, f"{stats.healing:,}", "—", "—",
+                f"{stats.healing / duration:,.1f}", "—", stats.heals,
+                f"{stats.healing / max(1, stats.heals):,.1f}", stats.max_heal,
+                (f"{max(stats.by_target.items(), key=lambda item: item[1]['healing'])[0]}"
+                 f" · {max(values['healing'] for values in stats.by_target.values()):,}"
+                 if stats.by_target else "—"))
+                for stats in healers])
+        if "Healer Breakdown" in wanted:
+            healer_rows = []
+            for stats in healers:
+                for target, values in sorted(
+                        stats.by_target.items(),
+                        key=lambda item: item[1]["healing"], reverse=True):
+                    healer_rows.append((
+                        stats.name, target, f"{values['healing']:,}",
+                        values["heals"],
+                        f"{values['healing'] / max(1, values['heals']):,.1f}",
+                        values["max_heal"]))
+            self._set_rows(self.tables["Healer Breakdown"], healer_rows)
+        for name in wanted:
+            self._view_signatures[name] = signature
 
     def _build_export_menu(self):
         def add_action(menu, label, tooltip, callback):
@@ -3549,6 +3723,9 @@ class Combat(ParserWindow):
             "Vantage · Combat", f"Copied {label} as HTML", msecs=2400)
 
     def _encounter_sections(self):
+        # Inactive tabs are deliberately lazy; a full report must explicitly
+        # materialize every encounter view before reading their table data.
+        self.refresh(visible_only=False)
         sections = []
         for label in (
                 "Overview", "Player DPS", "Damage Breakdown", "Tanking",
@@ -3672,6 +3849,10 @@ class Combat(ParserWindow):
             msecs=2500)
 
     def _current_table_data(self):
+        # Copy/export can be invoked programmatically while the panel is hidden.
+        # Refresh the requested snapshot so stale, never-opened tabs cannot leak
+        # into an otherwise valid export.
+        self.refresh(visible_only=False)
         encounter = self._scope()
         label = self.tabs.tabText(self.tabs.currentIndex())
         if label == "Randoms" and hasattr(self, "random_tabs"):

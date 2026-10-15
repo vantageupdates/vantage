@@ -38,7 +38,7 @@ for offset, player, value in ((3, 'Alice', 800), (4, 'Bob', 900)):
         stamp + datetime.timedelta(seconds=offset, milliseconds=500),
         '**It could have been any number from 0 to 1000, '
         f'but this time it turned up {value}.')
-combat.refresh()
+combat.refresh(visible_only=False)
 combat.resize(260, 150)
 combat.show()
 app.processEvents()

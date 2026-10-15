@@ -241,6 +241,8 @@ class SpawnPoint(QGraphicsItemGroup):
         self.text = text
 
         self.timer = QTimer()
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self._update)
 
     def _update(self):
         if self.timer:
@@ -261,7 +263,7 @@ class SpawnPoint(QGraphicsItemGroup):
             self.realign()
 
             if remaining_seconds > 0 and self.timer:
-                self.timer.singleShot(1000, self._update)
+                self.timer.start(1000)
 
     def realign(self, scale=None):
         if scale:
@@ -275,9 +277,11 @@ class SpawnPoint(QGraphicsItemGroup):
         timestamp = timestamp if timestamp else datetime.datetime.now()
         self._end_time = timestamp + datetime.timedelta(seconds=self.length)
         if self.timer:
+            self.timer.stop()
             self._update()
 
     def stop(self):
+        self.timer.stop()
         self._generation += 1
         generation = self._generation
         self.text.setHtml(

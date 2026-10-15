@@ -2219,9 +2219,11 @@ class QuickBar(ParserWindow):
             detail = f"{remaining:.1f} seconds remaining"
         self.tick_countdown.setText(text)
         self.tick_progress.setValue(value)
-        self.tick_progress.setProperty("Pulse", pulse)
-        self.tick_progress.setProperty("Synced", synced)
-        self.tick_progress.setStyle(self.tick_progress.style())
+        if (self.tick_progress.property("Pulse") != pulse or
+                self.tick_progress.property("Synced") != synced):
+            self.tick_progress.setProperty("Pulse", pulse)
+            self.tick_progress.setProperty("Synced", synced)
+            self.tick_progress.setStyle(self.tick_progress.style())
         target = self._window_targets.get("tick")
         state = "open" if target is not None and target.isVisible() else "hidden"
         tooltip = f"Server Tick: {detail} · window is {state} · click to toggle"

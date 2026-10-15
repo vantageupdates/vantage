@@ -36,7 +36,7 @@ combat.parse(
     stamp + datetime.timedelta(seconds=3),
     'a goblin hits You for 12 points of damage.')
 combat._refresh_live_combat_overlay()
-combat.refresh()
+combat.refresh(visible_only=False)
 app.processEvents()
 
 entries = app._notification_overlay.overlays['alerts']._entries

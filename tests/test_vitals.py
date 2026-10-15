@@ -25,6 +25,7 @@ from vantage.helpers.vitals import (
     sanitize_vital_bar,
     sanitize_vital_bars)
 import vantage.helpers.vitals as vital_helpers_module
+from vantage.helpers.vitals_polling import collect_vital_sample
 from vantage.parsers.vitals import (
     CalibrationControls, CalibrationOverlay, VitalBarDialog, VitalStopDialog,
     Vitals)
@@ -907,7 +908,10 @@ def test_one_poll_monitors_every_enabled_saved_bar_from_the_same_frame():
         bar["rect"] = [0, 0, 1, 1]
 
     class Capture:
+        calls = 0
+
         def image_frame(self, **_kwargs):
+            self.calls += 1
             return ({"available": True, "message": "Reading"}, image,
                     (0, 0, image.width(), image.height()))
 
@@ -930,10 +934,15 @@ def test_one_poll_monitors_every_enabled_saved_bar_from_the_same_frame():
     owner._last_live_at = 0.0
     statuses = []
     owner._set_status = statuses.append
+    owner._set_reading = MethodType(Vitals._set_reading, owner)
     owner._deliver_stop = lambda *_args: None
 
-    Vitals.poll_now(owner)
+    # Sampling is now the background phase; applying readings and thresholds
+    # remains a separate GUI-thread phase. Both must still use one frame.
+    sample = collect_vital_sample(owner._capture, bars)
+    Vitals._apply_poll_sample(owner, sample)
 
+    assert owner._capture.calls == 1
     assert list(owner._readings) == [
         "my-hp", "my-mana", "target-hp", "group-hp"]
     assert [row[0] for row in owner._tracker.seen] == list(owner._readings)
@@ -1429,6 +1438,7 @@ def test_calibration_saves_drift_tolerant_roi_and_survives_reload_recalibration(
     owner._tracker = type(
         "Tracker", (), {"reset_bar": lambda *_args: None})()
     owner._persist = MethodType(Vitals._persist, owner)
+    owner._poll_generation = 0
     owner._rebuild_cards = lambda _target: None
     owner._finish_calibration = lambda: None
     owner._set_status = lambda _status: None
@@ -1995,7 +2005,9 @@ app.quit()
 def test_direct_background_frame_drives_reading_and_calibration_status(tmp_path):
     script = r'''
 import json
+import time
 from PySide6.QtGui import QColor, QImage
+from PySide6.QtTest import QTest
 from vantage.helpers.application import VantageApp
 
 class DirectEverQuestCapture:
@@ -2034,6 +2046,12 @@ vitals._bars[0]["rect"] = [0, 0, 1, 1]
 for bar in vitals._bars[1:]:
     bar["enabled"] = False
 vitals.poll_now()
+deadline = time.monotonic() + 5
+while (not getattr(vitals._readings.get("my-hp"), "valid", False)
+       and time.monotonic() < deadline):
+    QTest.qWait(10)
+    time.sleep(.001)
+    vitals._drain_poll_result()
 active = vitals.quickbar_status()
 reading = vitals._readings["my-hp"]
 vitals._start_calibration("my-hp")

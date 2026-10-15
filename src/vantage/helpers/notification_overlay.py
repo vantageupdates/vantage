@@ -366,7 +366,7 @@ class NotificationOverlay(QWidget):
         border = (
             "border: 1px solid #9A7B42;" if self._editing else
             "border: 1px solid rgba(91, 85, 72, 80);")
-        self.card.setStyleSheet(
+        stylesheet = (
             "QFrame#NotificationOverlayCard {"
             f"background-color: {background};"
             f"{border}"
@@ -380,6 +380,8 @@ class NotificationOverlay(QWidget):
             "color: #D8BF7D; background: transparent; "
             "border: none; border-bottom: 1px solid #4A4232; "
             "padding: 1px 0 0 0; font-size: 8pt; font-weight: 600; }")
+        if self.card.styleSheet() != stylesheet:
+            self.card.setStyleSheet(stylesheet)
 
     def _window_flags(self, editing):
         flags = (

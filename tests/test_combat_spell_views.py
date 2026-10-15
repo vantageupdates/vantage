@@ -29,7 +29,7 @@ lines = (
 )
 for offset, line in enumerate(lines):
     combat.parse(stamp + datetime.timedelta(seconds=offset), line)
-combat.refresh()
+combat.refresh(visible_only=False)
 app.processEvents()
 
 overview = combat.tables['Spells']

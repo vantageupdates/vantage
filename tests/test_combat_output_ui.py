@@ -31,7 +31,7 @@ combat.parse(stamp + datetime.timedelta(seconds=5), 'You kick a crystalline watc
 combat.parse(stamp + datetime.timedelta(seconds=10), 'Alice tries to slash a crystalline watcher, but misses!')
 combat.parse(stamp + datetime.timedelta(seconds=20), 'You have slain a crystalline watcher!')
 combat.mode.setCurrentIndex(combat.mode.findData('last'))
-combat.refresh()
+combat.refresh(visible_only=False)
 # Row zero is GamParse's Total row; select the first ranked attacker.
 combat.tables['Overview'].selectRow(1)
 

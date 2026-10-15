@@ -2906,7 +2906,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.133')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.134')
         request.setTransferTimeout(10_000)
         reply = self._boat_network.get(request)
         reply.downloadProgress.connect(
@@ -4339,6 +4339,17 @@ class SpellWidget(QFrame):
         if self._faded and not self._removed:
             self._remove()
 
+    def _set_progress_state(self, **properties):
+        # Re-polishing a stylesheet invalidates layout and painting. Countdown
+        # values change every tick; style rules only change at phase boundaries.
+        changed = False
+        for name, value in properties.items():
+            if self.progress.property(name) != value:
+                self.progress.setProperty(name, value)
+                changed = True
+        if changed:
+            self.progress.setStyle(self.progress.style())
+
     def _update(self):
         if self._removed:
             self._refresh_timer.stop()
@@ -4354,11 +4365,8 @@ class SpellWidget(QFrame):
                 bool(int(now * 4) % 2))
             self.progress.setValue(self.progress.maximum())
             self.progress.set_time_text('FADED')
-            self.progress.setProperty('Warning', False)
-            self.progress.setProperty('Critical', False)
-            self.progress.setProperty('Faded', True)
-            self.progress.setProperty('Pulse', pulse)
-            self.progress.setStyle(self.progress.style())
+            self._set_progress_state(
+                Warning=False, Critical=False, Faded=True, Pulse=pulse)
             self._refresh_timer.start(
                 250 if not config.data['general'].get(
                     'reduce_motion') else 1000)
@@ -4378,10 +4386,8 @@ class SpellWidget(QFrame):
             self.setProperty('Warning', warning)
             self.setProperty('Critical', critical)
             self.setProperty('Pulse', pulse)
-            self.progress.setProperty('Warning', warning)
-            self.progress.setProperty('Critical', critical)
-            self.progress.setProperty('Pulse', pulse)
-            self.progress.setStyle(self.progress.style())
+            self._set_progress_state(
+                Warning=warning, Critical=critical, Pulse=pulse)
             # Construction calls _update() before QLayout has attached this
             # row to its SpellTarget.  Defer delivery until the next owned
             # refresh so the target is attributable and the warning claim can

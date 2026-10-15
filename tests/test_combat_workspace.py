@@ -43,7 +43,7 @@ combat.parse(
 combat.parse(
     stamp + datetime.timedelta(milliseconds=500),
     'a goblin tries to slash You, but You dodge!')
-combat.refresh()
+combat.refresh(visible_only=False)
 csv_path = output / 'overview.csv'
 json_path = output / 'session.json'
 combat_module.QFileDialog.getSaveFileName = staticmethod(

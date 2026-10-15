@@ -2027,8 +2027,9 @@ class TimerRow(QFrame):
         self.phase_label.setText(phase_text)
         if timer.source == RING_WAR_SCHEDULE_SOURCE:
             self.phase_label.setText("EVENT")
-        self.phase_label.setProperty("Phase", timer.phase)
-        self.phase_label.setStyle(self.phase_label.style())
+        if self.phase_label.property("Phase") != timer.phase:
+            self.phase_label.setProperty("Phase", timer.phase)
+            self.phase_label.setStyle(self.phase_label.style())
         remaining = timer.remaining()
         if (not timer.running and timer.phase != PHASE_IDLE and not (
                 timer.timer_mode != TIMER_MODE_SPAWN and

@@ -850,6 +850,9 @@ class MapCanvas(QGraphicsView):
     def _remove_spawn(self, spawn):
         if not self._data:
             return
+        spawn.timer.stop()
+        # Invalidate the delayed expiry callback as well as the refresh timer.
+        spawn._generation += 1
         if spawn in self._data.spawns:
             self._data.spawns.remove(spawn)
         if spawn.scene() is self._scene:
