@@ -79,3 +79,12 @@ plain readings; they never manipulate widgets or emit audio directly.
 - Candidate: `Vantage.exe`, 76,002,692 bytes.
 - Candidate SHA-256:
   `7b32377cffb471eea9f3f8912eeec72cb332a1ee825b955915ee96f00a4dab0d`.
+
+## Public verification
+
+Published [Companion 1.44.134](https://github.com/vantageupdates/vantage/releases/tag/v1.44.134)
+at 2026-10-15 00:48:19 UTC. Anonymous GitHub API checks confirmed the release
+is stable, public and Companion Latest; its tag resolves to tested source
+`3776e60b62ba37224e328f3cc3acf9a8ae855ee0`. The uploaded `Vantage.exe`
+(asset `642186747`) matches the candidate size and SHA-256 above. No installed
+executable or VantageUI skin was replaced as part of publication.
