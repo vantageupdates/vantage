@@ -77,6 +77,7 @@ NOTIFICATION_SOUND_DEFAULTS = {
 }
 _ACTIVE_EFFECTS = set()
 _MUTED = False
+_TIMER_MUTE_EPOCH = 0
 _SPEECH = None
 _DEFAULT_VOICE_NAME = ""
 _SPEECH_PREWARM_PENDING = False
@@ -233,6 +234,9 @@ def audio_preflight(
     if blocked == "muted":
         return AudioPreflightResult(
             delivery, "blocked", False, "Master Mute")
+    if blocked == "timer audio muted":
+        return AudioPreflightResult(
+            delivery, "blocked", False, "Timers muted")
     if blocked == "background audio off":
         return AudioPreflightResult(
             delivery, "blocked", False,
@@ -269,6 +273,7 @@ def audio_reason_label(reason, delivery="sound"):
     reason = str(reason or "").strip()
     return {
         "muted": "Master Mute",
+        "timer audio muted": "Timers muted",
         "master volume 0%": "Master Volume 0%",
         "background audio off": "Sound while window hidden is Off",
     }.get(reason, reason or (
@@ -337,7 +342,25 @@ def set_audio_muted(muted):
         prewarm_speech_engine()
 
 
-def _playback_block_reason(app, channel="", allow_hidden=False):
+def timer_audio_muted():
+    """Return the persisted timer-only preference, shared by every view."""
+    return bool(config.data.get("timers", {}).get("audio_muted", False))
+
+
+def set_timer_audio_muted(muted):
+    """Mute timer WAV/TTS without touching other channels or timer settings."""
+    global _TIMER_MUTE_EPOCH
+    muted = bool(muted)
+    config.data.setdefault("timers", {})["audio_muted"] = muted
+    if muted:
+        # Also invalidate work being prepared outside the active/pending sets.
+        # A quick unmute must not revive a request canceled during Qt setup.
+        _TIMER_MUTE_EPOCH += 1
+        stop_timer_audio()
+    return muted
+
+
+def _playback_block_reason(app, channel="", allow_hidden=False, timer_epoch=None):
     """Return why a new sound must not start, or an empty string.
 
     This is the single gate used by WAV and text-to-speech playback.  Runtime
@@ -348,6 +371,10 @@ def _playback_block_reason(app, channel="", allow_hidden=False):
     if audio_muted():
         return "muted"
     channel = str(channel or "").strip().casefold()
+    if channel == "timers" and (
+            timer_audio_muted() or
+            (timer_epoch is not None and timer_epoch != _TIMER_MUTE_EPOCH)):
+        return "timer audio muted"
     if channel and not allow_hidden:
         checker = getattr(app, "audio_playback_allowed", None)
         if callable(checker) and not checker(channel):
@@ -980,7 +1007,8 @@ def _start_next_speech(speech):
         app = QApplication.instance()
         reason = _playback_block_reason(
             app, request.get("channel", ""),
-            bool(request.get("allow_hidden", False)))
+            bool(request.get("allow_hidden", False)),
+            request.get("timer_mute_epoch"))
         live_volume = round(
             int(request.get("base_volume", 0)) * master_volume() / 100)
         request["volume"] = live_volume
@@ -1003,7 +1031,8 @@ def _start_next_speech(speech):
         # A mute/config signal may run while voice properties are applied.
         reason = _playback_block_reason(
             app, request.get("channel", ""),
-            bool(request.get("allow_hidden", False)))
+            bool(request.get("allow_hidden", False)),
+            request.get("timer_mute_epoch"))
         if reason or speech is not _SPEECH:
             _report_blocked(
                 app, request.get("source", "Vantage speech"),
@@ -1054,9 +1083,11 @@ def _speech_about_to_synthesize(speech, utterance_id):
     _SPEECH_ACTIVE = request
 
     app = QApplication.instance()
-    reason = _playback_block_reason(
-        app, request.get("channel", ""),
-        bool(request.get("allow_hidden", False)))
+    reason = (
+        "timer audio muted" if request.get("cancelled") else
+        _playback_block_reason(app, request.get("channel", ""),
+                               bool(request.get("allow_hidden", False)),
+                               request.get("timer_mute_epoch")))
     live_volume = round(
         int(request.get("base_volume", 0)) * master_volume() / 100)
     request["volume"] = live_volume
@@ -1075,9 +1106,12 @@ def _speech_about_to_synthesize(speech, utterance_id):
         return
 
     # A mute/config signal may run while the utterance properties are applied.
-    reason = _playback_block_reason(
-        app, request.get("channel", ""),
-        bool(request.get("allow_hidden", False)))
+    # A subsequent unmute must not revive this already canceled utterance.
+    reason = (
+        "timer audio muted" if request.get("cancelled") else
+        _playback_block_reason(app, request.get("channel", ""),
+                               bool(request.get("allow_hidden", False)),
+                               request.get("timer_mute_epoch")))
     if reason or speech is not _SPEECH:
         _apply_speech_volume(speech, 0.0)
         _report_blocked(
@@ -1122,13 +1156,14 @@ def _queue_speech_request(speech, request, replace_pending=False):
     _bind_speech_scheduler(speech)
     if replace_pending:
         key = _speech_request_key(request)
-        if (_SPEECH_ACTIVE and _SPEECH_ACTIVE.get("automatic") and
+        if (_SPEECH_ACTIVE and not _SPEECH_ACTIVE.get("cancelled") and
+                _SPEECH_ACTIVE.get("automatic") and
                 _speech_request_key(_SPEECH_ACTIVE) == key):
             # A duplicate of the sentence already being spoken adds no new
             # information. Let the active copy finish and do not echo it.
             return True
         for index, pending in enumerate(_SPEECH_PENDING):
-            if (pending.get("automatic") and
+            if (not pending.get("cancelled") and pending.get("automatic") and
                     _speech_request_key(pending) == key):
                 # Same alert, fresher values, same FIFO position.  This is the
                 # only coalescing rule, so distinct critical alerts keep order.
@@ -1153,6 +1188,45 @@ def _queue_speech_request(speech, request, replace_pending=False):
     _start_next_speech(speech)
     return bool(request.get("started") or any(
         pending is request for pending in _SPEECH_PENDING))
+
+
+def stop_timer_audio():
+    """Cancel timer work without interrupting another channel's playback.
+
+    Qt's native speech queue cannot remove one utterance. Keep canceled entries
+    as silent tombstones until their synthesis boundary, even after unmuting.
+    This preserves native IDs/order and never stops or replays another alert.
+    Older serial engines can discard waiting timers and stop an active timer.
+    """
+    global _SPEECH_ACTIVE
+    for effect in tuple(_ACTIVE_EFFECTS):
+        if getattr(effect, "_vantage_channel", "") == "timers":
+            _silence_effect(effect)
+
+    def is_timer(request):
+        return str(request.get("channel", "")).strip().casefold() == "timers"
+
+    if _SPEECH_NATIVE_QUEUE:
+        for request in _SPEECH_PENDING:
+            if is_timer(request):
+                request["cancelled"] = True
+    else:
+        _SPEECH_PENDING[:] = [
+            request for request in _SPEECH_PENDING if not is_timer(request)]
+    if _SPEECH is None or not _SPEECH_ACTIVE or not is_timer(_SPEECH_ACTIVE):
+        return
+    _SPEECH_ACTIVE["cancelled"] = True
+    _apply_speech_volume(_SPEECH, 0.0)
+    if not _SPEECH_NATIVE_QUEUE:
+        speech = _SPEECH
+        # Detach before stop() emits Ready; that signal can start the next
+        # unrelated request using its original voice and volume settings.
+        _SPEECH_ACTIVE = None
+        try:
+            _stop_speech_immediately(speech)
+        except (AttributeError, RuntimeError):
+            pass
+        _start_next_speech(speech)
 
 
 def stop_all_audio():
@@ -1232,9 +1306,10 @@ def play_alert(
         visual_registered=False, replay=False):
     """Play an identified gallery/custom WAV with per-alert volume control."""
     app = QApplication.instance()
+    timer_epoch = _TIMER_MUTE_EPOCH
     if not str(path or "").strip():
         return False
-    blocked = _playback_block_reason(app, channel, allow_hidden)
+    blocked = _playback_block_reason(app, channel, allow_hidden, timer_epoch)
     if blocked:
         _report_blocked(app, source, blocked, channel)
         return False
@@ -1253,6 +1328,7 @@ def play_alert(
         return False
 
     effect = QSoundEffect(app)
+    effect._vantage_channel = str(channel or "").strip().casefold()
     effect.setSource(QUrl.fromLocalFile(str(sound.resolve())))
     effect.setVolume(volume / 100.0)
     effect.setLoopCount(max(1, min(int(repeat), 3)))
@@ -1261,7 +1337,7 @@ def play_alert(
     # Keep a final gate adjacent to the real backend call.  It closes the
     # narrow re-entrant window where a signal/config reload can mute Vantage
     # while the sound object is being prepared.
-    blocked = _playback_block_reason(app, channel, allow_hidden)
+    blocked = _playback_block_reason(app, channel, allow_hidden, timer_epoch)
     if blocked:
         _silence_effect(effect)
         _report_blocked(app, source, blocked, channel)
@@ -1313,6 +1389,7 @@ def speak_text(
     older engines retain the serial state-aware fallback.
     """
     global _SPEECH_REQUEST_ID
+    timer_epoch = _TIMER_MUTE_EPOCH
     message = str(text or "").strip()
     app = QApplication.instance()
     blocked = _playback_block_reason(app, channel, allow_hidden)
@@ -1351,6 +1428,7 @@ def speak_text(
         "source": str(source or "Vantage speech"),
         "channel": str(channel or ""),
         "allow_hidden": bool(allow_hidden),
+        "timer_mute_epoch": timer_epoch,
         "automatic": bool(replace_pending),
         "dedupe_key": str(dedupe_key or ""),
         "visual_registered": bool(visual_registered),

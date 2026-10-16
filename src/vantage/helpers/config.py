@@ -1191,6 +1191,8 @@ def verify_settings():
     data['timers']['volume'] = get_setting(
         data['timers'].get('volume', 85), 85,
         lambda x: 0 <= x <= 100)
+    data['timers']['audio_muted'] = get_setting(
+        data['timers'].get('audio_muted', False), False)
     data['timers']['sounds_when_hidden'] = get_setting(
         data['timers'].get('sounds_when_hidden', True), True)
     data['timers']['compact'] = get_setting(

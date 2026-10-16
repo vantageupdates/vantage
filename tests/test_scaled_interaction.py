@@ -14,7 +14,7 @@ import json
 import math
 from native_audit_fixture import isolate
 isolate()
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QPointF, QRectF, QSizeF, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QAbstractButton, QAbstractItemView, QAbstractSlider, QAbstractSpinBox,
@@ -134,6 +134,20 @@ QTest.qWait(30)
 single_timer_size = [timers.width(), timers.height()]
 single_timer_surface = [timers._surface.width(), timers._surface.height()]
 single_timer_required = timers._required_timer_height
+single_timer_scale = float(timers._scale_view.transform().m11())
+
+def inside_timer_viewport(widget):
+    position = widget.mapTo(timers._surface, widget.rect().topLeft())
+    logical = QRectF(QPointF(position), QSizeF(widget.size()))
+    physical = timers._scale_view.viewportTransform().mapRect(
+        timers._scale_proxy.mapRectToScene(logical))
+    # Permit only fractional-pixel rounding at the native viewport edge.
+    viewport = QRectF(timers._scale_view.viewport().rect()).adjusted(-1, -1, 1, 1)
+    return viewport.contains(physical)
+
+single_timer_controls_inside = all(inside_timer_viewport(widget) for widget in (
+    timers.timer_audio_button, timers.status, row,
+    *row.controls.findChildren(QAbstractButton)))
 for index in range(6):
     extra = SpawnTimerState(f'No-scroll {index}', 1800, kill_seconds=90)
     timers._states[extra.timer_id] = extra
@@ -222,6 +236,8 @@ print(json.dumps({
     'timer_size': single_timer_size,
     'timer_surface': single_timer_surface,
     'timer_required_single': single_timer_required,
+    'timer_single_scale': single_timer_scale,
+    'timer_single_controls_inside': single_timer_controls_inside,
     'timer_design_many': timer_design_many,
     'timer_rows_inside': timer_rows_inside,
     'timer_short_rows_separate': timer_short_rows_separate,
@@ -288,8 +304,11 @@ def test_scaled_panels_keep_keyboard_pointer_and_tooltips(tmp_path):
     assert result["timer_focus_started_on_suffix"] is True
     assert result["timer_short_focus_visible"] is True
     assert result["timer_size"][0] == 130
+    # Use the actual replica scale, not the former 300px resize floor. The
+    # native-height header and new audio row must still fit at 130px width.
     assert result["timer_size"][1] >= math.ceil(
-        result["timer_required_single"] * 300 / 520)
+        result["timer_required_single"] * result["timer_single_scale"])
+    assert result["timer_single_controls_inside"] is True
     assert result["missing_timer_tooltips"] == []
     assert result["map_manual_pan"] is True
     # The header stays 30 physical pixels high at every replica size. Only

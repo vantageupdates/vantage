@@ -1786,3 +1786,213 @@ def test_final_backend_gate_catches_mute_during_effect_setup(
     assert effect.deleted is True
     assert app.blocked[-1] == ('Racing sound', 'muted', 'spells')
     audio.set_audio_muted(False)
+
+
+def _timer_audio_environment(monkeypatch, speech):
+    app = _App()
+    timers = _TimerHarness()
+    monkeypatch.setattr(config, 'data', {
+        'general': {'audio_muted': False, 'master_volume': 100},
+        'timers': {'audio_muted': False, 'volume': 85},
+        'spells': {'audio_profiles': {}}})
+    monkeypatch.setattr(audio, '_MUTED', False)
+    monkeypatch.setattr(audio, '_TIMER_MUTE_EPOCH', 0)
+    monkeypatch.setattr(audio, '_ACTIVE_EFFECTS', set())
+    monkeypatch.setattr(audio, '_SPEECH_PENDING', [])
+    monkeypatch.setattr(audio, '_SPEECH_ACTIVE', None)
+    monkeypatch.setattr(audio, '_SPEECH_BOUND_ENGINE', None)
+    monkeypatch.setattr(audio, '_SPEECH', speech)
+    monkeypatch.setattr(audio, 'QApplication', type(
+        'Application', (), {'instance': staticmethod(lambda: app)}))
+    monkeypatch.setattr(audio, 'QTimer', timers)
+    return app, timers
+
+
+def test_timer_mute_stops_only_timer_wavs_and_blocks_preview_replay(
+        monkeypatch, tmp_path):
+    app, _timers = _timer_audio_environment(monkeypatch, _Speech())
+    wav = tmp_path / 'timer.wav'
+    wav.write_bytes(b'RIFF')
+    monkeypatch.setattr(audio, 'resolve_sound', lambda _path: wav)
+    monkeypatch.setattr(audio, 'QSoundEffect', _Effect)
+    assert audio.play_alert('builtin:test', 73, channel='spells')
+    unrelated = _Effect.instances[-1]
+    assert audio.play_alert('builtin:test', 41, channel='Timers')
+    timer_effect = _Effect.instances[-1]
+
+    audio.set_timer_audio_muted(True)
+
+    assert timer_effect.muted and timer_effect.deleted
+    assert timer_effect.stop_count == 1
+    assert timer_effect.volume == 0.0
+    assert unrelated.stop_count == 0
+    assert unrelated.volume == 0.73
+    assert unrelated in audio._ACTIVE_EFFECTS
+    assert config.data['general']['audio_muted'] is False
+    assert config.data['timers']['volume'] == 85
+    for hidden in (False, True):
+        assert not audio.play_alert(
+            'builtin:test', channel='timers', allow_hidden=hidden, replay=True)
+        assert not audio.speak_text(
+            'Timer replay', channel='timers', allow_hidden=hidden, replay=True)
+        for delivery in ('sound', 'voice'):
+            result = audio.audio_preflight(
+                delivery, sound='builtin:test', text='Timer preview',
+                channel='timers', allow_hidden=hidden)
+            assert (result.ready, result.reason) == (False, 'Timers muted')
+    assert all(item[1] == 'timer audio muted' for item in app.blocked)
+    assert audio.audio_reason_label('timer audio muted') == 'Timers muted'
+    audio.set_timer_audio_muted(False)
+    assert audio.play_alert('builtin:test', 41, channel='timers')
+    assert _Effect.instances[-1].volume == 0.41
+    assert timer_effect.play_count == 1
+
+
+def test_timer_mute_serial_preserves_active_unrelated_and_pending_order(monkeypatch):
+    speech = _Speech()
+    _app, timers = _timer_audio_environment(monkeypatch, speech)
+    assert audio.speak_text('Active chat', 64, channel='chat')
+    assert audio.speak_text('Canceled timer', channel='timers')
+    assert audio.speak_text('Next spell', 37, channel='spells')
+    assert audio.speak_text('Another timer', channel='timers')
+    assert audio.speak_text('Next vitals', 52, channel='vitals')
+    audio.set_timer_audio_muted(True)
+    assert speech.stop_count == 0
+    assert speech.volume == 0.64
+    assert [item['message'] for item in audio._SPEECH_PENDING] == [
+        'Next spell', 'Next vitals']
+    audio.set_timer_audio_muted(False)
+    speech.complete()
+    timers.run_next(audio._SPEECH_GAP_MS)
+    assert speech.messages == ['Active chat', 'Next spell']
+    assert speech.volume == 0.37
+    speech.complete()
+    timers.run_next(audio._SPEECH_GAP_MS)
+    assert speech.messages == ['Active chat', 'Next spell', 'Next vitals']
+    assert speech.volume == 0.52
+
+
+def test_timer_mute_serial_stops_active_timer_and_keeps_other_voice(monkeypatch):
+    speech = _Speech()
+    _app, timers = _timer_audio_environment(monkeypatch, speech)
+    assert audio.speak_text('Active timer', channel='timers')
+    assert audio.speak_text('Canceled timer', channel='timers')
+    assert audio.speak_text('Keep spell', 43, channel='spells', voice_name='Voice B')
+    audio.set_timer_audio_muted(True)
+    assert speech.stop_count == 1
+    assert speech.messages == ['Active timer', 'Keep spell']
+    assert speech.volume == 0.43
+    assert speech.selected == 'Voice B'
+    assert audio._SPEECH_ACTIVE['message'] == 'Keep spell'
+    audio.set_timer_audio_muted(False)
+    assert audio.speak_text('New timer', 29, channel='timers')
+    speech.complete()
+    timers.run_next(audio._SPEECH_GAP_MS)
+    assert speech.messages == ['Active timer', 'Keep spell', 'New timer']
+    assert speech.volume == 0.29
+
+
+def test_timer_mute_native_preserves_other_audio_and_never_revives_canceled_queue(
+        monkeypatch):
+    speech = _NativeSpeech()
+    app, _timers = _timer_audio_environment(monkeypatch, speech)
+    assert audio.speak_text('Active chat', 67, channel='chat')
+    assert speech.synthesize_next() == 'Active chat'
+    assert audio.speak_text('Queued timer', 51, channel='timers', replace_pending=True)
+    assert audio.speak_text('Next spell', 39, channel='spells', voice_name='Voice B')
+    audio.set_timer_audio_muted(True)
+    assert speech.stop_count == 0
+    assert speech.volume == 0.67
+    assert audio._SPEECH_PENDING[0]['cancelled'] is True
+
+    audio.set_timer_audio_muted(False)
+    # The same new timer alert must not coalesce into its canceled predecessor.
+    assert audio.speak_text('Queued timer', 51, channel='timers', replace_pending=True)
+    assert len(audio._SPEECH_PENDING) == 3
+    assert speech.synthesize_next() == 'Queued timer'
+    assert speech.volume == 0.0
+    assert [item[1] for item in app.events] == ['tts:Active chat']
+    assert speech.synthesize_next() == 'Next spell'
+    assert speech.volume == 0.39
+    assert speech.selected == 'Voice B'
+    assert speech.synthesize_next() == 'Queued timer'
+    assert speech.volume == 0.51
+    assert speech.stop_count == 0
+    assert [item[1] for item in app.events] == [
+        'tts:Active chat', 'tts:Next spell', 'tts:Queued timer']
+
+
+def test_timer_mute_native_silences_active_timer_without_stopping_other_queue(monkeypatch):
+    speech = _NativeSpeech()
+    _app, _timers = _timer_audio_environment(monkeypatch, speech)
+    assert audio.speak_text('Active timer', 81, channel='timers')
+    speech.synthesize_next()
+    assert audio.speak_text('Other voice', 56, channel='vitals', voice_name='Voice B')
+    audio.set_timer_audio_muted(True)
+    assert speech.volume == 0.0
+    assert speech.stop_count == 0
+    audio.set_timer_audio_muted(False)
+    assert speech.volume == 0.0  # A partly spoken timer is not resumed.
+    assert speech.synthesize_next() == 'Other voice'
+    assert speech.volume == 0.56
+    assert speech.selected == 'Voice B'
+    assert speech.stop_count == 0
+
+
+def test_timer_mute_respects_master_mute_and_final_wav_gate(monkeypatch, tmp_path):
+    app, _timers = _timer_audio_environment(monkeypatch, _Speech())
+    wav = tmp_path / 'test.wav'
+    wav.write_bytes(b'RIFF')
+    monkeypatch.setattr(audio, 'resolve_sound', lambda _path: wav)
+
+    class MutingEffect(_Effect):
+        def setLoopCount(self, _count):
+            audio.set_timer_audio_muted(True)
+            audio.set_timer_audio_muted(False)
+
+    monkeypatch.setattr(audio, 'QSoundEffect', MutingEffect)
+    assert not audio.play_alert('builtin:test', channel='timers', allow_hidden=True)
+    effect = MutingEffect.instances[-1]
+    assert effect.play_count == 0
+    assert effect.deleted
+    assert app.blocked[-1][1] == 'timer audio muted'
+    monkeypatch.setattr(audio, '_MUTED', True)
+    audio.set_timer_audio_muted(False)
+    assert audio.playback_block_reason('timers', True) == 'muted'
+    assert audio.audio_muted() is True
+
+
+def test_timer_native_final_gate_keeps_reentrant_mute_unmute_canceled(monkeypatch):
+    class MutingVoice(_NativeSpeech):
+        def setPitch(self, pitch):
+            super().setPitch(pitch)
+            audio.set_timer_audio_muted(True)
+            audio.set_timer_audio_muted(False)
+
+    speech = MutingVoice()
+    app, _timers = _timer_audio_environment(monkeypatch, speech)
+    assert audio.speak_text('Canceled during setup', channel='timers', pitch=3)
+    speech.synthesize_next()
+    assert speech.volume == 0.0
+    assert app.events == []
+    assert app.blocked[-1][1] == 'timer audio muted'
+    assert audio.timer_audio_muted() is False
+
+
+def test_timer_serial_final_gate_keeps_reentrant_mute_unmute_canceled(monkeypatch):
+    class MutingVoice(_Speech):
+        def setPitch(self, pitch):
+            super().setPitch(pitch)
+            audio.set_timer_audio_muted(True)
+            audio.set_timer_audio_muted(False)
+
+    speech = MutingVoice()
+    app, _timers = _timer_audio_environment(monkeypatch, speech)
+    assert not audio.speak_text('Canceled during setup', channel='timers', pitch=3)
+    assert speech.messages == []
+    assert app.events == []
+    assert app.blocked[-1][1] == 'timer audio muted'
+    assert audio.timer_audio_muted() is False
+    # Another channel is not invalidated by the same reentrant timer toggle.
+    assert audio.speak_text('Other voice', channel='spells', pitch=4)
+    assert speech.messages == ['Other voice']

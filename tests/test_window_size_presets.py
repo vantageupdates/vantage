@@ -109,7 +109,7 @@ def test_every_window_size_preset_rollup_and_tray_restore_are_effective(
         'log_searcher', 'vitals'}
     for name, state in result.items():
         assert all(case['size'] == case['expected']
-                   for case in state['cases'])
+                   for case in state['cases']), (name, state['cases'])
         assert len({tuple(case['size']) for case in state['cases']}) == 4
         assert state['labels'] == expected_labels
         assert state['checked'] == ['Mini replica · 35%']
@@ -118,3 +118,73 @@ def test_every_window_size_preset_rollup_and_tray_restore_are_effective(
         assert state['saved_while_hidden'] == state['mini']
         assert state['tray_restore'] == state['mini']
         assert state['rolled'][1] <= 28
+
+
+TIMER_CONTENT_SCRIPT = r"""
+import json
+
+from native_audit_fixture import isolate
+isolate()
+from PySide6.QtCore import QPointF
+from PySide6.QtTest import QTest
+from vantage.helpers import config
+from vantage.helpers.application import VantageApp
+from vantage.helpers.spawn_timer import SpawnTimerState
+
+config.data['general']['startup_window_state'] = 'normal'
+app = VantageApp([])
+panel = app._parsers_dict['timers']
+panel._set_collapsed(False)
+panel._refresh_zone_filter('')
+for index in range(3):
+    panel._register_timer(SpawnTimerState(f'Preset timer {index}', 1800))
+panel._sync_timer_canvas()
+panel.show()
+QTest.qWait(50)
+result = []
+for scale in (1, .25, .35, .25):
+    panel._set_replica_scale(scale)
+    QTest.qWait(50)
+    controls = [panel.timer_audio_button]
+    for row in panel._rows.values():
+        controls += [row.controls.layout().itemAt(index).widget()
+                     for index in range(row.controls.layout().count())]
+    visible = []
+    for control in controls:
+        point = control.mapTo(panel._surface, control.rect().center())
+        physical = panel._scale_view.mapFromScene(
+            panel._scale_proxy.mapToScene(QPointF(point)))
+        visible.append(control.isVisibleTo(panel._surface) and
+                       panel._scale_view.viewport().rect().contains(physical))
+    result.append({
+        'scale': scale,
+        'size': [panel.width(), panel.height()],
+        'expected': [round(panel._design_size.width() * scale),
+                     max(round(panel._design_size.height() * scale),
+                         panel.minimumHeight())],
+        'authored_height': round(panel._design_size.height() * scale),
+        'minimum_height': panel.minimumHeight(),
+        'all_controls_visible': all(visible),
+        'rows': len(panel._rows),
+    })
+print(json.dumps(result))
+app.quit()
+"""
+
+
+def test_timer_presets_recompute_floor_before_shrinking_with_saved_rows(tmp_path):
+    env = os.environ.copy()
+    env.update(QT_QPA_PLATFORM='offscreen',
+               VANTAGE_DATA_DIR=str(tmp_path / 'profile'),
+               PYTHONPATH=os.pathsep.join((str(ROOT / 'tests'), str(ROOT / 'src'))))
+    completed = subprocess.run(
+        [sys.executable, '-c', TIMER_CONTENT_SCRIPT], cwd=ROOT, env=env,
+        capture_output=True, text=True, check=True, timeout=45)
+    result = json.loads(completed.stdout.strip().splitlines()[-1])
+    for state in result:
+        assert state['size'] == state['expected'], state
+        assert state['all_controls_visible'], state
+        assert state['rows'] == 3
+    assert result[1]['size'] == result[3]['size']
+    assert any(state['minimum_height'] > state['authored_height']
+               for state in result)

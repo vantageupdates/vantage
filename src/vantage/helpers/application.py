@@ -64,7 +64,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=135,
+    patch=136,
     build=""
 )
 
@@ -686,6 +686,7 @@ class VantageApp(QApplication):
             if not check.ready:
                 reason = {
                     "Master Mute": "muted",
+                    "Timers muted": "timer audio muted",
                     "Master Volume 0%": "master volume 0%",
                     "Sound while window hidden is Off":
                         "background audio off",
@@ -713,6 +714,7 @@ class VantageApp(QApplication):
             if not check.ready:
                 reason = {
                     "Master Mute": "muted",
+                    "Timers muted": "timer audio muted",
                     "Master Volume 0%": "master volume 0%",
                     "Sound while window hidden is Off":
                         "background audio off",

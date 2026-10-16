@@ -2906,7 +2906,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.135')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.136')
         request.setTransferTimeout(10_000)
         reply = self._boat_network.get(request)
         reply.downloadProgress.connect(

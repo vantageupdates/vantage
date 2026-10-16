@@ -46,7 +46,8 @@ from PySide6.QtWidgets import (
 from vantage.helpers import config
 from vantage.helpers.audio import (
     audio_preflight, audio_reason_label, add_custom_sound_to_combo, play_alert,
-    set_sound_combo_value, speak_text, speech_voice_names,
+    set_sound_combo_value, set_timer_audio_muted, speak_text, speech_voice_names,
+    timer_audio_muted,
     unavailable_voice_label,
     vantage_command_voice_description,
     vantage_command_voice_label)
@@ -274,6 +275,60 @@ SPAWN_TIMER_WINDOW_STYLE = """
         border-bottom-right-radius: 6px;
     }
 """
+
+
+class TimerZoneComboBox(QComboBox):
+    """Keep the zone list outside the scaled overlay and inside the screen."""
+
+    MAX_POPUP_ROWS = 12
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # Set this before header measurement can auto-embed the popup in the
+        # QGraphicsProxyWidget; an embedded popup clips at the timer viewport.
+        self.view().window().setWindowFlag(
+            Qt.WindowType.BypassGraphicsProxyWidget, True)
+        self.view().setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+    def showPopup(self):
+        super().showPopup()
+        view = self.view()
+        popup = view.window()
+        if not popup.isVisible():
+            return
+        # Detached popup chrome no longer inherits the overlay's dark surface.
+        # Reuse the polished list palette for its native scroll-arrow caps.
+        view.ensurePolished()
+        palette = view.palette()
+        popup.setPalette(palette)
+        for child in popup.findChildren(
+                QWidget, options=Qt.FindChildOption.FindDirectChildrenOnly):
+            child.setPalette(palette)
+        screen = (QApplication.screenAt(self.mapToGlobal(self.rect().center()))
+                  or QApplication.primaryScreen())
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        margins = popup.contentsMargins()
+        frame = 2 * view.frameWidth()
+        row_height = max(1, view.sizeHintForRow(0))
+        height = min(
+            popup.height(), available.height(),
+            row_height * self.MAX_POPUP_ROWS + frame +
+            margins.top() + margins.bottom())
+        width = min(available.width(), max(
+            popup.width(), view.sizeHintForColumn(self.modelColumn()) +
+            view.verticalScrollBar().sizeHint().width() + frame +
+            margins.left() + margins.right()))
+        popup.resize(width, height)
+        popup.move(
+            max(available.left(), min(popup.x(), available.right() - width + 1)),
+            max(available.top(), min(popup.y(), available.bottom() - height + 1)))
+        # Qt initially positions the selection for its unbounded popup size.
+        # Re-evaluate after capping the list, including a selected final zone.
+        index = self.model().index(
+            self.currentIndex(), self.modelColumn(), self.rootModelIndex())
+        view.scrollTo(index, QAbstractItemView.ScrollHint.EnsureVisible)
 
 
 class TimerProgressBar(QProgressBar):
@@ -2277,7 +2332,7 @@ class SpawnTimers(ParserWindow):
         self.compact.clicked.connect(self._toggle_compact)
         self.menu_area.addWidget(self.compact)
 
-        self.zone_filter = QComboBox()
+        self.zone_filter = TimerZoneComboBox()
         self.zone_filter.setObjectName('SpawnTimerZoneFilter')
         # Zone selection is core timer context, not an optional header action.
         # Keep it directly discoverable even when the scaled overlay is at its
@@ -2366,6 +2421,33 @@ class SpawnTimers(ParserWindow):
         self.remove_window_button.setVisible(not self._is_primary)
         self.menu_area.addWidget(self.remove_window_button)
 
+        # A dedicated action row keeps the global timer toggle visible without
+        # crowding the protected zone/share controls in the compact header.
+        self.timer_audio_controls = QWidget()
+        audio_layout = QHBoxLayout(self.timer_audio_controls)
+        audio_layout.setContentsMargins(3, 3, 3, 3)
+        audio_layout.setSpacing(3)
+        self.timer_audio_button = QPushButton()
+        self.timer_audio_button.setCheckable(True)
+        self.timer_audio_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.timer_audio_button.setAccessibleName("Mute all timer audio")
+        self.timer_audio_button.setAccessibleDescription(
+            "Mutes timer sounds and speech in every timer window. Countdown "
+            "progress and visual notifications continue. Other app sounds "
+            "and each timer's saved audio settings are unchanged.")
+        self.timer_audio_button.setToolTip(
+            "Mute or unmute all timer sounds and speech (Ctrl+Shift+M).\n"
+            "Timers and visual notifications keep running. Applies to every "
+            "timer window and is remembered after restart.")
+        self.timer_audio_button.clicked.connect(self._toggle_timer_audio)
+        self._refresh_timer_audio_button()
+        audio_layout.addWidget(self.timer_audio_button)
+        audio_layout.addStretch(1)
+        self.content.addWidget(self.timer_audio_controls)
+        self._timer_audio_shortcut = QShortcut(QKeySequence("Ctrl+Shift+M"), self)
+        self._timer_audio_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        self._timer_audio_shortcut.activated.connect(self.timer_audio_button.click)
+
         host = QWidget()
         host.setObjectName("SpawnTimerCanvas")
         host.setAccessibleName("Complete Smart Timer list")
@@ -2439,6 +2521,8 @@ class SpawnTimers(ParserWindow):
                 self.record_session_closed)
             QApplication.instance()._signals["maps"].new_zone.connect(
                 self._zone_changed)
+            QApplication.instance()._signals["settings"].config_updated.connect(
+                self._sync_timer_audio_settings)
         self._ticker = QTimer(self)
         # Second precision is enough for P99 spawns and avoids needless repaints.
         self._ticker.setInterval(1000)
@@ -2451,6 +2535,30 @@ class SpawnTimers(ParserWindow):
 
     def _view_settings(self):
         return config.data['timers' if self._is_primary else self.name]
+
+    def _refresh_timer_audio_button(self):
+        muted = timer_audio_muted()
+        self.timer_audio_button.setChecked(muted)
+        self.timer_audio_button.setText("Timers muted" if muted else "Mute timers")
+        self.timer_audio_button.setIcon(game_icon("ph-mute" if muted else "ph-speaker"))
+
+    def _toggle_timer_audio(self):
+        muted = set_timer_audio_muted(self.timer_audio_button.isChecked())
+        for view in tuple(self._controller._views):
+            view._refresh_timer_audio_button()
+        config.save()
+        message = "Timer audio muted" if muted else "Timer audio enabled"
+        try:
+            QAccessible.updateAccessibility(
+                QAccessibleAnnouncementEvent(self.timer_audio_button, message))
+        except (AttributeError, RuntimeError, TypeError):
+            pass
+
+    def _sync_timer_audio_settings(self):
+        """Reconcile a config reload with active audio and every open view."""
+        set_timer_audio_muted(timer_audio_muted())
+        for view in tuple(self._controller._views):
+            view._refresh_timer_audio_button()
 
     def _ensure_secondary_settings(self):
         """Seed a normal ParserWindow settings section for one extra view."""
@@ -2738,6 +2846,7 @@ class SpawnTimers(ParserWindow):
             view._selected_zone = str(
                 settings.get('view_zone') or '').strip()
             view.compact.setChecked(bool(settings.get('compact', False)))
+            view._refresh_timer_audio_button()
             view._refresh_zone_filter(view._selected_zone)
 
     def record_session_closed(self):
@@ -2934,8 +3043,11 @@ class SpawnTimers(ParserWindow):
             self._menu.minimumSizeHint().height(), self._menu.sizeHint().height())
         status_height = max(
             self.status.minimumSizeHint().height(), self.status.sizeHint().height())
+        audio_height = max(
+            self.timer_audio_controls.minimumSizeHint().height(),
+            self.timer_audio_controls.sizeHint().height())
         self._required_timer_height = max(
-            1, header_height + list_height + status_height)
+            1, header_height + audio_height + list_height + status_height)
         logical_height = max(360, self._required_timer_height)
         self._set_design_size(QSize(520, logical_height))
         # The authored design may retain comfortable empty space, but the
@@ -2954,7 +3066,18 @@ class SpawnTimers(ParserWindow):
             1, int(getattr(
                 self, '_required_timer_height', self._design_size.height())))
 
-    def _set_scaled_minimum_size(self):
+    def _set_replica_scale(self, scale):
+        if self._collapsed:
+            self._set_collapsed(False)
+        scale = max(self._effective_minimum_scale(), min(1.0, float(scale)))
+        # Compute the floor at the requested width before resizing. Otherwise
+        # the old, wider window's height floor can clamp a smaller preset, even
+        # after the queued resize pass lowers that floor to the correct value.
+        self._set_scaled_minimum_size(
+            target_width=round(self._design_size.width() * scale))
+        super()._set_replica_scale(scale)
+
+    def _set_scaled_minimum_size(self, target_width=None):
         """Make the vertical resize floor track all visible timer rows."""
         if self._collapsed:
             return
@@ -2967,7 +3090,8 @@ class SpawnTimers(ParserWindow):
         # every row in the selected zone.
         width_scale = max(
             minimum_scale,
-            max(self.width(), minimum_width) /
+            max(self.width() if target_width is None else target_width,
+                minimum_width) /
             max(1, self._design_size.width()))
         required_height = math.ceil(
             self._minimum_logical_surface_height() * width_scale)
