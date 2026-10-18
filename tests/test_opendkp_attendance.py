@@ -159,11 +159,17 @@ def test_readable_event_keeps_original_evidence_in_tooltip(panel):
 
 def test_overview_uses_personal_evidence_and_full_character_directory(panel):
     page = panel._build_overview()
+    # This rendering fixture already contains a completed personal history.
+    # Request generation/restoration is covered by test_dkp_history_view.
+    panel._load_character_history = lambda **kwargs: None
+    panel._history_details = {}
+    panel._history_states = {}
+    panel._history_detail_status = ""
     panel._profile = lambda: {'character_id': 163372}
     panel._datasets = {
         'dkp': [{'CharacterId': 163372, 'CharacterName': 'Mindflux', 'CurrentDKP': 42}],
         'characters': [{'CharacterId': 999, 'Name': 'NoDkpYet'}],
-        'character_items': [], 'items': [],
+        'character_items': [], 'items': [], 'character_dkp': [], 'character_adjustments': [],
         'character_raids': [raid(i) for i in range(1, 202)] + [raid(999, 0)],
         'raids': [raid(888)]}
     panel._populate_characters()

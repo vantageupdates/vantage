@@ -22,6 +22,8 @@ from PySide6.QtWidgets import (
     QToolButton, QWidget)
 
 from vantage.helpers import config
+from vantage.helpers.dkp_history import build_dkp_history
+from vantage.helpers.dkp_history_view import DkpHistoryView
 from vantage.helpers.icons import game_icon
 from vantage.helpers.log_search_cache import (
     LogSearchCache, SearchResult, cache_path_for_log_root,
@@ -436,6 +438,11 @@ class OpenDKP(ParserWindow):
         self._eligible_characters = []
         self._notified_auctions = set()
         self._adjustments_loaded = False
+        self._history_token = ""
+        self._history_identity = None
+        self._history_states = {}
+        self._history_details = {}
+        self._history_detail_status = ""
         self._session_restore_slug = ""
         self._busy = False
         self._build_ui()
@@ -592,6 +599,10 @@ class OpenDKP(ParserWindow):
         label.setBuddy(self.character_selector)
         chooser_layout.addWidget(label)
         chooser_layout.addWidget(self.character_selector, 1)
+        self.history_balance = QLabel("Current DKP: —")
+        self.history_balance.setObjectName("OpenDkpMetricValue")
+        self.history_balance.setToolTip("Current balance reported by the guild; not calculated from the filtered history")
+        chooser_layout.addWidget(self.history_balance)
         self.character_identity = QLabel("Choose a character")
         self.character_identity.setObjectName("OpenDkpCharacterIdentity")
         chooser_layout.addWidget(self.character_identity)
@@ -620,8 +631,17 @@ class OpenDKP(ParserWindow):
             card_layout.addWidget(value_label)
             cards_layout.addWidget(card, 0, column)
             self.metric_values[key] = value_label
-        layout.addWidget(cards)
 
+        self.overview_tabs = QTabWidget()
+        self.overview_tabs.setObjectName("OpenDkpOverviewTabs")
+        self.history_view = DkpHistoryView()
+        self.history_view.refresh_requested.connect(
+            lambda: self._load_character_history(force=True))
+        self.history_view.period_changed.connect(
+            lambda: self._load_character_history(force=True))
+        self.history_view.raid_requested.connect(self._check_history_raid)
+        self.history_view.item_requested.connect(self._open_history_item)
+        self.overview_tabs.addTab(self.history_view, "My DKP history")
         split = QSplitter(Qt.Orientation.Horizontal)
         self.character_loot = self._table(
             ("Date", "Item", "DKP", "Raid / event"),
@@ -635,7 +655,17 @@ class OpenDKP(ParserWindow):
         split.addWidget(self._titled_table("Recent loot", self.character_loot))
         split.addWidget(self._titled_table("Recent raids", self.character_raids))
         split.setSizes([480, 480])
-        layout.addWidget(split, 1)
+        recent = QWidget()
+        recent_layout = QVBoxLayout(recent)
+        recent_layout.setContentsMargins(0, 0, 0, 0)
+        recent_layout.addWidget(cards)
+        recent_layout.addWidget(split, 1)
+        self.overview_tabs.addTab(recent, "Recent loot & raids")
+        ensure_tab_tooltips(self.overview_tabs, {
+            "My DKP history": "Where your DKP came from: raid ticks, adjustments and loot purchases",
+            "Recent loot & raids": "Quick lists of this character's recorded loot and raids",
+        })
+        layout.addWidget(self.overview_tabs, 1)
         return page
 
     def _build_standings(self):
@@ -2765,7 +2795,7 @@ class OpenDKP(ParserWindow):
             return False
         request = QNetworkRequest(QUrl(csv_url))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.136")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.137")
         request.setAttribute(
             QNetworkRequest.Attribute.RedirectPolicyAttribute,
             QNetworkRequest.RedirectPolicy.NoLessSafeRedirectPolicy)
@@ -3030,6 +3060,7 @@ class OpenDKP(ParserWindow):
         if not self.client.slug:
             return self._load_guild()
         self.client.refresh_public()
+        self._load_character_history(force=True)
         if self.client.authenticated:
             self.client.fetch_active_auctions()
         if self._adjustments_loaded:
@@ -3062,6 +3093,31 @@ class OpenDKP(ParserWindow):
 
     # ----- responses ----------------------------------------------------
     def _response(self, operation, payload):
+        if operation.startswith("history_detail|"):
+            _, token, raid_id = operation.split("|", 2)
+            if self._history_request_current(token):
+                self._history_details[raid_id] = payload if isinstance(payload, dict) else {}
+                self._history_detail_status = "Raid details checked."
+                self._update_history()
+            return
+        if operation.startswith("character_") and "|" in operation:
+            kind, token, requested_id = operation.split("|", 2)
+            if not self._history_request_current(token, requested_id):
+                return
+            keys = {"character_dkp": ("Models", "Dkp", "DKP"),
+                    "character_items": ("Items", "Models"),
+                    "character_adjustments": ("Adjustments", "Models"),
+                    "character_raids": ("Raids", "Models")}
+            if kind not in keys:
+                return
+            if not isinstance(payload, (list, dict)) or (isinstance(payload, dict) and
+                    not any(isinstance(payload.get(key), list) for key in keys[kind])):
+                self._history_states[kind] = "unavailable (unexpected response)"
+            else:
+                self._datasets[kind] = rows_from_payload(payload, *keys[kind])
+                self._history_states[kind] = "ready"
+            self._update_overview()
+            return
         if operation.startswith("attendance_detail|"):
             _, token, raid_id = operation.split("|", 2)
             if token != self._attendance_token or self._attendance_slug != self.client.slug or not token:
@@ -3158,6 +3214,18 @@ class OpenDKP(ParserWindow):
             self._set_status(f"{self._guild_name()} · public data ready", "ready")
 
     def _failed(self, operation, message, status):
+        if operation.startswith("history_detail|"):
+            _, token, _raid_id = operation.split("|", 2)
+            if self._history_request_current(token):
+                self._history_detail_status = "Raid details unavailable. Select the raid and try again."
+                self._update_history()
+            return
+        if operation.startswith("character_") and "|" in operation:
+            kind, token, requested_id = operation.split("|", 2)
+            if self._history_request_current(token, requested_id):
+                self._history_states[kind] = "unavailable — use Refresh history to retry"
+                self._update_history()
+            return
         if operation.startswith("attendance_detail|"):
             _, token, _raid_id = operation.split("|", 2)
             if token == self._attendance_token and self._attendance_slug == self.client.slug and token:
@@ -3317,9 +3385,10 @@ class OpenDKP(ParserWindow):
             return
         preferred = int((self._profile() or {}).get("character_id") or 0)
         dkp_by_id = {int(row.get("CharacterId") or 0): row for row in self._datasets["dkp"]}
-        choices = list(dkp_by_id.values())
-        if not choices:
-            choices = self._datasets["characters"]
+        by_id = {int(row.get("CharacterId") or row.get("Id") or 0): row
+                 for row in self._datasets["characters"]}
+        by_id.update(dkp_by_id)
+        choices = [row for char_id, row in by_id.items() if char_id]
         choices.sort(key=lambda row: _clean(
             row.get("CharacterName") or row.get("Name")).casefold())
         self.character_selector.blockSignals(True)
@@ -3352,18 +3421,70 @@ class OpenDKP(ParserWindow):
             self.attendance_character.setCurrentIndex(max(0, selected_index))
             self.attendance_character.blockSignals(False)
             self._restore_attendance_alts()
+        self._load_character_history()
         self._update_overview()
 
     def _character_selected(self):
         char_id = int(self.character_selector.currentData() or 0)
         name = self.character_selector.currentText() if char_id else ""
         self._save_profile(character_id=char_id, character_name=name)
-        for key in ("character_dkp", "character_items",
-                    "character_adjustments", "character_raids"):
-            self._datasets[key] = []
+        self._load_character_history(force=True)
         self._update_overview()
-        if char_id:
-            self.client.fetch_character_details(char_id)
+
+    def _history_request_current(self, token, character_id=None):
+        identity = self._history_identity
+        return bool(identity and token and token == self._history_token and
+                    identity[0] == self.client.slug and
+                    identity[1] == int(self.character_selector.currentData() or 0) and
+                    (character_id is None or str(identity[1]) == str(character_id)))
+
+    def _load_character_history(self, force=False):
+        char_id = int(self.character_selector.currentData() or 0)
+        days = self.history_view.period.currentData()
+        identity = (self.client.slug, char_id, days)
+        if identity == self._history_identity and not force:
+            return
+        self._history_identity = identity
+        self._history_token = uuid.uuid4().hex
+        self._history_details = {}
+        self._history_detail_status = ""
+        kinds = ("character_dkp", "character_items", "character_adjustments", "character_raids")
+        self._history_states = {key: "loading" for key in kinds} if char_id and self.client.slug else {}
+        for key in kinds:
+            self._datasets[key] = []
+        self._update_history()
+        if char_id and self.client.slug:
+            self.client.fetch_character_details(char_id, days, self._history_token)
+
+    def _check_history_raid(self, raid_id):
+        if self._history_request_current(self._history_token):
+            self._history_detail_status = "Checking original raid ticks…"
+            self._update_history()
+            self.client.fetch_history_raid(raid_id, self._history_token)
+
+    def _open_history_item(self, name):
+        market = getattr(QApplication.instance(), "_parsers_dict", {}).get("market")
+        if market:
+            market._show_wiki_item_name(name)
+
+    def _update_history(self):
+        if not hasattr(self, "history_view"):
+            return
+        char_id = int(self.character_selector.currentData() or 0)
+        name = self.character_selector.currentText() if char_id else ""
+        entries = build_dkp_history(
+            self._datasets["character_raids"], self._datasets["character_adjustments"],
+            self._datasets["character_items"], character_id=char_id, character_name=name,
+            raid_details=self._history_details, dkp=self._datasets["character_dkp"])
+        labels = {"character_dkp": "Transactions", "character_raids": "Raids",
+                  "character_items": "Loot", "character_adjustments": "Adjustments"}
+        issues = [f"{labels[key]}: {state}" for key, state in self._history_states.items() if state != "ready"]
+        state = "; ".join(issues) or (
+            "All four history sources loaded. Available records may be limited by the guild." if name else
+            "Choose a character to see where your DKP came from.")
+        if self._history_detail_status:
+            state += " " + self._history_detail_status
+        self.history_view.set_history(entries, name, state)
 
     def _selected_dkp(self):
         char_id = int(self.character_selector.currentData() or 0)
@@ -3371,16 +3492,21 @@ class OpenDKP(ParserWindow):
                      if int(row.get("CharacterId") or 0) == char_id), {})
 
     def _update_overview(self):
+        self._update_history()
         row = self._selected_dkp()
         char_id = int(self.character_selector.currentData() or 0)
+        if not row and char_id:
+            row = next((item for item in self._datasets["characters"]
+                        if int(item.get("CharacterId") or item.get("Id") or 0) == char_id), {})
         if not row:
+            self.history_balance.setText("Current DKP: —")
             for label in self.metric_values.values():
                 label.setText("—")
             self.character_identity.setText("Choose a character")
             self._set_rows(self.character_loot, [])
             self._set_rows(self.character_raids, [])
             return
-        name = _clean(row.get("CharacterName"))
+        name = _clean(row.get("CharacterName") or row.get("Name"))
         identity = " · ".join(part for part in (
             _clean(row.get("CharacterClass"), ""),
             f"Level {_number(row.get('CharacterLevel'))}",
@@ -3393,6 +3519,8 @@ class OpenDKP(ParserWindow):
             "90": _percent(row.get("Calculated_90")),
             "life": _percent(row.get("Calculated_Life")),
         }
+        self.history_balance.setText(f"Current DKP: {values['dkp']}")
+        self.history_balance.setAccessibleName(self.history_balance.text())
         for key, value in values.items():
             self.metric_values[key].setText(value)
             self.metric_values[key].setAccessibleName(f"{key} value: {value}")
@@ -3819,6 +3947,11 @@ class OpenDKP(ParserWindow):
         QAccessible.updateAccessibility(event)
 
     def _clear_views(self):
+        self._history_token = ""
+        self._history_identity = None
+        self._history_states = {}
+        self._history_details = {}
+        self._history_detail_status = ""
         self._invalidate_attendance()
         self._attendance_alts = []
         self._update_attendance_alt_summary()
@@ -3832,7 +3965,10 @@ class OpenDKP(ParserWindow):
                 self.loot_table, self.raids_table, self.adjustments_table,
                 self.character_loot, self.character_raids):
             table.setRowCount(0)
+        self.character_selector.blockSignals(True)
         self.character_selector.clear()
+        self.character_selector.blockSignals(False)
+        self._update_overview()
         self.bid_character.clear()
         self.site_button.setEnabled(False)
         self.refresh_button.setEnabled(False)

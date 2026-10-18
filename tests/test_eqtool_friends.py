@@ -190,6 +190,7 @@ print(json.dumps({
     "small_layout": small_layout,
     "tooltips": tooltips,
 }))
+dialog.editor.setPlainText("\n".join(dialog._scan.friends))
 dialog.close()
 app.quit()
 """

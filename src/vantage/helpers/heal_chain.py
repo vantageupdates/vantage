@@ -131,6 +131,12 @@ class HealChainTracker:
             return markers[0]
         return self._increment_marker(current)
 
+    def next_cleric(self, tank, current_marker):
+        """Resolve the predicted marker only from an observed call on this tank."""
+        marker = self.next_marker(tank, current_marker)
+        return next((cast.cleric for cast in reversed(self.casts)
+                     if cast.tank == tank and cast.marker == marker), "")
+
     def active(self, now=None):
         now = now or datetime.datetime.now()
         return [cast for cast in self.casts

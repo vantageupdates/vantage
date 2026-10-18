@@ -10,15 +10,14 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from PySide6.QtCore import QRectF, Qt, QTimer
-from PySide6.QtGui import QPainter
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import (
-    QApplication, QAbstractItemView, QDialog, QFileDialog, QHBoxLayout,
-    QFrame, QGraphicsItem, QGraphicsScene, QGraphicsView, QHeaderView,
+    QApplication, QAbstractItemView, QFileDialog, QHBoxLayout, QHeaderView,
     QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
     QTabWidget, QToolButton, QVBoxLayout, QWidget)
 
 from vantage.helpers import config
+from vantage.helpers.scaled_dialog import UniformScaleDialog
 
 
 CATEGORIES = (
@@ -77,21 +76,24 @@ HEADER_TOOLTIPS = {
 }
 
 
-class CombatDiagnosticsDialog(QDialog):
+class CombatDiagnosticsDialog(UniformScaleDialog):
     """Modeless, progressively disclosed view of raw parser decisions."""
 
     def __init__(self, tracker, parent=None):
-        super().__init__(parent)
+        super().__init__(QSize(760, 390), parent, lock_aspect=False)
         self.tracker = tracker
         self.setWindowTitle("Parser Diagnostics")
         self.setWindowModality(Qt.WindowModality.NonModal)
-        self.setMinimumSize(300, 154)
-        self.resize(760, 390)
         self._signature = None
 
-        self._surface = QWidget()
+        self._surface = self.scaled_surface
         self._surface.setObjectName("CombatDiagnosticsSurface")
-        self._surface.setFixedSize(760, 390)
+        self._scene = self._dialog_scene
+        self._proxy = self._dialog_proxy
+        self._view = self._dialog_view
+        self._view.setObjectName("CombatDiagnosticsScaleView")
+        self._view.setToolTip(
+            "Parser diagnostic surface; resize the window to scale every control together")
         root = QVBoxLayout(self._surface)
         root.setContentsMargins(7, 7, 7, 7)
         root.setSpacing(5)
@@ -187,31 +189,6 @@ class CombatDiagnosticsDialog(QDialog):
         close_button.clicked.connect(self.close)
         footer.addWidget(close_button)
         root.addLayout(footer)
-
-        self._scene = QGraphicsScene(self)
-        self._scene.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
-        self._proxy = self._scene.addWidget(self._surface)
-        self._proxy.setCacheMode(QGraphicsItem.CacheMode.NoCache)
-        self._view = QGraphicsView(self._scene, self)
-        self._view.setObjectName("CombatDiagnosticsScaleView")
-        self._view.setFrameShape(QFrame.Shape.NoFrame)
-        self._view.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._view.setVerticalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._view.setAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self._view.setRenderHints(
-            QPainter.RenderHint.Antialiasing |
-            QPainter.RenderHint.TextAntialiasing)
-        self._view.setViewportUpdateMode(
-            QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
-        self._view.setToolTip(
-            "Parser diagnostic surface; resize the window to scale every control together")
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
-        outer.addWidget(self._view)
 
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setInterval(500)
@@ -395,15 +372,5 @@ class CombatDiagnosticsDialog(QDialog):
         self._refresh_timer.stop()
         super().hideEvent(event)
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._update_scale()
-
     def _update_scale(self):
-        if not self._view or not self._proxy:
-            return
-        self._scene.setSceneRect(QRectF(0, 0, 760, 390))
-        viewport = self._view.viewport().size()
-        scale = max(0.01, min(viewport.width() / 760, viewport.height() / 390))
-        self._view.resetTransform()
-        self._view.scale(scale, scale)
+        self._update_dialog_scale()

@@ -1505,7 +1505,8 @@ def verify_settings():
     for key, default in (
         ('toggled', False), ('clickthrough', False),
         ('auto_hide_menu', False), ('always_on_top', True),
-        ('frameless', True), ('enabled', True), ('notify_turn', True)):
+        ('frameless', True), ('enabled', True), ('notify_turn', True),
+        ('overlay_enabled', False)):
         data['heals'][key] = get_setting(
             data['heals'].get(key, default), default)
     data['heals']['opacity'] = get_setting(
@@ -1523,6 +1524,12 @@ def verify_settings():
         lambda x: '###' in x and 'tankname' in x.casefold())
     data['heals']['own_marker'] = get_setting(
         data['heals'].get('own_marker', ''), '')
+    data['heals']['overlay_opacity'] = get_setting(
+        data['heals'].get('overlay_opacity', 94), 94,
+        lambda x: 25 <= x <= 100)
+    data['heals']['overlay_position'] = get_setting(
+        data['heals'].get('overlay_position', [580, 460]), [580, 460],
+        lambda x: len(x) == 2 and all(type(v) is int for v in x))
 
     # Native view over PigParse's public Green or Blue market data.
     data['market'] = data.get('market', {})

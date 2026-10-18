@@ -41,8 +41,12 @@ heal_settings = {
     'enabled': heals.monitor_enabled.isChecked(),
     'format': heals.hotkey_format.text(),
 }
-# The compact settings page now includes a keyboard-reachable scrollbar.
-for _ in range(8):
+# Traverse the scrollbar, each settings field, then wrap to the header.
+settings_controls = (
+    heals.monitor_enabled, heals.settings_interval, heals.cast_seconds,
+    heals.hotkey_format, heals.own_marker, heals.overlay_enabled,
+    heals.overlay_opacity, heals.overlay_reset, heals.notify_turn)
+for _ in range(len(settings_controls) + 2):
     QTest.keyClick(app.focusWidget(), Qt.Key.Key_Tab)
     app.processEvents()
 heal_settings['tab_wrap'] = heals._surface.focusWidget().accessibleName()

@@ -4,12 +4,12 @@ import datetime
 
 from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtWidgets import (
-    QApplication, QAbstractItemView, QCheckBox, QFormLayout, QHeaderView,
+    QApplication, QAbstractItemView, QCheckBox, QFormLayout, QHeaderView, QHBoxLayout,
     QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QSpinBox,
     QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from vantage.helpers import config
-from vantage.helpers.heal_rail import HealRailWidget
+from vantage.helpers.heal_rail import HealChainOverlay, HealRailWidget
 from vantage.helpers.heal_chain import HealChainTracker
 from vantage.helpers.icons import game_icon
 from vantage.helpers.parser import ParserWindow
@@ -30,6 +30,11 @@ class HealChain(ParserWindow):
             settings["cast_seconds"])
         self._history_revision = -1
         self._last_turn_key = None
+        self.overlay = HealChainOverlay(self._tracker)
+        self.overlay.hidden.connect(lambda: self._set_overlay_enabled(False))
+        self.overlay.settings_requested.connect(self._show_overlay_settings)
+        QApplication.instance().aboutToQuit.connect(self.overlay.hide)
+        self.destroyed.connect(self.overlay.deleteLater)
 
         self.header_countdown = QLabel("READY")
         self.header_countdown.setObjectName("HealChainHeaderCountdown")
@@ -83,7 +88,18 @@ class HealChain(ParserWindow):
         self.summary.setWordWrap(True)
         self.summary.setToolTip(
             "Shows the current tank, cleric marker, next marker, and interruption state")
-        self.content.addWidget(self.summary)
+        status_row = QHBoxLayout()
+        status_row.setSpacing(4)
+        status_row.addWidget(self.summary, 1)
+        self.overlay_button = QPushButton("Overlay")
+        self.overlay_button.setObjectName("HealChainOverlayButton")
+        self.overlay_button.setCheckable(True)
+        self.overlay_button.setAccessibleName("Show Heal Chain overlay")
+        self.overlay_button.setToolTip(
+            "Show or hide the independent live overlay; monitoring continues")
+        self.overlay_button.toggled.connect(self._set_overlay_enabled)
+        status_row.addWidget(self.overlay_button)
+        self.content.addLayout(status_row)
 
         self.tabs = QTabWidget()
         self.tabs.setObjectName("HealChainTabs")
@@ -124,7 +140,14 @@ class HealChain(ParserWindow):
             self._header_overflow_button, self._settings_button)
         QWidget.setTabOrder(self._settings_button, self._roll_button)
         QWidget.setTabOrder(self._roll_button, self._minimize_button)
-        QWidget.setTabOrder(self._minimize_button, self.tabs)
+        QWidget.setTabOrder(self._minimize_button, self.overlay_button)
+        QWidget.setTabOrder(self.overlay_button, self.tabs)
+        settings_controls = (
+            self.monitor_enabled, self.settings_interval, self.cast_seconds,
+            self.hotkey_format, self.own_marker, self.overlay_enabled,
+            self.overlay_opacity, self.overlay_reset, self.notify_turn)
+        for first, second in zip(settings_controls, settings_controls[1:]):
+            QWidget.setTabOrder(first, second)
         QWidget.setTabOrder(self.notify_turn, self._button)
         self.monitor_enabled.installEventFilter(self)
         self.notify_turn.installEventFilter(self)
@@ -135,6 +158,7 @@ class HealChain(ParserWindow):
         self._refresh_timer.timeout.connect(self.refresh)
         self._refresh_timer.start()
         self.refresh()
+        self.overlay.apply_settings()
 
     def _build_settings_tab(self):
         """Keep every Heal Chain option inside the Heal Chain window."""
@@ -181,6 +205,22 @@ class HealChain(ParserWindow):
             "Optional marker such as AAA, 001, or RAMP1; blank learns it from your own call")
         form.addRow("Your cleric order", self.own_marker)
 
+        self.overlay_enabled = QCheckBox("Show live Heal Chain overlay")
+        self.overlay_enabled.setAccessibleName("Show Heal Chain overlay")
+        self.overlay_enabled.setToolTip(
+            "Keep cast rails visible when the main Heal Chain window is hidden")
+        form.addRow("Overlay", self.overlay_enabled)
+        self.overlay_opacity = QSpinBox()
+        self.overlay_opacity.setRange(25, 100)
+        self.overlay_opacity.setSuffix(" %")
+        self.overlay_opacity.setAccessibleName("Heal Chain overlay opacity")
+        form.addRow("Overlay opacity", self.overlay_opacity)
+        self.overlay_reset = QPushButton("Reset overlay position")
+        self.overlay_reset.setAccessibleName("Reset Heal Chain overlay position")
+        self.overlay_reset.setToolTip("Move the overlay to the top-left of your primary screen")
+        self.overlay_reset.clicked.connect(self.overlay.reset_position)
+        form.addRow("Overlay position", self.overlay_reset)
+
         self.notify_turn = QCheckBox("Alert when your marker is next")
         self.notify_turn.setAccessibleName("Alert when you are next")
         form.addRow("Turn alert", self.notify_turn)
@@ -204,6 +244,8 @@ class HealChain(ParserWindow):
         self.own_marker.editingFinished.connect(
             self._save_embedded_settings)
         self.notify_turn.toggled.connect(self._save_embedded_settings)
+        self.overlay_enabled.toggled.connect(self._set_overlay_enabled)
+        self.overlay_opacity.valueChanged.connect(self._save_embedded_settings)
         area = scrollable(page, "HealChainSettingsScroll")
         area.setAccessibleName("Heal Chain settings")
         area.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -218,6 +260,8 @@ class HealChain(ParserWindow):
             (self.hotkey_format, settings["hotkey_format"]),
             (self.own_marker, settings.get("own_marker", "")),
             (self.notify_turn, settings.get("notify_turn", True)),
+            (self.overlay_enabled, settings.get("overlay_enabled", False)),
+            (self.overlay_opacity, settings.get("overlay_opacity", 94)),
         )
         for widget, value in pairs:
             widget.blockSignals(True)
@@ -228,6 +272,31 @@ class HealChain(ParserWindow):
             else:
                 widget.setText(str(value))
             widget.blockSignals(False)
+        self._sync_overlay_button()
+
+    def _sync_overlay_button(self):
+        visible = config.data["heals"].get("overlay_enabled", False)
+        self.overlay_button.blockSignals(True)
+        self.overlay_button.setChecked(visible)
+        self.overlay_button.blockSignals(False)
+        self.overlay_button.setText("Hide overlay" if visible else "Overlay")
+        self.overlay_button.setAccessibleName(
+            "Hide Heal Chain overlay" if visible else "Show Heal Chain overlay")
+
+    def _set_overlay_enabled(self, enabled):
+        config.data["heals"]["overlay_enabled"] = bool(enabled)
+        self.overlay_enabled.blockSignals(True)
+        self.overlay_enabled.setChecked(enabled)
+        self.overlay_enabled.blockSignals(False)
+        self._sync_overlay_button()
+        self.refresh()
+        self.overlay.apply_settings()
+        config.save()
+
+    def _show_overlay_settings(self):
+        if not self.isVisible():
+            self.toggle()
+        self._show_inline_settings()
 
     def _settings_interval_changed(self, value):
         self.interval.blockSignals(True)
@@ -245,12 +314,14 @@ class HealChain(ParserWindow):
                              "### - CH - tankname",
             "own_marker": self.own_marker.text().strip().upper(),
             "notify_turn": self.notify_turn.isChecked(),
+            "overlay_opacity": self.overlay_opacity.value(),
         })
         self._tracker.configure(
             settings["hotkey_format"], settings["interval"],
             settings["cast_seconds"])
         config.save()
         self.refresh()
+        self.overlay.apply_settings()
 
     def _show_inline_settings(self):
         """The header gear opens the local Settings tab, not global Settings."""
@@ -262,6 +333,7 @@ class HealChain(ParserWindow):
     def _parser_settings_config_update_watcher(self):
         super()._parser_settings_config_update_watcher()
         self._load_embedded_settings()
+        self.overlay.apply_settings()
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Type.KeyPress:
@@ -406,7 +478,13 @@ class HealChain(ParserWindow):
 
     def refresh(self):
         now = datetime.datetime.now()
+        settings = config.data["heals"]
+        own_marker = settings.get("own_marker", "")
+        self.rails.own_marker = own_marker
         self.rails.update()
+        self.overlay.refresh(
+            now, paused=self.pause.isChecked(),
+            enabled=settings["enabled"], own_marker=own_marker)
         active = list(reversed(self._tracker.active(now)))
         self.live.setRowCount(len(active))
         for row, cast in enumerate(active):
@@ -432,7 +510,12 @@ class HealChain(ParserWindow):
             self.live.setItem(row, 5, self._item(
                 "INTERRUPTED" if cast.interrupted else f"Next {next_marker}"))
 
-        if self.pause.isChecked():
+        if not settings["enabled"]:
+            self._set_visual_state("paused")
+            self.header_countdown.setText("OFF")
+            self.header_countdown.setToolTip("Heal Chain monitoring is disabled")
+            self.summary.setText("Monitoring disabled · enable Read Complete Heal calls in Settings")
+        elif self.pause.isChecked():
             self._set_visual_state("paused")
             self.header_countdown.setText("PAUSED")
             self.header_countdown.setToolTip(

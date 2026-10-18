@@ -27,7 +27,7 @@ API_ROOT = "https://api.opendkp.com"
 COGNITO_ROOT = "https://cognito-idp.us-east-2.amazonaws.com/"
 COGNITO_TARGET = "AWSCognitoIdentityProviderService.InitiateAuth"
 LIVE_ROOT = "wss://a2d3ggob45.execute-api.us-east-2.amazonaws.com/production"
-USER_AGENT = "Vantage/1.44.136 (vantagecompanion@gmail.com)"
+USER_AGENT = "Vantage/1.44.137 (vantagecompanion@gmail.com)"
 
 _GUILD_SLUG = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
@@ -287,18 +287,26 @@ class OpenDkpClient(QObject):
                 "adjustments", "GET",
                 f"/clients/{quote(self.slug)}/adjustments?page=1")
 
-    def fetch_character_details(self, character_id):
+    def fetch_character_details(self, character_id, lookback=90, request_token=""):
         if not self.slug or not character_id:
             return
         root = (f"/clients/{quote(self.slug)}/characters/"
                 f"{quote(str(character_id))}")
-        suffix = str(character_id)
-        self._request(f"character_dkp:{suffix}", "GET", root + "/dkp")
-        self._request(f"character_items:{suffix}", "GET", root + "/items")
+        token = str(request_token or "")[:64]
+        suffix = f"|{token}|{character_id}" if token else f":{character_id}"
+        days = max(1, min(3650, int(lookback)))
+        self._request(f"character_dkp{suffix}", "GET", root + "/dkp")
+        self._request(f"character_items{suffix}", "GET", root + "/items")
         self._request(
-            f"character_adjustments:{suffix}", "GET", root + "/adjustments")
+            f"character_adjustments{suffix}", "GET", root + "/adjustments")
         self._request(
-            f"character_raids:{suffix}", "GET", root + "/raids?lookback=90")
+            f"character_raids{suffix}", "GET", root + f"/raids?lookback={days}")
+
+    def fetch_history_raid(self, raid_id, request_token):
+        if self.slug and raid_id and request_token:
+            self._request(
+                f"history_detail|{request_token}|{raid_id}", "GET",
+                f"/clients/{quote(self.slug)}/raids/{quote(str(raid_id), safe='')}")
 
     def fetch_raid_ledger(self, request_token=""):
         """Load a bounded public raid list for local evidence cross-checking."""

@@ -8,7 +8,7 @@ import json
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSignalBlocker, QSize, Qt
 from PySide6.QtWidgets import (
     QComboBox, QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit, QPushButton,
     QVBoxLayout, QWidget,
@@ -277,6 +277,7 @@ class FriendsManagerDialog(UniformScaleDialog):
         self.setWindowTitle("Vantage · EverQuest Friends")
         self.backup_store = backup_store or FriendsBackupStore()
         self._scan = FriendsScan("", "P1999Green", (), ())
+        self._loaded_text = ""
 
         root = QVBoxLayout(self.scaled_surface)
         root.setContentsMargins(10, 10, 10, 10)
@@ -307,7 +308,7 @@ class FriendsManagerDialog(UniformScaleDialog):
             "Choose the server suffix whose character INI files will be synchronized")
         for label, value in FRIEND_SERVERS:
             self.server.addItem(label, value)
-        self.server.currentIndexChanged.connect(self.reload)
+        self.server.currentIndexChanged.connect(self._server_changed)
         controls.addWidget(self.server, 1)
         self.file_count = QLabel("0 files")
         self.file_count.setAccessibleName("Matching character INI file count")
@@ -373,6 +374,36 @@ class FriendsManagerDialog(UniformScaleDialog):
             config.data.get("general", {}).get("eq_log_dir", ""))
 
     def reload(self, _index=None):
+        if self._confirm_discard_changes("reload friends from EverQuest"):
+            self._load_friends()
+
+    def _confirm_discard_changes(self, action):
+        if self.editor.toPlainText() == self._loaded_text:
+            return True
+        answer = QMessageBox.question(
+            self, "Vantage · Unsaved Friends",
+            f"Discard your unpushed Friends edits and {action}?\n\n"
+            "To keep these changes, cancel and use Push to Files first.",
+            QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel)
+        if answer == QMessageBox.StandardButton.Discard:
+            return True
+        self.editor.setFocus(Qt.FocusReason.OtherFocusReason)
+        return False
+
+    def _server_changed(self, _index):
+        if self._confirm_discard_changes("switch servers"):
+            self._load_friends()
+        else:
+            with QSignalBlocker(self.server):
+                self.server.setCurrentIndex(self.server.findData(self._scan.server))
+
+    def reject(self):
+        if self._confirm_discard_changes("close this window"):
+            self.editor.setPlainText(self._loaded_text)
+            super().reject()
+
+    def _load_friends(self):
         eq_root = self._eq_root()
         server = self.server.currentData() or "P1999Green"
         if not eq_root:
@@ -402,6 +433,7 @@ class FriendsManagerDialog(UniformScaleDialog):
                 detail += f" · {len(self._scan.errors)} read error(s)"
             self.status.setText(detail)
             self.push_button.setEnabled(bool(count))
+        self._loaded_text = self.editor.toPlainText()
         self.restore_button.setEnabled(self.backup_store.has_backup())
 
     def push(self):
@@ -428,7 +460,6 @@ class FriendsManagerDialog(UniformScaleDialog):
             self._scan.files, names, self.server.currentData(),
             self.backup_store)
         self.restore_button.setEnabled(self.backup_store.has_backup())
-        self.reload()
         if report.errors:
             self.status.setText(
                 f"Updated {len(report.updated)}/{count} files · "
@@ -439,6 +470,7 @@ class FriendsManagerDialog(UniformScaleDialog):
                 "available through Restore Last Push.\n\n" +
                 "\n".join(report.errors[:8]))
         else:
+            self._load_friends()
             self.status.setText(
                 f"PUSHED · {len(names)} friends · {count} files · backup ready")
 
@@ -449,14 +481,16 @@ class FriendsManagerDialog(UniformScaleDialog):
         answer = QMessageBox.question(
             self, "Vantage · Restore Friends",
             "Restore every character INI from the exact bytes saved before the "
-            "most recent Friends push?",
+            "most recent Friends push?" +
+            ("\n\nYour unpushed edits in this window will be discarded."
+             if self.editor.toPlainText() != self._loaded_text else ""),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Cancel)
         if answer != QMessageBox.StandardButton.Yes:
             self.status.setText("Restore cancelled · no files changed.")
             return
         report = self.backup_store.restore_latest()
-        self.reload()
+        self._load_friends()
         if report.errors:
             self.status.setText(
                 f"Restored {len(report.updated)} files · "

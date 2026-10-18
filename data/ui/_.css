@@ -2286,7 +2286,8 @@ QProgressBar#OpenDkpProgress::chunk {
     background-color: #D2A84D;
     border-radius: 2px;
 }
-QTabWidget#OpenDkpTabs::pane, QTabWidget#OpenDkpAuctionTabs::pane {
+QTabWidget#OpenDkpTabs::pane, QTabWidget#OpenDkpAuctionTabs::pane,
+QTabWidget#OpenDkpOverviewTabs::pane {
     background-color: rgba(8, 14, 18, 244);
     border: 1px solid #40515C;
     border-radius: 6px;
@@ -2331,7 +2332,7 @@ QTabWidget#OpenDkpAuctionTabs QTabBar::tab:selected {
     color: #D8E5E8;
     font-weight: 700;
 }
-#OpenDkpTabs QTableWidget, #OpenDkpAuctionTabs QTableWidget,
+#OpenDkpTabs QTableWidget, #OpenDkpAuctionTabs QTableWidget, #OpenDkpOverviewTabs QTableView,
 #OpenDkpWatchPanel QListWidget {
     color: #E4ECEE;
     background-color: #091014;
@@ -2342,6 +2343,7 @@ QTabWidget#OpenDkpAuctionTabs QTabBar::tab:selected {
     outline: none;
 }
 #OpenDkpTabs QTableWidget::item:selected,
+#OpenDkpOverviewTabs QTableView::item:selected,
 #OpenDkpAuctionTabs QTableWidget::item:selected,
 #OpenDkpWatchPanel QListWidget::item:selected {
     color: #FFF5D7;
@@ -2349,12 +2351,22 @@ QTabWidget#OpenDkpAuctionTabs QTabBar::tab:selected {
     border: 1px solid #B6934F;
 }
 #OpenDkpTabs QTableWidget:focus, #OpenDkpAuctionTabs QTableWidget:focus,
+#OpenDkpOverviewTabs QTableView:focus,
 #OpenDkpWatchPanel QListWidget:focus {
     border: 2px solid #F0C778;
 }
 #OpenDkpTabs QSpinBox, #OpenDkpTabs QComboBox, #OpenDkpTabs QLineEdit,
 #OpenDkpGuildBar QComboBox {
     min-height: 24px;
+}
+
+#OpenDkpHistorySummary {
+    color: #FFF1C5;
+    background-color: #142128;
+    border: 1px solid #40515C;
+    border-left: 3px solid #B89B5A;
+    border-radius: 4px;
+    padding: 7px;
 }
 
 /* Map Loot owns its scroll viewport; replace its native white backing with

@@ -150,7 +150,7 @@ class LogSearcher(ParserWindow):
         self.date_range.setAccessibleName("Log search date range")
         self.date_range.setToolTip("Restrict results to a recent time period")
         for label, hours in (
-                ("All time", 0), ("Today", 24), ("7 days", 168),
+                ("All time", 0), ("Past 24 hours", 24), ("7 days", 168),
                 ("30 days", 720), ("90 days", 2160)):
             self.date_range.addItem(label, hours)
         range_label.setBuddy(self.date_range)

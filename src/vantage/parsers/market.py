@@ -21,7 +21,7 @@ import webbrowser
 
 from PySide6.QtCore import (
     QAbstractTableModel, QEvent, QEventLoop, QModelIndex,
-    QSignalBlocker, QSize,
+    QRect, QSignalBlocker, QSize,
     QSortFilterProxyModel, QStringListModel, Signal, Qt, QThread, QTimer, QUrl)
 from PySide6.QtGui import (
     QAccessible, QAccessibleAnnouncementEvent, QColor, QFont, QPixmap)
@@ -3845,6 +3845,28 @@ class AuctionComposer(QWidget):
             result.get("backup", "character.ini.vantage-backup"))
 
 
+class _MarketStatusLabel(QLabel):
+    """Reserve two styled lines without limiting longer status messages."""
+
+    def minimumSizeHint(self):
+        self.ensurePolished()
+        hint = super().minimumSizeHint()
+        # Measure both lines together to retain Qt's fractional font rounding.
+        # Include the styled contents/frame padding without imposing a maximum:
+        # long errors must still be able to grow through heightForWidth().
+        lines = self.fontMetrics().boundingRect(
+            QRect(), Qt.TextFlag.TextExpandTabs, "M\nM").height()
+        margins = self.contentsMargins()
+        reserved = lines + margins.top() + margins.bottom() + 2 * self.margin()
+        return hint.expandedTo(QSize(0, reserved))
+
+    def sizeHint(self):
+        return super().sizeHint().expandedTo(self.minimumSizeHint())
+
+    def heightForWidth(self, width):
+        return max(super().heightForWidth(width), self.minimumSizeHint().height())
+
+
 class _MarketRefreshButton(QPushButton):
     """Reserve the styled busy caption so refreshing never moves the search."""
 
@@ -3934,21 +3956,11 @@ class GreenMarket(ParserWindow):
             QLayout.SizeConstraint.SetNoConstraint)
         self._toolbar_layout.setContentsMargins(5, 5, 5, 5)
         self._toolbar_layout.setSpacing(4)
-        self.search = QLineEdit()
-        self.search.setPlaceholderText("Search item or effect…")
-        self.search.setClearButtonEnabled(True)
-        self.search.setAccessibleName(f"Search the {self._server} market")
+        self.search = self._filter_search(
+            "Search PigParse items or effects…",
+            f"Search the {self._server} market", self._set_query)
         self.search.setAccessibleDescription(
-            f"Filters PigParse {self._server} prices and the shared P99 item "
-            "metadata while you type")
-        self.search.setToolTip(
-            "Type any part of an item, click, proc, worn, focus, or bard effect; "
-            "results filter while you type")
-        clear_search = self.search.findChild(QToolButton)
-        if clear_search:
-            clear_search.setAccessibleName("Clear market search")
-            clear_search.setToolTip("Clear the search text")
-        self.search.textChanged.connect(self._set_query)
+            f"Filters only PigParse {self._server} price results while you type")
 
         self.server_selector = QComboBox()
         self.server_selector.setObjectName("MarketServerSelector")
@@ -3994,25 +4006,32 @@ class GreenMarket(ParserWindow):
         self._filters_layout.setContentsMargins(5, 3, 5, 4)
         self._filters_layout.setSpacing(4)
         self.class_filter = self._equipment_combo(
-            CLASS_BITS, "Filter by class",
+            CLASS_BITS, "Filter PigParse prices by class",
             lambda bit: self._set_equipment_filter("class", bit))
         self.race_filter = self._equipment_combo(
-            RACE_BITS, "Filter by race",
+            RACE_BITS, "Filter PigParse prices by race",
             lambda bit: self._set_equipment_filter("race", bit))
         self.slot_filter = self._equipment_combo(
-            SLOT_BITS, "Filter by slot",
+            SLOT_BITS, "Filter PigParse prices by slot",
             lambda bit: self._set_equipment_filter("slot", bit))
-        self.clear_filters_button = QPushButton("Clear filters")
+        self.clear_filters_button = QPushButton("Clear price filters")
         self.clear_filters_button.setIcon(game_icon("filter-clear"))
         self.clear_filters_button.setAccessibleName(
-            "Clear all Market search and equipment filters")
+            "Clear PigParse price search and filters")
         self.clear_filters_button.setAccessibleDescription(
-            "Restores the default item search, equipment filters, and sorting "
-            "without changing the selected server or sale-alert watchlist")
+            "Restores the PigParse search, class, race, slot, and price sorting "
+            "without changing Gear filters, the selected server, or the watchlist")
         self.clear_filters_button.setToolTip(
-            "Clear search, class, race, slot, effect, binding, era, and stat sort · "
-            "keeps the server and watchlist")
-        self.clear_filters_button.clicked.connect(self._clear_filters)
+            "Clear price search, class, race, slot, and sorting · "
+            "keeps Gear filters, server, and watchlist")
+        self.clear_filters_button.clicked.connect(self._clear_price_filters)
+        self._filters_layout.addWidget(self.search, 0, 0, 1, 4)
+        self._filters_layout.addWidget(self.class_filter, 1, 0)
+        self._filters_layout.addWidget(self.race_filter, 1, 1)
+        self._filters_layout.addWidget(self.slot_filter, 1, 2)
+        self._filters_layout.addWidget(self.clear_filters_button, 1, 3)
+        for column in range(3):
+            self._filters_layout.setColumnStretch(column, 1)
         self.gear_status = QLabel("Loading P99 metadata…")
         self.gear_status.setObjectName("MarketGearSource")
         self.gear_status.setWordWrap(True)
@@ -4022,14 +4041,14 @@ class GreenMarket(ParserWindow):
         self.gear_status.setToolTip(
             "Class, race, slot, stats, and effect names come from the local "
             "P99 item index and are matched by item name; PigParse supplies prices.")
-        self._body_layout.addWidget(filters)
-
         self.tabs = QTabWidget()
         self.tabs.setMinimumHeight(220)
         self.table = self._market_table()
         market_page = QWidget()
         market_layout = QVBoxLayout(market_page)
         market_layout.setContentsMargins(0, 0, 0, 0)
+        market_layout.setSpacing(0)
+        market_layout.addWidget(filters)
         market_layout.addWidget(self.table)
         self.tabs.addTab(market_page, "PigParse · prices")
 
@@ -4042,6 +4061,36 @@ class GreenMarket(ParserWindow):
         gear_tools_layout = QGridLayout(gear_tools)
         gear_tools_layout.setContentsMargins(5, 3, 5, 3)
         gear_tools_layout.setSpacing(4)
+        self.gear_search = self._filter_search(
+            "Search gear by name or effect…", "Search P99 gear and stats",
+            self._set_gear_query)
+        self.gear_search.setAccessibleDescription(
+            "Filters only the Gear item catalog while you type")
+        self.gear_clear_filters_button = QPushButton("Clear gear filters")
+        self.gear_clear_filters_button.setIcon(game_icon("filter-clear"))
+        self.gear_clear_filters_button.setAccessibleName(
+            "Clear Gear search and filters")
+        self.gear_clear_filters_button.setAccessibleDescription(
+            "Restores the Gear search, equipment filters, and stat sorting "
+            "without changing PigParse filters, the selected server, or the watchlist")
+        self.gear_clear_filters_button.setToolTip(
+            "Clear gear search, class, race, slot, effect, binding, era, and stat sort · "
+            "keeps PigParse filters, server, and watchlist")
+        self.gear_clear_filters_button.clicked.connect(self._clear_gear_filters)
+        gear_tools_layout.addWidget(self.gear_search, 0, 0, 1, 3)
+        gear_tools_layout.addWidget(self.gear_clear_filters_button, 0, 3)
+        self.gear_class_filter = self._equipment_combo(
+            CLASS_BITS, "Filter Gear stats by class",
+            lambda bit: self._set_gear_equipment_filter("class", bit))
+        self.gear_race_filter = self._equipment_combo(
+            RACE_BITS, "Filter Gear stats by race",
+            lambda bit: self._set_gear_equipment_filter("race", bit))
+        self.gear_slot_filter = self._equipment_combo(
+            SLOT_BITS, "Filter Gear stats by slot",
+            lambda bit: self._set_gear_equipment_filter("slot", bit))
+        gear_tools_layout.addWidget(self.gear_class_filter, 1, 0)
+        gear_tools_layout.addWidget(self.gear_race_filter, 1, 1)
+        gear_tools_layout.addWidget(self.gear_slot_filter, 1, 2)
         self.stat_sort = QComboBox()
         for label, key in STAT_OPTIONS:
             self.stat_sort.addItem(f"Best {label}", key)
@@ -4050,7 +4099,7 @@ class GreenMarket(ParserWindow):
             "Choose the stat shown in the Best column; highest values sort first")
         self.stat_sort.currentIndexChanged.connect(
             lambda _: self._set_stat_sort(self.stat_sort.currentData()))
-        gear_tools_layout.addWidget(self.stat_sort, 0, 0)
+        gear_tools_layout.addWidget(self.stat_sort, 1, 3)
         self.effect_filter = QComboBox()
         for label, key in EFFECT_OPTIONS:
             self.effect_filter.addItem(label, key)
@@ -4059,12 +4108,12 @@ class GreenMarket(ParserWindow):
             "Show items with any, click, proc, worn, focus, or bard effects")
         self.effect_filter.currentIndexChanged.connect(
             lambda _: self._set_effect_filter(self.effect_filter.currentData()))
-        gear_tools_layout.addWidget(self.effect_filter, 0, 1)
+        gear_tools_layout.addWidget(self.effect_filter, 2, 0)
         self.gear_results = QLabel("Loading equipment stats…")
         self.gear_results.setObjectName("MarketStatSummary")
         self.gear_results.setToolTip(
             "Visible equipment after search, class, race, slot, and effect filters")
-        gear_tools_layout.addWidget(self.gear_results, 0, 2, 1, 2)
+        gear_tools_layout.addWidget(self.gear_results, 3, 0, 1, 2)
         self.tradeability_filter = QComboBox()
         for label, key in TRADEABILITY_OPTIONS:
             self.tradeability_filter.addItem(label, key)
@@ -4075,7 +4124,7 @@ class GreenMarket(ParserWindow):
         self.tradeability_filter.currentIndexChanged.connect(
             lambda _: self._set_tradeability_filter(
                 self.tradeability_filter.currentData()))
-        gear_tools_layout.addWidget(self.tradeability_filter, 1, 0)
+        gear_tools_layout.addWidget(self.tradeability_filter, 2, 1)
         self.era_filter = QComboBox()
         for label, key in ERA_OPTIONS:
             self.era_filter.addItem(label, key)
@@ -4085,14 +4134,14 @@ class GreenMarket(ParserWindow):
             "from Project 1999 Wiki")
         self.era_filter.currentIndexChanged.connect(
             lambda _: self._set_era_filter(self.era_filter.currentData()))
-        gear_tools_layout.addWidget(self.era_filter, 1, 1)
+        gear_tools_layout.addWidget(self.era_filter, 2, 2)
         self.gear_filter_note = QLabel(
             "Click an item name to view its card and compare it")
         self.gear_filter_note.setObjectName("MarketStatSummary")
         self.gear_filter_note.setAccessibleName(self.gear_filter_note.text())
         self.gear_filter_note.setToolTip(
             "Comparison opens inside the item card and has its own full-catalog search")
-        gear_tools_layout.addWidget(self.gear_filter_note, 1, 2, 1, 2)
+        gear_tools_layout.addWidget(self.gear_filter_note, 3, 2, 1, 2)
         self.recharge_guide_button = QPushButton("Item Recharge Guide")
         self.recharge_guide_button.setIcon(game_icon("ph-info"))
         self.recharge_guide_button.setAccessibleName(
@@ -4105,8 +4154,9 @@ class GreenMarket(ParserWindow):
             "not pricing or purchasing")
         self.recharge_guide_button.clicked.connect(
             self._open_recharge_guide)
-        gear_tools_layout.addWidget(self.recharge_guide_button, 1, 4)
-        gear_tools_layout.setColumnStretch(2, 1)
+        gear_tools_layout.addWidget(self.recharge_guide_button, 2, 3)
+        for column in range(3):
+            gear_tools_layout.setColumnStretch(column, 1)
         gear_layout.addWidget(gear_tools)
         self._gear_width_save_timer = QTimer(self)
         self._gear_width_save_timer.setSingleShot(True)
@@ -4305,7 +4355,7 @@ class GreenMarket(ParserWindow):
             QLayout.SizeConstraint.SetNoConstraint)
         self._footer_layout.setContentsMargins(5, 3, 5, 4)
         self._footer_layout.setSpacing(3)
-        self.status = QLabel(f"Preparing PigParse {self._server}…")
+        self.status = _MarketStatusLabel(f"Preparing PigParse {self._server}…")
         self.status.setWordWrap(True)
         self._analyze_button = QPushButton("Evaluate Price")
         self._analyze_button.setIcon(game_icon("timer"))
@@ -4331,20 +4381,34 @@ class GreenMarket(ParserWindow):
         self._watch_selected_button.clicked.connect(self._watch_selected_item)
         self._body_layout.addWidget(footer)
         self._responsive_widgets = (
-            self.search, self.server_selector, self._refresh_button,
+            self.server_selector, self._refresh_button,
             self._sources_button, self._live_status_button,
-            self.class_filter, self.race_filter,
-            self.slot_filter, self.clear_filters_button,
             self.gear_status, self.status,
-            self.stat_sort, self.effect_filter, self.tradeability_filter,
-            self.era_filter,
             self._watch_selected_button, self._analyze_button,
             self._detail_button, self._wiki_button)
-        for widget in self._responsive_widgets:
+        page_controls = (
+            self.search, self.class_filter, self.race_filter, self.slot_filter,
+            self.clear_filters_button, self.gear_search, self.gear_class_filter,
+            self.gear_race_filter, self.gear_slot_filter,
+            self.gear_clear_filters_button, self.stat_sort, self.effect_filter,
+            self.tradeability_filter, self.era_filter)
+        for widget in (*self._responsive_widgets, *page_controls):
             widget.setMinimumWidth(0)
             widget.setSizePolicy(
                 QSizePolicy.Policy.Expanding,
                 widget.sizePolicy().verticalPolicy())
+        for sequence in (
+                (self.server_selector, self._refresh_button, self._sources_button,
+                 self._live_status_button, self.tabs.tabBar()),
+                (self.search, self.class_filter, self.race_filter,
+                 self.slot_filter, self.clear_filters_button, self.table),
+                (self.gear_search, self.gear_clear_filters_button,
+                 self.gear_class_filter, self.gear_race_filter,
+                 self.gear_slot_filter, self.stat_sort, self.effect_filter,
+                 self.tradeability_filter, self.era_filter,
+                 self.recharge_guide_button, self.gear_table)):
+            for first, second in zip(sequence, sequence[1:]):
+                QWidget.setTabOrder(first, second)
         QTimer.singleShot(0, self._relayout_controls)
 
         self._refresh_timer = QTimer(self)
@@ -4551,7 +4615,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(requested.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.136")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.137")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_finished(
             reply, requested, cached_path))
@@ -4691,7 +4755,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(target.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.136")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.137")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_npc_drops_finished(
             reply, mob, target, key, cache_path))
@@ -4781,18 +4845,35 @@ class GreenMarket(ParserWindow):
         return bool(webbrowser.open(_wiki_target_url(name)))
 
     @staticmethod
+    def _filter_search(placeholder, accessible_name, callback):
+        search = QLineEdit()
+        search.setPlaceholderText(placeholder)
+        search.setClearButtonEnabled(True)
+        search.setAccessibleName(accessible_name)
+        search.setToolTip(
+            "Type any part of an item, click, proc, worn, focus, or bard effect; "
+            "only this tab's results filter while you type")
+        clear = search.findChild(QToolButton)
+        if clear:
+            clear.setAccessibleName("Clear this tab's search")
+            clear.setToolTip("Clear this tab's search text")
+        search.textChanged.connect(callback)
+        return search
+
+    @staticmethod
     def _equipment_combo(values, accessible_name, callback):
         combo = QComboBox()
         for label, bit in values:
             combo.addItem(label, bit)
         combo.setAccessibleName(accessible_name)
-        combo.setToolTip(
-            f"{accessible_name}; applies to both PigParse prices and Gear stats")
+        combo.setToolTip(f"{accessible_name}; applies only to this tab")
         combo.currentIndexChanged.connect(lambda _: callback(combo.currentData()))
         return combo
 
     def _set_equipment_filter(self, kind, bit):
         self._proxy.set_gear_filter(kind, bit)
+
+    def _set_gear_equipment_filter(self, kind, bit):
         self._gear_proxy.set_gear_filter(kind, bit)
         self._update_gear_summary()
 
@@ -4828,21 +4909,39 @@ class GreenMarket(ParserWindow):
         self.gear_results.setText(
             f"{visible:,} / {total:,} items · highest {label} first")
 
-    def _clear_filters(self):
-        """Restore every Market result filter without touching user data."""
+    def _clear_price_filters(self):
+        """Reset only the PigParse page's search, filters, sort, and selection."""
         controls = (
             self.search, self.class_filter, self.race_filter,
-            self.slot_filter, self.stat_sort, self.effect_filter,
-            self.tradeability_filter, self.era_filter)
+            self.slot_filter)
         blockers = [QSignalBlocker(control) for control in controls]
         self.search.clear()
         for combo in controls[1:]:
             combo.setCurrentIndex(0)
-
         self._proxy.set_query("")
-        self._gear_proxy.set_query("")
         for kind in ("class", "race", "slot"):
             self._proxy.set_gear_filter(kind, 0)
+        self.table.sortByColumn(0, Qt.SortOrder.AscendingOrder)
+        self.table.clearSelection()
+        self.table.setCurrentIndex(QModelIndex())
+        self.status.setText("Price filters cleared")
+        _announce_accessible(self, "PigParse price filters cleared")
+        del blockers
+        return True
+
+    def _clear_gear_filters(self):
+        """Reset only the Gear page's search, filters, sort, and selection."""
+        controls = (
+            self.gear_search, self.gear_class_filter, self.gear_race_filter,
+            self.gear_slot_filter, self.stat_sort, self.effect_filter,
+            self.tradeability_filter, self.era_filter)
+        blockers = [QSignalBlocker(control) for control in controls]
+        self.gear_search.clear()
+        for combo in controls[1:]:
+            combo.setCurrentIndex(0)
+
+        self._gear_proxy.set_query("")
+        for kind in ("class", "race", "slot"):
             self._gear_proxy.set_gear_filter(kind, 0)
         self._gear_proxy.set_effect_filter("")
         self._gear_proxy.set_tradeability_filter("")
@@ -4851,16 +4950,12 @@ class GreenMarket(ParserWindow):
         for column in CORE_STAT_COLUMNS.values():
             self.gear_table.setColumnHidden(column, False)
         self.gear_table.setColumnHidden(CORE_STAT_COLUMNS["ac"], True)
-        self.table.sortByColumn(0, Qt.SortOrder.AscendingOrder)
         self.gear_table.sortByColumn(3, Qt.SortOrder.DescendingOrder)
-        self.table.clearSelection()
         self.gear_table.clearSelection()
-        self.live_table.clearSelection()
+        self.gear_table.setCurrentIndex(QModelIndex())
         self._update_gear_summary()
-        self.status.setText(
-            f"Filters cleared · PigParse {self._server} and watchlist unchanged")
-        _announce_accessible(
-            self, "Market filters cleared; server and watchlist unchanged")
+        self.status.setText("Gear filters cleared")
+        _announce_accessible(self, "Gear filters cleared")
         # Keep blockers alive until every model receives its final state.
         del blockers
         return True
@@ -5019,7 +5114,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.136")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.137")
         reply = self._network.get(request)
         timer = QTimer(self)
         timer.setSingleShot(True)
@@ -5104,7 +5199,7 @@ class GreenMarket(ParserWindow):
             return None
         request = QNetworkRequest(QUrl(safe_url))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.136")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.137")
         reply = self._network.get(request)
         timer = QTimer(self)
         timer.setSingleShot(True)
@@ -5236,7 +5331,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.136")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.137")
         request.setTransferTimeout(P99_ENTITY_TIMEOUT_MS)
         reply = self._network.get(request)
         context = {
@@ -5350,7 +5445,7 @@ class GreenMarket(ParserWindow):
                     filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.136")
+                    "Vantage/1.44.137")
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
                     lambda: self._wiki_icon_finished(
@@ -5407,11 +5502,9 @@ class GreenMarket(ParserWindow):
     def _relayout_controls(self):
         for widget in self._responsive_widgets:
             self._toolbar_layout.removeWidget(widget)
-            self._filters_layout.removeWidget(widget)
             self._footer_layout.removeWidget(widget)
         for column in range(6):
             self._toolbar_layout.setColumnStretch(column, 0)
-            self._filters_layout.setColumnStretch(column, 0)
             self._footer_layout.setColumnStretch(column, 0)
         # The complete market surface is uniformly scaled by ParserWindow.
         # Responsive breakpoints here would mutate the logical layout during a
@@ -5420,47 +5513,26 @@ class GreenMarket(ParserWindow):
         width = self._design_size.width()
 
         if width >= 900:
-            self._toolbar_layout.addWidget(self.search, 0, 0, 1, 2)
+            self._toolbar_layout.addWidget(self.gear_status, 0, 0, 1, 2)
             self._toolbar_layout.addWidget(self.server_selector, 0, 2)
             self._toolbar_layout.addWidget(self._refresh_button, 0, 3)
             self._toolbar_layout.addWidget(self._sources_button, 0, 4)
             self._toolbar_layout.addWidget(self._live_status_button, 0, 5)
         elif width >= 460:
-            self._toolbar_layout.addWidget(self.search, 0, 0, 1, 3)
+            self._toolbar_layout.addWidget(self.gear_status, 0, 0, 1, 3)
             self._toolbar_layout.addWidget(self.server_selector, 1, 0)
             self._toolbar_layout.addWidget(self._refresh_button, 1, 1)
             self._toolbar_layout.addWidget(self._sources_button, 1, 2)
             self._toolbar_layout.addWidget(
                 self._live_status_button, 2, 0, 1, 3)
         else:
-            self._toolbar_layout.addWidget(self.search, 0, 0, 1, 2)
+            self._toolbar_layout.addWidget(self.gear_status, 0, 0, 1, 2)
             self._toolbar_layout.addWidget(self.server_selector, 1, 0)
             self._toolbar_layout.addWidget(self._refresh_button, 1, 1)
             self._toolbar_layout.addWidget(self._sources_button, 2, 0, 1, 2)
             self._toolbar_layout.addWidget(
                 self._live_status_button, 3, 0, 1, 2)
         self._toolbar_layout.setColumnStretch(0, 1)
-
-        if width >= 820:
-            self._filters_layout.addWidget(self.class_filter, 0, 0)
-            self._filters_layout.addWidget(self.race_filter, 0, 1)
-            self._filters_layout.addWidget(self.slot_filter, 0, 2)
-            self._filters_layout.addWidget(self.clear_filters_button, 0, 3)
-            self._filters_layout.addWidget(self.gear_status, 0, 4)
-            self._filters_layout.setColumnStretch(4, 1)
-        elif width >= 480:
-            self._filters_layout.addWidget(self.class_filter, 0, 0)
-            self._filters_layout.addWidget(self.race_filter, 0, 1)
-            self._filters_layout.addWidget(self.slot_filter, 0, 2)
-            self._filters_layout.addWidget(self.clear_filters_button, 1, 0)
-            self._filters_layout.addWidget(self.gear_status, 1, 1, 1, 2)
-        else:
-            self._filters_layout.addWidget(self.class_filter, 0, 0, 1, 2)
-            self._filters_layout.addWidget(self.race_filter, 1, 0)
-            self._filters_layout.addWidget(self.slot_filter, 1, 1)
-            self._filters_layout.addWidget(
-                self.clear_filters_button, 2, 0, 1, 2)
-            self._filters_layout.addWidget(self.gear_status, 3, 0, 1, 2)
 
         if width >= 900:
             self._footer_layout.addWidget(self.status, 0, 0)
@@ -5609,7 +5681,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.136")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.137")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -5636,7 +5708,7 @@ class GreenMarket(ParserWindow):
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
                 QNetworkRequest.KnownHeaders.UserAgentHeader,
-                "Vantage/1.44.136")
+                "Vantage/1.44.137")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -5945,6 +6017,8 @@ class GreenMarket(ParserWindow):
 
     def _set_query(self, query):
         self._proxy.set_query(query)
+
+    def _set_gear_query(self, query):
         self._gear_proxy.set_query(query)
         self._update_gear_summary()
 
@@ -5954,8 +6028,7 @@ class GreenMarket(ParserWindow):
         self._title.setText(f"Market · {server}")
         self.search.setAccessibleName(f"Search the {server} market")
         self.search.setAccessibleDescription(
-            f"Filters PigParse {server} prices and the shared P99 item metadata "
-            "while you type")
+            f"Filters only PigParse {server} price results while you type")
         self._refresh_button.setToolTip(
             f"Refresh PigParse {server} prices and retry verified P99 item "
             "stats")
@@ -6017,7 +6090,7 @@ class GreenMarket(ParserWindow):
         self.status.setText(f"Refreshing PigParse {server}…")
         request = QNetworkRequest(QUrl(market_endpoint(server)))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.136")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.137")
         reply = self._network.get(request)
         reply.setProperty("market_server", server)
         reply.finished.connect(lambda: self._finished(reply))
@@ -6145,7 +6218,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(market_detail_api(server).format(
             item_name=quote(name, safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.136")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.137")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.setProperty("market_server", server)
