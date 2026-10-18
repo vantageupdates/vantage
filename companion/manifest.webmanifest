@@ -1,7 +1,7 @@
 {
   "name": "Vantage Companion · P99 Green",
   "short_name": "Vantage",
-  "description": "Saved guild records, Market, Spells, Zones and Quests for Vantage Companion.",
+  "description": "OpenDKP guild balances and history without the PC, plus saved Market, Spells, Zones and Quests.",
   "id": "/vantage/companion/",
   "start_url": "/vantage/companion/",
   "scope": "/vantage/companion/",
