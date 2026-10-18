@@ -51,6 +51,9 @@ jobs:
           cp source/companion-web/app.js site/companion/
           cp source/companion-web/storage.js site/companion/
           cp source/companion-web/offline.js site/companion/
+          cp source/companion-web/dkp.js site/companion/
+          cp source/companion-web/guild-dkp.js site/companion/
+          cp source/companion-web/guild-dkp.css site/companion/
           cp source/companion-web/sw.js site/companion/
           cp source/companion-web/manifest.webmanifest site/companion/
           cp source/data/ui/icon.png site/companion/icon-256.png

@@ -267,7 +267,7 @@ def test_mobile_pwa_shell_routes_are_cacheable_without_caching_private_api():
 
         _, worker, worker_headers = _request(base, "/sw.js")
         worker_text = worker.decode("utf-8")
-        assert "vantage-mobile-shell-v1" in worker_text
+        assert "vantage-mobile-shell-v2" in worker_text
         assert "request.mode==='navigate'" in worker_text
         assert "url.pathname.startsWith('/api/')" in worker_text
         assert "Authorization" not in worker_text

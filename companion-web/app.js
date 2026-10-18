@@ -11,6 +11,7 @@ const number=value=>Number(value||0).toLocaleString();
 const namesForMask=(mask,rows)=>rows.filter(row=>row[1]&&((Number(mask)||0)&row[1])).map(row=>row[0]);
 const debounce=(fn,delay=90)=>{let timer;return(...args)=>{clearTimeout(timer);timer=setTimeout(()=>fn(...args),delay)}};
 const announceResults=debounce((section,text)=>{if(!$(section).hidden)$('search-announcement').textContent=text},550);
+const guildDKP=VantageGuildDKP.mount($('guild-dkp'),{onStateChange:next=>{state.guildSaved=Boolean(next.directorySavedAt);state.guildHistorySaved=Boolean(next.historySavedAt);updateReadiness()}});
 function resultCount(id,section,text){$(id).textContent=text;if(!$(section).hidden)announceResults(section,text)}
 
 function fillSelect(select,rows){select.replaceChildren(...rows.map(([label,value])=>{const option=node('option','',label);option.value=String(value);return option}))}
@@ -40,6 +41,7 @@ function validateCatalog(key,payload){
 function renderCatalog(key){if(key==='items')renderMarket();else if(key==='spells'){updateSpellLevels();renderSpells()}else renderReference(key)}
 function updateReadiness(){
   const saved=Object.entries(CATALOGS).filter(([key])=>state.catalogs[key]?.durable).map(([,value])=>value.label);
+  if(state.guildSaved)saved.unshift(state.guildHistorySaved?'Guild roster & selected history':'Guild roster & balances');
   if(state.snapshot)saved.unshift('PC copy');
   const available=saved.length?saved.join(', '):'No sections saved yet';
   $('offline-status').textContent=state.shellReady?(saved.length?`Ready offline: ${available}.`:'App saved. Connect to save catalogs, or import your PC copy.'):(state.shellError||'Saving the app for offline reopening…')+(saved.length?` Saved data: ${available}.`:'');
@@ -215,7 +217,7 @@ async function saveImport(){
   $('import-confirm').disabled=true;
   try{
     const saved=await VantageStorage.put('pc-copy',pending.snapshot);
-    state.snapshot=saved.payload;state.snapshotSavedAt=saved.savedAt;pendingImport=null;pending.finish(true);$('import-review').close();renderGuild(true);renderReference('zones');renderReference('quests');updateReadiness();
+    state.snapshot=saved.payload;state.snapshotSavedAt=saved.savedAt;pendingImport=null;pending.finish(true);$('import-review').close();renderGuild(true);renderReference('zones');renderReference('quests');updateReadiness();$('guild-snapshot').open=true;guildDKP?.suggestGuild(state.snapshot.guild?.slug);
     importStatus('Copy saved on this device. '+(state.shellReady?'Ready offline.':'Finish app setup online before closing it.'));showPage(state.snapshot.guild?'guild':'offline');
     if(navigator.storage?.persist)navigator.storage.persist().catch(()=>{});
   }catch(_){$('import-review-status').textContent='Could not save this copy. Your previous copy is unchanged. Free device storage, then retry.';$('import-confirm').disabled=false}
@@ -223,7 +225,7 @@ async function saveImport(){
 async function restoreSnapshot(){
   try{const saved=await VantageStorage.get('pc-copy');if(saved){state.snapshot=VantageOffline.snapshot(saved.payload);state.snapshotSavedAt=saved.savedAt}}
   catch(_){importStatus('Saved PC data could not be read. Your stored copy has not been replaced. Import a backup or retry with device storage available.')}
-  renderGuild();renderReference('zones');renderReference('quests');updateReadiness();
+  renderGuild();renderReference('zones');renderReference('quests');updateReadiness();guildDKP?.suggestGuild(state.snapshot?.guild?.slug);
 }
 function exportSnapshot(){
   if(!state.snapshot)return;

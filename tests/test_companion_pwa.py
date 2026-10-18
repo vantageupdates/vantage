@@ -168,7 +168,7 @@ const context={URL,Request,Response,self:{registration:{scope:root},location:{or
  fetch:async()=>{throw Error('offline')}};
 vm.createContext(context);vm.runInContext(fs.readFileSync('companion-web/sw.js','utf8'),context);
 let pending;handlers.activate({waitUntil:promise=>pending=promise});await pending;
-assert.deepEqual(deleted,['vantage-companion-shell-old']);
+assert.deepEqual(deleted,['vantage-companion-shell-old','vantage-companion-shell-v1.44.135']);
 let response;handlers.fetch({request:{method:'GET',url:root+'app.js',mode:'cors'},respondWith:promise=>response=promise});
 assert.equal((await response).type,'error');
 let intercepted=false;handlers.fetch({request:{method:'GET',url:root+'data/items.json',mode:'cors'},respondWith:()=>intercepted=true});

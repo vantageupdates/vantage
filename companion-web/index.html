@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="referrer" content="no-referrer">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self' https://api.opendkp.com; worker-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
   <meta name="theme-color" content="#10171b">
-  <meta name="description" content="Your saved guild records and P99 Market, Spells, Zones and Quests, available from one permanent Home Screen app.">
+  <meta name="description" content="OpenDKP guild balances and history without the PC, plus saved P99 Market, Spells, Zones and Quests in one Home Screen app.">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon-256.png">
   <link rel="apple-touch-icon" href="icon-1254.png">
   <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="guild-dkp.css">
   <title>Vantage Companion</title>
 </head>
 <body>
@@ -20,7 +21,7 @@
       <img src="icon-256.png" alt="" width="42" height="42">
       <div>
         <strong>Vantage Companion</strong>
-        <span>Saved references · live tools via PC QR</span>
+        <span>Guild DKP & saved references · live tools via PC QR</span>
       </div>
     </div>
     <div class="header-actions">
@@ -42,7 +43,10 @@
     <p id="offline-status" class="save-status" role="status" aria-live="polite">Checking saved data on this device…</p>
     <p id="search-announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
     <section id="guild" class="page" role="tabpanel" hidden aria-labelledby="guild-tab">
-      <div class="section-heading"><div><p class="eyebrow">YOUR SAVED COPY</p><h1 id="guild-title" tabindex="-1">Guild records</h1></div><button class="import-shortcut" type="button">Import copy</button></div>
+      <div class="section-heading"><div><p class="eyebrow">OPENDKP</p><h1 id="guild-title" tabindex="-1">Guild DKP</h1></div></div>
+      <div id="guild-dkp"></div>
+      <details id="guild-snapshot" class="pc-snapshot"><summary>Imported PC snapshot</summary>
+      <div class="section-heading"><h2>Saved PC guild records</h2><button class="import-shortcut" type="button">Import copy</button></div>
       <p id="guild-meta" class="meta" role="status">No guild copy saved on this device yet.</p>
       <div class="filters guild-filters" role="search" aria-label="Saved guild records">
         <label class="search-field">Search all saved records<input id="guild-search" type="search" autocomplete="off" placeholder="Character, item, raid, or class"></label>
@@ -51,6 +55,7 @@
       <p id="guild-count" class="result-count"></p>
       <div id="guild-results" class="results"></div>
       <button id="guild-more" class="show-more" type="button" hidden>Show more saved records</button>
+      </details>
     </section>
     <section id="market" class="page" role="tabpanel" aria-labelledby="market-tab">
       <div class="section-heading">
@@ -116,7 +121,7 @@
       <article class="limits">
         <h2>Save your PC reference copy</h2>
         <p>While connected to the PC QR session, choose its offline copy export. Save that file on your phone, then open this installed app and import it here.</p>
-        <p>The copy contains the selected guild and the current zone and quest details. It is a dated reference; refreshing public catalogs does not update guild records.</p>
+        <p>The copy contains the PC-selected guild and the current zone and quest details. It is a separate dated reference. Use Guild to check OpenDKP directly, without the PC.</p>
         <label class="file-label" for="import-file">Choose Vantage offline file (up to 8 MiB)</label>
         <input id="import-file" type="file" accept=".json,application/json" aria-describedby="import-status">
         <p id="import-status" class="meta" role="status" aria-live="polite">Nothing is uploaded. You will review the copy before replacing saved data.</p>
@@ -136,12 +141,12 @@
       <article class="limits">
         <h2>What remains available</h2>
         <ul>
-          <li><b>Offline after saving:</b> full Market and Spell search; zone names and quest titles; imported guild records and imported zone/quest details.</li>
-          <li><b>Needs internet:</b> refreshing PigParse prices and opening Project 1999 Wiki pages.</li>
+          <li><b>Offline after saving:</b> the last successful OpenDKP roster, balances and loaded character history periods; full Market and Spell search; imported PC records and zone/quest details.</li>
+          <li><b>Needs internet:</b> refreshing OpenDKP guild records, PigParse prices and opening Project 1999 Wiki pages. OpenDKP does not need the PC.</li>
           <li><b>Needs the PC QR session:</b> live timers, buffs, controls and <b>EverQuest Live</b>. Open the private QR link with the PC running on the same Wi-Fi. Live images are never saved here.</li>
         </ul>
         <p>If your old icon opens a local PC address, replace it with this permanent HTTPS icon once. Keep the private PC QR link for live tools.</p>
-        <p>Saved copies stay on this device. Browser data clearing or device storage cleanup can remove them; keep an exported backup. No OpenDKP password or PC connection key is imported.</p>
+        <p>Saved copies stay on this device. Browser data clearing or device storage cleanup can remove them. The export and forget-copy controls above apply only to the imported PC snapshot, not directly loaded OpenDKP records. No OpenDKP password or PC connection key is imported.</p>
       </article>
       <button id="open-market" class="primary" type="button">Open Offline Market</button>
     </section>
@@ -170,6 +175,8 @@
   </footer>
   <script src="storage.js" defer></script>
   <script src="offline.js" defer></script>
+  <script src="dkp.js" defer></script>
+  <script src="guild-dkp.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>

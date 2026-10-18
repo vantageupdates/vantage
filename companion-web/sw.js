@@ -1,6 +1,6 @@
 const SHELL_PREFIX = 'vantage-companion-shell-';
-const CACHE = SHELL_PREFIX + 'v1.44.135';
-const SHELL = ['./', 'index.html', 'app.css', 'storage.js', 'offline.js', 'app.js', 'manifest.webmanifest', 'icon-256.png', 'icon-1254.png'];
+const CACHE = SHELL_PREFIX + 'v1.44.138';
+const SHELL = ['./', 'index.html', 'app.css', 'guild-dkp.css', 'storage.js', 'offline.js', 'dkp.js', 'guild-dkp.js', 'app.js', 'manifest.webmanifest', 'icon-256.png', 'icon-1254.png'];
 const shellURLs = SHELL.map(path => new URL(path, self.registration.scope).href);
 self.addEventListener('install', event => event.waitUntil((async () => {
   const cache = await caches.open(CACHE);

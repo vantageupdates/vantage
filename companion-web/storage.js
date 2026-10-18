@@ -28,7 +28,7 @@
       tx.oncomplete = () => resolve(result);
       tx.onerror = () => reject(tx.error || new Error('Device storage could not save this data.'));
       tx.onabort = () => reject(tx.error || new Error('The save was interrupted. The previous copy is unchanged.'));
-      try { action(tx.objectStore('records'), value => { result = value; }); }
+      try { action(tx.objectStore('records'), value => { result = value; }, tx); }
       catch (error) { tx.abort(); reject(error); }
     });
   }
@@ -40,6 +40,37 @@
     const record = {key, payload, savedAt}; store.put(record); done(record);
   });
   const remove = key => transaction('readwrite', store => store.delete(key));
+  const GUILD_PREFIX = 'guild-dkp:v1:', GUILD_REVISION = 'guild-dkp:revision';
+  const resetListeners = new Set();
+  const resetChannel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('vantage-guild-dkp-reset') : null;
+  const notifyReset = () => resetListeners.forEach(listener => listener());
+  if (resetChannel) resetChannel.onmessage = event => { if (event.data === 'cleared') notifyReset(); };
+  const onGuildReset = listener => { resetListeners.add(listener); return () => resetListeners.delete(listener); };
+  const guildRevision = async () => Number((await get(GUILD_REVISION))?.payload) || 0;
+  const putGuildRecord = (key, payload, revision, savedAt = new Date().toISOString()) => {
+    if (!key.startsWith(GUILD_PREFIX)) return Promise.reject(new Error('Invalid OpenDKP record key.'));
+    return transaction('readwrite', (store, done) => {
+      const request = store.get(GUILD_REVISION);
+      request.onsuccess = () => {
+        if ((Number(request.result?.payload) || 0) !== revision) { done(null); return; }
+        const record = {key, payload, savedAt}; store.put(record); done(record);
+      };
+    });
+  };
+  const removePrefix = prefix => {
+    if (prefix !== GUILD_PREFIX) return Promise.reject(new Error('Only saved OpenDKP data can be cleared here.'));
+    return transaction('readwrite', store => {
+      const revision = store.get(GUILD_REVISION);
+      revision.onsuccess = () => store.put({key: GUILD_REVISION, payload: (Number(revision.result?.payload) || 0) + 1});
+      const request = store.openCursor();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        if (typeof cursor.key === 'string' && cursor.key.startsWith(prefix)) cursor.delete();
+        cursor.continue();
+      };
+    }).then(result => { notifyReset(); resetChannel?.postMessage('cleared'); return result; });
+  };
   // v2 kept catalogs with its app shell. Migrate them before claiming readiness.
   async function legacy(path) {
     if (!globalThis.caches) return null;
@@ -50,5 +81,5 @@
     }
     return null;
   }
-  window.VantageStorage = Object.freeze({get, put, remove, legacy});
+  window.VantageStorage = Object.freeze({get, put, remove, removePrefix, guildRevision, putGuildRecord, onGuildReset, legacy});
 })();

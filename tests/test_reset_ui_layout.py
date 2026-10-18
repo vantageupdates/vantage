@@ -11,11 +11,21 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = r"""
 import copy
 import json
+import os
+from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QMessageBox
 from vantage.helpers import config
 from vantage.helpers.application import VantageApp
+
+# A fresh profile can discover an installed EQ folder. Keep both the selected
+# log directory and its EQ-root fallback inside this test's disposable fixture.
+eq_root = Path(os.environ['VANTAGE_TEST_EQ_ROOT']).resolve()
+eq_logs = eq_root / 'Logs'
+assert eq_logs.is_dir() and not any(eq_logs.iterdir())
+config.data['general']['eq_log_dir'] = str(eq_logs)
+config.data['vantage_ui']['eq_dir'] = str(eq_root)
 
 content = {
     'active_spells': [{'name': 'Clarity II', 'remaining': 921}],
@@ -209,6 +219,9 @@ def test_reset_ui_layout_is_confirmed_presentation_only_and_transactional(tmp_pa
     env['QT_QPA_PLATFORM'] = 'offscreen'
     env['PYTHONPATH'] = str(ROOT / 'src')
     env['VANTAGE_DATA_DIR'] = str(tmp_path / 'profile')
+    eq_root = tmp_path / 'EverQuest'
+    (eq_root / 'Logs').mkdir(parents=True)
+    env['VANTAGE_TEST_EQ_ROOT'] = str(eq_root)
     completed = subprocess.run(
         [sys.executable, '-c', SCRIPT], cwd=ROOT, env=env,
         check=True, capture_output=True, text=True, timeout=45)

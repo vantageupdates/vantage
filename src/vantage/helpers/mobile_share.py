@@ -123,7 +123,7 @@ def load_mobile_spell_detail(name):
     request = Request(
         P99_SPELL_DETAIL_API.format(
             slug=quote(str(name).strip().replace(" ", "_"), safe="")),
-        headers={"User-Agent": "Vantage/1.44.137"})
+        headers={"User-Agent": "Vantage/1.44.138"})
     with urlopen(request, timeout=8) as response:
         payload_bytes = response.read(2_000_001)
     if len(payload_bytes) > 2_000_000:
@@ -413,7 +413,7 @@ def load_mobile_item_detail(item):
     request = Request(
         P99_ITEM_DETAIL_API.format(
             slug=quote(name.replace(" ", "_"), safe="")),
-        headers={"User-Agent": "Vantage/1.44.137"})
+        headers={"User-Agent": "Vantage/1.44.138"})
     with urlopen(request, timeout=8) as response:
         payload_bytes = response.read(MAX_WIKI_RESPONSE + 1)
     if len(payload_bytes) > MAX_WIKI_RESPONSE:
@@ -468,8 +468,8 @@ _MOBILE_MANIFEST = json.dumps({
 }, ensure_ascii=False, separators=(",", ":"))
 
 
-_MOBILE_SERVICE_WORKER = r"""const CACHE='vantage-mobile-shell-v1';
-const SHELL=['/','/manifest.webmanifest','/icon.png'];
+_MOBILE_SERVICE_WORKER = r"""const CACHE='vantage-mobile-shell-v2';
+const SHELL=['/','/manifest.webmanifest','/icon.png','/companion/storage.js','/companion/dkp.js','/companion/guild-dkp.js','/companion/guild-dkp.css'];
 self.addEventListener('install',event=>{event.waitUntil((async()=>{const cache=await caches.open(CACHE);for(const path of SHELL){try{const response=await fetch(path,{cache:'reload'});if(response.ok)await cache.put(path,response)}catch(_){}}await self.skipWaiting()})())});
 self.addEventListener('activate',event=>{event.waitUntil((async()=>{for(const key of await caches.keys())if(key!==CACHE&&key.startsWith('vantage-mobile-shell-'))await caches.delete(key);await self.clients.claim()})())});
 self.addEventListener('fetch',event=>{const request=event.request,url=new URL(request.url);if(request.method!=='GET'||url.origin!==self.location.origin)return;if(url.pathname.startsWith('/api/'))return;if(request.mode==='navigate'){event.respondWith((async()=>{try{const response=await fetch(request);if(!response.ok)throw Error(String(response.status));(await caches.open(CACHE)).put('/',response.clone());return response}catch(_){return (await caches.match('/'))||new Response('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vantage offline</title></head><body><main><h1>Vantage is offline</h1><p>Reconnect this phone to Vantage, then try again.</p></main></body></html>',{headers:{'Content-Type':'text/html; charset=utf-8'}})}})());return}if(SHELL.includes(url.pathname))event.respondWith((async()=>{const cached=await caches.match(url.pathname);if(cached)return cached;const response=await fetch(request);if(response.ok)(await caches.open(CACHE)).put(url.pathname,response.clone());return response})())});
@@ -484,6 +484,10 @@ _MOBILE_PAGE = r"""<!doctype html>
 <meta name="referrer" content="no-referrer">
 <meta name="theme-color" content="#090b0e">
 <link rel="manifest" href="/manifest.webmanifest">
+<link rel="stylesheet" href="/companion/guild-dkp.css">
+<script src="/companion/storage.js"></script>
+<script src="/companion/dkp.js"></script>
+<script src="/companion/guild-dkp.js"></script>
 <title>Vantage · P99 Companion</title>
 <style>
 :root{color-scheme:dark;--void:#090b0e;--surface:#11161b;--raised:#171d23;--line:#343c43;--line2:#525b62;--text:#eeeae2;--muted:#aba79e;--accent:#d0b675;--gold:#9d8050;--ok:#51c79b;--warn:#e0ad54;--bad:#f06e78}
@@ -533,7 +537,7 @@ dialog{width:min(92vw,620px);max-height:84vh;overflow:auto;border:1px solid #6e6
 <div class="field"><label for="mso">Sort</label><select id="mso"><option value="posts">Most market data</option><option value="price">Highest price</option><option value="ac">Best AC</option><option value="hp">Best HP</option><option value="mana">Best Mana</option><option value="astr">Best STR</option><option value="asta">Best STA</option><option value="adex">Best DEX</option><option value="aagi">Best AGI</option><option value="aint">Best INT</option><option value="awis">Best WIS</option><option value="acha">Best CHA</option><option value="mr">Best MR</option><option value="haste">Best Haste</option></select></div>
 </form></search><div class="market-note" id="marketNote">PigParse prices · P99 item stats and effects</div><div id="marketStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div><ul id="marketRows" class="card-list" aria-labelledby="marketHeading" aria-busy="false"></ul></section>
 <section id="spellsPage" class="page" role="tabpanel" aria-labelledby="tabSpells" tabindex="0" hidden><h2 id="spellsHeading" class="panel-title">P99 SPELL LIBRARY</h2><search aria-label="Search P99 spells"><form id="spellFilters" class="filters"><div class="field field-wide"><label for="sq">Spell</label><input id="sq" type="search" placeholder="Search spell…" autocomplete="off"></div><div class="field"><label for="sc">Class</label><select id="sc"><option value="">Any class</option><option>Bard</option><option>Cleric</option><option>Druid</option><option>Enchanter</option><option>Magician</option><option>Necromancer</option><option>Paladin</option><option>Ranger</option><option>Shadow Knight</option><option>Shaman</option><option>Wizard</option></select></div><div class="field"><label for="sl">Level</label><select id="sl"><option value="0">Any level</option></select></div></form></search><div class="market-note" id="spellNote">Bundled classic spell index · levels 1–60</div><div id="spellStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div><ul id="spellRows" class="card-list" aria-labelledby="spellsHeading" aria-busy="false"></ul></section>
-<section id="guildPage" class="page" role="tabpanel" aria-labelledby="tabGuild" tabindex="0" hidden><h2 id="guildHeading" class="panel-title">Guild DKP &amp; More</h2><p id="guildNote" class="market-note">Choose one of the guilds saved in Vantage.</p><div class="browser-tools"><label class="wide">Guild<select id="guildSelect"><option value="">Choose a saved guild…</option></select></label><label>View<select id="guildView"><option value="standings">Standings / DKP</option><option value="loot">Loot</option><option value="raids">Raids</option><option value="auctions">Live auctions</option><option value="sheets">Guild sheets</option></select></label><label>Search DKP, player or item<input id="guildSearch" type="search" placeholder="Search this view…" autocomplete="off"></label></div><div id="guildStatus" class="sr-only" role="status" aria-live="polite"></div><ul id="guildRows" class="card-list" aria-labelledby="guildHeading" aria-busy="false"></ul></section>
+<section id="guildPage" class="page" role="tabpanel" aria-labelledby="tabGuild" tabindex="0" hidden><h2 id="guildHeading" class="panel-title">Guild DKP</h2><div id="guild-dkp"></div><details class="pc-snapshot"><summary>PC-loaded guild snapshot and controls</summary><p class="market-note">These records come from the PC. Changing the guild below also changes the guild shown in Vantage on the PC. Use the OpenDKP panel above for independent phone browsing.</p><p id="guildNote" class="market-note">Choose one of the guilds saved in Vantage.</p><div class="browser-tools"><label class="wide">Guild shown on PC<select id="guildSelect"><option value="">Choose a saved guild…</option></select></label><label>View<select id="guildView"><option value="standings">Standings / DKP</option><option value="loot">Loot</option><option value="raids">Raids</option><option value="auctions">Live auctions</option><option value="sheets">Guild sheets</option></select></label><label>Search PC snapshot<input id="guildSearch" type="search" placeholder="Search this view…" autocomplete="off"></label></div><div id="guildStatus" class="sr-only" role="status" aria-live="polite"></div><ul id="guildRows" class="card-list" aria-labelledby="guildHeading" aria-busy="false"></ul></details></section>
 <section id="zonesPage" class="page" role="tabpanel" aria-labelledby="tabZones" tabindex="0" hidden><h2 class="panel-title">Zones</h2><div class="browser-tools"><label class="wide">Zone<select id="zoneSelect"><option value="">Choose a zone…</option></select></label><label>View<select id="zoneView"><option value="items">Items</option><option value="mobs">Mobs</option><option value="nameds">Nameds</option></select></label><label>Filter<input id="zoneSearch" type="search" placeholder="Filter this zone…" autocomplete="off"></label><button id="zoneReload" class="tool-button wide" type="button">RELOAD SELECTED ZONE</button></div><p id="zoneNote" class="market-note">Choose a zone; information loads automatically from the P99 Wiki.</p><div id="zoneStatus" class="sr-only" role="status" aria-live="polite"></div><ul id="zoneRows" class="card-list" aria-label="Selected zone information" aria-busy="false"></ul></section>
 <section id="questsPage" class="page" role="tabpanel" aria-labelledby="tabQuests" tabindex="0" hidden><h2 class="panel-title">Quests</h2><div class="browser-tools"><label class="wide">Search quest titles<input id="questSearch" type="search" placeholder="Search included and cached P99 quests…" autocomplete="off"></label></div><p id="questNote" class="market-note">Select a quest for its summary and step-by-step checklist.</p><div id="questStatus" class="sr-only" role="status" aria-live="polite"></div><div id="questDetail" class="quest-detail" hidden></div><ul id="questRows" class="card-list" aria-label="Quest search results" aria-busy="false"></ul></section>
 <section id="gamePage" class="page" role="tabpanel" aria-labelledby="tabGame" tabindex="0" hidden><h2 class="panel-title">EVERQUEST LIVE <span class="game-badge">READ ONLY</span></h2><p id="gameState" class="game-state" role="status" aria-live="polite">Waiting for the local view…</p><div class="game-tools"><button id="gameSize" class="tool-button" type="button" title="Switch between screen fit and exact image pixels">FIT TO SCREEN</button><button id="zoomLock" class="tool-button" type="button" aria-pressed="true" title="Prevent accidental pinch zoom while viewing EverQuest">ZOOM LOCKED</button></div><div id="gameShell" class="game-shell zoom-locked"><p id="gameHelp" class="game-help">EverQuest Live is included until you turn it off in Vantage. Keep your phone on the same Wi-Fi network.</p><img id="gameFrame" alt="Live read-only view of the EverQuest window" hidden></div><p class="wifi-note">Privacy: the live image works only on your local Wi-Fi. It cannot control EverQuest.</p></section>
@@ -545,6 +549,7 @@ function validPairingToken(value){return /^[A-Za-z0-9_-]{20,128}$/.test(String(v
 const mainContent=byId('main-content'),skipLink=byId('skipLink'),timersPanel=byId('timers'),timersRoot=byId('timerRows'),timerEmpty=byId('timerEmpty'),timerStatus=byId('timerStatus'),timerZone=byId('timerZone');
 const marketPanel=byId('marketPage'),marketHeading=byId('marketHeading'),marketRoot=byId('marketRows'),marketNote=byId('marketNote'),marketStatus=byId('marketStatus'),spellsPanel=byId('spellsPage'),spellRoot=byId('spellRows'),spellNote=byId('spellNote'),spellStatus=byId('spellStatus');
 const buffsPanel=byId('buffsPage'),buffRoot=byId('buffRows'),buffNote=byId('buffNote'),buffStatus=byId('buffStatus'),guildPanel=byId('guildPage'),guildRoot=byId('guildRows'),guildNote=byId('guildNote'),guildStatus=byId('guildStatus'),guildSelect=byId('guildSelect');
+const guildDKP=window.VantageGuildDKP?.mount(byId('guild-dkp'),{headingLevel:3});
 const zonesPanel=byId('zonesPage'),zoneRoot=byId('zoneRows'),zoneNote=byId('zoneNote'),zoneStatus=byId('zoneStatus'),zoneSelect=byId('zoneSelect'),zoneReload=byId('zoneReload'),questsPanel=byId('questsPage'),questRoot=byId('questRows'),questNote=byId('questNote'),questStatus=byId('questStatus'),questDetail=byId('questDetail');
 const gamePanel=byId('gamePage'),gameState=byId('gameState'),gameHelp=byId('gameHelp'),gameFrame=byId('gameFrame'),gameShell=byId('gameShell'),gameSize=byId('gameSize'),zoomLock=byId('zoomLock');
 const state=byId('state'),installApp=byId('installApp'),connectionStatus=byId('connectionStatus'),connectionAlert=byId('connectionAlert'),detailDialog=byId('detailDialog'),detailTitle=byId('detailTitle'),detailBody=byId('detailBody'),detailStatus=byId('detailStatus');
@@ -654,7 +659,7 @@ async function openLinkedItem(name,url){const basic={name:String(name||'Item'),w
 function syncGuildOptions(data){const profiles=Array.isArray(data.profiles)?data.profiles:[],wanted=String(pendingGuild||data.slug||''),next=profiles.map(profile=>String(profile.slug||'')),current=Array.from(guildSelect.options).slice(1).map(option=>option.value);syncingGuild=true;if(JSON.stringify(current)!==JSON.stringify(next)){const placeholder=node('option','','Choose a saved guild…');placeholder.value='';guildSelect.replaceChildren(placeholder,...profiles.map(profile=>{const option=node('option','',String(profile.name||profile.slug));option.value=String(profile.slug||'');return option}))}guildSelect.value=Array.from(guildSelect.options).some(option=>option.value===wanted)?wanted:'';guildSelect.disabled=!profiles.length;syncingGuild=false}
 function announceGuild(text,deferred=false){clearTimeout(guildAnnounceDelay);if(deferred){guildAnnounceDelay=setTimeout(()=>announce(guildStatus,text),500);return}announce(guildStatus,text)}
 function renderGuild(deferAnnouncement=false){syncGuildOptions(guildData);const view=byId('guildView').value,query=byId('guildSearch').value.trim().toLowerCase(),rows=Array.isArray(guildData[view])?guildData[view]:[];const filtered=rows.filter(row=>JSON.stringify(row).toLowerCase().includes(query)),visible=query?filtered:filtered.slice(0,250),total=view==='standings'?Number(guildData.standings_total||rows.length):rows.length;guildNote.textContent=String(guildData.guild||'No guild selected')+' · '+String(guildData.status||'Public guild data')+(view==='standings'?' · '+total+' members':'');if(!filtered.length){const message=guildData.loading?'Loading DKP and guild records…':guildData.connected?'No rows match this view.':'Choose a saved guild above. Add guilds first in Vantage on the PC.';showListMessage(guildRoot,message);announceGuild(message,deferAnnouncement);return}stableReplace(guildRoot,'guild:'+JSON.stringify([view,visible]),...visible.map(item=>{const row=node('li','card data-card'),title=node('h3','');if(view==='loot'){const link=node('button','card-button item-link',String(item.item||'Item'));link.type='button';link.addEventListener('click',()=>openLinkedItem(item.item,item.wiki_url));row.append(link);title.textContent=String(item.character||'—')+' · '+String(item.dkp||'—')+' DKP';row.append(title,node('p','meta',[item.date,item.raid].filter(Boolean).join(' · ')));return row}title.textContent=String(item.name||item.item||'Guild record');row.append(title);const grid=node('div','data-grid');for(const [key,value] of Object.entries(item)){if(['name','item','wiki_url','url'].includes(key))continue;grid.append(node('span','',key.toUpperCase()+' · '+String(value)))}row.append(grid);if(item.url){const link=node('a','source-link','Open guild sheet');link.href=item.url;link.target='_blank';link.rel='noopener noreferrer';link.setAttribute('aria-label','Open guild sheet '+String(item.name||'')+'; opens in a new tab');row.append(link)}return row}));announceGuild((query?filtered.length:Math.min(filtered.length,250))+' of '+filtered.length+' guild rows shown',deferAnnouncement)}
-async function loadGuild(){const path='/api/guild',cached=readCached(path);if(cached&&!guildRoot.children.length){guildData=cached.data;renderGuild()}guildRoot.setAttribute('aria-busy','true');try{guildData=await get(path);renderGuild();return true}catch(_){retainOrExplain(guildRoot,guildStatus,'Guild data could not be refreshed.');return false}finally{guildRoot.setAttribute('aria-busy','false')}}
+async function loadGuild(){const path='/api/guild',cached=readCached(path);if(cached&&!guildRoot.children.length){guildData=cached.data;renderGuild();guildDKP?.suggestGuild(guildData.slug)}guildRoot.setAttribute('aria-busy','true');try{guildData=await get(path);renderGuild();guildDKP?.suggestGuild(guildData.slug);return true}catch(_){retainOrExplain(guildRoot,guildStatus,'Guild data could not be refreshed.');return false}finally{guildRoot.setAttribute('aria-busy','false')}}
 async function settleGuild(target,attempt=0){await loadGuild();if(String(guildData.slug||'')===target&&!guildData.loading){pendingGuild='';renderGuild();announce(guildStatus,String(guildData.guild||target)+' selected');return}if(attempt<28)guildRefreshDelay=setTimeout(()=>settleGuild(target,attempt+1),350);else{pendingGuild='';renderGuild();announce(guildStatus,'Guild did not finish loading. Choose it again to retry.')}}
 async function chooseGuild(target){if(!target||syncingGuild||pendingGuild)return;clearTimeout(guildRefreshDelay);pendingGuild=target;guildNote.textContent='Switching guild…';showListMessage(guildRoot,'Loading DKP and guild records…');announceGuild('Loading DKP and guild records…');try{await post('/api/browser/action',{action:'guild',target});settleGuild(target)}catch(_){pendingGuild='';renderGuild();announceGuild('Guild could not be selected.')}}
 function syncZoneOptions(data){const zones=Array.isArray(data.zones)?data.zones:[],wanted=String(pendingZone||data.selected||''),next=zones.map(zone=>String(zone.value||'')),current=Array.from(zoneSelect.options).slice(1).map(option=>option.value);syncingZone=true;if(JSON.stringify(current)!==JSON.stringify(next)){const placeholder=node('option','','Choose a zone…');placeholder.value='';zoneSelect.replaceChildren(placeholder,...zones.map(zone=>{const option=node('option','',String(zone.name||zone.value));option.value=String(zone.value||'');return option}))}zoneSelect.value=Array.from(zoneSelect.options).some(option=>option.value===wanted)?wanted:'';zoneSelect.disabled=!zones.length;zoneReload.disabled=!wanted;syncingZone=false}
@@ -703,7 +708,7 @@ class _ShareHTTPServer(ThreadingHTTPServer):
 
 
 class _ShareHandler(BaseHTTPRequestHandler):
-    server_version = "VantageMobile/1.44.137"
+    server_version = "VantageMobile/1.44.138"
 
     def log_message(self, *_):
         # Do not write access paths or the user's network details to disk.
@@ -724,9 +729,9 @@ class _ShareHandler(BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         self.send_header(
             "Content-Security-Policy",
-            "default-src 'none'; style-src 'unsafe-inline'; "
+            "default-src 'none'; style-src 'self' 'unsafe-inline'; "
             "script-src 'self' 'unsafe-inline'; worker-src 'self'; "
-            "manifest-src 'self'; connect-src 'self'; img-src 'self' blob:; base-uri 'none'; "
+            "manifest-src 'self'; connect-src 'self' https://api.opendkp.com; img-src 'self' blob:; base-uri 'none'; "
             "form-action 'none'; frame-ancestors 'none'")
         for name, value in extra_headers:
             self.send_header(name, value)
@@ -799,6 +804,22 @@ class _ShareHandler(BaseHTTPRequestHandler):
                 200, _MOBILE_SERVICE_WORKER.encode("utf-8"),
                 "text/javascript; charset=utf-8", cache_control="no-cache",
                 extra_headers=(("Service-Worker-Allowed", "/"),))
+            return
+        companion_assets = {
+            "/companion/storage.js": ("storage.js", "text/javascript"),
+            "/companion/dkp.js": ("dkp.js", "text/javascript"),
+            "/companion/guild-dkp.js": ("guild-dkp.js", "text/javascript"),
+            "/companion/guild-dkp.css": ("guild-dkp.css", "text/css"),
+        }
+        if path in companion_assets:
+            filename, content_type = companion_assets[path]
+            try:
+                with open(resource_path(f"companion-web/{filename}"), "rb") as asset:
+                    payload = asset.read()
+            except OSError:
+                self._send(404, b"not found", "text/plain; charset=utf-8")
+                return
+            self._send(200, payload, content_type + "; charset=utf-8", cache_control="no-cache")
             return
         if path in {"/icon.png", "/favicon.ico"}:
             filename = "icon.png" if path == "/icon.png" else "icon.ico"

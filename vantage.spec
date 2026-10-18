@@ -48,6 +48,10 @@ for legal_file in (
 # same immutable release metadata as the separately packaged updater.
 data.append(('ui/release.json', '.'))
 
+# The private QR page shares the same read-only Guild DKP panel as the PWA.
+for companion_asset in ('storage.js', 'dkp.js', 'guild-dkp.js', 'guild-dkp.css'):
+    data.append((str(Path('companion-web') / companion_asset), 'companion-web'))
+
 from PyInstaller.utils.hooks import copy_metadata
 data += copy_metadata('colorhash')
 

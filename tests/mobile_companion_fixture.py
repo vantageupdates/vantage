@@ -69,7 +69,8 @@ class Handler(BaseHTTPRequestHandler):
             payload = ((self.data_directory / f"{key}.json").read_bytes() if self.data_directory
                        else json.dumps(CATALOGS[key]).encode())
             return self.send(200, payload, "application/json")
-        allowed = {"index.html", "app.css", "app.js", "storage.js", "offline.js", "sw.js", "manifest.webmanifest"}
+        allowed = {"index.html", "app.css", "app.js", "storage.js", "offline.js", "sw.js", "manifest.webmanifest",
+                   "dkp.js", "guild-dkp.js", "guild-dkp.css"}
         if target in {"icon-256.png", "icon-1254.png"}:
             file = ROOT / "data/ui" / ("icon.png" if target == "icon-256.png" else "icon-master.png")
         elif target in allowed:

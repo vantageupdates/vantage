@@ -275,7 +275,9 @@ def main():
             "Prices are the latest published PigParse snapshot and may be stale "
             "while offline. Zone and quest catalogs contain names and Wiki "
             "links; full saved details require a private PC snapshot import. "
-            "Guild records are the last imported snapshot. Timers, current "
+            "Public OpenDKP guild balances and history refresh directly with "
+            "internet, without the PC. Offline guild records are the last "
+            "successful saved copy; imported PC snapshots remain separate. Timers, current "
             "buffs, zone sync, and EQ Live require the same-Wi-Fi PC session."),
     })
     if temporary:
