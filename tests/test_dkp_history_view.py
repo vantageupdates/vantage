@@ -1,8 +1,10 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from itertools import permutations
 from types import SimpleNamespace
 
 import pytest
 from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 
 from vantage.helpers.dkp_history_view import DkpHistoryView, finite_total
@@ -172,6 +174,152 @@ def test_loot_link_uses_canonical_name_not_source(panel):
     view.item_requested.connect(opened.append)
     view.open_item.click()
     assert opened == ["White Dragon Helm"]
+    assert view.model.index(0, 1).data() == "White Dragon Helm"
+    assert "Temple - White Dragon Helm" in view.model.index(0, 1).data(Qt.ItemDataRole.ToolTipRole)
+    assert "Temple - White Dragon Helm" in view.detail.toPlainText()
+
+
+@pytest.mark.parametrize("order", list(permutations(("items", "raids", "dkp"))))
+@pytest.mark.parametrize("matched_by_id", [False, True])
+def test_async_history_keeps_selected_purchase_and_full_provenance(panel, order, matched_by_id):
+    token = select_character(panel)
+    view = panel.history_view
+    now = datetime.now(timezone.utc)
+    older = (now - timedelta(days=2)).isoformat()
+    newer = (now - timedelta(days=1)).isoformat()
+    original_source = "Temple raid officer note https://example.invalid/raid - White Dragon Helm"
+    payloads = {
+        "items": [
+            {"PurchaseId": 201, "ItemName": "White Dragon Helm", "RaidID": 7,
+             "DkpValue": 20, "Timestamp": older},
+            {"PurchaseId": 202, "ItemName": "White Dragon Helm", "RaidID": 8,
+             "DkpValue": 40, "Timestamp": newer},
+        ],
+        "raids": [
+            {"RaidId": raid_id, "RaidName": name, "Timestamp": stamp,
+             "PoolName": "Main", "PoolId": 1, "Ticks": []}
+            for raid_id, name, stamp in ((7, "Old raid", older), (8, "Temple raid", newer),
+                                          (9, "Newest raid", now.isoformat()))
+        ],
+        # A partial transaction source must preserve the other loaded purchase.
+        "dkp": [{"CharacterId": 1, "CharacterName": "Hero", "SourceType": "Item",
+                 "SourceId": 8, "ItemName": "White Dragon Helm", "Value": -40,
+                 "Date": newer,
+                 "Source": original_source, "Notes": "Auction receipt"}],
+    }
+    if matched_by_id:
+        payloads["dkp"][0].update(PurchaseId=202, Date=(now - timedelta(days=1, minutes=-15)).isoformat())
+    selected = False
+    for source in order:
+        panel._response(f"character_{source}|{token}|1", payloads[source])
+        target = next((i for i, row in enumerate(view.model.rows)
+                       if row["kind"] == "loot" and row["amount"] == -40), None)
+        if not selected and target is not None:
+            view.table.selectRow(target)
+            selected = True
+        if selected:
+            assert view._selected()["kind"] == "loot"
+            assert view._selected()["amount"] == -40
+            assert view.open_item.isEnabled()
+            assert view.table.currentIndex().siblingAtColumn(1).data() == "White Dragon Helm"
+    assert sum(row["kind"] == "loot" for row in view.model.rows) == 2
+    assert original_source in view.detail.toPlainText()
+    assert "Auction receipt" in view.detail.toPlainText()
+    assert view._selected()["pool_key"] == "id:1"
+    view.query.setText("officer note")
+    assert view.model.rowCount() == 1
+    assert view._selected()["amount"] == -40
+    view.query.clear()
+    view.kind.setCurrentIndex(view.kind.findData("loot"))
+    view.table.sortByColumn(2, Qt.SortOrder.DescendingOrder)
+    assert view._selected()["amount"] == -40
+    opened = []
+    view.item_requested.connect(opened.append)
+    view.open_item.click()
+    assert opened == ["White Dragon Helm"]
+
+
+def test_same_named_purchase_selection_uses_unique_identity_and_aliases(panel):
+    view = panel.history_view
+    purchase = {"source": "Helm", "item_name": "Helm", "kind": "loot",
+                "timestamp": "", "amount": -10, "pool": "Unknown pool", "pool_key": "",
+                "description": "", "raid_id": "7", "ticks": [], "raw": {}}
+    first = dict(purchase, history_id="ledger:first")
+    second = dict(purchase, history_id="ledger:second")
+    view.set_history([first, second], "Hero", "Loading")
+    view.table.selectRow(1)
+    enriched = dict(second, history_id="purchase:second", history_aliases=["ledger:second"],
+                    timestamp=datetime.now(timezone.utc).isoformat(), pool="Main", pool_key="id:1")
+    view.set_history([enriched, first], "Hero", "Loaded")
+    assert view._selected()["history_id"] == "purchase:second"
+    view.query.setText("Helm")
+    assert view._selected()["history_id"] == "purchase:second"
+    view.table.sortByColumn(0, Qt.SortOrder.AscendingOrder)
+    assert view._selected()["history_id"] == "purchase:second"
+
+
+def test_ambiguous_alias_never_selects_a_different_purchase(panel):
+    view = panel.history_view
+    purchase = {"source": "Helm", "item_name": "Helm", "kind": "loot", "timestamp": "",
+                "amount": -10, "pool": "Main", "pool_key": "id:1", "description": "",
+                "raid_id": "7", "ticks": [], "raw": {}, "history_aliases": ["shared"]}
+    first, second = (dict(purchase, history_id=value) for value in ("first", "second"))
+    view.set_history([first, second], "Hero", "Loaded")
+    view.table.selectRow(0)
+    view.set_history([second], "Hero", "Loaded")
+    assert view._selected() is None
+    assert not view.open_item.isEnabled()
+
+
+def test_removing_same_named_cost_sibling_keeps_selected_purchase(panel):
+    token = select_character(panel)
+    view = panel.history_view
+    item = {"ItemName": "Helm", "RaidID": 7, "Timestamp": datetime.now(timezone.utc).isoformat()}
+    panel._response(f"character_items|{token}|1", [dict(item, DkpValue=5), dict(item, DkpValue=10)])
+    view.table.selectRow(next(i for i, row in enumerate(view.model.rows) if row["amount"] == -10))
+    selected_id = view._selected()["history_id"]
+    panel._response(f"character_items|{token}|1", [dict(item, DkpValue=10)])
+    assert view._selected()["history_id"] == selected_id
+    assert view._selected()["amount"] == -10
+
+
+def test_character_change_does_not_carry_purchase_selection(panel):
+    view = panel.history_view
+    raid = {"source": "Raid", "kind": "raid", "timestamp": "", "amount": 5,
+            "pool": "Main", "pool_key": "id:1", "description": "", "raid_id": "7",
+            "ticks": [], "raw": {}}
+    loot = dict(raid, kind="loot", source="Helm", item_name="Helm", history_id="same-purchase")
+    view.set_history([raid, loot], "Hero", "Loaded")
+    view.table.selectRow(1)
+    view.set_history([raid, loot], "Other", "Loaded")
+    assert view._selected()["kind"] == "raid"
+    assert not view.open_item.isEnabled()
+
+
+def test_async_enrichment_retains_keyboard_focus_and_item_action(panel):
+    view = panel.history_view
+    loot = {"source": "Helm", "item_name": "Helm", "history_id": "purchase:1", "kind": "loot",
+            "timestamp": "", "amount": -10, "pool": "Unknown pool", "pool_key": "",
+            "description": "", "raid_id": "7", "ticks": [], "raw": {}}
+    view.set_history([loot], "Hero", "Loading")
+    panel.page.show()
+    QApplication.processEvents()
+    view.open_item.setFocus()
+    assert view.open_item.hasFocus()
+    enriched = dict(loot, source="Raid - Helm", pool="Main", pool_key="id:1",
+                    timestamp=datetime.now(timezone.utc).isoformat())
+    view.set_history([enriched], "Hero", "Loaded")
+    assert view.open_item.hasFocus()
+    opened = []
+    view.item_requested.connect(opened.append)
+    QTest.keyClick(view.open_item, Qt.Key.Key_Space)
+    assert opened == ["Helm"]
+    view.query.setFocus()
+    view.set_history([enriched], "Hero", "Checked")
+    assert view.query.hasFocus()
+    view.table.setFocus()
+    QTest.keyClick(view.table, Qt.Key.Key_Down)
+    assert view._selected()["history_id"] == "purchase:1"
 
 
 def test_summary_overflow_is_unknown_not_infinite():

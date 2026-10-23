@@ -9,6 +9,9 @@ attendance by itself. Unidentified pools are never added together.
 from __future__ import annotations
 
 import math
+import json
+import struct
+from decimal import Decimal
 
 from vantage.helpers.raid_ledger import parse_timestamp
 
@@ -158,6 +161,191 @@ def _deduplicate(entries, identity):
     return result
 
 
+def _purchase_ids(row):
+    # SourceId is a raid; ItemID/GameItemId identifies an item type, not a sale.
+    return {name: value for name in ("Purchase", "CharacterItem", "Loot", "Transaction")
+            if (value := _id(_first(row, name + "Id", name + "ID")))}
+
+
+def _amount_label(amount):
+    """The JSON/JavaScript number spelling, without inventing known values."""
+    if amount is None:
+        return "Unknown"
+    if amount == 0:
+        return "0"
+    if 1e-6 <= abs(amount) < 1e21:
+        fixed = format(Decimal(str(amount)), "f")
+        return fixed.rstrip("0").rstrip(".") if "." in fixed else fixed
+    mantissa, separator, exponent = str(amount).partition("e")
+    if mantissa.endswith(".0"):
+        mantissa = mantissa[:-2]
+    return mantissa + ("e" + ("+" if int(exponent) >= 0 else "") + str(int(exponent)) if separator else "")
+
+
+def _loot_identities(entries, character, origin):
+    """Anchor identities to original endpoint records, never enriched labels."""
+    groups = {}
+    for entry in entries:
+        raw = entry["raw"]
+        pool_id, pool_name = _pool_parts(raw)
+        pool = "id:" + pool_id if pool_id else "name:" + pool_name.casefold()
+        purchase = list(_purchase_ids(raw).items())
+        identity = (["purchase", purchase, entry["raid_id"]] if purchase else [
+            "fingerprint", entry["raid_id"],
+            _text(_first(raw, "ItemName", "Source", "Name")).casefold(),
+            _timestamp(raw), _text(_first(raw, "Notes", "Description")),
+            # IEEE754 hex is exact and identical in the Python/JS adapters.
+            struct.pack(">d", entry["amount"] or 0).hex() if entry["amount"] is not None else "unknown"])
+        base = "loot:" + json.dumps([character, pool, origin, *identity],
+                                     ensure_ascii=False, separators=(",", ":"))
+        groups.setdefault(base, []).append(entry)
+    for base, copies in groups.items():
+        # Preserve multiplicity, including indistinguishable same-item sales.
+        # Original amounts distinguish no-ID fingerprints; occurrence numbers
+        # keep truly indistinguishable copies separate without inventing IDs.
+        copies.sort(key=lambda entry: (entry["amount"] is None, entry["amount"] or 0))
+        for index, entry in enumerate(copies):
+            entry["history_id"] = base + ":" + str(index + 1)
+            entry["history_aliases"] = []
+
+
+def _source_names(source):
+    parts = source.casefold().split(" - ")
+    return {" - ".join(parts[index:]) for index in range(len(parts))}
+
+
+def _loot_features(entry):
+    raw = entry["raw"]
+    parsed = parse_timestamp(entry["timestamp"])
+    return {"ids": _purchase_ids(raw), "pool": entry["pool_key"],
+            "unclear_pool": not entry["pool_key"] and any(_pool_parts(raw)),
+            "raid": entry["raid_id"], "name": entry["item_name"].casefold(),
+            "explicit_name": _text(raw.get("ItemName")).casefold(),
+            "source": _text(_first(raw, "Source", "Name")).casefold(),
+            "amount": entry["amount"], "time": parsed.timestamp() if parsed else None}
+
+
+def _loot_match(item, ledger):
+    left_ids, right_ids = item["ids"], ledger["ids"]
+    shared = left_ids.keys() & right_ids.keys()
+    if any(left_ids[key] != right_ids[key] for key in shared):
+        return 0
+    lp, rp = item["pool"], ledger["pool"]
+    if lp and rp and lp != rp:
+        return 0
+    # A labelled-but-unresolved pool is not equivalent to a missing pool.
+    if item["unclear_pool"] or ledger["unclear_pool"]:
+        return 0
+    if item["raid"] and ledger["raid"] and item["raid"] != ledger["raid"]:
+        return 0
+    name, explicit_name = item["name"], ledger["explicit_name"]
+    if name and explicit_name and name != explicit_name:
+        return 0
+    if shared:
+        return 2
+    source = ledger["source"]
+    if not name or not item["raid"] or item["raid"] != ledger["raid"]:
+        return 0
+    if explicit_name != name and source != name and not source.endswith(" - " + name):
+        return 0
+    if item["amount"] is not None and ledger["amount"] is not None and item["amount"] != ledger["amount"]:
+        return 0
+    left_time, right_time = item["time"], ledger["time"]
+    if left_time is not None and right_time is not None and left_time != right_time:
+        return 0
+    return 1
+
+
+def _reconcile_loot(items, ledger):
+    """One-to-one matches; uncertainty never deletes an unmatched purchase."""
+    item_features = [_loot_features(row) for row in items]
+    ledger_features = [_loot_features(row) for row in ledger]
+    purchase_index, name_index = {}, {}
+    for i, feature in enumerate(item_features):
+        for identity in feature["ids"].items():
+            purchase_index.setdefault(identity, set()).add(i)
+        if feature["raid"] and feature["name"]:
+            masks = name_index.setdefault((feature["raid"], feature["name"]), {})
+            costs = masks.setdefault(frozenset(feature["ids"]), {})
+            times = costs.setdefault(feature["amount"], {})
+            times.setdefault(feature["time"], set()).add(i)
+    scores = {1: {}, 2: {}}
+    possible = {}
+    for j, feature in enumerate(ledger_features):
+        choices = set()
+        for identity in feature["ids"].items():
+            choices.update(purchase_index.get(identity, ()))
+        names = {feature["explicit_name"]} if feature["explicit_name"] else _source_names(feature["source"])
+        for name in names:
+            for mask, costs in name_index.get((feature["raid"], name), {}).items():
+                # Shared ID fields either match via the typed-ID index above,
+                # or contradict: they never need the heuristic name scan.
+                if mask.intersection(feature["ids"]):
+                    continue
+                cost_keys = costs if feature["amount"] is None else (feature["amount"], None)
+                for cost in cost_keys:
+                    times = costs.get(cost, {})
+                    time_keys = times if feature["time"] is None else (feature["time"], None)
+                    for time in time_keys:
+                        choices.update(times.get(time, ()))
+        possible[j] = set()
+        for i in sorted(choices):
+            rank = _loot_match(item_features[i], feature)
+            if rank:
+                scores[rank].setdefault(j, []).append(i)
+                possible[j].add(i)
+    matched, used = {}, set()
+    signature = lambda entry: (entry["history_id"].rsplit(":", 1)[0], entry["amount"])
+    item_signatures = [signature(row) for row in items]
+    ledger_signatures = [signature(row) for row in ledger]
+    for rank in (2, 1):
+        candidates = {j: [i for i in values if i not in used]
+                      for j, values in scores[rank].items() if j not in matched}
+        reverse_index = {}
+        for j, values in candidates.items():
+            for i in values:
+                reverse_index.setdefault(i, []).append(j)
+        for j in sorted(candidates, key=lambda key: ledger[key]["history_id"]):
+            choices = [i for i in candidates[j] if i not in used]
+            if not choices:
+                continue
+            # Equal fingerprints/amounts are interchangeable copies, but their
+            # occurrence count is retained. Different purchases remain ambiguous.
+            if len({item_signatures[i] for i in choices}) != 1:
+                continue
+            reverse = [k for k in reverse_index[choices[0]] if k not in matched]
+            if len({ledger_signatures[k] for k in reverse}) != 1:
+                continue
+            i = min(choices, key=lambda key: items[key]["history_id"])
+            matched[j] = i
+            used.add(i)
+    result = list(items)
+    for j, row in enumerate(ledger):
+        if j not in matched:
+            if possible[j] - used:
+                row = {**row, "recorded_amount": row["amount"], "amount": None,
+                       "reconciliation": "ambiguous",
+                       "description": row["description"] +
+                       " · Recorded transaction: " + _amount_label(row["amount"]) +
+                       " DKP; possible duplicate of a purchase; excluded from known totals until identified"}
+            result.append(row)
+            continue
+        i = matched[j]
+        item = items[i]
+        parts = [item["description"], row["description"], row["ledger_source"]]
+        description = " · ".join(dict.fromkeys(part for part in parts if part))
+        result[i] = {**item, "amount": row["amount"],
+                     "timestamp": item["timestamp"] or row["timestamp"],
+                     "item_name": item["item_name"] or row["item_name"],
+                     "source": item["item_name"] or row["item_name"] or row["source"],
+                     "description": description, "ledger_source": row["ledger_source"],
+                     "evidence": [*item["evidence"], *row["evidence"]],
+                     "history_aliases": [row["history_id"]] if row["history_id"] != item["history_id"] else []}
+        if not item["pool_key"] and row["pool_key"]:
+            result[i]["pool_key"], result[i]["pool"] = row["pool_key"], row["pool"]
+    return result
+
+
 def build_dkp_history(raids, adjustments, items, *, character_id,
                       character_name, raid_details=None, dkp=None):
     """Return newest-first raid/adjustment/loot dictionaries for one character.
@@ -165,12 +353,14 @@ def build_dkp_history(raids, adjustments, items, *, character_id,
     ``raids``, ``adjustments`` and ``items`` must come from character endpoints.
     ``raid_details`` maps raid IDs to public raid details. Optional ``dkp`` is
     the personal transaction endpoint: its raid rows enrich attended ticks,
-    while its adjustment/item rows are the primary records for those kinds
-    when supplied. This avoids counting both endpoint copies of a transaction.
+    while its item rows reconcile one-to-one with purchases. Unmatched rows
+    from either endpoint remain visible. Adjustment rows remain ledger-first.
 
     Each entry has kind, timestamp, source, description, amount, pool,
     pool_key, raid_id, raw and ticks. Amount is finite signed DKP or None.
-    Tick dictionaries additionally expose tick_id, attended and evidence.
+    Loot exposes history_id/history_aliases for selection across enrichment,
+    plus item_name, ledger_source and evidence. Tick dictionaries additionally
+    expose tick_id, attended and evidence.
     No source input is changed. A known zero award is distinct from unknown.
     """
     character_id = _id(character_id)
@@ -348,9 +538,14 @@ def build_dkp_history(raids, adjustments, items, *, character_id,
 
     ledger_items = [row for row in ledger
                     if _text(row.get("SourceType")).casefold() in ("item", "loot")]
-    loot_entries = []
-    for row in ledger_items or items:
-        from_ledger = row in ledger_items
+    item_names = {}
+    for item in items:
+        raid_id = _id(_first(item, "RaidId", "RaidID"))
+        name = _text(item.get("ItemName"))
+        if raid_id and name:
+            item_names.setdefault((raid_id, name.casefold()), set()).add(name)
+    loot_entries, transaction_entries = [], []
+    for from_ledger, row in [(False, row) for row in items] + [(True, row) for row in ledger_items]:
         raid_id = (_id(row.get("SourceId")) if from_ledger else
                    _id(_first(row, "RaidId", "RaidID")))
         amount = (_finite(row.get("Value")) if from_ledger else
@@ -367,19 +562,23 @@ def build_dkp_history(raids, adjustments, items, *, character_id,
         # this character's purchases in the same raid.
         item_name = _text(row.get("ItemName"))
         if not item_name and from_ledger:
-            names = {_text(item.get("ItemName")) for item in items
-                     if raid_id and _id(_first(item, "RaidId", "RaidID")) == raid_id
-                     and _text(item.get("ItemName")) and (
-                         source.casefold() == _text(item["ItemName"]).casefold() or
-                         source.casefold().endswith(" - " + _text(item["ItemName"]).casefold()))}
+            names = {name for suffix in _source_names(source)
+                     for name in item_names.get((raid_id, suffix), ())}
             if len(names) == 1:
                 item_name = next(iter(names))
         entry["item_name"] = item_name
-        loot_entries.append(entry)
-    # ItemID/GameItemId identifies an item type, and ledger SourceId a raid.
-    # Neither identifies a purchase: identical purchases must remain distinct.
-    result.extend(_deduplicate(loot_entries, lambda row: _id(
-        _first(row, "PurchaseId", "CharacterItemId", "LootId", "TransactionId"))))
+        entry["source"] = item_name or source
+        entry["ledger_source"] = _text(row.get("Source")) if from_ledger else ""
+        if entry["ledger_source"] and entry["ledger_source"] not in description:
+            entry["description"] += " · " + entry["ledger_source"]
+        entry["evidence"] = [row]
+        (transaction_entries if from_ledger else loot_entries).append(entry)
+    purchase_identity = lambda row: next(iter(_purchase_ids(row).items()), ())
+    loot_entries = _deduplicate(loot_entries, purchase_identity)
+    transaction_entries = _deduplicate(transaction_entries, purchase_identity)
+    for origin, entries in (("items", loot_entries), ("ledger", transaction_entries)):
+        _loot_identities(entries, character_id or character_name, origin)
+    result.extend(_reconcile_loot(loot_entries, transaction_entries))
 
     def sort_key(entry):
         stamp = parse_timestamp(entry["timestamp"])

@@ -28,6 +28,24 @@ def finite_total(values):
         return None
 
 
+def source_title(row):
+    return (row.get("item_name") if row.get("kind") == "loot" else "") or row["source"]
+
+
+def source_details(row):
+    """Keep the original source available beyond the compact table title."""
+    title = source_title(row)
+    raw = row.get("raw") or {}
+    parts = []
+    for value in (row.get("source"), row.get("description"), row.get("ledger_source"),
+                  raw.get("Source"), raw.get("Raid"), raw.get("RaidName"),
+                  raw.get("Notes"), raw.get("Description")):
+        if isinstance(value, str) and value and value != title and not any(
+                value in part for part in parts):
+            parts.append(value)
+    return "\n".join(parts)
+
+
 class HistoryModel(QAbstractTableModel):
     HEADERS = ("Date / time", "Source", "DKP change", "Type", "Pool")
 
@@ -49,10 +67,14 @@ class HistoryModel(QAbstractTableModel):
         row = self.rows[index.row()]
         if role == Qt.ItemDataRole.UserRole:
             return row
-        if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ToolTipRole):
+        if index.column() == 1 and role in (
+                Qt.ItemDataRole.ToolTipRole, Qt.ItemDataRole.AccessibleDescriptionRole):
+            return "\n".join(filter(None, (source_title(row), source_details(row))))
+        if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ToolTipRole,
+                    Qt.ItemDataRole.AccessibleTextRole):
             stamp = parse_timestamp(row["timestamp"])
             date = stamp.astimezone().strftime("%Y-%m-%d %H:%M") if stamp else "Date not supplied"
-            return (date, row["source"], amount_text(row["amount"]),
+            return (date, source_title(row), amount_text(row["amount"]),
                     KINDS[row["kind"]], row["pool"])[index.column()]
         if role == Qt.ItemDataRole.TextAlignmentRole and index.column() == 2:
             return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
@@ -77,7 +99,7 @@ class HistoryModel(QAbstractTableModel):
     def _sort(self):
         def key(row):
             stamp = parse_timestamp(row["timestamp"])
-            values = (stamp.timestamp() if stamp else None, row["source"].casefold(),
+            values = (stamp.timestamp() if stamp else None, source_title(row).casefold(),
                       row["amount"], KINDS[row["kind"]], row["pool"].casefold())
             value = values[self.sort_column]
             return (value is not None, value if value is not None else 0)
@@ -101,6 +123,7 @@ class DkpHistoryView(QWidget):
         self.entries = []
         self.character = ""
         self._selected_key = None
+        self._resetting = False
         self._state = "Choose a character to see where your DKP came from."
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
@@ -208,6 +231,10 @@ class DkpHistoryView(QWidget):
         self.query.textChanged.connect(self.apply_filters)
 
     def set_history(self, entries, character, state):
+        if character != self.character:
+            self.table.clearSelection()
+            self.table.setCurrentIndex(QModelIndex())
+            self._selected_key = None
         self.entries, self.character, self._state = list(entries), character, state
         selected = self.pool.currentData()
         self.pool.blockSignals(True)
@@ -232,8 +259,9 @@ class DkpHistoryView(QWidget):
                 continue
             if kind and row["kind"] != kind or pool is not None and row["pool_key"] != pool:
                 continue
-            if query and query not in " ".join(str(row.get(key, "")) for key in
-                    ("source", "description", "timestamp", "pool")).casefold():
+            searchable = " ".join((source_title(row), source_details(row),
+                                   row["timestamp"], row["pool"]))
+            if query and query not in searchable.casefold():
                 continue
             undated += stamp is None
             rows.append(row)
@@ -266,33 +294,57 @@ class DkpHistoryView(QWidget):
 
     @staticmethod
     def _row_key(row):
-        return tuple(row.get(key) for key in ("kind", "timestamp", "source", "pool", "raid_id")) if row else None
+        if not row:
+            return None
+        if row.get("history_id"):
+            return frozenset(("history", row["kind"], identity) for identity in
+                             (row["history_id"], *row.get("history_aliases", ())))
+        return frozenset((tuple(row.get(key) for key in
+                               ("kind", "timestamp", "source", "pool", "raid_id")),))
 
     def _remember_selection(self):
         self._selected_key = self._row_key(self._selected())
+        if self._selected_key:
+            selected = self.table.currentIndex().row()
+            for index, row in enumerate(self.model.rows):
+                if index != selected:
+                    self._selected_key -= self._row_key(row)
+        self._resetting = True
 
     def _restore_selection(self):
+        index = None
         if self.model.rows:
-            index = next((i for i, row in enumerate(self.model.rows)
-                          if self._row_key(row) == self._selected_key), 0)
+            matches = [i for i, row in enumerate(self.model.rows)
+                       if self._selected_key and self._row_key(row) & self._selected_key]
+            if len(matches) == 1:
+                index = matches[0]
+            elif self._selected_key is None:
+                index = 0
+        if index is not None:
             self.table.selectRow(index)
+        else:
+            self.table.clearSelection()
+            self.table.setCurrentIndex(QModelIndex())
+        self._resetting = False
         self._selection_changed()
 
     def _selected(self):
         return self.table.currentIndex().data(Qt.ItemDataRole.UserRole)
 
     def _selection_changed(self, *_args):
+        if self._resetting:
+            return
         row = self._selected()
         self.open_item.setEnabled(bool(row and row.get("item_name")))
         self.check_raid.setEnabled(bool(row and row["kind"] == "raid" and row["raid_id"]))
         if not row:
             self.detail.clear()
             return
-        lines = [f"{row['source']} · {amount_text(row['amount'])} DKP",
+        lines = [f"{source_title(row)} · {amount_text(row['amount'])} DKP",
                  f"{self.character} · {row['pool']} · " + (
                      parse_timestamp(row['timestamp']).astimezone().strftime('%Y-%m-%d %H:%M')
                      if parse_timestamp(row['timestamp']) else 'Date not supplied'),
-                 row['description']]
+                 source_details(row)]
         for tick in row.get("ticks", []):
             if tick.get("attended") is False:
                 continue

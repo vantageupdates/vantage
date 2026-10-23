@@ -38,7 +38,9 @@ def test_detail_from_different_pool_cannot_supply_tick_value():
 def test_loot_source_and_item_name_are_separate_and_unresolved_links_stay_empty():
     rows = history(items=[{"ItemName": "White Dragon Helm", "RaidID": 12, "DkpValue": 40}],
         dkp=[ledger_row("Item", Source="Temple raid - White Dragon Helm", Value=-40)])
-    assert rows[0]["source"] == "Temple raid - White Dragon Helm"
+    assert rows[0]["source"] == "White Dragon Helm"
+    assert rows[0]["ledger_source"] == "Temple raid - White Dragon Helm"
+    assert "Temple raid - White Dragon Helm" in rows[0]["description"]
     assert rows[0]["item_name"] == "White Dragon Helm"
     rows = history(dkp=[ledger_row("Item", Source="Temple raid - Unknown item", Value=-40)])
     assert rows[0]["item_name"] == ""
@@ -208,6 +210,128 @@ def test_same_catalog_item_and_identical_ledger_purchases_are_not_deduplicated()
     assert [row["amount"] for row in rows] == [-8, -8]
     purchase = ledger_row("Item", Value=-8)
     assert len(history(dkp=[purchase, dict(purchase)])) == 2
+
+
+def purchase(**changes):
+    return {"ItemID": 123, "GameItemId": 123, "ItemName": "Helm", "RaidID": 12,
+            "DkpValue": 8, "Date": "2026-10-01T20:30:00Z", "PoolId": 1,
+            "PoolName": "Main", **changes}
+
+
+def loot_transaction(**changes):
+    return ledger_row("Item", **{"Source": "Temple raid - Helm", "Value": -8,
+                                  "PoolId": 1, "PoolName": "Main", **changes})
+
+
+def test_partial_loot_ledger_preserves_every_purchase_and_stable_item_identity():
+    purchases = [purchase(), purchase(ItemName="Ring", ItemID=456, DkpValue=20)]
+    original = history(items=purchases)
+    rows = history(items=purchases, dkp=[loot_transaction()])
+    assert len(rows) == 2
+    assert {row["source"]: row["amount"] for row in rows} == {"Helm": -8, "Ring": -20}
+    assert {row["history_id"] for row in rows} == {row["history_id"] for row in original}
+    matched = next(row for row in rows if row["source"] == "Helm")
+    assert matched["raw"] == purchases[0]
+    assert len(matched["evidence"]) == 2
+    assert matched["ledger_source"] in matched["description"]
+    assert summarize_dkp_history(rows)["debits"] == 28
+
+
+@pytest.mark.parametrize("ledger_count", [1, 2, 3])
+def test_one_to_one_reconciliation_preserves_identical_purchase_multiplicity(ledger_count):
+    rows = history(items=[purchase(), purchase()], dkp=[loot_transaction()] * ledger_count)
+    assert len(rows) == max(2, ledger_count)
+    assert len({row["history_id"] for row in rows}) == len(rows)
+    assert summarize_dkp_history(rows)["debits"] == 8 * max(2, ledger_count)
+
+
+def test_explicit_purchase_identity_uses_signed_ledger_amount_despite_cost_or_date_change():
+    item = purchase(PurchaseID=201)
+    transaction = loot_transaction(PurchaseId=201, Value=5, Date="2026-10-03T01:00:00Z")
+    original = history(items=[item])[0]
+    ledger_only = history(dkp=[transaction])[0]
+    rows = history(items=[item], dkp=[transaction])
+    assert len(rows) == 1 and rows[0]["amount"] == 5
+    assert rows[0]["history_id"] == original["history_id"]
+    assert ledger_only["history_id"] in rows[0]["history_aliases"]
+    assert rows[0]["source"] == "Helm"
+
+
+@pytest.mark.parametrize("changes", [
+    {"PurchaseId": 202}, {"PoolId": 2, "PoolName": "Other"},
+    {"SourceId": 13}, {"ItemName": "Ring"},
+])
+def test_conflicting_explicit_purchase_evidence_never_merges(changes):
+    rows = history(items=[purchase(PurchaseId=201)],
+                   dkp=[loot_transaction(**{"PurchaseId": 201, **changes})])
+    assert len(rows) == 2
+    assert len({row["history_id"] for row in rows}) == 2
+    assert all(row["amount"] == -8 for row in rows)
+
+
+@pytest.mark.parametrize("changes", [
+    {"Value": -9}, {"Date": "2026-10-02T20:30:00Z"},
+    {"Source": "Temple raid - Ring"}, {"SourceId": 13},
+    {"PoolId": 2, "PoolName": "Other"},
+])
+def test_heuristic_match_rejects_mismatched_cost_time_item_raid_or_pool(changes):
+    rows = history(items=[purchase()], dkp=[loot_transaction(**changes)])
+    assert len(rows) == 2
+    assert all(row["amount"] is not None for row in rows)
+    assert all(not row["history_aliases"] for row in rows)
+
+
+def test_ambiguous_overlap_keeps_evidence_but_does_not_inflate_known_spending():
+    rows = history(items=[purchase(Notes="First purchase"), purchase(Notes="Second purchase")],
+                   dkp=[loot_transaction()])
+    assert len(rows) == 3
+    unresolved = next(row for row in rows if row.get("reconciliation") == "ambiguous")
+    assert unresolved["amount"] is None and unresolved["recorded_amount"] == -8
+    assert "Recorded transaction: -8 DKP; possible duplicate" in unresolved["description"]
+    assert not unresolved["history_aliases"]
+    summary = summarize_dkp_history(rows)
+    assert summary["debits"] == 16 and summary["unknown_count"] == 1
+
+
+@pytest.mark.parametrize("cost", [8.0, 0.1, 1e-7, 1e-6, 1e21])
+def test_ambiguous_fractional_costs_keep_the_recorded_value_and_unknown_summary_row(cost):
+    rows = history(items=[purchase(DkpValue=cost, Notes="One"), purchase(DkpValue=cost, Notes="Two")],
+                   dkp=[loot_transaction(Value=-cost)])
+    unresolved = next(row for row in rows if row.get("reconciliation") == "ambiguous")
+    assert unresolved["recorded_amount"] == -cost
+    assert unresolved["amount"] is None
+
+
+def test_different_cost_purchase_identity_survives_subset_removal_and_array_order():
+    first, second = purchase(DkpValue=8), purchase(DkpValue=9)
+    original = history(items=[first, second])
+    reversed_rows = history(items=[second, first])
+    by_cost = lambda rows: {row["amount"]: row["history_id"] for row in rows}
+    assert by_cost(original) == by_cost(reversed_rows)
+    assert history(items=[second])[0]["history_id"] == by_cost(original)[-9]
+    assert history(items=[second])[0]["history_id"] != by_cost(original)[-8]
+
+
+def test_purchase_id_and_aliases_are_stable_in_either_endpoint_arrival_order():
+    purchases = [purchase(PurchaseId=201), purchase(PurchaseId=202, RaidID=13, DkpValue=9)]
+    transactions = [loot_transaction(PurchaseId=201), loot_transaction(PurchaseId=202, SourceId=13, Value=-9)]
+    item_ids = {row["history_id"] for row in history(items=purchases)}
+    ledger_ids = {row["history_id"] for row in history(dkp=transactions)}
+    combined = history(items=purchases, dkp=transactions)
+    reversed_rows = history(items=list(reversed(purchases)), dkp=list(reversed(transactions)))
+    assert {row["history_id"] for row in combined} == item_ids
+    assert {alias for row in combined for alias in row["history_aliases"]} == ledger_ids
+    assert {row["history_id"]: row["history_aliases"] for row in combined} == {
+        row["history_id"]: row["history_aliases"] for row in reversed_rows}
+
+
+def test_linked_character_and_ambiguous_pools_cannot_supply_purchase_matches():
+    rows = history(items=[purchase()], dkp=[loot_transaction(CharacterId=999)])
+    assert len(rows) == 1 and not rows[0]["history_aliases"]
+    rows = history(items=[purchase(PoolId=1), purchase(PoolId=2)],
+                   dkp=[loot_transaction(PoolId=None)])
+    assert len(rows) == 3
+    assert rows[-1]["pool_key"] == "" and not rows[-1]["history_aliases"]
 
 
 def test_loot_credit_preserves_signed_transaction_or_negative_cost():

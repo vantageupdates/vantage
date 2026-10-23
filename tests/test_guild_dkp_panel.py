@@ -311,6 +311,71 @@ def test_panel_announces_roster_before_selection_and_preserves_focus_on_updates(
 ''')
 
 
+def test_loot_disclosure_and_link_focus_survive_identity_aliases_and_enrichment():
+    run_js(SESSION_FIXTURE + DOM_FIXTURE + r'''
+(async()=>{
+ const doc={createElement:tag=>new Element(tag,doc),createTextNode:value=>{const node=new Element('#text',doc);node.textContent=value;return node}};
+ doc.body=new Element('body',doc);doc.activeElement=doc.body;
+ const host=new Element('div',doc);host.id='guild-dkp';doc.body.append(host);
+ const outside=new Element('button',doc);doc.body.append(outside);
+ const base={kind:'loot',raid_id:'7',source:'Helm',item_name:'Helm',description:'',timestamp:'2026-10-15T12:00:00Z',amount:-5,pool_key:'',pool:'Unspecified pool',ticks:[]};
+ let entries=[{...base,history_id:'ledger:first'},{...base,history_id:'ledger:second',amount:-10}];
+ client.history=async(group,person,{days})=>({guild:group,character:person,days,entries,partial:false,fetchedAt:'2026-10-17',raidDetails:{},raids:[],adjustments:[],items:[],dkp:[]});
+ client.raidDetail=async()=>({RaidId:7,Ticks:[]});
+ const api={...model,createClient:()=>client,buildHistory:()=>entries};
+ const mounted=mount(host,{api,storage});await mounted.session.loadGuild('castle');await mounted.session.selectCharacter('1');
+ const row=id=>host.querySelectorAll('details').find(item=>JSON.parse(item.dataset.recordKey).includes(id));
+ const field=name=>host.querySelectorAll('input,select').find(item=>item.id==='guild-dkp-dkp-'+name);
+ row('ledger:second').open=true;row('ledger:second').querySelector('a').focus();
+ const original='Temple raid officer note https://example.invalid/receipt - Helm';
+ entries=[{...base,history_id:'purchase:second',history_aliases:['ledger:second'],amount:-10,
+   source:original,ledger_source:original,description:'Auction receipt',timestamp:'2026-10-15T12:15:00Z',pool:'Main',pool_key:'id:1'},entries[0]];
+ await mounted.session.loadRaid('7');
+ assert(row('purchase:second').open);assert(!row('ledger:first').open);
+ assert.equal(doc.activeElement,row('purchase:second').querySelector('a'));
+ assert.equal(row('purchase:second').querySelector('span').textContent,'Helm');
+ assert.match(row('purchase:second').textContent,/officer note/);
+ assert.equal(doc.activeElement.href,'https://wiki.project1999.com/Helm');
+ entries=entries.slice(0,1);await mounted.session.loadRaid('7');
+ assert(row('purchase:second').open,'Removing a same-name cost sibling keeps the selected purchase');
+ assert.equal(doc.activeElement,row('purchase:second').querySelector('a'));
+ field('history-search').value='officer note';field('history-search').focus();field('history-search').fire('input');
+ assert.equal(host.querySelectorAll('details').length,1);assert(row('purchase:second').open);
+ assert.equal(doc.activeElement,field('history-search'));
+ await mounted.session.loadRaid('7');assert.equal(doc.activeElement,field('history-search'));
+ field('history-search').value='';field('history-search').fire('input');
+ outside.focus();await mounted.session.loadRaid('7');assert.equal(doc.activeElement,outside);
+ const oldKey=row('purchase:second').dataset.recordKey;
+ await mounted.session.selectCharacter('2');
+ assert.notEqual(row('purchase:second').dataset.recordKey,oldKey);assert(!row('purchase:second').open);
+ const otherKey=row('purchase:second').dataset.recordKey;
+ await mounted.session.loadGuild('other');await mounted.session.selectCharacter('2');
+ assert.notEqual(row('purchase:second').dataset.recordKey,otherKey);assert(!row('purchase:second').open);
+ mounted.destroy();
+})().catch(error=>{console.error(error);process.exitCode=1});
+''')
+
+
+def test_ambiguous_loot_alias_never_moves_disclosure_or_focus_to_another_purchase():
+    run_js(SESSION_FIXTURE + DOM_FIXTURE + r'''
+(async()=>{
+ const doc={createElement:tag=>new Element(tag,doc),createTextNode:value=>{const node=new Element('#text',doc);node.textContent=value;return node}};
+ doc.body=new Element('body',doc);doc.activeElement=doc.body;
+ const host=new Element('div',doc);host.id='guild-dkp';doc.body.append(host);
+ const base={kind:'loot',raid_id:'7',source:'Helm',item_name:'Helm',description:'',timestamp:'2026-10-15T12:00:00Z',amount:-10,pool_key:'1',pool:'Main',ticks:[],history_aliases:['shared']};
+ let entries=[{...base,history_id:'first'},{...base,history_id:'second'}];
+ client.history=async(group,person,{days})=>({guild:group,character:person,days,entries,partial:false,raidDetails:{},raids:[],adjustments:[],items:[],dkp:[]});
+ client.raidDetail=async()=>({RaidId:7,Ticks:[]});
+ const mounted=mount(host,{api:{...model,createClient:()=>client,buildHistory:()=>entries},storage});
+ await mounted.session.loadGuild('castle');await mounted.session.selectCharacter('1');
+ const first=host.querySelectorAll('details')[0];first.open=true;first.querySelector('a').focus();
+ entries=entries.slice(1);await mounted.session.loadRaid('7');
+ const remaining=host.querySelector('details');assert(!remaining.open);assert(!remaining.contains(doc.activeElement));
+ mounted.destroy();
+})().catch(error=>{console.error(error);process.exitCode=1});
+''')
+
+
 def test_empty_history_finishes_loading_online_offline_and_when_restricted():
     run_js(SESSION_FIXTURE + DOM_FIXTURE + r'''
 (async()=>{

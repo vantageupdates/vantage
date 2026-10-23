@@ -95,9 +95,61 @@ const clean = value => Array.isArray(value) ? value.map(clean) : value && typeof
   ? Object.fromEntries(Object.entries(value).filter(([key]) => !['raw','evidence'].includes(key)).map(([key,item]) => [key, clean(item)])) : value;
 console.log(JSON.stringify(fixtures.map(test => clean(d[test.operation](test.input)))));
 """, portable(fixtures))
-    assert len(fixtures) >= 70
+    # Includes endpoint-arrival permutations, partial loot reconciliation,
+    # ambiguous overlaps, and stable occurrence/amount purchase identities.
+    assert len(fixtures) >= 100
     for index, (test, observed) in enumerate(zip(fixtures, actual)):
         assert observed == test["expected"], (index, test)
+
+
+@pytest.mark.parametrize("mode", ["typed_ids", "names", "costs"])
+def test_large_loot_histories_use_indexed_candidates_without_truncation(monkeypatch, mode):
+    from vantage.helpers import dkp_history
+
+    count = 2000
+    items, ledger = [], []
+    for index in range(count):
+        name = f"Synthetic helm {index}" if mode == "names" else "Synthetic helm"
+        cost = index + 1 if mode == "costs" else 8
+        identity = {"PurchaseId": index + 1} if mode == "typed_ids" else {}
+        items.append({"RaidID": 12, "ItemName": name, "DkpValue": cost,
+                      "Date": "2026-10-01T20:30:00Z", "PoolId": 1, **identity})
+        ledger.append({"SourceType": "Item", "SourceId": 12,
+                       "Source": "Synthetic raid - " + name, "Value": -cost,
+                       "Date": "2026-10-01T20:30:00Z", "PoolId": 1,
+                       "CharacterId": 1, "CharacterName": "Fixture", **identity})
+    calls = 0
+    original = dkp_history._loot_match
+
+    def counted(*args):
+        nonlocal calls
+        calls += 1
+        return original(*args)
+
+    monkeypatch.setattr(dkp_history, "_loot_match", counted)
+    rows = dkp_history.build_dkp_history([], [], items, character_id=1,
+                                         character_name="Fixture", dkp=ledger)
+    assert len(rows) == count and len({row["history_id"] for row in rows}) == count
+    assert calls <= count * 2, "Unrelated purchases must not form Cartesian candidate scans"
+    assert all(len(row["evidence"]) == 2 for row in rows)
+    observed = node("""
+const fs=require('node:fs'),vm=require('node:vm');
+const fixture=JSON.parse(fs.readFileSync(0,'utf8'));
+const source=fs.readFileSync(process.argv[1],'utf8');
+const marker='function lootMatch(item, ledger) {';
+if(!source.includes(marker))throw Error('Candidate counter must instrument the real predicate');
+const context={module:{exports:{}},matchCalls:0};
+vm.runInNewContext(source.replace(marker,marker+' globalThis.matchCalls += 1;'),context);
+const rows=context.module.exports.buildHistory(fixture);
+console.log(JSON.stringify({count:rows.length,unique:new Set(rows.map(row=>row.history_id)).size,
+ calls:context.matchCalls,allMatched:rows.every(row=>row.evidence.length===2),
+ amounts:rows.map(row=>row.amount),ids:rows.map(row=>row.history_id)}));
+""", {"items": items, "dkp": ledger, "characterId": "1", "characterName": "Fixture"})
+    assert observed["count"] == observed["unique"] == count
+    assert observed["calls"] <= count * 2
+    assert observed["allMatched"]
+    assert observed["amounts"] == [row["amount"] for row in rows]
+    assert observed["ids"] == [row["history_id"] for row in rows]
 
 
 def test_guild_addresses_are_allowlisted_and_balance_is_not_history_net():
