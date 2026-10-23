@@ -72,6 +72,7 @@ def test_guild_sheets_ui_is_named_and_supports_multiple_independent_panels(
         auth_changed = Signal(str, str)
         live_changed = Signal(str)
         auction_event = Signal(str, object)
+        loot_progress = Signal(str, object)
 
         def __init__(self, parent=None):
             super().__init__(parent)

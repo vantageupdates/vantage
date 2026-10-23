@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import math
 import re
 import statistics
 import threading
@@ -11,14 +12,14 @@ from urllib.parse import quote
 import uuid
 import webbrowser
 
-from PySide6.QtCore import QDate, QObject, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent, QColor
+from PySide6.QtCore import QAbstractTableModel, QDate, QModelIndex, QObject, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent, QColor, QFont
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDateEdit, QDialog, QDialogButtonBox,
     QFormLayout, QFrame, QGridLayout, QGroupBox, QHeaderView, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QMessageBox, QProgressBar, QPushButton, QSpinBox, QSplitter,
-    QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout, QHBoxLayout,
+    QTabWidget, QTableView, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout, QHBoxLayout,
     QToolButton, QWidget)
 
 from vantage.helpers import config
@@ -231,6 +232,185 @@ class SortItem(QTableWidgetItem):
         return self.text().casefold() < other.text().casefold()
 
 
+def _loot_field(row, *names):
+    return next((row[name] for name in names if row.get(name) not in (None, "")), None)
+
+
+def _loot_cost(row):
+    value = _loot_field(row, "DKP", "DkpValue", "DKPValue", "Cost", "Value", "Amount")
+    try:
+        amount = float(value) if not isinstance(value, bool) else float("nan")
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return amount if math.isfinite(amount) else None
+
+
+def _loot_stamp(row):
+    return _loot_field(row, "Timestamp", "Date", "RaidDate")
+
+
+def _loot_purchase_ids(row):
+    return {key: str(value) for key in ("Transaction", "Purchase", "CharacterItem", "Loot")
+            if (value := _loot_field(row, key + "Id", key + "ID")) not in (None, "", 0, "0")}
+
+
+def _loot_fingerprint(row):
+    stamp = _parse_date(_loot_stamp(row))
+    return ("fingerprint", _clean(_loot_field(row, "RaidId", "RaidID"), ""),
+            _clean(row.get("ItemName"), "").casefold(),
+            stamp.timestamp() if stamp else str(_loot_stamp(row) or ""), _loot_cost(row))
+
+
+def _same_loot_purchase(left, right):
+    # Scoped personal rows may omit their owner/pool. Missing metadata can be
+    # enriched, but explicit conflicts must never transfer selection (even if
+    # an upstream source reuses a transaction ID).
+    def context(row):
+        pool = row.get("Pool") if isinstance(row.get("Pool"), dict) else {}
+        return (
+            _loot_field(row, "CharacterId", "CharacterID", "characterId"),
+            _loot_field(row, "CharacterName", "PlayerName", "MemberName", "ToonName", "characterName"),
+            _loot_field(row, "PoolId", "PoolID", "DkpPoolId") or _loot_field(pool, "PoolId", "PoolID", "Id"),
+            _loot_field(row, "PoolName", "DkpPoolName") or _loot_field(pool, "Name", "PoolName")
+            or (row.get("Pool") if isinstance(row.get("Pool"), str) else None),
+        )
+
+    for left_value, right_value in zip(context(left), context(right)):
+        if (left_value not in (None, "", 0, "0") and right_value not in (None, "", 0, "0")
+                and _clean(left_value).casefold() != _clean(right_value).casefold()):
+            return False
+    left_ids, right_ids = _loot_purchase_ids(left), _loot_purchase_ids(right)
+    shared = left_ids.keys() & right_ids.keys()
+    if shared:
+        return all(left_ids[key] == right_ids[key] for key in shared)
+    return _loot_fingerprint(left) == _loot_fingerprint(right)
+
+
+class LootTableModel(QAbstractTableModel):
+    """Keep the complete guild collection searchable without allocating cells."""
+    HEADERS = ("Date", "Item", "Character", "DKP", "Raid / event")
+    prepared = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.records, self.rows = [], []
+        self.purchase_index, self.visible_positions = {}, {}
+        self.dataset, self.snapshot = None, []
+        self.preparing = False
+        self._preparation_generation = 0
+        self.query = ""
+        self.sort_column, self.sort_order = 0, Qt.SortOrder.DescendingOrder
+        self.link_font = QFont()
+        self.link_font.setUnderline(True)
+
+    def rowCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else len(self.rows)
+
+    def columnCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else len(self.HEADERS)
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid() or not 0 <= index.row() < len(self.rows):
+            return None
+        values, _sort, _search, raw = self.rows[index.row()]
+        if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.AccessibleTextRole):
+            return values[index.column()]
+        if role == Qt.ItemDataRole.UserRole:
+            return raw
+        if role == Qt.ItemDataRole.ToolTipRole:
+            return f"Open {values[1]} item details · Enter opens the selected item" if index.column() == 1 else values[index.column()]
+        if index.column() == 1:
+            if role == Qt.ItemDataRole.FontRole:
+                return self.link_font
+            if role == Qt.ItemDataRole.ForegroundRole:
+                return QColor("#D8BE78")
+            if role == Qt.ItemDataRole.UserRole + 2:
+                return "item-link"
+        return None
+
+    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+        if orientation == Qt.Orientation.Horizontal and role in (
+                Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ToolTipRole):
+            return self.HEADERS[section]
+        return None
+
+    def set_rows(self, rows):
+        self._preparation_generation += 1
+        generation = self._preparation_generation
+        self.preparing = len(rows) > 1000
+        records, purchase_index, date_cache = [], {}, {}
+        position = 0
+
+        def prepare_batch():
+            nonlocal position
+            if generation != self._preparation_generation:
+                return
+            end = min(position + 512, len(rows)) if self.preparing else len(rows)
+            for row in rows[position:end]:
+                stamp = _loot_stamp(row)
+                cache_key = str(stamp or "")
+                if cache_key not in date_cache:
+                    date_cache[cache_key] = _date_cell(stamp)
+                date, _source, timestamp, aliases = date_cache[cache_key]
+                amount = _loot_cost(row)
+                values = (date, _clean(row.get("ItemName")), _clean(row.get("CharacterName")),
+                          _number(amount, 1), _clean(_loot_field(row, "Raid", "RaidName")))
+                sort_values = (timestamp, values[1].casefold(), values[2].casefold(),
+                               amount if amount is not None else float("-inf"), values[4].casefold())
+                search = " ".join((*values, aliases, _clean(row.get("Notes"), ""))).casefold()
+                record = (values, sort_values, search, row)
+                records.append(record)
+                fingerprint = ("fingerprint", _clean(_loot_field(row, "RaidId", "RaidID"), ""),
+                               values[1].casefold(), timestamp if math.isfinite(timestamp) else cache_key, amount)
+                for key in (*_loot_purchase_ids(row).items(), fingerprint):
+                    purchase_index.setdefault(key, []).append(record)
+            position = end
+            if position < len(rows):
+                QTimer.singleShot(0, self, prepare_batch)
+                return
+            self.beginResetModel()
+            self.records, self.purchase_index = records, purchase_index
+            self.dataset = rows
+            self.snapshot = [{
+                "date": record[0][0], "item": record[0][1], "character": record[0][2],
+                "dkp": record[0][3], "raid": record[0][4],
+                "wiki_url": "https://wiki.project1999.com/" + quote(record[0][1].replace(" ", "_"), safe=""),
+            } for record in sorted(records, key=lambda record: record[1][0], reverse=True)]
+            self._rebuild()
+            self.preparing = False
+            self.endResetModel()
+            self.prepared.emit()
+
+        if self.preparing:
+            QTimer.singleShot(0, self, prepare_batch)
+        else:
+            prepare_batch()
+
+    def _rebuild(self):
+        terms = self.query.casefold().split()
+        self.rows = [row for row in self.records if all(term in row[2] for term in terms)]
+        self.rows.sort(key=lambda row: row[1][self.sort_column],
+                       reverse=self.sort_order == Qt.SortOrder.DescendingOrder)
+        self.visible_positions = {id(row): index for index, row in enumerate(self.rows)}
+
+    def matching_records(self, raw):
+        candidates = {id(row): row for key in (*_loot_purchase_ids(raw).items(), _loot_fingerprint(raw))
+                      for row in self.purchase_index.get(key, ())}
+        return [row for row in candidates.values() if _same_loot_purchase(raw, row[3])]
+
+    def set_query(self, query):
+        self.beginResetModel()
+        self.query = str(query or "")
+        self._rebuild()
+        self.endResetModel()
+
+    def sort(self, column, order):
+        self.beginResetModel()
+        self.sort_column, self.sort_order = column, order
+        self._rebuild()
+        self.endResetModel()
+
+
 class OpenDkpLoginDialog(QDialog):
     """Small credential prompt; the password is never exposed as plain text."""
 
@@ -441,6 +621,8 @@ class OpenDKP(ParserWindow):
         self._history_token = ""
         self._history_identity = None
         self._history_states = {}
+        self._history_sources_ready = set()
+        self._loot_loading = {}
         self._history_details = {}
         self._history_detail_status = ""
         self._session_restore_slug = ""
@@ -452,6 +634,7 @@ class OpenDKP(ParserWindow):
         self.client.auth_changed.connect(self._auth_changed)
         self.client.live_changed.connect(self._live_changed)
         self.client.auction_event.connect(self._auction_event)
+        self.client.loot_progress.connect(self._loot_progress)
         self._clock = QTimer(self)
         self._clock.setInterval(1000)
         self._clock.timeout.connect(self._refresh_active_countdowns)
@@ -646,13 +829,25 @@ class OpenDKP(ParserWindow):
         self.character_loot = self._table(
             ("Date", "Item", "DKP", "Raid / event"),
             "Selected character loot", (0, Qt.SortOrder.DescendingOrder))
+        for column, width in enumerate((125, 210, 65, 200)):
+            self.character_loot.setColumnWidth(column, width)
         self.character_loot.cellClicked.connect(
             lambda row, column: self._open_loot_item(
                 self.character_loot, row, column))
+        self.character_loot.cellActivated.connect(
+            lambda row, _column: self._open_loot_item(self.character_loot, row, 1))
+        self.character_loot.setAccessibleDescription(
+            "Recent purchases for the selected character. Press Enter to open the selected item.")
+        self.character_loot.setTabKeyNavigation(False)
         self.character_raids = self._table(
             ("Date", "Raid / event", "Attended ticks", "Awarded DKP"),
             "Selected character raids", (0, Qt.SortOrder.DescendingOrder))
-        split.addWidget(self._titled_table("Recent loot", self.character_loot))
+        loot_card = self._titled_table("Recent loot", self.character_loot)
+        self.character_loot_status = QLabel("Choose a character")
+        self.character_loot_status.setWordWrap(True)
+        self.character_loot_status.setTextFormat(Qt.TextFormat.PlainText)
+        loot_card.layout().insertWidget(1, self.character_loot_status)
+        split.addWidget(loot_card)
         split.addWidget(self._titled_table("Recent raids", self.character_raids))
         split.setSizes([480, 480])
         recent = QWidget()
@@ -815,12 +1010,34 @@ class OpenDKP(ParserWindow):
         self.loot_summary = QLabel("No loot loaded")
         self.loot_summary.setObjectName("OpenDkpInlineSummary")
         layout.addWidget(self.loot_summary)
-        self.loot_table = self._table(
-            ("Date", "Item", "Character", "DKP", "Raid / event"),
-            "OpenDKP loot history", (0, Qt.SortOrder.DescendingOrder))
-        self.loot_table.cellClicked.connect(
-            lambda row, column: self._open_loot_item(
-                self.loot_table, row, column))
+        self.loot_table = QTableView()
+        self._loot_model = LootTableModel(self.loot_table)
+        self.loot_table.setModel(self._loot_model)
+        self.loot_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.loot_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.loot_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.loot_table.setTabKeyNavigation(False)
+        self.loot_table.setAlternatingRowColors(True)
+        self.loot_table.setWordWrap(False)
+        self.loot_table.verticalHeader().hide()
+        self.loot_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.loot_table.horizontalHeader().setStretchLastSection(True)
+        self.loot_table.horizontalHeader().setMinimumSectionSize(44)
+        self.loot_table.setSortingEnabled(True)
+        self.loot_table.sortByColumn(0, Qt.SortOrder.DescendingOrder)
+        for column, width in enumerate((170, 260, 155, 85, 280)):
+            self.loot_table.setColumnWidth(column, width)
+        self.loot_table.setAccessibleName("OpenDKP loot history")
+        self.loot_table.setAccessibleDescription(
+            "All loaded guild loot. Search every record, sort headings, or press Enter to open the selected item.")
+        self.loot_table.clicked.connect(lambda index: self._open_loot_item(
+            self.loot_table, index.row(), index.column()))
+        self.loot_table.activated.connect(lambda index: self._open_loot_item(
+            self.loot_table, index.row(), 1))
+        self._loot_model.modelAboutToBeReset.connect(
+            lambda: self._remember_loot_selection(self.loot_table))
+        self._loot_model.modelReset.connect(lambda: self._restore_loot_selection(self.loot_table))
+        self._loot_model.prepared.connect(self._loot_prepared)
         layout.addWidget(self.loot_table, 1)
         return page
 
@@ -2795,7 +3012,7 @@ class OpenDKP(ParserWindow):
             return False
         request = QNetworkRequest(QUrl(csv_url))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.139")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.140")
         request.setAttribute(
             QNetworkRequest.Attribute.RedirectPolicyAttribute,
             QNetworkRequest.RedirectPolicy.NoLessSafeRedirectPolicy)
@@ -3116,6 +3333,7 @@ class OpenDKP(ParserWindow):
             else:
                 self._datasets[kind] = rows_from_payload(payload, *keys[kind])
                 self._history_states[kind] = "ready"
+                self._history_sources_ready.add(kind)
             self._update_overview()
             return
         if operation.startswith("attendance_detail|"):
@@ -3172,7 +3390,23 @@ class OpenDKP(ParserWindow):
             self._datasets[operation] = rows_from_payload(payload, "Characters", "Models")
             self._populate_characters()
             self._update_eligible_characters()
-        elif operation in ("raids", "items", "auctions", "adjustments"):
+        elif operation == "items":
+            if isinstance(payload, dict):
+                if payload.get("GuildSlug", self.client.slug) != self.client.slug:
+                    return
+                if payload.get("Generation", getattr(self.client, "loot_generation", None)) != getattr(self.client, "loot_generation", None):
+                    return
+                if payload.get("Complete") is False:
+                    return
+            if not isinstance(payload, (list, dict)) or (isinstance(payload, dict) and not any(
+                    isinstance(payload.get(key), list) for key in ("Items", "Models"))):
+                self._failed("items", "Unexpected loot response; previous records are still available.", 0)
+                return
+            self._datasets["items"] = rows_from_payload(payload, "Items", "Models")
+            self._loot_loading = {"complete": isinstance(payload, dict) and payload.get("Complete") is True}
+            self._populate_items()
+            self._update_overview()
+        elif operation in ("raids", "auctions", "adjustments"):
             keys = {
                 "raids": ("Raids", "Models"), "items": ("Items", "Models"),
                 "auctions": ("BidResults", "Auctions", "Models"),
@@ -3182,6 +3416,10 @@ class OpenDKP(ParserWindow):
             if operation in ("raids", "items"):
                 self._update_overview()
         elif operation.startswith("character_"):
+            # Modern history requests are generation-scoped. An older legacy
+            # response cannot replace their selected-character data.
+            if getattr(self, "_history_token", ""):
+                return
             operation_name, _, requested_id = operation.partition(":")
             if requested_id and int(requested_id) != int(
                     self.character_selector.currentData() or 0):
@@ -3224,7 +3462,7 @@ class OpenDKP(ParserWindow):
             kind, token, requested_id = operation.split("|", 2)
             if self._history_request_current(token, requested_id):
                 self._history_states[kind] = "unavailable — use Refresh history to retry"
-                self._update_history()
+                self._update_overview()
             return
         if operation.startswith("attendance_detail|"):
             _, token, _raid_id = operation.split("|", 2)
@@ -3253,6 +3491,9 @@ class OpenDKP(ParserWindow):
                 self._raid_check_details[raid_id] = None
                 self._finalize_ready_raid_checks()
             return
+        if operation == "items":
+            self._loot_loading = {"error": _clean(message, "Loot refresh unavailable")}
+            self._update_loot_summary()
         prefix = {
             "auth": "Sign-in required", "login": "Sign-in failed",
             "session": "Saved sign-in temporarily unavailable",
@@ -3339,7 +3580,8 @@ class OpenDKP(ParserWindow):
                     item = SortItem(cell)
                 table.setItem(row_index, column, item)
         table.setSortingEnabled(sorting)
-        if table.columnCount() and table.columnWidth(0) < 150:
+        if (table is not getattr(self, "character_loot", None)
+                and table.columnCount() and table.columnWidth(0) < 150):
             table.setColumnWidth(0, 170)
 
     @staticmethod
@@ -3357,11 +3599,53 @@ class OpenDKP(ParserWindow):
     def _open_loot_item(self, table, row, column):
         if column != 1:
             return False
-        item = table.item(row, column)
-        if item is None or item.data(Qt.ItemDataRole.UserRole + 2) != "item-link":
+        index = table.model().index(row, column)
+        if not index.isValid() or index.data(Qt.ItemDataRole.UserRole + 2) != "item-link":
             return False
         market = getattr(QApplication.instance(), "_parsers_dict", {}).get("market")
-        return bool(market and market._show_wiki_item_name(item.text()))
+        return bool(market and market._show_wiki_item_name(index.data()))
+
+    def _remember_loot_selection(self, table):
+        index = table.currentIndex()
+        raw = table.model().index(index.row(), 1).data(Qt.ItemDataRole.UserRole) if index.isValid() else None
+        records = getattr(table, "_loot_records", ())
+        matches = (len(table.model().matching_records(raw)) if raw and isinstance(table.model(), LootTableModel)
+                   else sum(_same_loot_purchase(raw, item) for item in records) if raw else 0)
+        if matches != 1:
+            raw = None
+        table._loot_selection = (raw, index.column())
+
+    def _restore_loot_selection(self, table):
+        raw, column = getattr(table, "_loot_selection", (None, 0))
+        matches = []
+        if raw and isinstance(table.model(), LootTableModel):
+            candidates = table.model().matching_records(raw)
+            if len(candidates) == 1:
+                position = table.model().visible_positions.get(id(candidates[0]))
+                matches = [position] if position is not None else []
+        elif raw:
+            for row in range(table.model().rowCount()):
+                candidate = table.model().index(row, 1).data(Qt.ItemDataRole.UserRole)
+                if candidate and _same_loot_purchase(raw, candidate):
+                    matches.append(row)
+        if len(matches) == 1:
+            table.setCurrentIndex(table.model().index(matches[0], max(column, 0)))
+        else:
+            table.clearSelection()
+            table.setCurrentIndex(QModelIndex())
+
+    def _set_personal_loot(self, loot, scope):
+        table = self.character_loot
+        if getattr(table, "_loot_scope", None) != scope:
+            table.setCurrentIndex(QModelIndex())
+        self._remember_loot_selection(table)
+        table._loot_scope = scope
+        self._set_rows(table, [
+            (_date_cell(_loot_stamp(item)), self._loot_item_cell(item.get("ItemName"), item),
+             (_number(_loot_cost(item), 1), None, _loot_cost(item)),
+             _clean(_loot_field(item, "Raid", "RaidName"))) for item in loot[:100]])
+        table._loot_records = loot[:100]
+        self._restore_loot_selection(table)
 
     def _populate_standings(self):
         rows = []
@@ -3444,6 +3728,9 @@ class OpenDKP(ParserWindow):
         identity = (self.client.slug, char_id, days)
         if identity == self._history_identity and not force:
             return
+        same_character = bool(self._history_identity and self._history_identity[:2] == identity[:2])
+        same_period = identity == self._history_identity
+        self._history_sources_ready = set(getattr(self, "_history_sources_ready", ())) if same_character else set()
         self._history_identity = identity
         self._history_token = uuid.uuid4().hex
         self._history_details = {}
@@ -3451,8 +3738,10 @@ class OpenDKP(ParserWindow):
         kinds = ("character_dkp", "character_items", "character_adjustments", "character_raids")
         self._history_states = {key: "loading" for key in kinds} if char_id and self.client.slug else {}
         for key in kinds:
-            self._datasets[key] = []
-        self._update_history()
+            if not same_character or (key == "character_raids" and not same_period):
+                self._datasets[key] = []
+                self._history_sources_ready.discard(key)
+        self._update_overview()
         if char_id and self.client.slug:
             self.client.fetch_character_details(char_id, days, self._history_token)
 
@@ -3504,6 +3793,8 @@ class OpenDKP(ParserWindow):
                 label.setText("—")
             self.character_identity.setText("Choose a character")
             self._set_rows(self.character_loot, [])
+            self.character_loot._loot_records = []
+            self.character_loot_status.setText("Choose a character")
             self._set_rows(self.character_raids, [])
             return
         name = _clean(row.get("CharacterName") or row.get("Name"))
@@ -3524,16 +3815,29 @@ class OpenDKP(ParserWindow):
         for key, value in values.items():
             self.metric_values[key].setText(value)
             self.metric_values[key].setAccessibleName(f"{key} value: {value}")
-        loot_source = self._datasets["character_items"] or self._datasets["items"]
-        loot = [item for item in loot_source
-                if int(item.get("CharacterId") or 0) == char_id or
-                _clean(item.get("CharacterName"), "").casefold() == name.casefold()]
-        loot.sort(key=lambda item: str(item.get("Timestamp") or ""), reverse=True)
-        self._set_rows(self.character_loot, [
-            (_date_cell(item.get("Timestamp")),
-             self._loot_item_cell(item.get("ItemName"), item),
-             (_number(item.get("DKP"), 1), None, float(item.get("DKP") or 0)),
-             _clean(item.get("Raid"))) for item in loot[:100]])
+        scoped = (getattr(self, "_history_token", "") and self._history_request_current(self._history_token) and
+                  "character_items" in getattr(self, "_history_sources_ready", ()))
+        loot_source = self._datasets["character_items"] if scoped else self._datasets["items"]
+        loot = []
+        for item in loot_source:
+            item_id = _loot_field(item, "CharacterId", "CharacterID", "characterId")
+            item_name = _clean(_loot_field(item, "CharacterName", "characterName", "PlayerName"), "").casefold()
+            known_id = str(item_id or "") not in ("", "0", "-1")
+            if known_id and str(item_id) != str(char_id) or item_name and item_name != name.casefold():
+                continue
+            if scoped or known_id or item_name:
+                loot.append(item)
+        loot.sort(key=lambda item: (_parse_date(_loot_stamp(item)).timestamp()
+                                    if _parse_date(_loot_stamp(item)) else float("-inf")), reverse=True)
+        self._set_personal_loot(loot, (self.client.slug, char_id))
+        state = getattr(self, "_history_states", {}).get("character_items", "")
+        count = f"{len(loot):,} loot records" + (" · showing newest 100" if len(loot) > 100 else "")
+        if "unavailable" in state:
+            count += " · Personal loot refresh unavailable; retained records shown"
+        elif state == "loading":
+            count += " · Refreshing personal loot" if scoped else " · Matching guild loot while personal loot loads"
+        self.character_loot_status.setText(count)
+        self.character_loot_status.setAccessibleName(count)
         raids = [raid for raid in self._datasets["character_raids"]
                  if character_raid_attendance(raid)[0]]
         self._set_rows(self.character_raids, [
@@ -3545,24 +3849,55 @@ class OpenDKP(ParserWindow):
             for raid in raids])
 
     def _populate_items(self):
-        items = sorted(self._datasets["items"],
-                       key=lambda item: str(item.get("Timestamp") or ""), reverse=True)
-        self._set_rows(self.loot_table, [
-            (_date_cell(item.get("Timestamp")),
-             self._loot_item_cell(item.get("ItemName"), item),
-             _clean(item.get("CharacterName")),
-             (_number(item.get("DKP"), 1), None, float(item.get("DKP") or 0)),
-             _clean(item.get("Raid"))) for item in items])
-        prices = [float(item.get("DKP")) for item in items
-                  if isinstance(item.get("DKP"), (int, float))]
-        summary = f"{len(items):,} loot records"
-        if prices:
-            summary += f" · median {statistics.median(prices):,.1f} DKP"
+        items = self._datasets["items"]
+        if getattr(self.loot_table, "_loot_scope", None) != self.client.slug:
+            self.loot_table.setCurrentIndex(QModelIndex())
+        self.loot_table._loot_scope = self.client.slug
+        self._loot_pending_complete = bool(getattr(self, "_loot_loading", {}).get("complete"))
+        self._loot_model.set_rows(items)
+        self._update_loot_summary()
+
+    def _loot_prepared(self):
+        self.loot_table._loot_records = self._loot_model.dataset
+        self._loot_snapshot_dataset = self._loot_model.dataset
+        self._loot_snapshot_scope = self.client.slug
+        self._loot_snapshot_rows = self._loot_model.snapshot
+        self._loot_snapshot_complete = getattr(self, "_loot_pending_complete", False)
+        prices = [record[1][3] for record in self._loot_model.records if math.isfinite(record[1][3])]
+        self._loot_median = statistics.median(prices) if prices else None
+        self._update_loot_summary()
+
+    def _loot_progress(self, slug, progress):
+        if slug != self.client.slug or progress.get("generation") != self.client.loot_generation:
+            return
+        self._loot_loading = {**progress, "loading": True}
+        self._update_loot_summary()
+
+    def _update_loot_summary(self):
+        if not hasattr(self, "loot_summary"):
+            return
+        state = getattr(self, "_loot_loading", {})
+        loaded = len(self._datasets["items"])
+        if getattr(getattr(self, "_loot_model", None), "preparing", False) and not state.get("loading"):
+            summary = f"Preparing {loaded:,} guild loot records for search · previous records remain available"
+        elif state.get("loading"):
+            total = state.get("total")
+            fetched = int(state.get("loaded") or 0)
+            summary = (f"Loading guild loot: {fetched:,}" + (f" of {int(total):,}" if total is not None else "") + " records")
+            if loaded:
+                summary += f" · {loaded:,} previous records remain searchable"
+        elif state.get("error"):
+            summary = f"Loot refresh unavailable · {loaded:,} previous records retained · {state['error']}"
+        else:
+            summary = f"{loaded:,} loot records" + (" · complete guild history loaded" if state.get("complete") else "")
+            median = getattr(self, "_loot_median", None)
+            if median is not None:
+                summary += f" · median {median:,.1f} DKP"
         self.loot_summary.setText(summary)
-        self._filter_loot()
+        self.loot_summary.setAccessibleName(summary)
 
     def mobile_snapshot(self):
-        """Return bounded, display-ready public guild data for mobile."""
+        """Return display-ready public guild data; reuse the complete loot cache."""
         selected_slug = str(
             self.client.slug or
             config.data.get("opendkp", {}).get("active_guild", "") or "")
@@ -3571,9 +3906,25 @@ class OpenDKP(ParserWindow):
         standings = sorted(
             self._datasets.get("dkp", ()),
             key=lambda row: _clean(row.get("CharacterName")).casefold())
-        loot = sorted(
-            self._datasets.get("items", ()),
-            key=lambda row: str(row.get("Timestamp") or ""), reverse=True)
+        loot_dataset = self._datasets.get("items", ())
+        if getattr(self, "_loot_snapshot_scope", None) != selected_slug:
+            self._loot_snapshot_dataset, self._loot_snapshot_rows = None, []
+            self._loot_snapshot_complete = False
+            self._loot_snapshot_scope = selected_slug
+        if getattr(self, "_loot_snapshot_dataset", None) is not loot_dataset and not getattr(
+                getattr(self, "_loot_model", None), "preparing", False):
+            # Snapshot polling runs every second. Project each completed dataset
+            # once; normal UI loads reuse the virtual table's prepared values.
+            loot = sorted(loot_dataset, key=lambda row: str(_loot_stamp(row) or ""), reverse=True)
+            self._loot_snapshot_rows = [{
+                "date": _date_text(_loot_stamp(row)), "item": _clean(row.get("ItemName")),
+                "character": _clean(row.get("CharacterName")), "dkp": _number(_loot_cost(row), 1),
+                "raid": _clean(_loot_field(row, "Raid", "RaidName")),
+                "wiki_url": "https://wiki.project1999.com/" + quote(
+                    _clean(row.get("ItemName"), "").replace(" ", "_"), safe=""),
+            } for row in loot]
+            self._loot_snapshot_dataset = loot_dataset
+            self._loot_snapshot_complete = bool(getattr(self, "_loot_loading", {}).get("complete"))
         raids = sorted(
             self._datasets.get("raids", ()),
             key=lambda row: str(row.get("Timestamp") or ""), reverse=True)
@@ -3581,6 +3932,17 @@ class OpenDKP(ParserWindow):
         status = str(
             self.guild_status.text() or self.result_status.text() or
             "Public guild data")
+        loot_state = getattr(self, "_loot_loading", {})
+        loot_preparing = getattr(getattr(self, "_loot_model", None), "preparing", False)
+        loot_loading = bool(loot_preparing or loot_state.get("loading"))
+        loot_error = str(loot_state.get("error") or "")
+        loot_status = self.loot_summary.text() if hasattr(self, "loot_summary") else ""
+        if loot_loading or loot_error:
+            status = loot_status or loot_error or "Loading guild loot"
+        # Completeness belongs to these published rows, while loading/error
+        # describes the latest refresh. A valid previous snapshot remains
+        # exportable until its complete replacement is ready.
+        loot_complete = bool(getattr(self, "_loot_snapshot_complete", False))
         return {
             "guild": _clean(
                 guild.get("Name") or profile.get("name") or
@@ -3593,7 +3955,7 @@ class OpenDKP(ParserWindow):
             } for saved in self._profiles() if saved.get("slug")][:12],
             "connected": bool(self.client.slug),
             "authenticated": bool(self.client.authenticated),
-            "loading": self.guild_status.property("state") == "loading",
+            "loading": self.guild_status.property("state") == "loading" or loot_loading,
             "status": status,
             # A guild roster is the searchable source, not a first-page
             # preview. Keep every public standing here so Mobile can find a
@@ -3608,16 +3970,12 @@ class OpenDKP(ParserWindow):
                 "attendance": _percent(row.get("Calculated_30")),
             } for row in standings],
             "standings_total": len(standings),
-            "loot": [{
-                "date": _date_text(row.get("Timestamp")),
-                "item": _clean(row.get("ItemName")),
-                "character": _clean(row.get("CharacterName")),
-                "dkp": _number(row.get("DKP"), 1),
-                "raid": _clean(row.get("Raid")),
-                "wiki_url": "https://wiki.project1999.com/" + quote(
-                    _clean(row.get("ItemName"), "").replace(" ", "_"),
-                    safe=""),
-            } for row in loot[:500]],
+            "loot": self._loot_snapshot_rows,
+            "loot_total": len(self._loot_snapshot_rows),
+            "loot_complete": loot_complete,
+            "loot_loading": loot_loading,
+            "loot_status": loot_status,
+            "loot_error": loot_error,
             "raids": [{
                 "date": _date_text(row.get("Timestamp")),
                 "name": _clean(row.get("Name")),
@@ -3899,7 +4257,8 @@ class OpenDKP(ParserWindow):
         self._filter_table(self.standings_table, self.standings_search.text())
 
     def _filter_loot(self):
-        self._filter_table(self.loot_table, self.loot_search.text())
+        self._loot_model.set_query(self.loot_search.text())
+        self._set_result(f"{self._loot_model.rowCount():,} matching loot records")
 
     def _filter_raids(self):
         self._filter_table(self.raids_table, self.raids_search.text())
@@ -3950,6 +4309,11 @@ class OpenDKP(ParserWindow):
         self._history_token = ""
         self._history_identity = None
         self._history_states = {}
+        self._history_sources_ready = set()
+        self._loot_loading = {}
+        self._loot_median = None
+        self._loot_snapshot_dataset, self._loot_snapshot_rows = None, []
+        self._loot_snapshot_complete, self._loot_pending_complete = False, False
         self._history_details = {}
         self._history_detail_status = ""
         self._invalidate_attendance()
@@ -3962,9 +4326,15 @@ class OpenDKP(ParserWindow):
         for table in (
                 self.standings_table, self.active_table, self.auctions_table,
                 self.bid_table,
-                self.loot_table, self.raids_table, self.adjustments_table,
+                self.raids_table, self.adjustments_table,
                 self.character_loot, self.character_raids):
             table.setRowCount(0)
+        if hasattr(self, "_loot_model"):
+            self._loot_model.set_rows([])
+            self.loot_table._loot_records = []
+        else:
+            self.loot_table.setRowCount(0)
+        self._update_loot_summary()
         self.character_selector.blockSignals(True)
         self.character_selector.clear()
         self.character_selector.blockSignals(False)

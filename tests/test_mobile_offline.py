@@ -91,7 +91,7 @@ def test_count_and_text_limits_are_explicit_without_250_character_cutoff():
         "guild": {"guild": "G" * 1000,
                   "standings": [{"name": str(index), "rank": "R" * 1000}
                                 for index in range(10001)],
-                  "loot": [{"item": "Item"}] * 501},
+                  "loot": [{"item": "Item"}] * 1001},
         "zones": {"data": {"name": "Zone", "unique_items": ["Item"] * 2001}},
         "quests": {"current": {"title": "Quest", "steps": [{"text": "A" * 10000}] * 181}},
     })
@@ -99,12 +99,124 @@ def test_count_and_text_limits_are_explicit_without_250_character_cutoff():
     assert len(result["guild"]["standings"]) == 10000
     assert result["guild"]["standings_total"] == 10001
     assert len(result["guild"]["standings"][0]["rank"]) == 96
-    assert len(result["guild"]["loot"]) == 500
+    assert len(result["guild"]["loot"]) == 1001
     assert len(result["zone"]["unique_items"]) == 2000
     assert len(result["quest"]["steps"]) == 180
     assert len(result["quest"]["steps"][0]["text"]) == 4000
     assert set(result["truncated"]) == {
-        "guild.standings", "guild.loot", "zone.unique_items", "quest.steps"}
+        "guild.standings", "zone.unique_items", "quest.steps"}
+
+
+def test_full_guild_loot_above_500_survives_export_and_phone_import():
+    from tests.test_companion_pwa import run_javascript
+
+    result = offline.build_offline_snapshot({"guild": {
+        "guild": "Synthetic guild", "loot": [
+            {"item": "Repeated purchase", "character": f"Character {index}",
+             "dkp": index, "private": "never export", "wiki_url": "javascript:bad"}
+            for index in range(1203)]}})
+    assert len(result["guild"]["loot"]) == 1203
+    assert result["truncated"] == []
+    encoded = json.dumps(result)
+    assert "never export" not in encoded and "javascript:" not in encoded
+    run_javascript("""
+const fs=require('fs'),vm=require('vm'),assert=require('assert/strict');
+const context={window:{},URL,TextEncoder};vm.createContext(context);
+vm.runInContext(fs.readFileSync('companion-web/offline.js','utf8'),context);
+const api=context.window.VantageOffline;
+const fixture=""" + encoded + """;
+const clean=api.snapshot(fixture);
+assert.equal(clean.guild.loot.length,1203);
+assert.equal(clean.guild.loot[1202].character,'Character 1202');
+assert.equal(clean.guild.loot[1202].dkp,'1202');
+assert.throws(()=>api.snapshot({...fixture,extra:'x'.repeat(api.MAX_BYTES)}),/8 MiB/);
+assert.throws(()=>api.snapshot({...fixture,guild:{...fixture.guild,loot:Array(200000).fill({})}}));
+""")
+
+
+def test_loot_is_limited_by_utf8_budget_not_first_page(monkeypatch):
+    monkeypatch.setattr(offline, "MAX_EXPORT_BYTES", 300_000)
+    result = offline.build_offline_snapshot({"guild": {
+        "guild": "Synthetic guild", "loot": [
+            {"item": "Repeated purchase", "character": str(index)}
+            for index in range(10000)]}})
+    assert 500 < len(result["guild"]["loot"]) < 10000
+    assert result["truncated"] == ["guild.loot"]
+    assert len(offline._encode(result)) <= 300_000
+
+
+def test_unfinished_loot_is_explicitly_omitted_without_losing_other_sections():
+    from tests.test_companion_pwa import run_javascript
+
+    snapshots = []
+    for status, provisional in (("preparing", []), ("failed", []),
+                                ("loading", [{"item": "Partial purchase"}])):
+        result = offline.build_offline_snapshot({
+            "guild": {"guild": "Synthetic guild", "loot": provisional,
+                      "loot_complete": False, "loot_status": status,
+                      "standings": [{"name": "Synthetic character", "dkp": 0}]},
+            "zones": {"data": {"name": "Synthetic zone"}}})
+        assert result["guild"]["loot"] == []
+        assert result["guild"]["standings"][0]["dkp"] == "0"
+        assert result["zone"]["name"] == "Synthetic zone"
+        assert len(result["truncated"]) == 1
+        assert "guild.loot" in result["truncated"][0]
+        assert "not yet complete" in result["truncated"][0]
+        snapshots.append(result)
+    run_javascript("""
+const fs=require('fs'),vm=require('vm'),assert=require('assert/strict');
+const context={window:{},URL,TextEncoder};vm.createContext(context);
+vm.runInContext(fs.readFileSync('companion-web/offline.js','utf8'),context);
+for(const fixture of """ + json.dumps(snapshots) + """) {
+ const imported=context.window.VantageOffline.snapshot(fixture);
+ assert.equal(imported.guild.loot.length,0);
+ assert.equal(imported.truncated[0],fixture.truncated[0]);
+ assert.equal(imported.zone.name,'Synthetic zone');
+}
+""")
+
+
+def test_previous_complete_and_genuinely_empty_loot_remain_valid_during_refresh():
+    for status in ("loading", "failed"):
+        for purchases in ([], [{"item": "Previous complete purchase"}]):
+            result = offline.build_offline_snapshot({"guild": {
+                "guild": "Synthetic guild", "loot": purchases,
+                "loot_complete": True, "loot_status": status}})
+            assert len(result["guild"]["loot"]) == len(purchases)
+            assert result["truncated"] == []
+
+
+def test_phone_saved_loot_warning_persists_without_changing_row_or_focus_order():
+    from tests.test_companion_pwa import run_javascript
+
+    run_javascript(r"""
+const fs=require('fs'),vm=require('vm'),assert=require('assert/strict');
+const elements={'guild-results':{replaceChildren(...rows){this.children=rows}},
+ 'guild-view':{value:'loot'},'guild-search':{value:''},'guild-more':{hidden:true}};
+let status='';
+const state={guildLimit:100,snapshot:{truncated:['guild.loot (not yet complete)'],guild:{loot:[],standings:[]}}};
+const context={state,$:id=>elements[id],norm:value=>value.toLowerCase(),number:String,
+ resultCount:(id,section,text)=>{assert.equal(id,'guild-count');status=text},
+ node:(tag,style,text)=>({tag,text,children:[],append(...rows){this.children.push(...rows)}}),appendLink:()=>{}};
+vm.createContext(context);
+const source=fs.readFileSync('companion-web/app.js','utf8');
+vm.runInContext(source.slice(source.indexOf('function renderGuild('),source.indexOf('function referenceRows(')),context);
+context.renderGuild();
+assert(status.includes('0 matching saved records')&&status.includes('incomplete'));
+assert(status.includes('import a new copy'));
+assert(!status.includes('guild.loot'));
+state.snapshot.guild.loot=Array.from({length:1203},(_,index)=>({item:'Purchase '+index}));
+context.renderGuild();
+assert(status.includes('1203 matching saved records')&&status.includes('incomplete'));
+assert.equal(elements['guild-results'].children.length,100);
+assert.equal(elements['guild-results'].children[99].children[0].text,'Purchase 99');
+assert.equal(elements['guild-more'].hidden,false);
+state.guildLimit=200;context.renderGuild();
+assert.equal(elements['guild-results'].children[100].children[0].text,'Purchase 100');
+elements['guild-view'].value='standings';context.renderGuild();assert(!status.includes('incomplete'));
+elements['guild-view'].value='loot';state.snapshot.truncated=[];state.snapshot.guild.loot=[];
+context.renderGuild();assert(!status.includes('incomplete'));assert(status.includes('0 matching saved records'));
+""")
 
 
 def test_final_utf8_byte_budget_keeps_valid_json_and_signals_omissions(monkeypatch):

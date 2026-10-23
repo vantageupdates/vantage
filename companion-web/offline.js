@@ -2,6 +2,11 @@
 (() => {
   'use strict';
   const MAX_BYTES = 8 * 1024 * 1024;
+  // Even a blank projected purchase occupies these bytes. This bound admits
+  // every valid export while preventing tiny untrusted objects from expanding
+  // into millions of projected rows after the existing 8 MiB input check.
+  const MIN_LOOT_BYTES = JSON.stringify({date:'',item:'',character:'',dkp:'',raid:'',wiki_url:''}).length + 1;
+  const MAX_LOOT_ROWS = Math.floor(MAX_BYTES / MIN_LOOT_BYTES);
   const fail = () => { throw new Error('This is not a supported Vantage offline file. Export a fresh copy from Vantage.'); };
   const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
   function text(value, max = 2000) {
@@ -43,7 +48,7 @@
       guild.standings = rows(value.standings, 10000, row => fields(row, ['name', 'class', 'level', 'rank', 'dkp', 'attendance'], 240));
       if (!Number.isSafeInteger(value.standings_total) || value.standings_total < 0) fail();
       guild.standings_total = value.standings_total;
-      guild.loot = rows(value.loot, 500, row => ({...fields(row, ['date', 'item', 'character', 'dkp', 'raid'], 500), wiki_url: safeURL(row.wiki_url)}));
+      guild.loot = rows(value.loot, MAX_LOOT_ROWS, row => ({...fields(row, ['date', 'item', 'character', 'dkp', 'raid'], 500), wiki_url: safeURL(row.wiki_url)}));
       guild.raids = rows(value.raids, 300, row => fields(row, ['date', 'name', 'items', 'awarded', 'spent'], 500));
       guild.sheets = rows(value.sheets, 32, row => ({...fields(row, ['name'], 240), url: safeURL(row.url, 'sheet')}));
       result.guild = guild;

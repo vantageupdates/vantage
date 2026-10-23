@@ -77,12 +77,27 @@ def _guild(source, truncated):
     }) for row in _rows(source.get("standings"), MAX_STANDINGS,
                        "guild.standings", truncated) if isinstance(row, dict)]
     loot = []
-    for row in _rows(source.get("loot"), 500, "guild.loot", truncated):
+    # Keep every purchase that fits the file budget, rather than an arbitrary
+    # first page. Bound projected memory before the final cross-section trim.
+    loot_bytes = 2
+    original_loot = source.get("loot")
+    if source.get("loot_complete") is False:
+        # Initial loading, model preparation and a failed first load must not
+        # become a seemingly complete empty (or provisional partial) archive.
+        # Keep the existing schema: its omission notice survives phone import.
+        original_loot = ()
+        truncated.append(
+            "guild.loot (not yet complete; refresh the guild and export again)")
+    for row in original_loot if isinstance(original_loot, (list, tuple)) else ():
         if not isinstance(row, dict):
             continue
         clean = _fields(row, {
             "date": 64, "item": 160, "character": 160, "dkp": 48, "raid": 160})
         clean["wiki_url"] = _wiki(clean["item"])
+        loot_bytes += len(_encode(clean)) + bool(loot)
+        if loot_bytes > MAX_EXPORT_BYTES:
+            truncated.append("guild.loot")
+            break
         loot.append(clean)
     raids = [_fields(row, {
         "date": 64, "name": 160, "items": 48, "awarded": 48, "spent": 48,

@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import ctypes
 from ctypes import wintypes
+import hashlib
 import json
 import re
 import sys
@@ -27,7 +28,7 @@ API_ROOT = "https://api.opendkp.com"
 COGNITO_ROOT = "https://cognito-idp.us-east-2.amazonaws.com/"
 COGNITO_TARGET = "AWSCognitoIdentityProviderService.InitiateAuth"
 LIVE_ROOT = "wss://a2d3ggob45.execute-api.us-east-2.amazonaws.com/production"
-USER_AGENT = "Vantage/1.44.139 (vantagecompanion@gmail.com)"
+USER_AGENT = "Vantage/1.44.140 (vantagecompanion@gmail.com)"
 
 _GUILD_SLUG = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
@@ -209,6 +210,7 @@ class OpenDkpClient(QObject):
     auth_changed = Signal(str, str)
     live_changed = Signal(str)
     auction_event = Signal(str, object)
+    loot_progress = Signal(str, object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -226,6 +228,8 @@ class OpenDkpClient(QObject):
         self._active_auctions = {}
         self._live_requested = False
         self._reconnect_attempt = 0
+        self._loot_generation = 0
+        self._loot_state = None
 
         self.socket = QWebSocket("Vantage OpenDKP", parent=self)
         self.socket.connected.connect(self._socket_connected)
@@ -247,6 +251,10 @@ class OpenDkpClient(QObject):
     def authenticated(self):
         return bool(self._id_token and time.monotonic() < self._token_expires_at)
 
+    @property
+    def loot_generation(self):
+        return self._loot_generation
+
     def set_guild(self, value):
         slug = normalize_guild_slug(value)
         if not slug:
@@ -254,6 +262,7 @@ class OpenDkpClient(QObject):
                 "Enter an OpenDKP guild name or guild.opendkp.com address")
         if slug == self.slug:
             return slug
+        self._cancel_guild_loot()
         self.stop_live()
         self._session_retry_timer.stop()
         self.slug = slug
@@ -277,9 +286,156 @@ class OpenDkpClient(QObject):
         self._request("dkp", "GET", root + "/dkp")
         self._request("characters", "GET", root + "/characters")
         self._request("raids", "GET", root + "/raids?page=1&ItemsPerPage=250")
-        self._request("items", "GET", root + "/items?page=1&ItemsPerPage=500")
+        self.fetch_all_guild_loot()
         self._request("auctions", "GET", root + "/auctions?page=1&ItemsPerPage=500")
         return True
+
+    def _cancel_guild_loot(self):
+        self._loot_generation += 1
+        state, self._loot_state = self._loot_state, None
+        pending = tuple(self._replies.items())
+        if state is not None:
+            self._end_busy("items")
+        for reply, context in pending:
+            if str(context.get("operation", "")).startswith("guild_loot|"):
+                try:
+                    reply.abort()
+                except RuntimeError:
+                    pass
+
+    def fetch_all_guild_loot(self):
+        """Publish one complete guild purchase history, never a partial page.
+
+        OpenDKP's public Items envelope exposes TotalItems, TotalPages and
+        CurrentPage. Older list-only responses are read until an empty page.
+        There is no history/date/page-count cap; every request remains small.
+        """
+        if not self.slug:
+            return False
+        self._cancel_guild_loot()
+        state = {"generation": self._loot_generation, "slug": self.slug,
+                 "page": 1, "rows": [], "identities": {}, "signatures": set(),
+                 "total": None, "pages": None, "operation": ""}
+        self._loot_state = state
+        self._begin_busy("items")
+        self._emit_loot_progress(state, 0)
+        self._request_loot_page(state)
+        return True
+
+    def _emit_loot_progress(self, state, page, complete=False):
+        self.loot_progress.emit(state["slug"], {
+            "generation": state["generation"], "page": page,
+            "loaded": len(state["rows"]), "total": state["total"],
+            "complete": complete})
+
+    def _request_loot_page(self, state):
+        if self._loot_state is not state or state["slug"] != self.slug:
+            return
+        operation = f"guild_loot|{state['generation']}|{state['slug']}|{state['page']}"
+        state["operation"] = operation
+        self._request(operation, "GET", f"/clients/{quote(state['slug'])}/items"
+                      f"?page={state['page']}&ItemsPerPage=500")
+
+    def _fail_guild_loot(self, state, message, status=0):
+        if self._loot_state is not state:
+            return
+        self._loot_state = None
+        self._end_busy("items")
+        if state["generation"] != self._loot_generation or state["slug"] != self.slug:
+            return
+        self.failed.emit("items", "Guild loot history could not be completed: " + message +
+                         ". The previous complete history is unchanged. Use Refresh to retry.", status)
+
+    @staticmethod
+    def _loot_purchase_identity(row):
+        for field in ("PurchaseId", "PurchaseID", "CharacterItemId", "CharacterItemID",
+                      "LootId", "LootID", "TransactionId", "TransactionID"):
+            value = row.get(field)
+            if value is not None and not isinstance(value, bool) and str(value).strip() not in ("", "0", "-1"):
+                # ItemID and GameItemId describe a type. SourceId is a raid.
+                pool = row.get("PoolId", row.get("PoolID", row.get("PoolName", "")))
+                return (field.lower(), str(value), str(row.get("CharacterId", row.get("CharacterID", ""))), str(pool))
+        return None
+
+    def _receive_loot_page(self, operation, payload, error=False, message="", status=0):
+        state = self._loot_state
+        if (state is None or state["slug"] != self.slug or
+                state["generation"] != self._loot_generation or operation != state["operation"]):
+            return
+        state["operation"] = ""  # A redundant finished notification cannot append twice.
+        if error:
+            self._fail_guild_loot(state, message or f"HTTP {status}", status)
+            return
+        try:
+            if isinstance(payload, list):
+                rows, metadata = payload, {}
+            elif isinstance(payload, dict):
+                rows = next((payload[key] for key in ("Items", "Models")
+                             if isinstance(payload.get(key), list)), None)
+                metadata = payload
+            else:
+                rows, metadata = None, {}
+            if rows is None or any(not isinstance(row, dict) for row in rows):
+                raise ValueError("OpenDKP returned an invalid purchase page")
+            for field, target in (("TotalItems", "total"), ("TotalPages", "pages"), ("CurrentPage", "current")):
+                value = metadata.get(field)
+                if value is None:
+                    continue
+                if isinstance(value, bool) or not re.fullmatch(r"\d+", str(value)):
+                    raise ValueError("OpenDKP returned invalid pagination metadata")
+                value = int(value)
+                if target == "current":
+                    if value != state["page"]:
+                        raise ValueError("OpenDKP returned a different page than requested")
+                elif state[target] is not None and state[target] != value:
+                    raise ValueError("The guild loot list changed during loading")
+                else:
+                    state[target] = value
+            before = len(state["rows"])
+            if rows:
+                serialized = [json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=False) for row in rows]
+                signature = hashlib.sha256("\n".join(sorted(serialized)).encode("utf-8")).hexdigest()
+                if signature in state["signatures"]:
+                    raise ValueError("OpenDKP repeated a page without advancing")
+                state["signatures"].add(signature)
+                for row, encoded in zip(rows, serialized):
+                    identity = self._loot_purchase_identity(row)
+                    if identity is not None and identity in state["identities"]:
+                        if state["identities"][identity] != encoded:
+                            raise ValueError("A purchase changed during loading")
+                        continue
+                    if identity is not None:
+                        state["identities"][identity] = encoded
+                    state["rows"].append(row)
+            loaded, total, pages = len(state["rows"]), state["total"], state["pages"]
+            if rows and loaded == before:
+                raise ValueError("OpenDKP returned a page without new purchases")
+            if pages is not None and (pages < state["page"] and (rows or pages != 0)):
+                raise ValueError("OpenDKP returned inconsistent page totals")
+            if total is not None and loaded > total:
+                raise ValueError("OpenDKP returned more purchases than its reported total")
+            if total is not None and loaded == total and pages is not None and state["page"] < pages:
+                raise ValueError("OpenDKP returned inconsistent purchase and page totals")
+            if not rows and pages is not None and state["page"] < pages:
+                raise ValueError("OpenDKP ended before all reported pages arrived")
+            at_end = not rows or (total is not None and loaded == total) or (pages is not None and state["page"] >= pages)
+            if at_end and total is not None and loaded != total:
+                raise ValueError("OpenDKP ended before all reported purchases arrived")
+            if at_end:
+                self._loot_state = None
+                self._emit_loot_progress(state, state["page"], complete=True)
+                self._end_busy("items")
+                if state["generation"] != self._loot_generation or state["slug"] != self.slug:
+                    return
+                self.response.emit("items", {"Items": state["rows"], "TotalItems": loaded,
+                    "SourceTotalItems": total, "TotalPages": state["page"], "Complete": True,
+                    "GuildSlug": state["slug"], "Generation": state["generation"]})
+                return
+            self._emit_loot_progress(state, state["page"])
+            state["page"] += 1
+            QTimer.singleShot(0, lambda current=state: self._request_loot_page(current))
+        except (ValueError, TypeError, OverflowError) as exc:
+            self._fail_guild_loot(state, str(exc), status)
 
     def fetch_adjustments(self):
         if self.slug:
@@ -459,6 +615,7 @@ class OpenDkpClient(QObject):
         self.live_changed.emit("off")
 
     def close(self):
+        self._cancel_guild_loot()
         self.stop_live()
         self._session_retry_timer.stop()
         for reply in tuple(self._replies):
@@ -567,6 +724,11 @@ class OpenDkpClient(QObject):
         error = reply.error() != QNetworkReply.NetworkError.NoError or status >= 400
         self._end_busy(operation)
         reply.deleteLater()
+        if operation.startswith("guild_loot|"):
+            message = str(payload.get("message") or payload.get("Message") or "") if isinstance(payload, dict) else ""
+            self._receive_loot_page(operation, payload, error,
+                                    message.strip() or error_string, status)
+            return
         if error:
             message = ""
             if isinstance(payload, dict):

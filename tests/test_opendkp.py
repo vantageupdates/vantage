@@ -1147,6 +1147,7 @@ def test_loading_saved_guild_restores_windows_credential(monkeypatch):
         else ("", ""))
     client = SimpleNamespace(
         slug="", stop_live=lambda: stopped.append(True),
+        _cancel_guild_loot=lambda: None,
         _session_retry_timer=SimpleNamespace(
             stop=lambda: timer_stops.append(True)),
         client_details={"old": True}, _id_token="old", _token_expires_at=42,

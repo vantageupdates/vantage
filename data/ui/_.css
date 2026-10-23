@@ -2332,7 +2332,7 @@ QTabWidget#OpenDkpAuctionTabs QTabBar::tab:selected {
     color: #D8E5E8;
     font-weight: 700;
 }
-#OpenDkpTabs QTableWidget, #OpenDkpAuctionTabs QTableWidget, #OpenDkpOverviewTabs QTableView,
+#OpenDkpTabs QTableWidget, #OpenDkpTabs QTableView, #OpenDkpAuctionTabs QTableWidget, #OpenDkpOverviewTabs QTableView,
 #OpenDkpWatchPanel QListWidget {
     color: #E4ECEE;
     background-color: #091014;
@@ -2343,6 +2343,7 @@ QTabWidget#OpenDkpAuctionTabs QTabBar::tab:selected {
     outline: none;
 }
 #OpenDkpTabs QTableWidget::item:selected,
+#OpenDkpTabs QTableView::item:selected,
 #OpenDkpOverviewTabs QTableView::item:selected,
 #OpenDkpAuctionTabs QTableWidget::item:selected,
 #OpenDkpWatchPanel QListWidget::item:selected {
@@ -2350,7 +2351,7 @@ QTabWidget#OpenDkpAuctionTabs QTabBar::tab:selected {
     background-color: #493D24;
     border: 1px solid #B6934F;
 }
-#OpenDkpTabs QTableWidget:focus, #OpenDkpAuctionTabs QTableWidget:focus,
+#OpenDkpTabs QTableWidget:focus, #OpenDkpTabs QTableView:focus, #OpenDkpAuctionTabs QTableWidget:focus,
 #OpenDkpOverviewTabs QTableView:focus,
 #OpenDkpWatchPanel QListWidget:focus {
     border: 2px solid #F0C778;

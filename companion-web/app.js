@@ -137,7 +137,9 @@ function renderGuild(reset=false){
   const guild=state.snapshot?.guild,root=$('guild-results'),view=$('guild-view').value,query=norm($('guild-search').value);
   if(!guild){root.replaceChildren(node('p','empty','Import your selected guild from the PC QR session to search DKP, loot and raids here without the PC.'));$('guild-count').textContent='';$('guild-more').hidden=true;return}
   const rows=(guild[view]||[]).filter(row=>!query||norm(Object.values(row).join(' ')).includes(query));
-  resultCount('guild-count','guild',`${number(rows.length)} matching saved records · showing ${number(Math.min(rows.length,state.guildLimit))}`);
+  const incomplete=view==='loot'&&(state.snapshot.truncated||[]).some(section=>section.startsWith('guild.loot'));
+  const warning=incomplete?' · This saved loot history is incomplete. Refresh the guild on the PC and import a new copy.':'';
+  resultCount('guild-count','guild',`${number(rows.length)} matching saved records · showing ${number(Math.min(rows.length,state.guildLimit))}${warning}`);
   $('guild-more').hidden=rows.length<=state.guildLimit;
   const cards=rows.slice(0,state.guildLimit).map(row=>{
     const card=node('article','result-card'),title=view==='standings'?row.name:view==='loot'?row.item:row.name;
