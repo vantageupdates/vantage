@@ -239,6 +239,7 @@
     const storageNote = element('p', 'vdkp-meta', 'Only successful public guild copies are saved here. Imported PC snapshots and their export controls remain separate.');
     container.replaceChildren(intro, form, status, identity, choice, rosterCount, rosterAnnouncement, balance, historySection, storageNote, forget);
     let current, lastDirectory, lastHistory, lastRowHistory, emptyState, lastRowContext = '', limit = 60, announceTimer;
+    let renderedRecords = [];
     const client = api.createClient();
     const session = createSession({client, storage, model: api, onChange: render});
     function rosterOptions() {
@@ -288,9 +289,10 @@
     function addDetail(parent, label, value) { if (value === null || value === undefined || value === '') return; const row = element('p'); row.append(element('strong', '', label + ': '), doc.createTextNode(text(value))); parent.append(row); }
     function historyRow(entry) {
       const details = element('details', 'vdkp-entry'), summary = element('summary');
-      summary.append(element('span', 'vdkp-entry-title', entry.source || entry.description || 'DKP record'), element('span', 'vdkp-entry-amount', amount(entry.amount) + ' DKP'), element('span', 'vdkp-meta', stamp(entry.timestamp) + ' · ' + (entry.kind || 'Record') + ' · ' + (entry.pool || 'Unspecified pool')));
+      const title = (entry.kind === 'loot' && entry.item_name) || entry.source || entry.description || 'DKP record';
+      summary.append(element('span', 'vdkp-entry-title', title), element('span', 'vdkp-entry-amount', amount(entry.amount) + ' DKP'), element('span', 'vdkp-meta', stamp(entry.timestamp) + ' · ' + (entry.kind || 'Record') + ' · ' + (entry.pool || 'Unspecified pool')));
       const body = element('div', 'vdkp-entry-body');
-      addDetail(body, 'Description', entry.description); addDetail(body, 'Source', entry.source); addDetail(body, 'Date', stamp(entry.timestamp)); addDetail(body, 'Pool', entry.pool || 'Unspecified pool'); addDetail(body, 'Amount', amount(entry.amount) + ' DKP');
+      addDetail(body, 'Description', entry.description); addDetail(body, 'Source', entry.ledger_source || entry.source); addDetail(body, 'Date', stamp(entry.timestamp)); addDetail(body, 'Pool', entry.pool || 'Unspecified pool'); addDetail(body, 'Amount', amount(entry.amount) + ' DKP');
       if (entry.item_name) { const link = element('a', '', entry.item_name + ' on Project 1999 Wiki (new tab)'); link.href = 'https://wiki.project1999.com/' + encodeURIComponent(text(entry.item_name).replace(/ /g, '_')); link.target = '_blank'; link.rel = 'noopener noreferrer'; body.append(link); }
       if (entry.kind === 'raid') {
         const ticks = entry.ticks || []; body.append(element('h' + Math.min(6, headingLevel + 1), '', 'Raid ticks'));
@@ -304,16 +306,33 @@
       details.dataset.poolKey = text(entry.pool_key);
       details.append(summary, body); return details;
     }
+    function recordKeys(entry) {
+      const scope = [current.guild?.slug, current.character?.id];
+      if (entry.history_id) return [...new Set([entry.history_id, ...(entry.history_aliases || [])])].map(id => JSON.stringify([...scope, entry.kind, id]));
+      const identity = entry.kind === 'raid' && entry.raid_id ? ['raid', entry.raid_id, entry.pool_key] : [entry.kind, entry.timestamp, entry.source, entry.description, entry.item_name, entry.pool_key];
+      return [JSON.stringify([...scope, ...identity])];
+    }
+    function recordIndex(records) {
+      const index = new Map();
+      for (const record of records) for (const key of record.keys) {
+        if (!index.has(key)) index.set(key, new Set());
+        index.get(key).add(record);
+      }
+      return index;
+    }
+    function matches(record, index) {
+      return new Set(record.keys.flatMap(key => [...(index.get(key) || [])]));
+    }
     function renderRows(announce = false) {
       // Preserve disclosure state and only the focus that this update replaces.
       // A response must never pull focus back from filters or another page.
-      const existing = new Map([...rows.children].map(row => [row.dataset.recordKey, row]));
+      const existing = recordIndex(renderedRecords);
       const focused = doc.activeElement, focusedRow = focused?.closest('details');
-      const focusKey = rows.contains(focused) && !container.closest('[hidden]') ? focusedRow?.dataset.recordKey : null;
-      const focusIndex = focusKey ? [...focusedRow.querySelectorAll('summary,button,a')].indexOf(focused) : -1;
+      const focusOwner = rows.contains(focused) && !container.closest('[hidden]') ? focusedRow : null;
+      const focusIndex = focusOwner ? [...focusedRow.querySelectorAll('summary,button,a')].indexOf(focused) : -1;
       const query = norm(search.value);
       const all = current.history?.entries || [];
-      const filtered = all.filter(row => (!type.value || row.kind === type.value) && (!pool.value || (text(row.pool_key) || '__unknown') === pool.value) && (!query || norm([row.source, row.description, row.item_name, row.pool, row.timestamp, ...(row.ticks || []).map(tick => tick.description)].join(' ')).includes(query)));
+      const filtered = all.filter(row => (!type.value || row.kind === type.value) && (!pool.value || (text(row.pool_key) || '__unknown') === pool.value) && (!query || norm([row.source, row.description, row.ledger_source, row.item_name, row.pool, row.timestamp, ...(row.ticks || []).map(tick => tick.description)].join(' ')).includes(query)));
       filtered.sort((a, b) => {
         if (sort.value === 'highest' || sort.value === 'lowest') {
           if (a.amount == null) return b.amount == null ? 0 : 1; if (b.amount == null) return -1;
@@ -328,11 +347,22 @@
       totals.replaceChildren(element('p', 'vdkp-meta', 'In the selected history and filters — not your current balance:'));
       for (const bucket of summary.by_pool || []) totals.append(element('p', '', (bucket.pool || 'Unspecified pool') + ' · credited ' + amount(bucket.credits) + ' · spent ' + amount(bucket.debits) + ' · net ' + amount(bucket.net) + ' DKP' + (bucket.unknown_count ? ' · ' + bucket.unknown_count + ' unknown amounts excluded' : '')));
       if (summary.unknown_pool_count) totals.append(element('p', 'vdkp-warning', summary.unknown_pool_count + ' records have an unspecified pool; they are not combined with a named balance.'));
-      rows.replaceChildren(...filtered.slice(0, limit).map(entry => {
-        const key = entry.kind === 'raid' && entry.raid_id ? ['raid', entry.raid_id, entry.pool_key].join('|') : [entry.kind, entry.timestamp, entry.source, entry.description, entry.item_name, entry.pool_key].join('|');
-        const row = historyRow(entry); row.dataset.recordKey = key; row.open = Boolean(existing.get(key)?.open); return row;
-      }));
-      if (focusKey && focusIndex >= 0) [...rows.children].find(row => row.dataset.recordKey === focusKey)?.querySelectorAll('summary,button,a')[focusIndex]?.focus();
+      const updated = filtered.slice(0, limit).map(entry => ({row: historyRow(entry), keys: recordKeys(entry)}));
+      const updatedIndex = recordIndex(updated);
+      let focusTarget;
+      for (const record of updated) {
+        record.row.dataset.recordKey = record.keys[0];
+        const candidates = matches(record, existing), previous = candidates.size === 1 ? [...candidates][0] : null;
+        // Both directions must be unique; a shared item name or ambiguous alias
+        // cannot move disclosure state or focus to another purchase.
+        if (previous && matches(previous, updatedIndex).size === 1) {
+          record.row.open = previous.row.open;
+          if (previous.row === focusOwner) focusTarget = record.row;
+        }
+      }
+      renderedRecords = updated;
+      rows.replaceChildren(...updated.map(record => record.row));
+      if (focusIndex >= 0) focusTarget?.querySelectorAll('summary,button,a')[focusIndex]?.focus();
       emptyState = null;
       if (!filtered.length) { emptyState = element('p', 'vdkp-empty'); rows.append(emptyState); updateEmptyState(); }
       more.hidden = filtered.length <= limit;

@@ -103,6 +103,117 @@
     }
     return result;
   }
+  function purchaseIds(row) {
+    return Object.fromEntries(['Purchase', 'CharacterItem', 'Loot', 'Transaction'].map(name => [name, id(first(row, name + 'Id', name + 'ID'))]).filter(([, value]) => value));
+  }
+  function amountIdentity(amount) {
+    if (amount === null) return 'unknown';
+    const buffer = new ArrayBuffer(8); new DataView(buffer).setFloat64(0, amount || 0, false);
+    return [...new Uint8Array(buffer)].map(value => value.toString(16).padStart(2, '0')).join('');
+  }
+  function lootIdentities(entries, character, origin) {
+    const groups = new Map();
+    for (const value of entries) {
+      const raw = value.raw, [poolId, poolName] = poolParts(raw), pool = poolId ? 'id:' + poolId : 'name:' + lower(poolName);
+      const purchase = Object.entries(purchaseIds(raw));
+      const identity = purchase.length ? ['purchase', purchase, value.raid_id] : ['fingerprint', value.raid_id, lower(first(raw, 'ItemName', 'Source', 'Name')), timestamp(raw), text(first(raw, 'Notes', 'Description')), amountIdentity(value.amount)];
+      const base = 'loot:' + JSON.stringify([character, pool, origin, ...identity]);
+      if (!groups.has(base)) groups.set(base, []);
+      groups.get(base).push(value);
+    }
+    for (const [base, copies] of groups) {
+      copies.sort((a, b) => Number(a.amount === null) - Number(b.amount === null) || (a.amount || 0) - (b.amount || 0));
+      copies.forEach((value, index) => { value.history_id = base + ':' + (index + 1); value.history_aliases = []; });
+    }
+  }
+  const sourceNames = source => { const parts = lower(source).split(' - '); return new Set(parts.map((_, index) => parts.slice(index).join(' - '))); };
+  function lootFeatures(value) {
+    const raw = value.raw, parsed = Date.parse(value.timestamp);
+    return {ids: purchaseIds(raw), pool: value.pool_key, unclearPool: !value.pool_key && poolParts(raw).some(Boolean), raid: value.raid_id,
+      name: lower(value.item_name), explicitName: lower(raw.ItemName), source: lower(first(raw, 'Source', 'Name')),
+      amount: value.amount, time: Number.isFinite(parsed) ? parsed : null};
+  }
+  function lootMatch(item, ledger) {
+    const leftIds = item.ids, rightIds = ledger.ids;
+    const shared = Object.keys(leftIds).filter(key => key in rightIds);
+    if (shared.some(key => leftIds[key] !== rightIds[key])) return 0;
+    const lp = item.pool, rp = ledger.pool;
+    if (lp && rp && lp !== rp) return 0;
+    if (item.unclearPool || ledger.unclearPool) return 0;
+    if (item.raid && ledger.raid && item.raid !== ledger.raid) return 0;
+    const name = item.name, explicitName = ledger.explicitName;
+    if (name && explicitName && name !== explicitName) return 0;
+    if (shared.length) return 2;
+    const source = ledger.source;
+    if (!name || !item.raid || item.raid !== ledger.raid) return 0;
+    if (explicitName !== name && source !== name && !source.endsWith(' - ' + name)) return 0;
+    if (item.amount !== null && ledger.amount !== null && item.amount !== ledger.amount) return 0;
+    const leftTime = item.time, rightTime = ledger.time;
+    if (leftTime !== null && rightTime !== null && leftTime !== rightTime) return 0;
+    return 1;
+  }
+  function reconcileLoot(items, ledger) {
+    const itemFeatures = items.map(lootFeatures), ledgerFeatures = ledger.map(lootFeatures), purchaseIndex = new Map(), nameIndex = new Map();
+    const ensure = (map, key, factory) => { if (!map.has(key)) map.set(key, factory()); return map.get(key); };
+    itemFeatures.forEach((feature, i) => {
+      for (const identity of Object.entries(feature.ids)) ensure(purchaseIndex, JSON.stringify(identity), () => new Set()).add(i);
+      if (feature.raid && feature.name) {
+        const masks = ensure(nameIndex, JSON.stringify([feature.raid, feature.name]), () => new Map());
+        const costs = ensure(masks, JSON.stringify(Object.keys(feature.ids)), () => new Map());
+        const times = ensure(costs, feature.amount, () => new Map());
+        ensure(times, feature.time, () => new Set()).add(i);
+      }
+    });
+    const scores = {1: new Map(), 2: new Map()}, possible = new Map();
+    ledgerFeatures.forEach((feature, j) => {
+      const choices = new Set();
+      for (const identity of Object.entries(feature.ids)) for (const i of purchaseIndex.get(JSON.stringify(identity)) || []) choices.add(i);
+      const names = feature.explicitName ? [feature.explicitName] : sourceNames(feature.source);
+      for (const name of names) for (const [mask, costs] of nameIndex.get(JSON.stringify([feature.raid, name])) || []) {
+        if (JSON.parse(mask).some(key => key in feature.ids)) continue;
+        for (const cost of feature.amount === null ? costs.keys() : [feature.amount, null]) {
+          const times = costs.get(cost) || new Map();
+          for (const time of feature.time === null ? times.keys() : [feature.time, null]) for (const i of times.get(time) || []) choices.add(i);
+        }
+      }
+      possible.set(j, new Set());
+      for (const i of [...choices].sort((a, b) => a - b)) {
+        const rank = lootMatch(itemFeatures[i], feature);
+        if (rank) { ensure(scores[rank], j, () => []).push(i); possible.get(j).add(i); }
+      }
+    });
+    const matched = new Map(), used = new Set();
+    const compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+    const signature = value => JSON.stringify([value.history_id.slice(0, value.history_id.lastIndexOf(':')), value.amount]);
+    const itemSignatures = items.map(signature), ledgerSignatures = ledger.map(signature);
+    for (const rank of [2, 1]) {
+      const candidates = new Map([...scores[rank]].filter(([j]) => !matched.has(j)).map(([j, values]) => [j, values.filter(i => !used.has(i))]));
+      const reverseIndex = new Map();
+      for (const [j, values] of candidates) for (const i of values) ensure(reverseIndex, i, () => []).push(j);
+      for (const j of [...candidates.keys()].sort((a, b) => compare(ledger[a].history_id, ledger[b].history_id))) {
+        const choices = candidates.get(j).filter(i => !used.has(i));
+        if (!choices.length || new Set(choices.map(i => itemSignatures[i])).size !== 1) continue;
+        const reverse = reverseIndex.get(choices[0]).filter(k => !matched.has(k));
+        if (new Set(reverse.map(k => ledgerSignatures[k])).size !== 1) continue;
+        const i = choices.sort((a, b) => compare(items[a].history_id, items[b].history_id))[0];
+        matched.set(j, i); used.add(i);
+      }
+    }
+    const result = [...items];
+    ledger.forEach((row, j) => {
+      if (!matched.has(j)) {
+        if ([...possible.get(j)].some(i => !used.has(i))) row = {...row, recorded_amount: row.amount, amount: null, reconciliation: 'ambiguous', description: row.description + ' · Recorded transaction: ' + (row.amount === null ? 'Unknown' : String(row.amount)) + ' DKP; possible duplicate of a purchase; excluded from known totals until identified'};
+        result.push(row); return;
+      }
+      const i = matched.get(j), item = items[i];
+      result[i] = {...item, amount: row.amount, timestamp: item.timestamp || row.timestamp, item_name: item.item_name || row.item_name,
+        source: item.item_name || row.item_name || row.source,
+        description: [...new Set([item.description, row.description, row.ledger_source].filter(Boolean))].join(' · '), ledger_source: row.ledger_source,
+        evidence: [...item.evidence, ...row.evidence], history_aliases: row.history_id !== item.history_id ? [row.history_id] : []};
+      if (!item.pool_key && row.pool_key) { result[i].pool_key = row.pool_key; result[i].pool = row.pool; }
+    });
+    return result;
+  }
   function buildHistory({raids = [], adjustments = [], items = [], dkp = [], raidDetails = {}, characterId, characterName}) {
     characterId = id(characterId); characterName = lower(characterName);
     if (!characterId && !characterName) return [];
@@ -193,22 +304,32 @@
       adjustmentEntries.push(entry('adjustment', row, pool, source, description, finite(first(row, 'Value', 'Amount', 'DKP'))));
     }
     result.push(...deduplicate(adjustmentEntries, row => id(first(row, 'AdjustmentId', 'SourceId'))));
-    const ledgerItems = ledger.filter(row => ['item', 'loot'].includes(lower(row.SourceType))), lootEntries = [];
-    for (const row of ledgerItems.length ? ledgerItems : items) {
-      const fromLedger = ledgerItems.includes(row), rid = id(fromLedger ? row.SourceId : first(row, 'RaidId', 'RaidID'));
+    const ledgerItems = ledger.filter(row => ['item', 'loot'].includes(lower(row.SourceType))), lootEntries = [], transactionEntries = [];
+    const itemNames = new Map();
+    for (const item of items) {
+      const rid = id(first(item, 'RaidId', 'RaidID')), name = text(item.ItemName);
+      if (rid && name) { const key = JSON.stringify([rid, lower(name)]); if (!itemNames.has(key)) itemNames.set(key, new Set()); itemNames.get(key).add(name); }
+    }
+    for (const [fromLedger, row] of [...items.map(row => [false, row]), ...ledgerItems.map(row => [true, row])]) {
+      const rid = id(fromLedger ? row.SourceId : first(row, 'RaidId', 'RaidID'));
       const amount = finite(fromLedger ? row.Value : first(row, 'DkpValue', 'DKPValue', 'DKP', 'Cost', 'Value', 'Amount'));
       const source = text(first(row, 'ItemName', 'Source', 'Name')) || 'Loot';
       const description = [text(first(row, 'Raid', 'RaidName')), text(first(row, 'Notes', 'Description'))].filter(Boolean).join(' · ') || source;
       const value = entry('loot', row, relatedPool(row, rid), source, description, amount === null ? null : fromLedger ? amount : -amount, rid);
       let itemName = text(row.ItemName);
       if (!itemName && fromLedger) {
-        const names = new Set(items.filter(item => rid && id(first(item, 'RaidId', 'RaidID')) === rid && text(item.ItemName) &&
-          (lower(source) === lower(item.ItemName) || lower(source).endsWith(' - ' + lower(item.ItemName)))).map(item => text(item.ItemName)));
+        const names = new Set([...sourceNames(source)].flatMap(suffix => [...itemNames.get(JSON.stringify([rid, suffix])) || []]));
         if (names.size === 1) itemName = [...names][0];
       }
-      value.item_name = itemName; lootEntries.push(value);
+      value.item_name = itemName; value.source = itemName || source;
+      value.ledger_source = fromLedger ? text(row.Source) : '';
+      if (value.ledger_source && !description.includes(value.ledger_source)) value.description += ' · ' + value.ledger_source;
+      value.evidence = [row]; (fromLedger ? transactionEntries : lootEntries).push(value);
     }
-    result.push(...deduplicate(lootEntries, row => id(first(row, 'PurchaseId', 'CharacterItemId', 'LootId', 'TransactionId'))));
+    const purchaseIdentity = row => Object.entries(purchaseIds(row))[0] || '';
+    const purchases = deduplicate(lootEntries, purchaseIdentity), transactions = deduplicate(transactionEntries, purchaseIdentity);
+    for (const [origin, values] of [['items', purchases], ['ledger', transactions]]) lootIdentities(values, characterId || characterName, origin);
+    result.push(...reconcileLoot(purchases, transactions));
     const date = value => Number.isFinite(Date.parse(value)) ? Date.parse(value) : -Infinity;
     return result.sort((a, b) => date(b.timestamp) - date(a.timestamp));
   }
