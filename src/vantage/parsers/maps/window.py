@@ -3,14 +3,14 @@ import json
 import re
 import string
 
-from PySide6.QtCore import Signal, QObject, Qt, QTimer, QSignalBlocker, QEvent
-from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
+from PySide6.QtCore import Signal, QObject, Qt, QTimer, QSignalBlocker, QEvent, QPoint, QRect
+from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent, QCursor
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QCompleter, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QMenu,
     QPushButton, QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget)
 
 from vantage.helpers.parser import ParserWindow
-from vantage.helpers import config, to_real_xy
+from vantage.helpers import config, to_real_xy, to_eq_xy
 from vantage.helpers.icons import game_icon
 from vantage.helpers.respawn_catalog import named_spawn_for
 from vantage.helpers.responsive import ResponsiveActionBar
@@ -271,6 +271,7 @@ class Maps(ParserWindow):
         super().__init__()
         # interface
         self._map = MapCanvas()
+        self._map._native_pointer_loc = True
         self._map_source_identity = None
         self._map_source_zones = {}
         self._preview_map = None
@@ -279,10 +280,25 @@ class Maps(ParserWindow):
         self._map.poi_activated.connect(self._poi_label_activated)
         self._map.browse_requested.connect(self._open_map_browser)
         self._map.pointer_loc_visibility_requested.connect(self._toggle_show_mouse_location)
+        self._map.pointer_loc_keyboard_requested.connect(self._show_keyboard_pointer_loc)
+        self._map.pointer_loc_menu_state_changed.connect(self._pointer_loc_menu_changed)
         self._panel_pointer_position = None
-        self._pointer_loc_refresh = QTimer(self)
-        self._pointer_loc_refresh.setSingleShot(True)
-        self._pointer_loc_refresh.timeout.connect(self._refresh_pointer_loc_from_panel)
+        self._keyboard_pointer_loc = None
+        self._pointer_loc_overlay = QLabel(self._scale_view.viewport())
+        self._pointer_loc_overlay.setObjectName('MapPointerLocation')
+        self._pointer_loc_overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._pointer_loc_overlay.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._pointer_loc_overlay.setTextFormat(Qt.TextFormat.PlainText)
+        self._pointer_loc_overlay.setWordWrap(True)
+        self._pointer_loc_overlay.setAccessibleName('Map coordinates under the pointer')
+        self._pointer_loc_overlay.setStyleSheet(
+            'QLabel#MapPointerLocation { color: #f2eee4; background: #10171c; '
+            'border: 1px solid #85734a; border-radius: 4px; '
+            'padding: 4px 6px; font-size: 10pt; }')
+        self._pointer_loc_overlay.hide()
+        self._cursor_loc_timer = QTimer(self)
+        self._cursor_loc_timer.setInterval(40)
+        self._cursor_loc_timer.timeout.connect(self._sample_pointer_loc)
         self.content.addWidget(self._map, 1)
         # buttons
         button_layout = ResponsiveActionBar(20, spacing=1)
@@ -379,6 +395,7 @@ class Maps(ParserWindow):
             self._load_zone(config.data['maps']['last_zone'])
         else:
             self._load_zone('west freeport')
+        self._sync_cursor_loc_state()
 
     def parse(self, timestamp, text):
         identity = self._location_source_identity()
@@ -526,6 +543,7 @@ class Maps(ParserWindow):
         # Keep the live canvas, player markers, map timers and recording intact.
         # A preview never emits new_zone or persists itself as the active zone.
         preview = MapCanvas()
+        preview._native_pointer_loc = True
         if not preview.load_map(canonical, remember=False):
             preview.deleteLater()
             return False
@@ -533,6 +551,8 @@ class Maps(ParserWindow):
         preview.poi_activated.connect(self._poi_label_activated)
         preview.browse_requested.connect(self._open_map_browser)
         preview.pointer_loc_visibility_requested.connect(self._toggle_show_mouse_location)
+        preview.pointer_loc_keyboard_requested.connect(self._show_keyboard_pointer_loc)
+        preview.pointer_loc_menu_state_changed.connect(self._pointer_loc_menu_changed)
         if self._loot_dialog is not None:
             self._loot_dialog.close()
         if self._preview_map is not None:
@@ -820,6 +840,8 @@ class Maps(ParserWindow):
         self._map.refresh_mouse_location()
         if self._preview_map is not None:
             self._preview_map.refresh_mouse_location()
+        self._keyboard_pointer_loc = None
+        self._sync_cursor_loc_state()
 
     def _sync_pointer_loc_button(self):
         enabled = bool(config.data['maps'].get('show_mouse_location', True))
@@ -831,33 +853,173 @@ class Maps(ParserWindow):
     def eventFilter(self, watched, event):
         result = super().eventFilter(watched, event)
         if (watched is self._scale_view.viewport() and
-                hasattr(self, '_pointer_loc_refresh')):
+                hasattr(self, '_cursor_loc_timer')):
             if event.type() == QEvent.Type.MouseMove:
-                # Native events reach this physical viewport first. Keep the
-                # readout working even if Qt's nested proxy does not forward
-                # an unpressed move to the inner QGraphicsView. Coalesce moves
-                # and refresh after proxy dispatch; no cursor polling needed.
+                self._keyboard_pointer_loc = None
                 self._panel_pointer_position = event.position().toPoint()
-                if not self._pointer_loc_refresh.isActive():
-                    self._pointer_loc_refresh.start(0)
+                self._refresh_pointer_loc_from_panel()
             elif event.type() in (QEvent.Type.Leave, QEvent.Type.Hide):
                 self._panel_pointer_position = None
-                self._pointer_loc_refresh.stop()
-                view = self._preview_map or self._map
-                view._mouse_location.hide()
+                self._keyboard_pointer_loc = None
+                self._pointer_loc_overlay.hide()
         return result
 
     def _refresh_pointer_loc_from_panel(self):
+        """Immediate pointer feedback; the independent sampler covers lost moves."""
+        self._show_pointer_loc_at(self._panel_pointer_position)
+
+    def _pointer_loc_available(self):
+        return bool(
+            self.isVisible() and not self.isMinimized() and
+            not self._collapsed and not self._clickthrough)
+
+    def _sync_cursor_loc_state(self):
+        if not hasattr(self, '_cursor_loc_timer'):
+            return
+        enabled = (self._pointer_loc_available() and
+                   config.data['maps'].get('show_mouse_location', True))
+        if enabled:
+            if not self._cursor_loc_timer.isActive():
+                self._cursor_loc_timer.start()
+            self._sample_pointer_loc()
+        else:
+            self._cursor_loc_timer.stop()
+            self._keyboard_pointer_loc = None
+            self._pointer_loc_overlay.hide()
+
+    def _sample_pointer_loc(self):
+        """Read the real desktop cursor without relying on proxy mouse delivery."""
+        if (not self._pointer_loc_available() or
+                not config.data['maps'].get('show_mouse_location', True)):
+            self._cursor_loc_timer.stop()
+            self._keyboard_pointer_loc = None
+            self._pointer_loc_overlay.hide()
+            return
+        global_position = QCursor.pos()
+        keyboard = self._keyboard_pointer_loc
+        if keyboard is not None:
+            view, local, cursor_at_keypress = keyboard
+            if (view is (self._preview_map or self._map) and
+                    global_position == cursor_at_keypress):
+                self._draw_pointer_loc(view, local, self._canvas_to_panel(view, local))
+                return
+            self._keyboard_pointer_loc = None
+        position = self._scale_view.viewport().mapFromGlobal(global_position)
+        self._panel_pointer_position = position
+        self._show_pointer_loc_at(position)
+
+    def _show_pointer_loc_at(self, position):
         view = self._preview_map or self._map
-        position = self._panel_pointer_position
-        if (position is None or self._collapsed or not self.isVisible() or
+        if (position is None or not self._pointer_loc_available() or
+                not config.data['maps'].get('show_mouse_location', True) or
+                not self._scale_view.viewport().rect().contains(position) or
                 not view.isVisibleTo(self._surface)):
-            view._mouse_location.hide()
+            self._pointer_loc_overlay.hide()
             return
         scene = self._scale_view.mapToScene(position)
         logical = self._scale_proxy.mapFromScene(scene).toPoint()
         local = view.viewport().mapFrom(self._surface, logical)
-        view.refresh_mouse_location(local)
+        self._draw_pointer_loc(view, local, position)
+
+    def _canvas_to_panel(self, view, position):
+        logical = view.viewport().mapTo(self._surface, position)
+        return self._scale_view.mapFromScene(self._scale_proxy.mapToScene(logical))
+
+    def _draw_pointer_loc(self, view, local, position):
+        overlay = self._pointer_loc_overlay
+        if (not self._pointer_loc_available() or not view._data or
+                not view.isVisibleTo(self._surface) or
+                not view.viewport().rect().contains(local) or
+                view._pointer_loc_menu_open or
+                QApplication.activePopupWidget() is not None or
+                QApplication.activeModalWidget() is not None or
+                # Embedded popups (including toolbar menus) may not be Qt's
+                # activePopupWidget. This bounded local tree check does no
+                # layout/painting and only runs while the pointer is in-map.
+                any(menu.isVisible() for menu in self._surface.findChildren(QMenu))):
+            overlay.hide()
+            return
+        point = view.mapToScene(local)
+        x, y = to_eq_xy(point.x(), point.y())
+        text = f'LOC · {int(x)}, {int(y)}'
+        text_changed = overlay.text() != text
+        if text_changed:
+            overlay.setText(text)
+            overlay.setAccessibleDescription(text)
+        bounds = QRect(
+            self._canvas_to_panel(view, view.viewport().rect().topLeft()),
+            self._canvas_to_panel(view, view.viewport().rect().bottomRight()))
+        bounds = bounds.intersected(self._scale_view.viewport().rect())
+        available_width, available_height = bounds.width() - 6, bounds.height() - 6
+        if available_width < 1 or available_height < 1:
+            overlay.hide()
+            return
+        bounds_changed = (
+            overlay.maximumWidth() != available_width or
+            overlay.maximumHeight() != available_height)
+        if bounds_changed:
+            overlay.setMaximumSize(available_width, available_height)
+        if text_changed or bounds_changed:
+            # At Mini sizes wrap the intact coordinate pair instead of
+            # clipping either number or scaling the font into illegibility.
+            # Let QLabel include stylesheet padding, frame and its automatic
+            # indent; raw font metrics otherwise wrap a normal-sized label.
+            overlay.setWordWrap(False)
+            natural_width = overlay.sizeHint().width()
+            overlay.setWordWrap(True)
+            width = min(available_width, max(1, natural_width))
+            height = overlay.heightForWidth(width)
+            if height < 1:
+                height = overlay.sizeHint().height()
+            overlay.resize(width, min(available_height, height))
+        left = position.x() + 14
+        if left + overlay.width() > bounds.right() - 3:
+            left = position.x() - overlay.width() - 14
+        left = max(bounds.left() + 3, min(left, bounds.right() - overlay.width() - 3))
+        top = max(bounds.top() + 3, min(
+            position.y() + 8, bounds.bottom() - overlay.height() - 3))
+        target = QPoint(left, top)
+        if overlay.pos() != target:
+            overlay.move(target)
+        if overlay.isHidden():
+            overlay.show()
+            overlay.raise_()
+
+    def _show_keyboard_pointer_loc(self, local):
+        view = self.sender()
+        if view is not (self._preview_map or self._map):
+            return
+        self._keyboard_pointer_loc = (view, QPoint(local), QCursor.pos())
+        self._draw_pointer_loc(view, local, self._canvas_to_panel(view, local))
+
+    def _pointer_loc_menu_changed(self, opened):
+        if opened:
+            self._pointer_loc_overlay.hide()
+        elif self._cursor_loc_timer.isActive():
+            self._sample_pointer_loc()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._sync_cursor_loc_state()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self._sync_cursor_loc_state()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowStateChange:
+            self._sync_cursor_loc_state()
+
+    def _set_collapsed(self, collapsed):
+        super()._set_collapsed(collapsed)
+        self._sync_cursor_loc_state()
+
+    def _parser_settings_config_update_watcher(self):
+        super()._parser_settings_config_update_watcher()
+        if hasattr(self, '_pointer_loc_button'):
+            self._sync_pointer_loc_button()
+        self._sync_cursor_loc_state()
 
     def _toggle_location_hud(self, checked):
         config.data['maps']['show_location_hud'] = bool(checked)

@@ -12,13 +12,23 @@ SCRIPT = r'''
 import sys
 from pathlib import Path
 from PySide6.QtCore import QObject, Signal, QPoint, QPointF, QEvent, Qt
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtGui import QMouseEvent, QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication
 from PySide6.QtTest import QTest
 from vantage.helpers import config, to_eq_xy
 from vantage.parsers.maps.window import Maps, MapsSignals
+from vantage.parsers.maps import window as maps_module
 
 app = QApplication([])
+QFontDatabase.addApplicationFont('data/fonts/NotoSans-Regular.ttf')
+QFontDatabase.addApplicationFont('data/fonts/NotoSans-Bold.ttf')
+app.setFont(QFont('Noto Sans'))
+class Cursor:
+    point = QPoint(-10000, -10000)
+    @classmethod
+    def pos(cls):
+        return QPoint(cls.point)
+maps_module.QCursor = Cursor
 class Settings(QObject):
     config_updated = Signal()
 app._signals = {'settings': Settings(), 'maps': MapsSignals()}
@@ -37,6 +47,7 @@ def settle():
 
 def move(position):
     viewport = window._scale_view.viewport()
+    Cursor.point = viewport.mapToGlobal(position)
     event = QMouseEvent(QEvent.Type.MouseMove, QPointF(position),
                        QPointF(viewport.mapToGlobal(position)),
                        Qt.MouseButton.NoButton, Qt.MouseButton.NoButton,
@@ -56,14 +67,14 @@ def check_hover(fraction=.8):
     local = view.viewport().mapFrom(window._surface, logical.toPoint())
     assert view.viewport().rect().contains(local), (
         window.size(), view.viewport().size(), local)
-    view._mouse_location.hide()
+    window._pointer_loc_overlay.hide()
     move(position)
-    label = view._mouse_location
-    assert label.isVisible(), (window.size(), local, label.toPlainText())
+    label = window._pointer_loc_overlay
+    assert label.isVisible(), (window.size(), local, label.text())
     x, y = to_eq_xy(*view.mapToScene(local).toTuple())
-    assert label.toPlainText() == f'LOC · {int(x)}, {int(y)}'
-    pixels = label.deviceTransform(view.viewportTransform()).mapRect(label.boundingRect())
-    assert view.viewport().rect().contains(pixels.toAlignedRect())
+    assert label.text() == f'LOC · {int(x)}, {int(y)}'
+    assert outer.viewport().rect().contains(label.geometry())
+    assert not view._mouse_location.isVisible()
 
 settle()
 mode = sys.argv[1]
@@ -98,7 +109,7 @@ elif mode == 'toggle':
     point = window._scale_view.mapFromScene(window._scale_proxy.mapToScene(QPointF(point)))
     QTest.mouseClick(window._scale_view.viewport(), Qt.MouseButton.LeftButton, pos=point)
     move(QPoint(250, 250))
-    assert not canvas()._mouse_location.isVisible()
+    assert not window._pointer_loc_overlay.isVisible()
     assert config.data['maps']['show_mouse_location'] is False
     QTest.mouseClick(window._scale_view.viewport(), Qt.MouseButton.LeftButton, pos=point)
     check_hover()
@@ -110,17 +121,19 @@ elif mode == 'delivery':
             return event.type() == QEvent.Type.MouseMove
     lost = LostInnerMove()
     # Simulate a nested proxy dropping unpressed moves. The physical panel
-    # receives the real event; LOC must still follow it without polling.
+    # receives the event; LOC must provide immediate feedback as well as the
+    # independent sampled-cursor recovery tested in test_map_cursor_tracking.
     canvas().viewport().installEventFilter(lost)
     check_hover(.3)
     check_hover(.7)
-    assert not window._pointer_loc_refresh.isActive()
+    assert window._cursor_loc_timer.isActive()
     move(QPoint(20, 10))
-    assert not canvas()._mouse_location.isVisible()
+    assert not window._pointer_loc_overlay.isVisible()
     check_hover()
+    Cursor.point = QPoint(-10000, -10000)
     QApplication.sendEvent(window._scale_view.viewport(), QEvent(QEvent.Type.Leave))
     settle()
-    assert not canvas()._mouse_location.isVisible()
+    assert not window._pointer_loc_overlay.isVisible()
 elif mode == 'menu':
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QMenu
@@ -139,6 +152,8 @@ elif mode == 'menu':
         action = next(a for a in menu.actions()
                       if a.text() == 'Show pointer coordinates (/loc)')
         assert action.isCheckable()
+        QTest.qWait(100)
+        assert not window._pointer_loc_overlay.isVisible(), 'Native LOC must not cover the proxied map menu'
         chosen.append(action.isChecked())
         menu.setActiveAction(action)
         QTest.keyClick(menu, Qt.Key.Key_Return)
@@ -147,6 +162,7 @@ elif mode == 'menu':
             assert window._preview_zone('skyshrine')
             settle()
         for enabled in (False, True):
+            move(QPoint(250, 250))
             QTimer.singleShot(0, choose_pointer_loc)
             event = QContextMenuEvent(QContextMenuEvent.Reason.Mouse,
                                       QPoint(150, 150),
@@ -156,7 +172,7 @@ elif mode == 'menu':
                 preview, enabled, config.data['maps']['show_mouse_location'], chosen)
             assert window._pointer_loc_button.isChecked() is enabled, ('button', preview, enabled)
             move(QPoint(250, 250))
-            assert canvas()._mouse_location.isVisible() is enabled, ('visible', preview, enabled)
+            assert window._pointer_loc_overlay.isVisible() is enabled, ('visible', preview, enabled)
     assert chosen == [True, False, True, False]
 window.close()
 app.quit()

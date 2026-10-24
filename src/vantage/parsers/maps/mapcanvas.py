@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QApplication, QGraphicsScene, QGraphicsView,
                              QInputDialog, QMenu, QLineEdit, QFrame, QLabel,
                              QVBoxLayout, QGraphicsPathItem)
 
-from vantage.helpers import config, resource_path, to_range, text_time_to_seconds
+from vantage.helpers import config, resource_path, to_range, text_time_to_seconds, to_eq_xy
 from vantage.parsers.maps.mapclasses import (MapPoint, WayPoint, Player, SpawnPoint, MouseLocation,
                          PointOfInterest, UserWaypoint)
 from vantage.parsers.maps.mapdata import MapData, MAP_RECORDINGS_PATHLIB, ICON_MAP
@@ -108,6 +108,8 @@ class MapCanvas(QGraphicsView):
     poi_activated = Signal(object)
     browse_requested = Signal()
     pointer_loc_visibility_requested = Signal(bool)
+    pointer_loc_keyboard_requested = Signal(object)
+    pointer_loc_menu_state_changed = Signal(bool)
 
     def __init__(self):
 
@@ -136,6 +138,10 @@ class MapCanvas(QGraphicsView):
         self.setScene(self._scene)
         self._scale = config.data['maps']['scale']
         self._mouse_location = MouseLocation()
+        # Maps provides a native, unscaled readout outside both graphics
+        # scenes. Standalone canvases retain their scene-based label.
+        self._native_pointer_loc = False
+        self._pointer_loc_menu_open = False
         self._last_pointer_position = None
         self._path_recording = False
         self._path_recording_name = ""
@@ -685,6 +691,16 @@ class MapCanvas(QGraphicsView):
         inside = self.viewport().rect().contains(position)
         enabled = config.data['maps'].get('show_mouse_location', True)
         visible = bool(self._data and inside and (enabled or keyboard))
+        if self._native_pointer_loc:
+            self._mouse_location.hide()
+            if visible and keyboard:
+                point = self.mapToScene(position)
+                x, y = to_eq_xy(point.x(), point.y())
+                self.setAccessibleDescription(
+                    self._poi_accessible_description + '\n' +
+                    f'LOC · {int(x)}, {int(y)}')
+                self.pointer_loc_keyboard_requested.emit(QPoint(position))
+            return
         self._mouse_location.setVisible(visible)
         if visible:
             self._last_pointer_position = QPoint(position)
@@ -795,7 +811,13 @@ class MapCanvas(QGraphicsView):
             lambda checked=False: self.pointer_loc_visibility_requested.emit(checked))
 
         # execute
-        action = menu.exec(self.mapToGlobal(event.pos()))
+        self._pointer_loc_menu_open = True
+        self.pointer_loc_menu_state_changed.emit(True)
+        try:
+            action = menu.exec(self.mapToGlobal(event.pos()))
+        finally:
+            self._pointer_loc_menu_open = False
+            self.pointer_loc_menu_state_changed.emit(False)
 
         # parse response
 

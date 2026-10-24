@@ -3,7 +3,7 @@ from itertools import permutations
 from types import SimpleNamespace
 
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -43,8 +43,13 @@ def panel():
 
     widget = Harness()
     yield widget
+    # This page has no parent and can be shown by focus tests. Close it before
+    # deletion so it cannot receive mouse input intended for later map tests.
+    widget.page.close()
     widget.page.deleteLater()
+    widget.close()
     widget.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     app.processEvents()
 
 
