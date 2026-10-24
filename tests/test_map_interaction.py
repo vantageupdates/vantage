@@ -538,10 +538,11 @@ def test_player_heading_uses_crisp_vantage_direction_arrow():
     assert player.directional.brush().color().name() == '#ff4b4b'
     assert player.directional.pen().joinStyle() == Qt.PenJoinStyle.MiterJoin
     assert player.directional.pen().color().name() == '#071014'
+    assert player.directional.pen().widthF() == pytest.approx(2.2)
     path = player.directional.path()
     assert [(path.elementAt(i).x, path.elementAt(i).y)
             for i in range(path.elementCount())] == [
-        (0, -8), (4.5, 5), (0, 2.5), (-4.5, 5), (0, -8)]
+        (0, -16), (9, 10), (0, 5), (-9, 10), (0, -16)]
     assert path.contains(QPointF(0, 0))
     assert not path.contains(QPointF(0, 9))
     assert player.directional.toolTip() == 'Your direction of travel'
@@ -549,13 +550,13 @@ def test_player_heading_uses_crisp_vantage_direction_arrow():
 
 @pytest.mark.parametrize('x,y,heading', [
     (0, -10, 0), (10, 0, 90), (0, 10, -180), (-10, 0, -90)])
-def test_red_heading_arrow_keeps_direction_and_compact_size_at_each_zoom(x, y, heading):
+def test_red_heading_arrow_keeps_direction_and_original_size_at_each_zoom(x, y, heading):
     _app()
     player = Player(
         name='__you__', previous_location=MapPoint(x=0, y=0),
         location=MapPoint(x=x, y=y))
-    sizes = []
-    for zoom in (0.1, 1.0, 4.0):
+    baseline = None
+    for zoom in (0.05, 0.1, 1.0, 4.0):
         player.update_(1.0 / zoom)
         assert player.directional.rotation() == pytest.approx(heading)
         assert (player.pos().x(), player.pos().y()) == (x, y)
@@ -563,10 +564,9 @@ def test_red_heading_arrow_keeps_direction_and_compact_size_at_each_zoom(x, y, h
             QTransform().scale(zoom, zoom)).mapRect(
                 player.directional.boundingRect())
         size = (rect.width(), rect.height())
-        sizes.append(size)
-        assert 5 <= max(size) <= 20
-    assert sizes[1] == pytest.approx(sizes[2])
-    assert max(sizes[0]) <= max(sizes[1])
+        if baseline is None:
+            baseline = size
+        assert size == pytest.approx(baseline)
 
 
 def test_heading_arrow_paints_red_with_a_notched_pointed_silhouette():
@@ -582,7 +582,7 @@ def test_heading_arrow_paints_red_with_a_notched_pointed_silhouette():
     assert image.pixelColor(32, 32).name() == '#ff4b4b'
     assert image.pixelColor(32, 40).name() == '#071014'
     # The narrow tip blends with its outline under antialiasing, but stays red.
-    tip = image.pixelColor(32, 27)
+    tip = image.pixelColor(32, 20)
     assert tip.red() > 2 * max(tip.green(), tip.blue())
     assert image.pixelColor(42, 20).name() == '#071014'
 

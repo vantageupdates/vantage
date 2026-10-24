@@ -3,7 +3,7 @@ import json
 import re
 import string
 
-from PySide6.QtCore import Signal, QObject, Qt, QTimer, QSignalBlocker
+from PySide6.QtCore import Signal, QObject, Qt, QTimer, QSignalBlocker, QEvent
 from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QCompleter, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QMenu,
@@ -278,6 +278,11 @@ class Maps(ParserWindow):
         self._map.manual_pan.connect(self._manual_pan_started)
         self._map.poi_activated.connect(self._poi_label_activated)
         self._map.browse_requested.connect(self._open_map_browser)
+        self._map.pointer_loc_visibility_requested.connect(self._toggle_show_mouse_location)
+        self._panel_pointer_position = None
+        self._pointer_loc_refresh = QTimer(self)
+        self._pointer_loc_refresh.setSingleShot(True)
+        self._pointer_loc_refresh.timeout.connect(self._refresh_pointer_loc_from_panel)
         self.content.addWidget(self._map, 1)
         # buttons
         button_layout = ResponsiveActionBar(20, spacing=1)
@@ -318,7 +323,8 @@ class Maps(ParserWindow):
         show_mouse_location.setIcon(game_icon('cursor'))
         show_mouse_location.setCheckable(True)
         show_mouse_location.setChecked(config.data['maps']['show_mouse_location'])
-        show_mouse_location.setToolTip('Show /loc under the pointer')
+        self._pointer_loc_button = show_mouse_location
+        self._sync_pointer_loc_button()
         show_mouse_location.setAccessibleName('Show map coordinates under the pointer')
         show_mouse_location.setAccessibleDescription(
             'Shows coordinates while moving the mouse. Press L in the map '
@@ -526,6 +532,7 @@ class Maps(ParserWindow):
         preview.manual_pan.connect(self._manual_pan_started)
         preview.poi_activated.connect(self._poi_label_activated)
         preview.browse_requested.connect(self._open_map_browser)
+        preview.pointer_loc_visibility_requested.connect(self._toggle_show_mouse_location)
         if self._loot_dialog is not None:
             self._loot_dialog.close()
         if self._preview_map is not None:
@@ -809,9 +816,48 @@ class Maps(ParserWindow):
     def _toggle_show_mouse_location(self, checked=False):
         config.data['maps']['show_mouse_location'] = bool(checked)
         config.save()
+        self._sync_pointer_loc_button()
         self._map.refresh_mouse_location()
         if self._preview_map is not None:
             self._preview_map.refresh_mouse_location()
+
+    def _sync_pointer_loc_button(self):
+        enabled = bool(config.data['maps'].get('show_mouse_location', True))
+        self._pointer_loc_button.setChecked(enabled)
+        state, action = ('On', 'hide') if enabled else ('Off', 'show')
+        self._pointer_loc_button.setToolTip(
+            f'Pointer LOC: {state} · click to {action} coordinates under the pointer')
+
+    def eventFilter(self, watched, event):
+        result = super().eventFilter(watched, event)
+        if (watched is self._scale_view.viewport() and
+                hasattr(self, '_pointer_loc_refresh')):
+            if event.type() == QEvent.Type.MouseMove:
+                # Native events reach this physical viewport first. Keep the
+                # readout working even if Qt's nested proxy does not forward
+                # an unpressed move to the inner QGraphicsView. Coalesce moves
+                # and refresh after proxy dispatch; no cursor polling needed.
+                self._panel_pointer_position = event.position().toPoint()
+                if not self._pointer_loc_refresh.isActive():
+                    self._pointer_loc_refresh.start(0)
+            elif event.type() in (QEvent.Type.Leave, QEvent.Type.Hide):
+                self._panel_pointer_position = None
+                self._pointer_loc_refresh.stop()
+                view = self._preview_map or self._map
+                view._mouse_location.hide()
+        return result
+
+    def _refresh_pointer_loc_from_panel(self):
+        view = self._preview_map or self._map
+        position = self._panel_pointer_position
+        if (position is None or self._collapsed or not self.isVisible() or
+                not view.isVisibleTo(self._surface)):
+            view._mouse_location.hide()
+            return
+        scene = self._scale_view.mapToScene(position)
+        logical = self._scale_proxy.mapFromScene(scene).toPoint()
+        local = view.viewport().mapFrom(self._surface, logical)
+        view.refresh_mouse_location(local)
 
     def _toggle_location_hud(self, checked):
         config.data['maps']['show_location_hud'] = bool(checked)

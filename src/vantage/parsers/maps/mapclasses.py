@@ -157,37 +157,22 @@ class PointOfInterest:
 
 
 class DirectionArrow(QGraphicsPathItem):
-    """Compact red travel dart; its origin is the exact reported position."""
-
-    # Reduce overview overhang without making the requested pointed dart
-    # disappear. A readable pixel marker cannot stay inside every narrow wall
-    # at every zoom; its center must always remain at the exact reported /loc.
-    MAX_SCENE_RADIUS = 12.0
-    MIN_DISPLAY_SCALE = 0.65
+    """Red, pointed player-heading dart that remains sharp at any zoom."""
 
     def __init__(self):
-        path = QPainterPath(QPointF(0, -8))
-        path.lineTo(4.5, 5)
-        path.lineTo(0, 2.5)
-        path.lineTo(-4.5, 5)
+        path = QPainterPath(QPointF(0, -16))
+        path.lineTo(9, 10)
+        path.lineTo(0, 5)
+        path.lineTo(-9, 10)
         path.closeSubpath()
         super().__init__(path)
         self.setPen(QPen(
-            QColor('#071014'), 1.2, Qt.PenStyle.SolidLine,
+            QColor('#071014'), 2.2, Qt.PenStyle.SolidLine,
             Qt.PenCapStyle.FlatCap, Qt.PenJoinStyle.MiterJoin))
         self.setBrush(QBrush(QColor('#ff4b4b')))
         self.setTransformOriginPoint(0, 0)
         self.setToolTip('Your direction of travel')
         self.setVisible(False)
-
-    def update_scale(self, inverse_zoom):
-        rect = self.boundingRect()
-        radius = math.hypot(
-            max(abs(rect.left()), abs(rect.right())),
-            max(abs(rect.top()), abs(rect.bottom())))
-        self.setScale(max(self.MIN_DISPLAY_SCALE, min(
-            1.0, self.MAX_SCENE_RADIUS / (
-                radius * max(inverse_zoom, 0.0001)))))
 
 
 class Player(QGraphicsItemGroup):
@@ -211,24 +196,19 @@ class Player(QGraphicsItemGroup):
         self.__dict__.update(kwargs)
         self._has_location = 'location' in kwargs
         if self.name == "__you__":
-            # A small outlined dot marks the exact /loc independently of the
-            # travel dart, including before the first movement and at overview.
-            center = QPainterPath()
-            center.addEllipse(QPointF(0, 0), 1.7, 1.7)
-            self.icon = QGraphicsPathItem(center)
-            self.icon.setBrush(QBrush(QColor('#ff4b4b')))
-            self.icon.setPen(QPen(QColor('#fff4dd'), 0.8))
-            self.icon.setZValue(1)
+            self.icon = QGraphicsPixmapItem(
+                QPixmap(resource_path('data/maps/user.png'))
+            )
             self.setZValue(15)
         else:
             self.icon = QGraphicsPixmapItem(
                 QPixmap(resource_path('data/maps/otheruser.png'))
             )
-            self.icon.setOffset(-10, -10)
             self.setZValue(10)
+        self.icon.setOffset(-10, -10)
         self.directional = DirectionArrow()
         self.nametag = QGraphicsTextItem()
-        self.nametag.setPos(7, -11)
+        self.nametag.setPos(10, -15)
         self.addToGroup(self.icon)
         self.addToGroup(self.directional)
         self.addToGroup(self.nametag)
@@ -271,14 +251,14 @@ class Player(QGraphicsItemGroup):
 
     def update_(self, scale):
         self.setScale(scale)
-        self.directional.update_scale(scale)
         if self._heading is not None:
             self.directional.setRotation(self._heading)
         self.directional.setVisible(self._heading is not None)
         self.setPos(self.location.x, self.location.y)
         self.nametag.setHtml(
-            "<span style='color:{};font-size:9pt'>{}</span>".format(
-                self.color.hex if self.name != "__you__" else "#f2eee4",
+            "<font color='{}' size='{}'>{}</font>".format(
+                self.color.hex if self.name != "__you__" else "purple",
+                5,
                 self.name if self.name != "__you__" else "You"
             )
         )

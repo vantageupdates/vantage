@@ -107,6 +107,7 @@ class MapCanvas(QGraphicsView):
     manual_pan = Signal()
     poi_activated = Signal(object)
     browse_requested = Signal()
+    pointer_loc_visibility_requested = Signal(bool)
 
     def __init__(self):
 
@@ -786,6 +787,12 @@ class MapCanvas(QGraphicsView):
             pathing_menu.addAction(pathing_stop_recording)
         load_map = menu.addAction('Browse maps…')
         fit_map = menu.addAction('Fit Entire Map (Home)')
+        pointer_loc = menu.addAction('Show pointer coordinates (/loc)')
+        pointer_loc.setCheckable(True)
+        pointer_loc.setChecked(config.data['maps'].get('show_mouse_location', True))
+        pointer_loc.setToolTip('Show map coordinates when you move the pointer over the map')
+        pointer_loc.triggered.connect(
+            lambda checked=False: self.pointer_loc_visibility_requested.emit(checked))
 
         # execute
         action = menu.exec(self.mapToGlobal(event.pos()))

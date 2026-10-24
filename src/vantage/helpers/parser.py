@@ -2087,7 +2087,11 @@ class ParserWindow(QWidget):
             logical_height = max(
                 self._minimum_logical_surface_height(),
                 int(round(viewport.height() / scale)))
-            if logical_height != self._logical_surface_height:
+            # Native canvases change logical width without changing height.
+            # Resize their embedded widget too, or the newly exposed right
+            # side remains outside the real drawing/input viewport.
+            if (logical_height != self._logical_surface_height or
+                    logical_width != self._surface.width()):
                 self._logical_surface_height = logical_height
                 self._surface.setFixedSize(logical_width, logical_height)
                 self._resize_scale_proxy(logical_width, logical_height)

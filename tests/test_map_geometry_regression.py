@@ -5,11 +5,11 @@ import math
 
 import pytest
 from PySide6.QtCore import QPointF
-from PySide6.QtGui import QTransform
-from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QPixmap, QTransform
+from PySide6.QtWidgets import QApplication, QGraphicsPixmapItem
 
-from vantage.helpers import config, to_real_xy
-from vantage.parsers.maps.mapclasses import DirectionArrow, MapLine, MapPoint, Player
+from vantage.helpers import config, resource_path, to_real_xy
+from vantage.parsers.maps.mapclasses import MapLine, MapPoint, Player
 from vantage.parsers.maps.mapdata import MapData
 
 
@@ -108,7 +108,7 @@ def test_same_second_log_samples_can_still_establish_travel(app):
     assert player.directional.rotation() == pytest.approx(90)
 
 
-def test_nektulos_exact_marker_and_compact_arrow_at_overview(bundled_maps):
+def test_nektulos_exact_position_and_original_marker_at_every_zoom(bundled_maps):
     data = bundled_maps['nektulos']
     previous_xy = to_real_xy(3045.39, 326.71)
     current_xy = to_real_xy(3069.61, 316.33)
@@ -123,21 +123,33 @@ def test_nektulos_exact_marker_and_compact_arrow_at_overview(bundled_maps):
             math.degrees(math.atan2(10.38, 24.22)))
         assert (data.geometry.lowest_y <= player.pos().y()
                 <= data.geometry.highest_y)
-        # Keep a readable pointed silhouette at overview, rather than hiding
-        # it under the center dot. Narrow walls can still be overlapped by any
-        # readable pixel marker; its mathematical origin must never shift.
-        assert DirectionArrow.MIN_DISPLAY_SCALE <= player.directional.scale() <= 1
+        # The user's original arrow remains the same screen size at overview.
+        # Its footprint can overlap narrow walls; never shift the true /loc.
+        assert player.directional.scale() == 1
         transform = player.directional.deviceTransform(QTransform().scale(zoom, zoom))
         center = transform.map(QPointF(0, 0))
-        tip = transform.map(QPointF(0, -8))
-        assert 5.2 - 1e-8 <= math.hypot(tip.x() - center.x(), tip.y() - center.y()) <= 8 + 1e-8
-        footprint = transform.mapRect(player.directional.boundingRect())
-        assert footprint.width() < 20
-        assert footprint.height() < 20
-        dot = player.icon.deviceTransform(QTransform().scale(zoom, zoom)).mapRect(
+        tip = transform.map(QPointF(0, -16))
+        assert math.hypot(tip.x() - center.x(), tip.y() - center.y()) == pytest.approx(16)
+        icon = player.icon.deviceTransform(QTransform().scale(zoom, zoom)).mapRect(
             player.icon.boundingRect())
-        assert dot.width() >= 4
-        assert dot.height() >= 4
+        assert icon.width() == 20
+        assert icon.height() == 20
+
+
+def test_self_marker_restores_original_asset_and_label(app):
+    player = Player(name='__you__', location=MapPoint(x=10, y=20))
+    player.update_(1)
+    assert isinstance(player.icon, QGraphicsPixmapItem)
+    expected = QPixmap(resource_path('data/maps/user.png')).toImage()
+    assert not expected.isNull()
+    assert player.icon.pixmap().toImage() == expected
+    assert player.icon.offset() == QPointF(-10, -10)
+    assert player.nametag.pos() == QPointF(10, -15)
+    assert player.nametag.toPlainText() == 'You'
+    label = player.nametag.document().firstBlock().begin().fragment().charFormat()
+    assert label.foreground().color().name() == '#800080'
+    assert label.fontPointSize() == 0
+    assert label.property(label.Property.FontSizeAdjustment) == 2
 
 
 def test_skyshrine_maze_labels_share_their_actual_wall_layers(bundled_maps):
