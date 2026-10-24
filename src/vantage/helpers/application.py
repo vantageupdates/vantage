@@ -64,7 +64,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=140,
+    patch=141,
     build=""
 )
 
@@ -1370,7 +1370,7 @@ class VantageApp(QApplication):
         _context, changed = self._character_context.store_you_spells(
             character, server, saved)
         spells.clear_you_spells(character, server)
-        self._parsers_dict['maps'].clear_player_location()
+        self._parsers_dict['maps'].clear_player_location(character, server)
         if changed:
             config.data['general']['character_profiles'] = \
                 self._character_context.snapshot()
@@ -1778,7 +1778,7 @@ class VantageApp(QApplication):
         self.quit()
 
     def checkpoint_for_update(self):
-        """Persist and verify countdown state before another EXE can start."""
+        """Persist and verify preferences and timers before an EXE handoff."""
         spells = None
         handoff_frozen = False
 
@@ -1820,8 +1820,10 @@ class VantageApp(QApplication):
                 return False
             timer_rows = copy.deepcopy(
                 config.data.get('timers', {}).get('items', []))
+            settings_snapshot = copy.deepcopy(config.data)
             config.save()
-            verified = config.verify_update_checkpoint(spell_rows, timer_rows)
+            verified = config.verify_update_checkpoint(
+                spell_rows, timer_rows, settings_snapshot)
             if not verified:
                 cancel_spell_handoff()
             return verified

@@ -711,6 +711,10 @@ class QuickBar(ParserWindow):
         # every restart shrink a customized Quick Bar a second time.
         self._apply_quickbar_settings(preserve_scale=False)
         self.refresh_state()
+        # Content-derived height can differ by a few rounded pixels after a
+        # restart. Reuse the exact saved-rectangle restoration (including its
+        # legacy vertical-layout repair) once the current content exists.
+        self.apply_saved_presentation()
 
     def _setup_actions(self):
         self._setup_volume_rocker()
@@ -1867,6 +1871,15 @@ class QuickBar(ParserWindow):
 
     def _apply_quickbar_settings(self, preserve_scale=True):
         settings = config.data["quickbar"]
+        presentation = (
+            settings.get("orientation", "horizontal"),
+            *(bool(settings.get(key, True)) for key in (
+                "show_header", "show_server_tick", "show_notification_ticker")))
+        if presentation != getattr(self, "_presentation_preferences", presentation):
+            # An explicit content change should still resize the strip. Only
+            # startup and status refreshes retain its previous exact rectangle.
+            self._saved_presentation_geometry = None
+        self._presentation_preferences = presentation
         # Drain the previous packer's hidden list before setting new explicit
         # orientation visibility. Otherwise a deferred pack can resurrect
         # horizontal chrome inside the vertical branded drag handle.

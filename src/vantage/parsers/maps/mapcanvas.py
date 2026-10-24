@@ -5,7 +5,7 @@ import os
 
 import pathvalidate
 from PySide6.QtCore import Qt, QPoint, QPointF, QRectF, QLineF, Signal, QTimer
-from PySide6.QtGui import QPainter, QTransform, QColor, QPen, QAction
+from PySide6.QtGui import QPainter, QTransform, QColor, QPen, QAction, QCursor
 from PySide6.QtWidgets import (QApplication, QGraphicsScene, QGraphicsView,
                              QInputDialog, QMenu, QLineEdit, QFrame, QLabel,
                              QVBoxLayout, QGraphicsPathItem)
@@ -123,16 +123,19 @@ class MapCanvas(QGraphicsView):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        self.setMouseTracking(True)
+        self.viewport().setMouseTracking(True)
         self.setCursor(Qt.CursorShape.OpenHandCursor)
         self.setAccessibleName('EverQuest map')
         self._poi_accessible_description = ''
         self.setToolTip(
             'Drag with the left button to pan · wheel to zoom · '
-            'Ctrl+wheel to change the Z layer')
+            'Ctrl+wheel to change the Z layer · L to show center /loc')
         self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
         self._scale = config.data['maps']['scale']
         self._mouse_location = MouseLocation()
+        self._last_pointer_position = None
         self._path_recording = False
         self._path_recording_name = ""
         self._path_file = None
@@ -166,6 +169,10 @@ class MapCanvas(QGraphicsView):
 
     def load_map(self, map_name, keep_loc=False, *, remember=True):
         old_player_data = None
+        restore_zoom = bool(
+            self._data is None and remember and
+            MapData.resolve_zone_name(config.data['maps'].get('last_zone', ''))
+            == MapData.resolve_zone_name(map_name))
         try:
             try:
                 old_player_data = self._data.players['__you__']
@@ -180,7 +187,7 @@ class MapCanvas(QGraphicsView):
         else:
             self._data = map_data
             self._remember_view = bool(remember)
-            self._manual_view = False
+            self._manual_view = restore_zoom
             self._focused_poi = None
             self._scene.clear()
             self._z_index = 0
@@ -192,9 +199,13 @@ class MapCanvas(QGraphicsView):
             self.update()
             self.update_()
 
-            QTimer.singleShot(0, self._fit_overview_if_automatic)
             self._mouse_location = MouseLocation()
             self._scene.addItem(self._mouse_location)
+            if restore_zoom:
+                self.centerOn(map_data.geometry.center_x, map_data.geometry.center_y)
+            else:
+                QTimer.singleShot(0, self._fit_overview_if_automatic)
+            self.refresh_mouse_location()
             if self._remember_view:
                 config.data['maps']['last_zone'] = self._data.zone
                 config.save()
@@ -542,6 +553,7 @@ class MapCanvas(QGraphicsView):
                 player.location.x,
                 player.location.y
             )
+            self.refresh_mouse_location()
 
     def fit_overview(self):
         """Fit the current zone cleanly inside the native map viewport."""
@@ -560,6 +572,7 @@ class MapCanvas(QGraphicsView):
         self._layout_poi_labels(
             geometry.z_groups[self._z_index],
             config.data['maps']['show_poi'])
+        self.refresh_mouse_location()
 
     def _fit_overview_if_automatic(self):
         """Ignore stale queued fits after a user or POI chose a view."""
@@ -598,6 +611,7 @@ class MapCanvas(QGraphicsView):
         point.text.setOpacity(1.0)
         self._layout_poi_labels(
             located_z, config.data['maps']['show_poi'])
+        self.refresh_mouse_location()
         return True
 
     def remove_player(self, name):
@@ -613,18 +627,14 @@ class MapCanvas(QGraphicsView):
                 timestamp=timestamp)
             self._scene.addItem(self._data.players[name])
         else:
-            self._data.players[name].previous_location = self._data.players[name].location
-            self._data.players[name].location = location
-            self._data.players[name].timestamp = timestamp
+            self._data.players[name].update_location(location, timestamp)
         self._data.players[name].z_level = self._data.get_closest_z_group(
-            self._data.players[name].location.z
+            location.z, location.x, location.y
         )
 
         if name == '__you__' and config.data['maps']['use_z_layers']:
             self._z_index = self._data.geometry.z_groups.index(
-                self._data.get_closest_z_group(
-                    self._data.players['__you__'].location.z
-                ))
+                self._data.players[name].z_level)
 
         self.update_()
 
@@ -636,6 +646,7 @@ class MapCanvas(QGraphicsView):
 
         if name == '__you__' and config.data['maps']['auto_follow']:
             self.center()
+        self.refresh_mouse_location()
 
     def remove_waypoint(self, name):
         waypoint = self._data.waypoints.pop(name)
@@ -658,13 +669,30 @@ class MapCanvas(QGraphicsView):
         self.update_()
 
     def enterEvent(self, event):
-        if config.data['maps']['show_mouse_location']:
-            self._mouse_location.setVisible(True)
         QGraphicsView.enterEvent(self, event)
+        self.refresh_mouse_location()
 
     def leaveEvent(self, event):
         self._mouse_location.setVisible(False)
+        self._last_pointer_position = None
         QGraphicsView.leaveEvent(self, event)
+
+    def refresh_mouse_location(self, position=None, *, keyboard=False):
+        """Refresh immediately, including after toggles and scene replacement."""
+        if position is None:
+            position = self.viewport().mapFromGlobal(QCursor.pos())
+        inside = self.viewport().rect().contains(position)
+        enabled = config.data['maps'].get('show_mouse_location', True)
+        visible = bool(self._data and inside and (enabled or keyboard))
+        self._mouse_location.setVisible(visible)
+        if visible:
+            self._last_pointer_position = QPoint(position)
+            self._mouse_location.set_value(
+                self.mapToScene(position), self._scale, self)
+            if keyboard:
+                self.setAccessibleDescription(
+                    self._poi_accessible_description + '\n' +
+                    self._mouse_location.toPlainText())
 
     def mouseMoveEvent(self, event):
         if (event.buttons() & Qt.MouseButton.LeftButton
@@ -674,12 +702,8 @@ class MapCanvas(QGraphicsView):
             self._pan_announced = True
             self._manual_view = True
             self.manual_pan.emit()
-        self._mouse_location.set_value(
-            self.mapToScene(event.pos()),
-            self._scale,
-            self
-            )
         QGraphicsView.mouseMoveEvent(self, event)
+        self.refresh_mouse_location(event.position().toPoint())
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -713,11 +737,7 @@ class MapCanvas(QGraphicsView):
 
         # Update Mouse Location
         mouse_pos = int(event.position().x()), int(event.position().y())
-        self._mouse_location.set_value(
-            self.mapToScene(*mouse_pos),
-            self._scale,
-            self
-        )
+        self.refresh_mouse_location(QPoint(*mouse_pos))
 
     def resizeEvent(self, event):
         QGraphicsView.resizeEvent(self, event)
@@ -729,6 +749,7 @@ class MapCanvas(QGraphicsView):
                 self.center()
             elif not self._manual_view:
                 QTimer.singleShot(0, self._fit_overview_if_automatic)
+            self.refresh_mouse_location()
 
     def contextMenuEvent(self, event):
         # create menu
@@ -861,6 +882,10 @@ class MapCanvas(QGraphicsView):
         self.update_()
 
     def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_L and not event.modifiers():
+            self.refresh_mouse_location(self.viewport().rect().center(), keyboard=True)
+            event.accept()
+            return
         if event.key() == Qt.Key.Key_Home:
             self.fit_overview()
             event.accept()

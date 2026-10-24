@@ -271,6 +271,8 @@ class Maps(ParserWindow):
         super().__init__()
         # interface
         self._map = MapCanvas()
+        self._map_source_identity = None
+        self._map_source_zones = {}
         self._preview_map = None
         self._browse_dialog = None
         self._map.manual_pan.connect(self._manual_pan_started)
@@ -317,6 +319,10 @@ class Maps(ParserWindow):
         show_mouse_location.setCheckable(True)
         show_mouse_location.setChecked(config.data['maps']['show_mouse_location'])
         show_mouse_location.setToolTip('Show /loc under the pointer')
+        show_mouse_location.setAccessibleName('Show map coordinates under the pointer')
+        show_mouse_location.setAccessibleDescription(
+            'Shows coordinates while moving the mouse. Press L in the map '
+            'to read the center coordinates with the keyboard.')
         show_mouse_location.clicked.connect(self._toggle_show_mouse_location)
         button_layout.addWidget(show_mouse_location)
         show_location_hud = QPushButton()
@@ -369,17 +375,27 @@ class Maps(ParserWindow):
             self._load_zone('west freeport')
 
     def parse(self, timestamp, text):
+        identity = self._location_source_identity()
         if text[:23] == 'LOADING, PLEASE WAIT...':
+            self._adopt_map_source(identity)
+            if identity:
+                self._map_source_zones[identity] = ''
+            self.clear_player_location()
             QApplication.instance()._signals["maps"].zoning.emit()
             return
 
         detected_zone, source = detect_log_zone(text)
         if detected_zone:
+            self._adopt_map_source(identity)
+            if identity:
+                self._map_source_zones[identity] = detected_zone
+                if len(self._map_source_zones) > 32:
+                    self._map_source_zones.pop(next(iter(self._map_source_zones)))
             current = self._map._data.zone.lower() if self._map._data else ""
             if source == 'zoning' or detected_zone != current:
                 self._return_to_live_map()
             if source == 'zoning':
-                self._map.clear_location_hud_position()
+                self.clear_player_location()
             if detected_zone != current:
                 self._load_zone(detected_zone)
             elif source == "zoning":
@@ -390,9 +406,31 @@ class Maps(ParserWindow):
                 visible_name, source, detect_who_player_count(text))
             return
 
+        if ZONE_PATTERNS[0][1].match(text):
+            # Unsupported zones must not reuse the previous zone's coordinates.
+            self._adopt_map_source(identity)
+            if identity:
+                self._map_source_zones[identity] = ''
+            self.clear_player_location()
+            return
+
         location = detect_log_location(text)
         if location is not None:
             self._return_to_live_map()
+            if identity:
+                # Every watched log supplies its own character/server. Never
+                # place its /loc on the last map selected by another log.
+                context = getattr(self, '_character_context', None)
+                zone = self._map_source_zones.get(
+                    identity, MapData.resolve_zone_name(getattr(context, 'zone', '')))
+                self._adopt_map_source(identity)
+                if not zone:
+                    self.clear_player_location()
+                    return
+                current = self._map._data.zone if self._map._data else ''
+                if zone != current and not self._load_zone(zone):
+                    self.clear_player_location()
+                    return
             QApplication.instance()._signals["maps"].location.emit(timestamp.isoformat(), text[17:])
             self._map.update_location_hud_position(location)
             x, y, z = location
@@ -703,8 +741,21 @@ class Maps(ParserWindow):
         zones.zone_selector.setFocus(Qt.FocusReason.TabFocusReason)
         return True
 
-    def clear_player_location(self):
+    def _location_source_identity(self):
+        character = str(getattr(self, '_active_character', '') or '').strip().casefold()
+        server = str(getattr(self, '_active_server', '') or '').strip().casefold()
+        return (character, server) if character else None
+
+    def _adopt_map_source(self, identity):
+        if identity != self._map_source_identity:
+            self.clear_player_location()
+            self._map_source_identity = identity
+
+    def clear_player_location(self, character='', server=''):
         """Remove the stale self marker after a confirmed camp/logout."""
+        if character and self._map_source_identity is not None and self._map_source_identity != (
+                str(character).strip().casefold(), str(server).strip().casefold()):
+            return False
         self._map.clear_location_hud_position()
         if not self._map._data or '__you__' not in self._map._data.players:
             return False
@@ -755,9 +806,12 @@ class Maps(ParserWindow):
         if self._preview_map is not None:
             self._preview_map.update_()
 
-    def _toggle_show_mouse_location(self, _=False):
-        config.data['maps']['show_mouse_location'] = not config.data['maps']['show_mouse_location']
+    def _toggle_show_mouse_location(self, checked=False):
+        config.data['maps']['show_mouse_location'] = bool(checked)
         config.save()
+        self._map.refresh_mouse_location()
+        if self._preview_map is not None:
+            self._preview_map.refresh_mouse_location()
 
     def _toggle_location_hud(self, checked):
         config.data['maps']['show_location_hud'] = bool(checked)

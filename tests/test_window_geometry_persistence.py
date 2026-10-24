@@ -8,6 +8,24 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 
 
+ISOLATED_SETUP = r"""
+import os
+from pathlib import Path
+import sys
+profile = Path(os.environ['VANTAGE_DATA_DIR'])
+sys.path.insert(0, str(Path.cwd() / 'tests'))
+from native_audit_fixture import isolate
+isolate()
+os.environ['VANTAGE_DATA_DIR'] = str(profile)
+profile.mkdir(parents=True, exist_ok=True)
+from vantage.helpers import config
+config._filename = str(profile / 'vantage.config.json')
+if Path(config._filename).exists():
+    config.load(config._filename)
+    config.verify_settings()
+"""
+
+
 SAVE_SCRIPT = r"""
 import json
 from PySide6.QtTest import QTest
@@ -80,7 +98,7 @@ def _run(script, profile):
     env['PYTHONPATH'] = str(ROOT / 'src')
     env['VANTAGE_DATA_DIR'] = str(profile)
     completed = subprocess.run(
-        [sys.executable, '-c', script], cwd=ROOT, env=env,
+        [sys.executable, '-B', '-c', ISOLATED_SETUP + script], cwd=ROOT, env=env,
         check=True, capture_output=True, text=True, timeout=30)
     return json.loads(completed.stdout.strip().splitlines()[-1])
 

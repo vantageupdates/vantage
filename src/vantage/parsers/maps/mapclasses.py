@@ -1,5 +1,6 @@
 import datetime
 import html
+import math
 
 import colorhash
 from PySide6.QtCore import Qt, QTimer, QPointF
@@ -16,28 +17,42 @@ class MouseLocation(QGraphicsTextItem):
     def __init__(self, **_):
         super().__init__()
         self.setZValue(100)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
+        self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+        self.setAcceptHoverEvents(False)
+        self.document().setDocumentMargin(5)
+        self.setDefaultTextColor(QColor('#f2eee4'))
+        font = self.font()
+        font.setPointSizeF(10)
+        self.setFont(font)
+        self.hide()
 
     def set_value(self, pos, scale, view):
         # pos = QGraphicsView.mapToScale return of mouse event pos()
         # view = QGraphicsView of the scene view
         x, y = to_eq_xy(pos.x(), pos.y())
 
-        self.setHtml(
-            "<font color='white' size='4'>{}, {}</font>".format(
-                str(int(x)), str(int(y))
-            )
-        )
+        self.setPlainText(f'LOC · {int(x)}, {int(y)}')
+        # Work in viewport pixels: the label must fit on every edge and must
+        # not inherit the previous zoom while calculating its new position.
+        cursor = view.mapFromScene(pos)
+        bounds = self.boundingRect()
+        viewport = view.viewport().rect()
+        left = cursor.x() + 14
+        if left + bounds.width() > viewport.right() - 5:
+            left = cursor.x() - 14 - bounds.width()
+        left = max(5, min(left, viewport.width() - bounds.width() - 5))
+        top = max(5, min(cursor.y() + 6,
+                         viewport.height() - bounds.height() - 5))
+        self.setPos(view.mapToScene(int(left), int(top)))
 
-        # move hover to left if it goes out of view
-        scene_rect = view.mapToScene(view.viewport().rect()).boundingRect()
-        visible_x = -(scene_rect.x() + scene_rect.width())
-        my_rect = self.mapRectToScene(self.boundingRect())
-        if y + -(15/scale + my_rect.width()) < visible_x:
-            self.setPos(pos.x() - 15/scale - my_rect.width(), pos.y())
-        else:
-            self.setPos(pos.x() + 15/scale, pos.y())
-
-        self.setScale(1/scale)
+    def paint(self, painter, option, widget=None):
+        painter.save()
+        painter.setPen(QPen(QColor('#85734a'), 1))
+        painter.setBrush(QColor('#10171c'))
+        painter.drawRoundedRect(self.boundingRect().adjusted(.5, .5, -.5, -.5), 4, 4)
+        painter.restore()
+        super().paint(painter, option, widget)
 
 
 class PoiTextItem(QGraphicsTextItem):
@@ -142,69 +157,128 @@ class PointOfInterest:
 
 
 class DirectionArrow(QGraphicsPathItem):
-    """Red, pointed player-heading dart that remains sharp at any zoom."""
+    """Compact red travel dart; its origin is the exact reported position."""
+
+    # Reduce overview overhang without making the requested pointed dart
+    # disappear. A readable pixel marker cannot stay inside every narrow wall
+    # at every zoom; its center must always remain at the exact reported /loc.
+    MAX_SCENE_RADIUS = 12.0
+    MIN_DISPLAY_SCALE = 0.65
 
     def __init__(self):
-        path = QPainterPath(QPointF(0, -16))
-        path.lineTo(9, 10)
-        path.lineTo(0, 5)
-        path.lineTo(-9, 10)
+        path = QPainterPath(QPointF(0, -8))
+        path.lineTo(4.5, 5)
+        path.lineTo(0, 2.5)
+        path.lineTo(-4.5, 5)
         path.closeSubpath()
         super().__init__(path)
         self.setPen(QPen(
-            QColor('#071014'), 2.2, Qt.PenStyle.SolidLine,
+            QColor('#071014'), 1.2, Qt.PenStyle.SolidLine,
             Qt.PenCapStyle.FlatCap, Qt.PenJoinStyle.MiterJoin))
         self.setBrush(QBrush(QColor('#ff4b4b')))
         self.setTransformOriginPoint(0, 0)
         self.setToolTip('Your direction of travel')
         self.setVisible(False)
 
+    def update_scale(self, inverse_zoom):
+        rect = self.boundingRect()
+        radius = math.hypot(
+            max(abs(rect.left()), abs(rect.right())),
+            max(abs(rect.top()), abs(rect.bottom())))
+        self.setScale(max(self.MIN_DISPLAY_SCALE, min(
+            1.0, self.MAX_SCENE_RADIUS / (
+                radius * max(inverse_zoom, 0.0001)))))
+
 
 class Player(QGraphicsItemGroup):
+
+    # /loc supplies position, never facing. Infer only recent, plausible
+    # travel: ignore sub-unit jitter and clear direction after large jumps,
+    # long gaps, or implausibly fast samples. These are conservative display
+    # heuristics, not a claim about a character's movement speed or abilities.
+    MIN_HEADING_DISTANCE = 0.5
+    MAX_HEADING_DISTANCE = 500.0
+    MAX_HEADING_SPEED = 90.0
+    MAX_HEADING_INTERVAL = 30.0
 
     def __init__(self, **kwargs):
         super().__init__()
         self.name = ''
         self.location = MapPoint()
-        self.previous_location = MapPoint()
+        self.previous_location = None
         self.timestamp = None  # datetime
+        self._heading = None
         self.__dict__.update(kwargs)
+        self._has_location = 'location' in kwargs
         if self.name == "__you__":
-            self.icon = QGraphicsPixmapItem(
-                QPixmap(resource_path('data/maps/user.png'))
-            )
+            # A small outlined dot marks the exact /loc independently of the
+            # travel dart, including before the first movement and at overview.
+            center = QPainterPath()
+            center.addEllipse(QPointF(0, 0), 1.7, 1.7)
+            self.icon = QGraphicsPathItem(center)
+            self.icon.setBrush(QBrush(QColor('#ff4b4b')))
+            self.icon.setPen(QPen(QColor('#fff4dd'), 0.8))
+            self.icon.setZValue(1)
             self.setZValue(15)
         else:
             self.icon = QGraphicsPixmapItem(
                 QPixmap(resource_path('data/maps/otheruser.png'))
             )
+            self.icon.setOffset(-10, -10)
             self.setZValue(10)
-        self.icon.setOffset(-10, -10)
         self.directional = DirectionArrow()
         self.nametag = QGraphicsTextItem()
-        self.nametag.setPos(10, -15)
+        self.nametag.setPos(7, -11)
         self.addToGroup(self.icon)
         self.addToGroup(self.directional)
         self.addToGroup(self.nametag)
         self.z_level = 0
         self.color = colorhash.ColorHash(self.name)
+        if self.previous_location is not None:
+            self._update_heading(self.previous_location)
+
+    def _update_heading(self, previous_location, previous_timestamp=None):
+        dx = self.location.x - previous_location.x
+        dy = self.location.y - previous_location.y
+        distance = math.hypot(dx, dy)
+        interval = None
+        if self.timestamp is not None and previous_timestamp is not None:
+            interval = (self.timestamp - previous_timestamp).total_seconds()
+        discontinuous = (
+            not math.isfinite(distance)
+            or distance > self.MAX_HEADING_DISTANCE
+            or (interval is not None and (
+                interval < 0 or (interval > self.MAX_HEADING_INTERVAL
+                                 and distance >= self.MIN_HEADING_DISTANCE)
+                or (interval > 0 and
+                    distance / interval > self.MAX_HEADING_SPEED))))
+        if discontinuous:
+            self._heading = None
+        elif distance >= self.MIN_HEADING_DISTANCE:
+            self._heading = get_degrees_from_line(
+                self.location.x, self.location.y,
+                previous_location.x, previous_location.y)
+        # Repeated XY and Z-only changes retain a known travel direction.
+
+    def update_location(self, location, timestamp=None):
+        previous_timestamp = self.timestamp
+        self.previous_location = self.location if self._has_location else None
+        self.location = location
+        self.timestamp = timestamp
+        self._has_location = True
+        if self.previous_location is not None:
+            self._update_heading(self.previous_location, previous_timestamp)
 
     def update_(self, scale):
-        if self.previous_location:
-            self.directional.setRotation(
-                get_degrees_from_line(
-                    self.location.x, self.location.y,
-                    self.previous_location.x, self.previous_location.y
-                )
-            )
-            self.setScale(scale)
-            self.setPos(self.location.x, self.location.y)
-            self.directional.setVisible(True)
+        self.setScale(scale)
+        self.directional.update_scale(scale)
+        if self._heading is not None:
+            self.directional.setRotation(self._heading)
+        self.directional.setVisible(self._heading is not None)
         self.setPos(self.location.x, self.location.y)
         self.nametag.setHtml(
-            "<font color='{}' size='{}'>{}</font>".format(
-                self.color.hex if self.name != "__you__" else "purple",
-                5,
+            "<span style='color:{};font-size:9pt'>{}</span>".format(
+                self.color.hex if self.name != "__you__" else "#f2eee4",
                 self.name if self.name != "__you__" else "You"
             )
         )

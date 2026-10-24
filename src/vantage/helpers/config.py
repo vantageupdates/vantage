@@ -581,20 +581,35 @@ def save():
                 pass
 
 
-def verify_update_checkpoint(spell_rows, timer_rows):
+def verify_update_checkpoint(spell_rows, timer_rows, settings_snapshot=None):
     """Confirm the next Vantage process will read the exact live state.
 
     Update handoff is the one place where a successful return from ``save``
     is not sufficient: the current process is about to exit. Re-open the
-    durable JSON and compare the two live countdown collections before the
-    updater is allowed to spawn.
+    durable JSON and compare the live countdown collections and, when supplied,
+    the complete preferences snapshot before the updater is allowed to spawn.
+    Callers restoring only the spell sidecar can retain the two-argument check.
     """
     if not _filename:
         return False
     try:
         with open(_filename, encoding='utf-8') as source:
             persisted = json.load(source)
+        if not isinstance(persisted, dict):
+            return False
+        if settings_snapshot is not None:
+            # Compare the JSON representation used by save(), including nested
+            # preferences and extension keys. Serializable tuples and integer
+            # keys must not fail after JSON normalizes their shape. Preserve
+            # value types too: False == 0 in Python, but settings validation
+            # treats a numeric replacement for a boolean as invalid.
+            expected = json.loads(json.dumps(settings_snapshot))
+            if json.dumps(persisted, sort_keys=True) != json.dumps(
+                    expected, sort_keys=True):
+                return False
         return (
+            isinstance(persisted.get('spells'), dict) and
+            isinstance(persisted.get('timers'), dict) and
             persisted.get('spells', {}).get('active_timer_state') ==
             spell_rows and
             persisted.get('timers', {}).get('items') == timer_rows)
@@ -1048,11 +1063,8 @@ def verify_settings():
         data['spells'].get('fade_sound_enabled', True), True)
     data['spells']['sounds_when_hidden'] = get_setting(
         data['spells'].get('sounds_when_hidden', True), True)
-    warning_seconds = data['spells'].get('fade_warning_seconds', 40)
-    if warning_seconds == 30:
-        warning_seconds = 40  # migrate the former default
     data['spells']['fade_warning_seconds'] = get_setting(
-        warning_seconds, 40,
+        data['spells'].get('fade_warning_seconds', 40), 40,
         lambda x: 0 <= x <= 600)
     data['spells']['fade_voice_warning_seconds'] = _bounded_int(
         data['spells'].get('fade_voice_warning_seconds', 5), 5, 1, 600)

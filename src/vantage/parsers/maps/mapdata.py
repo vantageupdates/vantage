@@ -56,6 +56,15 @@ def bundled_map_paths(map_file_name):
 
 class MapData(dict):
 
+    # Map authors round labels and geometry differently. A quarter-unit
+    # boundary tolerance joins those samples without merging actual floors.
+    Z_BOUNDARY_TOLERANCE = 0.25
+    # /loc is measured above the floor. Only nearby, almost-level geometry
+    # can refine its layer; distant rooms and other storeys must not win.
+    LOCAL_LAYER_RADIUS = 35.0
+    LOCAL_LAYER_Z_TOLERANCE = 6.0
+    LOCAL_LAYER_MAX_SLOPE = 1.0
+
     def __init__(self, zone=None):
         super().__init__()
         self.zone = zone
@@ -212,6 +221,8 @@ class MapData(dict):
 
         # Create Points of Interest
         for p in self.raw['poi']:
+            # Labels already record their floor height. Boundary tolerance is
+            # enough here; local segment scans are reserved for live /loc.
             z = self.get_closest_z_group(p.z)
             self[z]['poi'].append(
                 PointOfInterest(location=p)
@@ -236,12 +247,46 @@ class MapData(dict):
             reader = csv.reader(file)
             self.spawn_timer_dict = dict(reader)
 
-    def get_closest_z_group(self, z):
+    def get_closest_z_group(self, z, x=None, y=None):
+        """Associate Z with drawn geometry, allowing small authoring offsets.
+
+        With only Z, keep the existing floor-band behavior except at rounding
+        boundaries. With XY, a close, nearly horizontal segment within six Z
+        units may identify the local floor more accurately than global bands.
+        This is deliberately bounded: missing local evidence uses the band.
+        """
         closest = min(self._z_groups, key=lambda x: abs(x - z))
-        if z < closest:
+        if z < closest - self.Z_BOUNDARY_TOLERANCE:
             lower_index = self._z_groups.index(closest) - 1
             if lower_index > -1:
                 closest = self._z_groups[lower_index]
+        if x is None or y is None:
+            return closest
+
+        nearest_score = None
+        for line in self.raw['lines']:
+            if abs(line.z1 - line.z2) > self.LOCAL_LAYER_MAX_SLOPE:
+                continue
+            dx, dy = line.x2 - line.x1, line.y2 - line.y1
+            length_squared = dx * dx + dy * dy
+            fraction = (max(0.0, min(1.0, (
+                (x - line.x1) * dx + (y - line.y1) * dy
+            ) / length_squared)) if length_squared else 0.0)
+            distance_squared = (
+                (x - (line.x1 + fraction * dx)) ** 2
+                + (y - (line.y1 + fraction * dy)) ** 2)
+            if distance_squared > self.LOCAL_LAYER_RADIUS ** 2:
+                continue
+            local_z = line.z1 + fraction * (line.z2 - line.z1)
+            height_difference = abs(z - local_z)
+            if height_difference > self.LOCAL_LAYER_Z_TOLERANCE:
+                continue
+            # Give vertical separation extra weight where floors overlap.
+            score = distance_squared + (height_difference * 2.0) ** 2
+            if nearest_score is None or score < nearest_score:
+                nearest_score = score
+                # Match the exact band used when this path was rendered.
+                closest = self.get_closest_z_group(min(line.z1, line.z2))
         return closest
 
     @staticmethod

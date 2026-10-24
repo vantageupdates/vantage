@@ -683,6 +683,11 @@ app.quit()
 
 VERTICAL_AND_PULSE_SCRIPT = r"""
 import json
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd() / 'tests'))
+from native_audit_fixture import isolate
+isolate()
 from PySide6.QtCore import Qt
 from vantage.helpers import config
 from vantage.helpers.application import VantageApp
@@ -839,6 +844,11 @@ app.quit()
 
 MOTION_LIFECYCLE_SCRIPT = r"""
 import json
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd() / 'tests'))
+from native_audit_fixture import isolate
+isolate()
 from PySide6.QtTest import QTest
 from vantage.helpers import config
 from vantage.helpers.application import VantageApp

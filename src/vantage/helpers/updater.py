@@ -33,7 +33,7 @@ RELEASE_HISTORY_API = (
     f"https://api.github.com/repos/{REPOSITORY}/releases?per_page=40&page=1")
 RELEASES_URL = f"https://github.com/{REPOSITORY}/releases"
 ASSET_NAME = "Vantage.exe"
-USER_AGENT = "Vantage/1.44.140"
+USER_AGENT = "Vantage/1.44.141"
 _COMPANION_TAG = re.compile(
     r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
 
@@ -345,7 +345,7 @@ class UpdateController(QObject):
         checkpoint = getattr(app, 'checkpoint_for_update', None)
         if not callable(checkpoint) or not checkpoint():
             raise RuntimeError(
-                'Vantage could not preserve live buffs and timers. The update '
+                'Vantage could not preserve settings, live buffs and timers. The update '
                 'was cancelled and Vantage remains open.')
         flags = 0
         if os.name == "nt":
