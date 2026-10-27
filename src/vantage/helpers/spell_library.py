@@ -41,7 +41,7 @@ from vantage.parsers.market import (
 
 P99_WIKI_API = PAGE_TEMPLATE
 P99_WIKI_URL = PAGE_TEMPLATE
-USER_AGENT = "Vantage/1.44.149"
+USER_AGENT = "Vantage/1.44.150"
 ACQUISITION_WORDS = (
     "merchant", "sold by", "where to obtain", "where to find", "drop",
     "research", "recipe", "created by", "quest", "reward", "turn in",

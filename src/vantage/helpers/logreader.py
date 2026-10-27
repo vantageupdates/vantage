@@ -8,6 +8,7 @@ from PySide6.QtCore import QFileSystemWatcher, Signal, QObject, QTimer
 from PySide6.QtWidgets import QApplication
 
 from vantage.helpers import parse_line, strip_timestamp
+from vantage.helpers.client_zone import ClientZoneTracker
 
 ZONE_CONTEXT_INTERVAL_MS = 2000
 ZONE_CONTEXT_SCAN_BYTES = 256 * 1024
@@ -34,7 +35,7 @@ def _zone_context_record(raw, offset, path, identity):
     character, server = LogReader._identity(path)
     return dict(text=text, character=character, server=server, path=path,
                 identity=identity, offset=offset, timestamp=timestamp,
-                captured_at=time.monotonic(), periodic=True)
+                captured_at=time.monotonic(), periodic=True, source='eq_log')
 
 
 class LogReaderSignals(QObject):
@@ -86,8 +87,11 @@ class LogReader(QFileSystemWatcher):
         self._zone_backscans = {}
         self._zone_verified = {}
         self._zone_active_path = None
+        self._zone_motion_events = {}
         self._checking_zone_context = False
         self._zone_context_checks = 0
+        self._client_zone_tracker = ClientZoneTracker(eq_directory)
+        self._zone_context_source = ''
         self._zone_context_timer = QTimer(self)
         self._zone_context_timer.setInterval(ZONE_CONTEXT_INTERVAL_MS)
         self._zone_context_timer.timeout.connect(self._check_zone_context)
@@ -235,10 +239,27 @@ class LogReader(QFileSystemWatcher):
             return
         self._checking_zone_context = True
         try:
+            client = self._client_zone_tracker.poll()
             path = self._zone_active_path
             if path not in self._files:
                 self._bootstrap_context()
                 path = self._zone_active_path
+            candidate = self._client_zone_path(client)
+            if candidate and candidate != path:
+                previous = self._zone_contexts.get(path, {}).get('timestamp')
+                motion = self._zone_motion_events.get(path)
+                known = [stamp for stamp in (previous, motion) if stamp is not None]
+                try:
+                    current = os.stat(path)
+                    current_state = self._stats.get(path, {})
+                    pending = (current.st_size != current_state.get('last_read', 0) or
+                               (current.st_dev, current.st_ino) != current_state.get('identity'))
+                except (OSError, TypeError):
+                    pending = True
+                # Drain the current source before comparing authority. Its
+                # unread /loc may be newer than another client's debug zone.
+                if not pending and (not known or client['timestamp'] > max(known)):
+                    path = self._zone_active_path = candidate
             if path not in self._files or self._stopped:
                 return
             self._zone_context_checks += 1
@@ -272,14 +293,40 @@ class LogReader(QFileSystemWatcher):
             if path not in self._zone_contexts and path in self._zone_backscans:
                 self._scan_zone_context(path, end, identity, historical=True)
             record = self._zone_contexts.get(path)
-            if record and not self._stopped:
-                QApplication.instance()._signals['logreader'].zone_context.emit(
-                    dict(record, active=True, observed_mtime_ns=stat.st_mtime_ns))
+            self._emit_zone_context(path, record, stat.st_mtime_ns, client=client)
         except OSError:
             # Temporary sharing violations are retried without moving live cursors.
-            pass
+            if path in self._files:
+                self._emit_zone_context(
+                    path, self._zone_contexts.get(path), allow_normal=False, client=client)
         finally:
             self._checking_zone_context = False
+
+    def _client_zone_path(self, client):
+        if not client:
+            return None
+        matches = [candidate for candidate in self._files
+                   if self._identity(candidate)[0].casefold() == client['character'].casefold()]
+        # dbg.txt has no server. Duplicate names on Green and Blue cannot
+        # provide a unique profile, so retain the ordinary log authority.
+        return matches[0] if len(matches) == 1 else None
+
+    def _emit_zone_context(self, path, record, modified=None, *, allow_normal=True, client=None):
+        if self._stopped:
+            return
+        selected = record if allow_normal else None
+        character, server = self._identity(path)
+        if client and self._client_zone_path(client) == path:
+            stamp = record.get('timestamp') if record else None
+            if (not record or
+                    (stamp is not None and client['timestamp'] > stamp)):
+                selected = dict(client, server=server,
+                                text=f"You have entered {client['zone']}.")
+        if selected and not self._stopped:
+            self._zone_context_source = (
+                'EverQuest client' if selected.get('source') == 'client_debug' else 'EQ log')
+            QApplication.instance()._signals['logreader'].zone_context.emit(
+                dict(selected, active=True, observed_mtime_ns=modified))
 
     def _poll(self):
         # Filesystem notifications are hints, not the only source of truth.
@@ -333,6 +380,7 @@ class LogReader(QFileSystemWatcher):
             'last_delivered_at': self._last_delivered_at,
             'repair_count': self._repair_count,
             'zone_context_checks': self._zone_context_checks,
+            'zone_context_source': self._zone_context_source,
             'timers': {
                 'poll': self._poll_timer.isActive(),
                 'recovery': self._recovery_timer.isActive(),
@@ -561,6 +609,7 @@ class LogReader(QFileSystemWatcher):
                 self._remember_zone_context(changed_file, record)
             if record is not None or re.match(r'^Your\s+Location\s+is\s+', text, re.I):
                 self._zone_active_path = changed_file
+                self._zone_motion_events[changed_file] = timestamp
             app._signals["logreader"].new_line.emit((
                 timestamp, text, char_name, server_name))
             self._events_delivered += 1

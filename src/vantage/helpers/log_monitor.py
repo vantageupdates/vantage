@@ -236,6 +236,8 @@ class LogMonitorDialog(UniformScaleDialog):
         detail = (
             f'Lines read: {delivered:,} · Events processed: {completed:,} · '
             f'Last line: {last_text}')
+        if reader_state.get('zone_context_source'):
+            detail += f" · Map source: {reader_state['zone_context_source']}"
         if pending:
             detail += f' · Waiting: {pending:,} bytes'
         if feature_errors:

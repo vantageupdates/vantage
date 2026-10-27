@@ -278,6 +278,7 @@ class Maps(ParserWindow):
         self._map_source_zones = {}
         self._map_live_zone_events = {}
         self._map_recovered_zone_events = {}
+        self._map_client_zone_floor = {}
         self._preview_map = None
         self._browse_dialog = None
         self._map.manual_pan.connect(self._manual_pan_started)
@@ -435,10 +436,11 @@ class Maps(ParserWindow):
             previous = self._map_recovered_zone_events.get(identity)
             if previous is not None:
                 prior_revision, prior_capture, prior_stamp = previous
-                if captured_at < prior_capture:
-                    return
                 if (stamp is not None and prior_stamp is not None and
                         stamp < prior_stamp):
+                    return
+                if (captured_at < prior_capture and
+                        (stamp is None or prior_stamp is None or stamp <= prior_stamp)):
                     return
                 if (revision[:2] == prior_revision[:2] and
                         revision[2] < prior_revision[2] and
@@ -448,8 +450,9 @@ class Maps(ParserWindow):
             live = self._map_live_zone_events.get(identity)
             if live is not None:
                 newer_than_live = bool(
-                    captured_at > live[1] and
-                    (stamp is None or live[0] is None or stamp >= live[0]))
+                    (stamp is not None and live[0] is not None and stamp > live[0]) or
+                    (captured_at > live[1] and
+                     (stamp is None or live[0] is None or stamp >= live[0])))
                 if not newer_than_live:
                     # Whole-second EQ timestamps can match two different
                     # transitions. Observation time orders those events;
@@ -467,6 +470,8 @@ class Maps(ParserWindow):
             active = bool(snapshot.get('active', False))
         if not active:
             return
+        if snapshot is not None and snapshot.get('source') == 'client_debug' and stamp is not None:
+            self._map_client_zone_floor[identity] = stamp
         source_changed = identity != self._map_source_identity
         current = self._map._data.zone if self._map._data else ''
         transition = bool(fresh_event and (source == 'zoning' or loading or unsupported))
@@ -483,7 +488,9 @@ class Maps(ParserWindow):
         elif transition:
             QApplication.instance()._signals['maps'].new_zone.emit(zone)
         self._map.update_location_hud_zone(
-            string.capwords(zone), 'last log entry', detect_who_player_count(text))
+            string.capwords(zone),
+            'EQ client' if snapshot and snapshot.get('source') == 'client_debug' else 'last log entry',
+            detect_who_player_count(text))
 
     @staticmethod
     def _zone_event_time(timestamp):
@@ -501,15 +508,28 @@ class Maps(ParserWindow):
             self._map_source_zones.pop(expired, None)
             self._map_live_zone_events.pop(expired, None)
             self._map_recovered_zone_events.pop(expired, None)
+            self._map_client_zone_floor.pop(expired, None)
 
     def _remember_live_zone(self, identity, zone, timestamp):
         if identity:
             self._remember_map_zone(identity, zone)
             self._map_live_zone_events[identity] = (
                 self._zone_event_time(timestamp), time.monotonic())
+            if identity in self._map_client_zone_floor:
+                stamp = self._zone_event_time(timestamp)
+                if stamp is not None:
+                    self._map_client_zone_floor[identity] = max(
+                        stamp, self._map_client_zone_floor[identity])
 
     def parse(self, timestamp, text):
         identity = self._location_source_identity()
+        floor = self._map_client_zone_floor.get(identity)
+        if floor is not None:
+            stamp = self._zone_event_time(timestamp)
+            if stamp is not None and stamp < floor:
+                # A queued older EQ record cannot undo a confirmed client
+                # transition or place an old /loc on the newly recovered map.
+                return
         if text[:23] == 'LOADING, PLEASE WAIT...':
             self._adopt_map_source(identity)
             self._remember_live_zone(identity, '', timestamp)
