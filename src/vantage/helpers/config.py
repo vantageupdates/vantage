@@ -887,6 +887,14 @@ def verify_settings():
         data['maps'].get('show_grid', True),
         True
         )
+    # Older profiles can silently retain the pointer LOC switch as Off even
+    # though the current default is On. Enable it once when upgrading, then
+    # preserve every later explicit choice to hide pointer coordinates.
+    pointer_loc_visibility_version = _bounded_int(
+        data['maps'].get('pointer_loc_visibility_version', 0), 0, 0, 1)
+    if pointer_loc_visibility_version < 1:
+        data['maps']['show_mouse_location'] = True
+    data['maps']['pointer_loc_visibility_version'] = 1
     data['maps']['show_mouse_location'] = get_setting(
         data['maps'].get('show_mouse_location', True),
         True

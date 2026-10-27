@@ -51,11 +51,11 @@ from vantage.helpers.scaled_dialog import UniformScaleDialog
 from vantage.helpers.wiki_access import (
     cached_reference_status, read_wiki_bytes, read_wiki_reply, wiki_access,
     write_wiki_cache, write_wiki_cache_bytes)
-from vantage.helpers.wiki_source import PAGE_TEMPLATE
+from vantage.helpers.wiki_source import PAGE_TEMPLATE, page_url
 from vantage.helpers.wiki_mirror_details import (
     parse_item_html as parse_wiki_item_html,
     parse_entity_html as parse_wiki_entity_html,
-    parse_zone_html as parse_wiki_zone_html)
+    parse_zone_html as parse_wiki_zone_html, zone_reference_title)
 from vantage.parsers.maps.mapdata import MapData
 
 
@@ -4640,11 +4640,10 @@ class GreenMarket(ParserWindow):
             self.zone_load_button.setEnabled(True)
             self.zone_load_button.setText("Load zone")
             return True
-        request = QNetworkRequest(QUrl(P99_WIKI_API.format(
-            slug=quote(requested.replace(" ", "_"), safe=""))))
+        request = QNetworkRequest(QUrl(page_url(zone_reference_title(requested))))
         request.setTransferTimeout(P99_ENTITY_TIMEOUT_MS)
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.147")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.148")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_finished(
             reply, requested, cached_path))
@@ -4785,7 +4784,7 @@ class GreenMarket(ParserWindow):
             slug=quote(target.replace(" ", "_"), safe=""))))
         request.setTransferTimeout(P99_ENTITY_TIMEOUT_MS)
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.147")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.148")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_npc_drops_finished(
             reply, mob, target, key, cache_path))
@@ -4871,7 +4870,7 @@ class GreenMarket(ParserWindow):
         name = str(self._zone_data.get("name") or "").strip()
         if not name:
             return False
-        return bool(webbrowser.open(_wiki_target_url(name)))
+        return bool(webbrowser.open(page_url(zone_reference_title(name))))
 
     @staticmethod
     def _filter_search(placeholder, accessible_name, callback):
@@ -5148,7 +5147,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.147")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.148")
         reply = self._network.get(request)
         timer = QTimer(self)
         timer.setSingleShot(True)
@@ -5239,7 +5238,7 @@ class GreenMarket(ParserWindow):
             return None
         request = QNetworkRequest(QUrl(safe_url))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.147")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.148")
         reply = self._network.get(request)
         timer = QTimer(self)
         timer.setSingleShot(True)
@@ -5377,7 +5376,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.147")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.148")
         request.setTransferTimeout(P99_ENTITY_TIMEOUT_MS)
         reply = self._network.get(request)
         context = {
@@ -5493,7 +5492,7 @@ class GreenMarket(ParserWindow):
                         filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.147")
+                    "Vantage/1.44.148")
                 image_request.setTransferTimeout(P99_ITEM_TIMEOUT_MS)
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
@@ -5727,7 +5726,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.147")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.148")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -5754,7 +5753,7 @@ class GreenMarket(ParserWindow):
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
                 QNetworkRequest.KnownHeaders.UserAgentHeader,
-                "Vantage/1.44.147")
+                "Vantage/1.44.148")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -6136,7 +6135,7 @@ class GreenMarket(ParserWindow):
         self.status.setText(f"Refreshing PigParse {server}…")
         request = QNetworkRequest(QUrl(market_endpoint(server)))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.147")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.148")
         reply = self._network.get(request)
         reply.setProperty("market_server", server)
         reply.finished.connect(lambda: self._finished(reply))
@@ -6264,7 +6263,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(market_detail_api(server).format(
             item_name=quote(name, safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.147")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.148")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.setProperty("market_server", server)

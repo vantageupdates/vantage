@@ -8,13 +8,13 @@ import json
 from pathlib import Path
 import re
 import webbrowser
-from urllib.parse import quote, urljoin, urlsplit
+from urllib.parse import quote, unquote, urljoin, urlsplit
 
 from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtNetwork import (
     QNetworkAccessManager, QNetworkReply, QNetworkRequest)
 from PySide6.QtWidgets import (
-    QCheckBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+    QApplication, QCheckBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QSizePolicy,
     QSplitter, QTabWidget, QTextBrowser, QToolButton, QVBoxLayout, QWidget)
 
@@ -379,7 +379,7 @@ def parse_quest_wikitext(source, fallback_title=""):
     metadata = _quest_metadata(source)
     steps = _quest_steps(source)
     reward_source = _section(source, ("Reward", "Rewards"))
-    rewards = _wiki_links(reward_source)[:12]
+    rewards = _wiki_links(reward_source)[:200]
     title = str(fallback_title or "Quest").replace("_", " ").strip()
 
     lead_source = re.split(r"^==+", source, maxsplit=1,
@@ -414,6 +414,38 @@ def parse_quest_wikitext(source, fallback_title=""):
     }
 
 
+def _non_item_reward_targets(node):
+    """Classify each link's immediate context, not its whole reward paragraph."""
+    chunks, links = [], []
+
+    def visit(value):
+        if isinstance(value, str):
+            chunks.append(value)
+        elif value.tag == "a":
+            start = len("".join(chunks))
+            name = visible_text(value)
+            links.extend((entry, start, start + len(name)) for entry in page_links(value))
+            chunks.append(name)
+        else:
+            if value.tag in {"br", "p", "li"}:
+                chunks.append("; ")
+            for child in value.children:
+                visit(child)
+
+    visit(node)
+    text = "".join(chunks)
+    excluded = set()
+    for entry, start, end in links:
+        name = entry["name"].strip()
+        prefix, suffix = text[:start].rstrip(), text[end:].lstrip()
+        if (re.fullmatch(r"(?:experience(?: points)?|XP|faction|money|coins?|"
+                         r"(?:\d[\d,]*\s+)?(?:platinum|gold|silver|copper)(?: pieces?)?)", name, re.I) or
+                re.search(r"\bfaction\s*(?:(?:with|for|to|from|toward)\s*)?[:+-]?\s*$", prefix, re.I) or
+                re.match(r"^(?:faction|standing)\b", suffix, re.I)):
+            excluded.add(entry["target"])
+    return excluded
+
+
 def parse_quest_html(rendered_html, fallback_title=""):
     """Read a mirror checklist with list hierarchy and complete action text."""
     root = clean_tree(rendered_html)
@@ -421,8 +453,49 @@ def parse_quest_html(rendered_html, fallback_title=""):
     metadata = {label: field_text(fields, label) for label in (
         "Start Zone", "Quest Giver", "Minimum Level", "Recommended Level", "Classes")
                 if field_text(fields, label)}
-    rewards = [entry["name"] for entry in page_links(clean_tree(
-        section_html(root.html(), ("Reward", "Rewards"))))][:12]
+    reward_nodes = [clean_tree(section_html(root.html(), ("Reward", "Rewards", "Quest Rewards")))]
+    reward_nodes.extend(fields[label] for label in ("reward", "rewards") if label in fields)
+    reward_links = []
+    rewards = []
+    seen_rewards = set()
+
+    def add_reward(name, entry=None):
+        name = " ".join(str(name).split())
+        if name and name.casefold() not in seen_rewards and len(rewards) < 200:
+            seen_rewards.add(name.casefold())
+            rewards.append(name)
+            if entry:
+                reward_links.append(entry)
+
+    for block in reward_nodes:
+        non_item_targets = set()
+        for node in walk(block):
+            if node.tag not in {"p", "li"} or node.find("li"):
+                continue
+            text = visible_text(node)
+            if re.search(r"\b(?:experience|faction|XP)\b|\b\d[\d, ]*\s+(?:platinum|gold|silver|copper)\b", text, re.I):
+                add_reward(text)
+                non_item_targets.update(_non_item_reward_targets(node))
+        for entry in page_links(block):
+            if entry["target"] not in non_item_targets:
+                add_reward(entry["name"], entry)
+        for node in walk(block):
+            # Some quests show an inline item card with no title hyperlink.
+            if "itemtitle" in node.attrs.get("class", "").split():
+                name = visible_text(node)
+                add_reward(name, {"name": name, "target": name, "url": page_url(name)})
+            elif node.tag in {"li", "p"} and not page_links(node) and not node.find("li"):
+                parent = node
+                inside_stats = False
+                while parent is not None and parent is not block:
+                    inside_stats |= bool(set(parent.attrs.get("class", "").split()) &
+                                         {"itemdata", "itemtitle", "itembg", "itemtopbg"})
+                    parent = parent.parent
+                if not inside_stats and not node.find(class_="itemdata"):
+                    add_reward(visible_text(node))
+        if (not page_links(block) and not block.find("li") and not block.find("p") and
+                not block.find(class_="itemtitle")):
+            add_reward(visible_text(block))
     body = ""
     for heading in ("Checklist", "TLDR; Walkthrough", "TLDR Walkthrough",
                     "Short Walkthrough", "Walkthrough", "Quest Walkthrough"):
@@ -465,7 +538,7 @@ def parse_quest_html(rendered_html, fallback_title=""):
         summary.append("First steps: " + "; ".join(
             step["text"] for step in steps if step["kind"] == "action")[:560])
     title = str(fallback_title or "Quest").replace("_", " ").strip()
-    return {"title": title, "metadata": metadata, "rewards": rewards,
+    return {"title": title, "metadata": metadata, "rewards": rewards, "reward_links": reward_links,
             "summary": "\n\n".join(summary) or "The mirror page has no concise quest summary.",
             "steps": steps, "wiki_url": page_url(title), "source": "P99 Wiki mirror"}
 
@@ -906,11 +979,19 @@ class Quests(ParserWindow):
             "Select a quest to load a concise summary from Project 1999 Wiki.")
         self.steps = QListWidget()
         self.steps.setAccessibleName("Selected quest walkthrough steps")
+        self.rewards = QTextBrowser()
+        self.rewards.setAccessibleName("Selected quest rewards")
+        self.rewards.setToolTip("Quest rewards · choose an item name to open its details")
+        self.rewards.setOpenLinks(False)
+        self.rewards.setOpenExternalLinks(False)
+        self.rewards.anchorClicked.connect(self._open_reward_link)
         self.tabs.addTab(self.summary, "Summary")
         self.tabs.addTab(self.steps, "Steps")
+        self.tabs.addTab(self.rewards, "Rewards")
         ensure_tab_tooltips(self.tabs, {
             "Summary": "Quest giver, zone, level, rewards, and concise Wiki summary",
             "Steps": "Structured steps extracted from the Wiki walkthrough",
+            "Rewards": "Reward items, experience, and other rewards listed by the source",
         })
         right_layout.addWidget(self.tabs, 1)
         detail_actions = QHBoxLayout()
@@ -1021,7 +1102,7 @@ class Quests(ParserWindow):
         request = QNetworkRequest(url)
         request.setTransferTimeout(NETWORK_TIMEOUT_MS)
         request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader,
-                          "Vantage/1.44.147 (vantagecompanion@gmail.com)")
+                          "Vantage/1.44.148 (vantagecompanion@gmail.com)")
         return self._network.get(request)
 
     @staticmethod
@@ -1302,6 +1383,20 @@ class Quests(ParserWindow):
         self.quest_title.setText(quest["title"])
         self.quest_title.setAccessibleName(f"Selected quest: {quest['title']}")
         self.summary.setPlainText(quest["summary"])
+        reward_links = {entry.get("name", ""): entry.get("target") or entry.get("name")
+                        for entry in quest.get("reward_links", ()) if isinstance(entry, dict)}
+        # Old cache records do not distinguish items from faction or XP text.
+        # Keep them readable until refresh supplies explicit item references.
+        reward_rows = []
+        for name in quest.get("rewards", ()):
+            label = html.escape(str(name))
+            if name in reward_links and str(name).casefold() not in {"experience", "faction", "money"}:
+                target = quote(str(reward_links[name]), safe="")
+                label = f'<a href="vantage://item/{target}">{label}</a>'
+            reward_rows.append("<li>" + label + "</li>")
+        self.rewards.setHtml(
+            "<h2>Rewards</h2><ul>" + "".join(reward_rows) + "</ul>"
+            if reward_rows else "<h2>Rewards</h2><p>No reward is listed in this source page.</p>")
         self.steps.clear()
         action_number = 0
         for step in _normalize_step_records(quest["steps"]):
@@ -1326,6 +1421,18 @@ class Quests(ParserWindow):
             _announce_accessible(
                 self.quest_title,
                 f"Loaded {quest['title']}; {len(quest['steps'])} checklist steps")
+
+    def _open_reward_link(self, url):
+        if url.scheme() != "vantage" or url.host() != "item":
+            return False
+        target = unquote(url.path().lstrip("/")).strip()
+        if not target:
+            return False
+        market = getattr(QApplication.instance(), "_parsers_dict", {}).get("market")
+        if market:
+            market._show_wiki_item_name(target)
+            return True
+        return bool(webbrowser.open(page_url(target)))
 
     def _open_wiki(self):
         if self._current_quest:

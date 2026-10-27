@@ -8,6 +8,43 @@ from urllib.parse import unquote, urljoin, urlsplit
 from vantage.helpers.wiki_source import page_url, parse_html, section_html
 
 
+# EverQuest's log/map names are not always the Wiki's article titles. The
+# mirror is case-sensitive and cannot accept MediaWiki redirect API flags.
+_ZONE_REFERENCE_ALIASES = {
+    "the nektulos forest": "Nektulos Forest", "sleepers tomb": "Sleeper's Tomb",
+    "castle mistmoore": "Mistmoore Castle", "qeynos aqueduct system": "Qeynos Aqueducts",
+    "ruins of sebilis": "Old Sebilis", "cabilis east": "Cabilis", "cabilis west": "Cabilis",
+    "estate of unrest": "The Estate of Unrest", "north qeynos": "Qeynos", "south qeynos": "Qeynos",
+    "north freeport": "Freeport", "west freeport": "Freeport", "east freeport": "Freeport",
+    "runnyeye citadel": "Runnyeye", "the city of mist": "City of Mist",
+    "permafrost caverns": "Permafrost", "arena": "The Arena", "city of thurgadin": "Thurgadin",
+    "neriak foreign quarter": "Neriak", "neriak third gate": "Neriak", "neriak commons": "Neriak",
+    "plane of air": "Plane of Sky", "southern felwithe": "Felwithe", "northern felwithe": "Felwithe",
+    "everfrost": "Everfrost Peaks", "north kaladim": "Kaladim", "south kaladim": "Kaladim",
+    "the wakening lands": "The Wakening Land", "the burning wood": "Burning Wood",
+    "guk": "Upper Guk", "eastern wastelands": "Eastern Wastes",
+    "southern plains of karana": "Southern Karana", "western plains of karana": "Western Karana",
+    "the emerald jungle": "Emerald Jungle", "sirens grotto": "Siren's Grotto",
+    "erudin palace": "Erudin", "ruins of old guk": "Lower Guk", "kerra isle": "Kerra Island",
+    "lost temple of cazic-thule": "Cazic Thule (Zone)", "warrens": "The Warrens",
+    "cazic thule (zone)": "Cazic Thule (Zone)",
+    "kithicor woods": "Kithicor Forest", "temple of solusek ro": "The Temple of Solusek Ro",
+    "chardok (post-revamp)": "Chardok", "chardok (pre-revamp)": "Chardok (Pre-Revamp)",
+}
+
+
+def zone_reference_title(name):
+    """Resolve log/map aliases to stable, correctly cased mirror articles."""
+    key = " ".join(str(name or "").replace("_", " ").replace("’", "'").split()).casefold()
+    if key in _ZONE_REFERENCE_ALIASES:
+        return _ZONE_REFERENCE_ALIASES[key]
+    title = " ".join(word if index and word in {"of", "the", "and"} else word.capitalize()
+                     for index, word in enumerate(key.split()))
+    if key == "ak'anon":
+        return "Ak'Anon"
+    return title
+
+
 def walk(node):
     yield node
     for child in node.children:

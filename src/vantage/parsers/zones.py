@@ -25,6 +25,7 @@ from vantage.helpers.responsive import (
 from vantage.helpers.wiki_access import (
     cached_reference_status, read_wiki_reply, wiki_access, write_wiki_cache)
 from vantage.helpers.wiki_source import page_url
+from vantage.helpers.wiki_mirror_details import zone_reference_title
 from vantage.parsers.maps.mapdata import MapData
 from vantage.parsers.market import (
     P99_WIKI_API, _announce_accessible, _wiki_entity_cache_path,
@@ -159,6 +160,7 @@ class Zones(ParserWindow):
         self._column_width_save_timer.timeout.connect(
             self._save_column_widths)
         self._build_ui()
+        self._restore_zone_on_show = bool(self._selected_zone_name())
         app = QApplication.instance()
         if app is not None:
             app.aboutToQuit.connect(self._cancel_network_requests)
@@ -570,6 +572,7 @@ class Zones(ParserWindow):
     def _zone_selected(self, _index):
         if self._suppress_zone_selection:
             return False
+        self._restore_zone_on_show = False
         if not self._selected_zone_name():
             self._clear_zone_results()
             self.zone_summary.setText("Choose a zone first.")
@@ -598,15 +601,29 @@ class Zones(ParserWindow):
                 0, lambda: self.zone_selector.setFocus(
                     Qt.FocusReason.OtherFocusReason))
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        if getattr(self, "_restore_zone_on_show", False):
+            self._restore_zone_on_show = False
+            # Restoring the dropdown suppresses its selection signal. The
+            # first open must still load that selected zone without Reload.
+            if self._selected_zone_name() and not self._zone_data and self._zone_reply is None:
+                QTimer.singleShot(0, lambda: self._load_zone(announce=False)
+                                  if self.isVisible() and self._selected_zone_name() and
+                                  self._zone_reply is None and not self._zone_data else None)
+
     def _selected_zone_name(self):
         return str(self.zone_selector.currentData() or "").strip()
 
     def _selected_wiki_name(self):
-        """Return display casing because MediaWiki title text is case-sensitive."""
-        return str(self.zone_selector.currentText() or "").strip()
+        return zone_reference_title(self._selected_zone_name())
 
     def _select_zone(self, name):
         resolved = MapData.resolve_zone_name(name)
+        if not resolved:
+            resolved = next((key for key in MapData.get_zone_dict()
+                             if zone_reference_title(key).casefold() ==
+                             zone_reference_title(name).casefold()), None)
         if not resolved:
             return False
         for index in range(self.zone_selector.count()):
@@ -684,13 +701,11 @@ class Zones(ParserWindow):
             if announce:
                 _announce_accessible(self, self.zone_summary.text())
             return
-        request = QNetworkRequest(QUrl(P99_WIKI_API.format(
-            slug=quote(requested.replace(" ", "_"), safe="")) +
-            "&redirects=1"))
+        request = QNetworkRequest(QUrl(page_url(requested)))
         request.setTransferTimeout(ZONE_NETWORK_TIMEOUT_MS)
         request.setHeader(
             QNetworkRequest.KnownHeaders.UserAgentHeader,
-            "Vantage/1.44.147 (vantagecompanion@gmail.com)")
+            "Vantage/1.44.148 (vantagecompanion@gmail.com)")
         reply = self._network.get(request)
         self._zone_request_id += 1
         reply.setProperty("zoneRequestId", self._zone_request_id)
@@ -743,8 +758,10 @@ class Zones(ParserWindow):
                 self.zone_summary.setAccessibleName(self.zone_summary.text())
                 QTimer.singleShot(
                     250, lambda name=requested, path=cache_path,
-                    say=announce, next_attempt=attempt + 1:
-                    self._start_zone_request(name, path, say, next_attempt))
+                    say=announce, next_attempt=attempt + 1, generation=self._zone_request_id:
+                    self._start_zone_request(name, path, say, next_attempt)
+                    if self._zone_request_id == generation and self._selected_wiki_name() == name
+                    else None)
             elif current:
                 name = str(self._zone_data.get("name") or requested.title())
                 self.zone_summary.setText(
@@ -766,7 +783,10 @@ class Zones(ParserWindow):
         self._zone_data = dict(data or {})
         self._zone_mobs = list(self._zone_data.get("mobs") or [])
         name = str(self._zone_data.get("name") or self._selected_zone_name()).strip()
-        self._select_zone(name)
+        # Shared city pages must not change the selected map district.
+        if (not self._selected_zone_name() or zone_reference_title(name).casefold() !=
+                self._selected_wiki_name().casefold()):
+            self._select_zone(name)
         config.data["zones"]["last_zone"] = self._selected_zone_name() or name
         if getattr(config, "_filename", ""):
             config.save()
@@ -777,7 +797,7 @@ class Zones(ParserWindow):
             f"Levels {self._zone_data.get('levels')}" if self._zone_data.get("levels") else "",
             f"{len(self._zone_mobs):,} mobs",
             f"{notable_count:,} nameds",
-            "Vantage map available" if MapData.resolve_zone_name(name) else "No Vantage map") if value]
+            "Vantage map available" if self._selected_zone_name() else "No Vantage map") if value]
         suffix = " · " + cached_reference_status(data) if cached else " · updated now"
         self.zone_summary.setText(" · ".join(facts) + suffix)
         self.zone_summary.setAccessibleName(self.zone_summary.text())
@@ -789,7 +809,7 @@ class Zones(ParserWindow):
         self.zone_description.setText(visible_description)
         self.zone_description.setToolTip(description)
         self.zone_description.setVisible(bool(visible_description))
-        self.zone_map_button.setEnabled(bool(MapData.resolve_zone_name(name)))
+        self.zone_map_button.setEnabled(bool(self._selected_zone_name()))
         self.zone_wiki_button.setEnabled(True)
         self._refresh_views(announce=False)
         if announce:
@@ -899,7 +919,7 @@ class Zones(ParserWindow):
         request.setTransferTimeout(ZONE_NETWORK_TIMEOUT_MS)
         request.setHeader(
             QNetworkRequest.KnownHeaders.UserAgentHeader,
-            "Vantage/1.44.147 (vantagecompanion@gmail.com)")
+            "Vantage/1.44.148 (vantagecompanion@gmail.com)")
         reply = self._network.get(request)
         reply.setProperty("mobSearchRequestId", request_id)
         reply.setProperty("mobSearchQuery", query)
@@ -1211,7 +1231,7 @@ class Zones(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(target.replace(" ", "_"), safe=""))))
         request.setTransferTimeout(ZONE_NETWORK_TIMEOUT_MS)
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.147")
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.148")
         reply = self._network.get(request)
         self._drop_reply_contexts[reply] = (mob, target, key, cache_path)
         reply.finished.connect(self._drops_finished)
@@ -1293,7 +1313,7 @@ class Zones(ParserWindow):
         return True
 
     def _open_zone_map(self):
-        name = str(self._zone_data.get("name") or self._selected_zone_name())
+        name = self._selected_zone_name() or str(self._zone_data.get("name") or "")
         maps = getattr(QApplication.instance(), "_parsers_dict", {}).get("maps")
         if not maps or not maps._preview_zone(name):
             self.zone_summary.setText(f"No bundled Vantage map matches {name}.")
