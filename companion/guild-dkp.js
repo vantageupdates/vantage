@@ -293,7 +293,7 @@
       summary.append(element('span', 'vdkp-entry-title', title), element('span', 'vdkp-entry-amount', amount(entry.amount) + ' DKP'), element('span', 'vdkp-meta', stamp(entry.timestamp) + ' · ' + (entry.kind || 'Record') + ' · ' + (entry.pool || 'Unspecified pool')));
       const body = element('div', 'vdkp-entry-body');
       addDetail(body, 'Description', entry.description); addDetail(body, 'Source', entry.ledger_source || entry.source); addDetail(body, 'Date', stamp(entry.timestamp)); addDetail(body, 'Pool', entry.pool || 'Unspecified pool'); addDetail(body, 'Amount', amount(entry.amount) + ' DKP');
-      if (entry.item_name) { const link = element('a', '', entry.item_name + ' on Project 1999 Wiki (new tab)'); link.href = 'https://wiki.project1999.com/' + encodeURIComponent(text(entry.item_name).replace(/ /g, '_')); link.target = '_blank'; link.rel = 'noopener noreferrer'; body.append(link); }
+      if (entry.item_name) { const link = element('a', '', entry.item_name + ' on the P99 Wiki mirror (new tab)'); link.href = 'https://p99.funcamp.net/' + encodeURIComponent(text(entry.item_name).replace(/ /g, '_')); link.target = '_blank'; link.rel = 'noopener noreferrer'; body.append(link); }
       if (entry.kind === 'raid') {
         const ticks = entry.ticks || []; body.append(element('h' + Math.min(6, headingLevel + 1), '', 'Raid ticks'));
         if (!ticks.length) body.append(element('p', '', 'No individual tick records were returned for this raid.'));
