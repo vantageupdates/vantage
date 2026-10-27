@@ -127,6 +127,17 @@ class _RaidLogSignals(QObject):
     search_done = Signal(str, object, bool, str)
 
 
+class _HistorySignals(QObject):
+    prepared = Signal(object, object, str)
+
+
+def _same_history_inputs(left, right):
+    return bool(left and right and left[0] == right[0] and
+                all(a is b for a, b in zip(left[1], right[1])) and
+                left[2].keys() == right[2].keys() and
+                all(value is right[2][key] for key, value in left[2].items()))
+
+
 def _parse_date(value):
     """Return a timezone-aware datetime for OpenDKP's common date shapes."""
     if isinstance(value, datetime):
@@ -3012,7 +3023,7 @@ class OpenDKP(ParserWindow):
             return False
         request = QNetworkRequest(QUrl(csv_url))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.143")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.144")
         request.setAttribute(
             QNetworkRequest.Attribute.RedirectPolicyAttribute,
             QNetworkRequest.RedirectPolicy.NoLessSafeRedirectPolicy)
@@ -3506,7 +3517,9 @@ class OpenDKP(ParserWindow):
     def _busy_changed(self, busy, operation):
         self._busy = bool(busy)
         self.progress.setVisible(self._busy)
-        self.refresh_button.setEnabled(bool(self.client.slug) and not self._busy)
+        # Refresh remains useful while a large guild loot history downloads;
+        # the client coalesces public requests and keeps those pages in flight.
+        self.refresh_button.setEnabled(bool(self.client.slug))
         self._update_raid_action_state()
         self.progress.setAccessibleName(
             f"OpenDKP loading {operation}" if busy else "OpenDKP loading complete")
@@ -3730,11 +3743,17 @@ class OpenDKP(ParserWindow):
             return
         same_character = bool(self._history_identity and self._history_identity[:2] == identity[:2])
         same_period = identity == self._history_identity
+        reuse_pending = bool(same_period and getattr(
+            self.client, "character_history_pending", lambda *_args: False)(
+                char_id, self._history_token))
         self._history_sources_ready = set(getattr(self, "_history_sources_ready", ())) if same_character else set()
         self._history_identity = identity
-        self._history_token = uuid.uuid4().hex
-        self._history_details = {}
-        self._history_detail_status = ""
+        if not reuse_pending:
+            self._history_token = uuid.uuid4().hex
+            self._history_details = {}
+            self._history_detail_status = ""
+        # The same generation lets the client coalesce active endpoints while
+        # explicitly refreshing endpoints that have already finished or failed.
         kinds = ("character_dkp", "character_items", "character_adjustments", "character_raids")
         self._history_states = {key: "loading" for key in kinds} if char_id and self.client.slug else {}
         for key in kinds:
@@ -3761,10 +3780,74 @@ class OpenDKP(ParserWindow):
             return
         char_id = int(self.character_selector.currentData() or 0)
         name = self.character_selector.currentText() if char_id else ""
-        entries = build_dkp_history(
-            self._datasets["character_raids"], self._datasets["character_adjustments"],
-            self._datasets["character_items"], character_id=char_id, character_name=name,
-            raid_details=self._history_details, dkp=self._datasets["character_dkp"])
+        context = ((self.client.slug, char_id, name, self.history_view.period.currentData()),
+                   tuple(self._datasets[key] for key in (
+                       "character_raids", "character_adjustments", "character_items", "character_dkp")),
+                   dict(self._history_details))
+        self._history_pending_context = context
+        state = self._history_state_text(name)
+        if _same_history_inputs(context, getattr(self, "_history_cache_context", None)):
+            self._render_history(self._history_cache_entries, name, state)
+            return
+
+        def prepare():
+            raids, adjustments, items, dkp = context[1]
+            return build_dkp_history(
+                raids, adjustments, items, character_id=char_id, character_name=name,
+                raid_details=context[2], dkp=dkp)
+
+        if sum(map(len, context[1])) <= 1000:
+            entries = prepare()
+            self._history_cache_context, self._history_cache_entries = context, entries
+            self._render_history(entries, name, state)
+            return
+
+        # Reconciliation can cover years of purchases and transactions. Run
+        # one immutable snapshot at a time; newer responses replace the next
+        # pending snapshot instead of spawning parallel rebuilds.
+        cached = getattr(self, "_history_cache_context", None)
+        retained = self._history_cache_entries if cached and cached[0][:3] == context[0][:3] else []
+        self._render_history(retained, name, "Preparing personal history… " + state)
+        if getattr(self, "_history_worker_context", None) is not None:
+            return
+        if not hasattr(self, "_history_signals"):
+            self._history_signals = _HistorySignals(self)
+            self._history_signals.prepared.connect(self._history_prepared)
+        signals = self._history_signals
+        self._history_worker_context = context
+
+        def worker():
+            try:
+                entries, error = prepare(), ""
+            except Exception:
+                entries, error = [], "History could not be prepared. Use Refresh history to retry."
+            try:
+                signals.prepared.emit(context, entries, error)
+            except RuntimeError:
+                pass  # The window was destroyed while the snapshot finished.
+
+        threading.Thread(target=worker, daemon=True, name="OpenDkpHistory").start()
+
+    def _history_prepared(self, context, entries, error):
+        self._history_worker_context = None
+        if not _same_history_inputs(context, getattr(self, "_history_pending_context", None)):
+            self._update_history()
+            return
+        if error:
+            self._render_history(self.history_view.entries, context[0][2], error)
+            return
+        self._history_cache_context, self._history_cache_entries = context, entries
+        self._update_history()
+
+    def _render_history(self, entries, name, state):
+        if (getattr(self, "_history_render_entries", None) is entries and
+                getattr(self, "_history_render_status", None) == (name, state)):
+            return
+        self._history_render_entries = entries
+        self._history_render_status = (name, state)
+        self.history_view.set_history(entries, name, state)
+
+    def _history_state_text(self, name):
         labels = {"character_dkp": "Transactions", "character_raids": "Raids",
                   "character_items": "Loot", "character_adjustments": "Adjustments"}
         issues = [f"{labels[key]}: {state}" for key, state in self._history_states.items() if state != "ready"]
@@ -3773,7 +3856,7 @@ class OpenDKP(ParserWindow):
             "Choose a character to see where your DKP came from.")
         if self._history_detail_status:
             state += " " + self._history_detail_status
-        self.history_view.set_history(entries, name, state)
+        return state
 
     def _selected_dkp(self):
         char_id = int(self.character_selector.currentData() or 0)
@@ -3788,6 +3871,7 @@ class OpenDKP(ParserWindow):
             row = next((item for item in self._datasets["characters"]
                         if int(item.get("CharacterId") or item.get("Id") or 0) == char_id), {})
         if not row:
+            self._personal_loot_source = None
             self.history_balance.setText("Current DKP: —")
             for label in self.metric_values.values():
                 label.setText("—")
@@ -3818,18 +3902,29 @@ class OpenDKP(ParserWindow):
         scoped = (getattr(self, "_history_token", "") and self._history_request_current(self._history_token) and
                   "character_items" in getattr(self, "_history_sources_ready", ()))
         loot_source = self._datasets["character_items"] if scoped else self._datasets["items"]
-        loot = []
-        for item in loot_source:
-            item_id = _loot_field(item, "CharacterId", "CharacterID", "characterId")
-            item_name = _clean(_loot_field(item, "CharacterName", "characterName", "PlayerName"), "").casefold()
-            known_id = str(item_id or "") not in ("", "0", "-1")
-            if known_id and str(item_id) != str(char_id) or item_name and item_name != name.casefold():
-                continue
-            if scoped or known_id or item_name:
-                loot.append(item)
-        loot.sort(key=lambda item: (_parse_date(_loot_stamp(item)).timestamp()
-                                    if _parse_date(_loot_stamp(item)) else float("-inf")), reverse=True)
-        self._set_personal_loot(loot, (self.client.slug, char_id))
+        loot_scope = (self.client.slug, char_id, name, bool(scoped))
+        if (getattr(self, "_personal_loot_source", None) is loot_source and
+                getattr(self, "_personal_loot_scope", None) == loot_scope):
+            loot = self._personal_loot_rows
+        else:
+            loot = []
+            for item in loot_source:
+                item_id = _loot_field(item, "CharacterId", "CharacterID", "characterId")
+                item_name = _clean(_loot_field(item, "CharacterName", "characterName", "PlayerName"), "").casefold()
+                known_id = str(item_id or "") not in ("", "0", "-1")
+                if known_id and str(item_id) != str(char_id) or item_name and item_name != name.casefold():
+                    continue
+                if scoped or known_id or item_name:
+                    loot.append(item)
+
+            def timestamp(item):
+                parsed = _parse_date(_loot_stamp(item))
+                return parsed.timestamp() if parsed else float("-inf")
+
+            loot.sort(key=timestamp, reverse=True)
+            self._personal_loot_source, self._personal_loot_scope = loot_source, loot_scope
+            self._personal_loot_rows = loot
+            self._set_personal_loot(loot, (self.client.slug, char_id))
         state = getattr(self, "_history_states", {}).get("character_items", "")
         count = f"{len(loot):,} loot records" + (" · showing newest 100" if len(loot) > 100 else "")
         if "unavailable" in state:

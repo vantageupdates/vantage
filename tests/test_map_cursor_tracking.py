@@ -71,7 +71,51 @@ def expect(position):
     return overlay.text(), QPoint(overlay.pos())
 
 mode = sys.argv[1]
-if mode == 'mouse_only':
+if mode in ('inner_move', 'inner_resize', 'inner_scale'):
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QMouseEvent
+    position = point_at(.3, .65)
+    Cursor.point = window._scale_view.viewport().mapToGlobal(position)
+    logical = window._scale_proxy.mapFromScene(window._scale_view.mapToScene(position)).toPoint()
+    local = view().viewport().mapFrom(window._surface, logical)
+    event = QMouseEvent(QEvent.Type.MouseMove, QPointF(local), QPointF(local),
+                       Qt.MouseButton.NoButton, Qt.MouseButton.NoButton,
+                       Qt.KeyboardModifier.NoModifier)
+    QApplication.sendEvent(view().viewport(), event)
+    QTest.qWait(100)
+    expect(position)
+    assert window._canvas_pointer_event is not None
+    stationary = QPoint(Cursor.pos())
+    if mode == 'inner_move':
+        window.move(window.pos() + QPoint(60, 0))
+    elif mode == 'inner_resize':
+        window.resize(740, 440)
+    else:
+        window.resize(300, 440)
+    QTest.qWait(120)
+    assert Cursor.pos() == stationary
+    assert window._canvas_pointer_event is None
+    expect(window._scale_view.viewport().mapFromGlobal(stationary))
+elif mode == 'inner_event':
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QMouseEvent
+    # Windows/proxy delivery may reach only the inner map. Global sampling is
+    # deliberately outside: it must not erase a valid local move immediately.
+    Cursor.point = QPoint(-10000, -10000)
+    first_text = None
+    for local in (QPoint(100, 120), QPoint(260, 180)):
+        event = QMouseEvent(QEvent.Type.MouseMove, QPointF(local), QPointF(local),
+                           Qt.MouseButton.NoButton, Qt.MouseButton.NoButton,
+                           Qt.KeyboardModifier.NoModifier)
+        QApplication.sendEvent(view().viewport(), event)
+        QTest.qWait(120)
+        position = window._canvas_to_panel(view(), local)
+        text, _ = expect(position)
+        if first_text is not None:
+            assert text != first_text
+        first_text = text
+    assert not view()._data.players
+elif mode == 'mouse_only':
     assert not view()._data.players
     # A lost/disabled Qt mouse stream must not affect sampled cursor tracking.
     window._scale_view.viewport().setMouseTracking(False)
@@ -220,7 +264,8 @@ print('CURSOR TRACKING PASSED')
 
 @pytest.mark.parametrize('mode', [
     'mouse_only', 'preview_scale', 'stationary_transform', 'lifecycle',
-    'edges_and_idle', 'keyboard', 'popup', 'proxied_popup', 'high_dpi', 'inactive_window'])
+    'edges_and_idle', 'keyboard', 'popup', 'proxied_popup', 'high_dpi', 'inactive_window',
+    'inner_event', 'inner_move', 'inner_resize', 'inner_scale'])
 def test_pointer_loc_without_mouse_events_or_game_logs(tmp_path, mode):
     env = dict(os.environ, VANTAGE_DATA_DIR=str(tmp_path),
                QT_QPA_PLATFORM='offscreen', PYTHONDONTWRITEBYTECODE='1')

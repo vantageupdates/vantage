@@ -48,6 +48,9 @@ from vantage.helpers.responsive import (
     ResponsiveActionBar, ensure_tab_tooltips, ensure_table_header_tooltips,
     scrollable)
 from vantage.helpers.scaled_dialog import UniformScaleDialog
+from vantage.helpers.wiki_access import (
+    cached_reference_status, read_wiki_bytes, read_wiki_reply, wiki_access,
+    write_wiki_cache, write_wiki_cache_bytes)
 from vantage.parsers.maps.mapdata import MapData
 
 
@@ -2525,6 +2528,8 @@ class WikiItemCard(UniformScaleDialog):
         self._render_obtaining()
         self.source.setText(
             "PROJECT 1999 WIKI · " + ("LOCAL CACHE" if cached else "UPDATED"))
+        self.source.setToolTip(cached_reference_status(data) if cached else
+                               "Updated from Project 1999 Wiki")
         self._set_auction_price(data.get("auction") or {})
         if token is not None:
             self._finish_source_part("p99", "updated", token)
@@ -2556,6 +2561,7 @@ class WikiItemCard(UniformScaleDialog):
         self.source.setText(
             "PROJECT 1999 WIKI · " +
             ("CACHED FALLBACK" if cached else "UNAVAILABLE"))
+        self.source.setToolTip(str(message))
         if not cached and self.stats.text() == "Loading item details…":
             self.stats.setText(
                 "P99 item details are temporarily unavailable. Use Open P99 "
@@ -2789,6 +2795,8 @@ class WikiItemCard(UniformScaleDialog):
             self.icon.setPixmap(pixmap.scaled(
                 56, 56, Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.FastTransformation))
+            return True
+        return False
 
     def set_error(self, message):
         self.source.setText("PROJECT 1999 WIKI · OFFLINE")
@@ -2873,6 +2881,7 @@ class WikiEntityCard(UniformScaleDialog):
             f"{label}: {value}" for label, value in facts) or
             "No additional structured details.")
         self.summary.setText(data.get("summary") or "No description available.")
+        self.source.setToolTip(cached_reference_status(data) if cached else "")
         if local:
             self.source.setText(
                 f"LOCAL CLASSIC DATA · {data.get('kind', '').upper()} · "
@@ -4612,10 +4621,18 @@ class GreenMarket(ParserWindow):
                 self._set_zone_data(cached, cached=True)
         except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
             pass
+        if wiki_access.status():
+            self.zone_summary.setText(wiki_access.status() + " · " +
+                ("cached reference retained" if self._zone_mobs else "no saved details"))
+            self.zone_summary.setAccessibleName(self.zone_summary.text())
+            self.zone_load_button.setEnabled(True)
+            self.zone_load_button.setText("Load zone")
+            return True
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(requested.replace(" ", "_"), safe=""))))
+        request.setTransferTimeout(P99_ENTITY_TIMEOUT_MS)
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.143")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.144")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_finished(
             reply, requested, cached_path))
@@ -4623,9 +4640,7 @@ class GreenMarket(ParserWindow):
 
     def _zone_finished(self, reply, requested, cache_path):
         try:
-            if reply.error() != QNetworkReply.NetworkError.NoError:
-                raise ValueError(reply.errorString())
-            payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
+            payload = read_wiki_reply(reply, page=True, rendered=True)
             parsed = payload.get("parse")
             if not isinstance(parsed, dict):
                 raise ValueError("Wiki zone page unavailable")
@@ -4640,13 +4655,13 @@ class GreenMarket(ParserWindow):
             if not data.get("mobs"):
                 raise ValueError("this page has no recognized P99 zone mob table")
             self._set_zone_data(data)
-            cache_path.write_text(json.dumps(data), encoding="utf-8")
+            write_wiki_cache(cache_path, data)
         except (OSError, RuntimeError, UnicodeError, ValueError,
                 json.JSONDecodeError) as error:
-            if not self._zone_mobs:
-                self.zone_summary.setText(
-                    f"Could not load {requested} · {error}")
-                self.zone_summary.setAccessibleName(self.zone_summary.text())
+            self.zone_summary.setText(
+                f"Could not update {requested} · {error} · " +
+                ("cached reference retained" if self._zone_mobs else "no saved details"))
+            self.zone_summary.setAccessibleName(self.zone_summary.text())
         finally:
             self.zone_load_button.setEnabled(True)
             self.zone_load_button.setText("Load zone")
@@ -4669,7 +4684,7 @@ class GreenMarket(ParserWindow):
             f"{len(self._zone_mobs):,} mobs",
             f"{notable_count:,} nameds",
             self._zone_data.get("types")) if value]
-        suffix = " · cached" if cached else " · updated now"
+        suffix = " · " + cached_reference_status(data) if cached else " · updated now"
         self.zone_summary.setText(" · ".join(facts) + suffix)
         self.zone_summary.setAccessibleName(self.zone_summary.text())
         self.zone_map_button.setEnabled(bool(MapData.resolve_zone_name(name)))
@@ -4751,11 +4766,14 @@ class GreenMarket(ParserWindow):
                 return True
         except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
             pass
+        if wiki_access.status():
+            return False
         self._zone_drop_requests.add(key)
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(target.replace(" ", "_"), safe=""))))
+        request.setTransferTimeout(P99_ENTITY_TIMEOUT_MS)
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.143")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.144")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_npc_drops_finished(
             reply, mob, target, key, cache_path))
@@ -4763,9 +4781,7 @@ class GreenMarket(ParserWindow):
 
     def _zone_npc_drops_finished(self, reply, mob, target, key, cache_path):
         try:
-            if reply.error() != QNetworkReply.NetworkError.NoError:
-                return
-            payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
+            payload = read_wiki_reply(reply, page=True)
             parsed = payload.get("parse")
             if not isinstance(parsed, dict):
                 return
@@ -4774,7 +4790,7 @@ class GreenMarket(ParserWindow):
                 wikitext = wikitext.get("*", "")
             entity = parse_wiki_entity_wikitext(
                 wikitext, fallback_name=target, kind="npc")
-            cache_path.write_text(json.dumps(entity), encoding="utf-8")
+            write_wiki_cache(cache_path, entity)
             self._apply_zone_npc_drops(mob, entity.get("drops") or [])
         except (OSError, RuntimeError, UnicodeError, ValueError,
                 json.JSONDecodeError):
@@ -5111,10 +5127,15 @@ class GreenMarket(ParserWindow):
 
     def _p99_item_request(
             self, card, token, json_path, icon_path, wiki_name, attempt):
+        if int(getattr(card, "_source_request_token", -1)) != token:
+            return None
+        if wiki_access.status():
+            card.set_p99_error(wiki_access.status(), bool(card._p99_origin), token)
+            return None
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.143")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.144")
         reply = self._network.get(request)
         timer = QTimer(self)
         timer.setSingleShot(True)
@@ -5152,7 +5173,13 @@ class GreenMarket(ParserWindow):
                 reply.deleteLater()
                 return
             if reply.error() != QNetworkReply.NetworkError.NoError:
-                if context["attempt"] < P99_ITEM_MAX_RETRIES:
+                # Read HTTP error bodies too: Cloudflare uses a 403 challenge.
+                try:
+                    read_wiki_reply(reply)
+                except (UnicodeError, ValueError):
+                    pass
+                if (context["attempt"] < P99_ITEM_MAX_RETRIES and
+                        not wiki_access.status()):
                     reply.deleteLater()
                     QTimer.singleShot(
                         0, lambda values=context: self._p99_item_request(
@@ -5161,8 +5188,8 @@ class GreenMarket(ParserWindow):
                             values["wiki_name"], values["attempt"] + 1))
                 else:
                     card.set_p99_error(
-                        "Timed out" if context["timed_out"] else
-                        reply.errorString(), bool(card._p99_origin),
+                        wiki_access.status() or ("Timed out" if context["timed_out"] else
+                        reply.errorString()), bool(card._p99_origin),
                         context["token"])
                     reply.deleteLater()
                 return
@@ -5199,7 +5226,7 @@ class GreenMarket(ParserWindow):
             return None
         request = QNetworkRequest(QUrl(safe_url))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.143")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.144")
         reply = self._network.get(request)
         timer = QTimer(self)
         timer.setSingleShot(True)
@@ -5328,10 +5355,16 @@ class GreenMarket(ParserWindow):
 
     def _wiki_entity_request(
             self, card, cache_path, target, kind, token, attempt):
+        if int(getattr(card, "_entity_request_token", -1)) != token:
+            return None
+        if wiki_access.status():
+            card.set_error(wiki_access.status())
+            card.retry_button.setEnabled(True)
+            return None
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.143")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.144")
         request.setTransferTimeout(P99_ENTITY_TIMEOUT_MS)
         reply = self._network.get(request)
         context = {
@@ -5376,9 +5409,7 @@ class GreenMarket(ParserWindow):
         try:
             if int(getattr(card, "_entity_request_token", -1)) != context["token"]:
                 return
-            if reply.error() != QNetworkReply.NetworkError.NoError:
-                raise ValueError(reply.errorString())
-            payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
+            payload = read_wiki_reply(reply, page=True)
             parse = payload.get("parse")
             if not isinstance(parse, dict):
                 raise ValueError("the Wiki did not return a recognized page")
@@ -5389,12 +5420,12 @@ class GreenMarket(ParserWindow):
                 wikitext, fallback_name=context["target"],
                 kind=context["kind"])
             card.set_entity_data(data)
-            context["cache_path"].write_text(
-                json.dumps(data), encoding="utf-8")
+            write_wiki_cache(context["cache_path"], data)
         except (OSError, RuntimeError, UnicodeError, ValueError,
                 json.JSONDecodeError) as error:
             try:
-                if context["attempt"] < P99_ENTITY_MAX_RETRIES:
+                if (context["attempt"] < P99_ENTITY_MAX_RETRIES and
+                        not wiki_access.status()):
                     QTimer.singleShot(
                         0, lambda values=context: self._wiki_entity_request(
                             values["card"], values["cache_path"],
@@ -5407,6 +5438,7 @@ class GreenMarket(ParserWindow):
         finally:
             try:
                 if (context["attempt"] >= P99_ENTITY_MAX_RETRIES or
+                        wiki_access.status() or
                         reply.error() == QNetworkReply.NetworkError.NoError):
                     card.retry_button.setEnabled(True)
             except RuntimeError:
@@ -5419,9 +5451,7 @@ class GreenMarket(ParserWindow):
             if (token is not None and int(getattr(
                     card, "_source_request_token", -1)) != int(token)):
                 return
-            if reply.error() != QNetworkReply.NetworkError.NoError:
-                raise ValueError(reply.errorString())
-            payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
+            payload = read_wiki_reply(reply, page=True)
             parse = payload.get("parse")
             if not isinstance(parse, dict):
                 raise ValueError("the item does not have a recognized page")
@@ -5435,7 +5465,7 @@ class GreenMarket(ParserWindow):
             data["auction"] = parse_wiki_auction_html(
                 rendered, card.server)
             card.set_item_data(data, token=token)
-            json_path.write_text(json.dumps(data), encoding="utf-8")
+            write_wiki_cache(json_path, data)
 
             image_name = data.get("image") or next(
                 (name for name in parse.get("images", [])
@@ -5445,7 +5475,8 @@ class GreenMarket(ParserWindow):
                     filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.143")
+                    "Vantage/1.44.144")
+                image_request.setTransferTimeout(P99_ITEM_TIMEOUT_MS)
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
                     lambda: self._wiki_icon_finished(
@@ -5463,13 +5494,10 @@ class GreenMarket(ParserWindow):
     @staticmethod
     def _wiki_icon_finished(reply, card, icon_path):
         try:
-            if reply.error() != QNetworkReply.NetworkError.NoError:
-                raise ValueError(reply.errorString())
-            payload = bytes(reply.readAll())
-            if not payload:
-                raise ValueError("empty icon")
-            card.set_icon_data(payload)
-            icon_path.write_bytes(payload)
+            payload = read_wiki_bytes(reply)
+            if not payload or not card.set_icon_data(payload):
+                raise ValueError("invalid icon")
+            write_wiki_cache_bytes(icon_path, payload)
         except (OSError, RuntimeError, ValueError):
             pass
         finally:
@@ -5681,7 +5709,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.143")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.144")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -5708,7 +5736,7 @@ class GreenMarket(ParserWindow):
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
                 QNetworkRequest.KnownHeaders.UserAgentHeader,
-                "Vantage/1.44.143")
+                "Vantage/1.44.144")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -6090,7 +6118,7 @@ class GreenMarket(ParserWindow):
         self.status.setText(f"Refreshing PigParse {server}…")
         request = QNetworkRequest(QUrl(market_endpoint(server)))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.143")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.144")
         reply = self._network.get(request)
         reply.setProperty("market_server", server)
         reply.finished.connect(lambda: self._finished(reply))
@@ -6218,7 +6246,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(market_detail_api(server).format(
             item_name=quote(name, safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.143")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.144")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.setProperty("market_server", server)

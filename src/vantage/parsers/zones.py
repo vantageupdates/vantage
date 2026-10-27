@@ -21,6 +21,8 @@ from vantage.helpers.icons import game_icon
 from vantage.helpers.parser import ParserWindow
 from vantage.helpers.responsive import (
     ensure_tab_tooltips, ensure_table_header_tooltips)
+from vantage.helpers.wiki_access import (
+    cached_reference_status, read_wiki_reply, wiki_access, write_wiki_cache)
 from vantage.parsers.maps.mapdata import MapData
 from vantage.parsers.market import (
     P99_WIKI_API, _announce_accessible, _wiki_entity_cache_path,
@@ -652,13 +654,22 @@ class Zones(ParserWindow):
         return True
 
     def _start_zone_request(self, requested, cache_path, announce, attempt):
+        if wiki_access.status():
+            self.zone_summary.setText(
+                f"{requested.title()} · local/cached reference · " + wiki_access.status())
+            self.zone_summary.setAccessibleName(self.zone_summary.text())
+            self.zone_load_button.setEnabled(True)
+            self.zone_load_button.setText("Reload zone")
+            if announce:
+                _announce_accessible(self, self.zone_summary.text())
+            return
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(requested.replace(" ", "_"), safe="")) +
             "&redirects=1"))
         request.setTransferTimeout(ZONE_NETWORK_TIMEOUT_MS)
         request.setHeader(
             QNetworkRequest.KnownHeaders.UserAgentHeader,
-            "Vantage/1.44.143 (vantagecompanion@gmail.com)")
+            "Vantage/1.44.144 (vantagecompanion@gmail.com)")
         reply = self._network.get(request)
         self._zone_request_id += 1
         reply.setProperty("zoneRequestId", self._zone_request_id)
@@ -685,9 +696,7 @@ class Zones(ParserWindow):
         try:
             if not current:
                 return
-            if reply.error() != QNetworkReply.NetworkError.NoError:
-                raise ValueError(reply.errorString())
-            payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
+            payload = read_wiki_reply(reply, page=True, rendered=True)
             parsed = payload.get("parse")
             if not isinstance(parsed, dict):
                 raise ValueError("Wiki page unavailable")
@@ -702,11 +711,10 @@ class Zones(ParserWindow):
             if not data.get("name"):
                 raise ValueError("Wiki returned no readable zone details")
             self._set_zone_data(data, announce=announce)
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(json.dumps(data), encoding="utf-8")
+            write_wiki_cache(cache_path, data)
         except (OSError, RuntimeError, UnicodeError, ValueError,
                 json.JSONDecodeError) as error:
-            if current and attempt < ZONE_NETWORK_RETRIES:
+            if current and attempt < ZONE_NETWORK_RETRIES and not wiki_access.status():
                 retrying = True
                 self._zone_reply = None
                 self.zone_summary.setText(
@@ -720,7 +728,8 @@ class Zones(ParserWindow):
                 name = str(self._zone_data.get("name") or requested.title())
                 self.zone_summary.setText(
                     f"{name} · local/cached reference · live Wiki details "
-                    "temporarily unavailable · Reload zone to retry")
+                    "temporarily unavailable · Reload zone to retry" +
+                    (" · " + wiki_access.status() if wiki_access.status() else ""))
                 self.zone_summary.setAccessibleName(self.zone_summary.text())
                 if announce:
                     _announce_accessible(
@@ -748,7 +757,7 @@ class Zones(ParserWindow):
             f"{len(self._zone_mobs):,} mobs",
             f"{notable_count:,} nameds",
             "Vantage map available" if MapData.resolve_zone_name(name) else "No Vantage map") if value]
-        suffix = " · cached" if cached else " · updated now"
+        suffix = " · " + cached_reference_status(data) if cached else " · updated now"
         self.zone_summary.setText(" · ".join(facts) + suffix)
         self.zone_summary.setAccessibleName(self.zone_summary.text())
         description = " ".join(
@@ -837,6 +846,11 @@ class Zones(ParserWindow):
         self._selection_changed()
 
     def _search_all_mobs(self, *_args):
+        if wiki_access.status():
+            self._set_all_mob_status(
+                wiki_access.status() + " · saved zone details remain available",
+                announce=True)
+            return False
         query = self.all_mob_search.text().strip()
         if len(query) < 2:
             self._set_all_mob_status(
@@ -861,7 +875,7 @@ class Zones(ParserWindow):
         request.setTransferTimeout(ZONE_NETWORK_TIMEOUT_MS)
         request.setHeader(
             QNetworkRequest.KnownHeaders.UserAgentHeader,
-            "Vantage/1.44.143 (vantagecompanion@gmail.com)")
+            "Vantage/1.44.144 (vantagecompanion@gmail.com)")
         reply = self._network.get(request)
         reply.setProperty("mobSearchRequestId", request_id)
         reply.setProperty("mobSearchQuery", query)
@@ -883,9 +897,7 @@ class Zones(ParserWindow):
         try:
             if not current:
                 return
-            if reply.error() != QNetworkReply.NetworkError.NoError:
-                raise ValueError(reply.errorString())
-            payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
+            payload = read_wiki_reply(reply)
             entries = payload.get("query", {}).get("search", [])
             titles = []
             for entry in entries if isinstance(entries, list) else ():
@@ -898,12 +910,14 @@ class Zones(ParserWindow):
                 return
             self._set_all_mob_status(
                 f"Checking {len(titles)} matching Wiki pages for NPC data…")
+            if wiki_access.status():
+                raise ValueError(wiki_access.status())
             request = QNetworkRequest(QUrl(P99_WIKI_MOB_PAGES_API.format(
                 titles=quote("|".join(titles), safe=""))))
             request.setTransferTimeout(ZONE_NETWORK_TIMEOUT_MS)
             request.setHeader(
                 QNetworkRequest.KnownHeaders.UserAgentHeader,
-                "Vantage/1.44.143 (vantagecompanion@gmail.com)")
+                "Vantage/1.44.144 (vantagecompanion@gmail.com)")
             pages_reply = self._network.get(request)
             pages_reply.setProperty("mobSearchRequestId", request_id)
             pages_reply.setProperty("mobSearchQuery", query)
@@ -932,9 +946,7 @@ class Zones(ParserWindow):
         try:
             if not current:
                 return
-            if reply.error() != QNetworkReply.NetworkError.NoError:
-                raise ValueError(reply.errorString())
-            payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
+            payload = read_wiki_reply(reply)
             self._global_mob_results = parse_global_mob_pages(payload, query)
             self._fill_mobs(self.all_mob_table, self._global_mob_results)
             count = len(self._global_mob_results)
@@ -1159,10 +1171,13 @@ class Zones(ParserWindow):
                 return self._apply_mob_entity(mob, cached)
         except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
             pass
+        if wiki_access.status():
+            return False
         self._zone_drop_requests.add(key)
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(target.replace(" ", "_"), safe=""))))
-        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.143")
+        request.setTransferTimeout(ZONE_NETWORK_TIMEOUT_MS)
+        request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.144")
         reply = self._network.get(request)
         self._drop_reply_contexts[reply] = (mob, target, key, cache_path)
         reply.finished.connect(self._drops_finished)
@@ -1178,9 +1193,7 @@ class Zones(ParserWindow):
             return
         mob, target, key, cache_path = context
         try:
-            if reply.error() != QNetworkReply.NetworkError.NoError:
-                return
-            payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
+            payload = read_wiki_reply(reply, page=True)
             parsed = payload.get("parse")
             if not isinstance(parsed, dict):
                 return
@@ -1188,8 +1201,7 @@ class Zones(ParserWindow):
             if isinstance(wikitext, dict):
                 wikitext = wikitext.get("*", "")
             entity = parse_wiki_entity_wikitext(wikitext, fallback_name=target, kind="npc")
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(json.dumps(entity), encoding="utf-8")
+            write_wiki_cache(cache_path, entity)
             self._apply_mob_entity(mob, entity)
         except (OSError, RuntimeError, UnicodeError, ValueError, json.JSONDecodeError):
             pass

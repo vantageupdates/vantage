@@ -64,7 +64,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=143,
+    patch=144,
     build=""
 )
 
@@ -520,6 +520,7 @@ class VantageApp(QApplication):
                     notify=True)
         else:
             if self._log_reader:
+                self._log_reader.stop()
                 self._log_reader.deleteLater()
                 self._log_reader = None
             self._toggled = False

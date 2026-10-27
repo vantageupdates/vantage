@@ -28,7 +28,7 @@ API_ROOT = "https://api.opendkp.com"
 COGNITO_ROOT = "https://cognito-idp.us-east-2.amazonaws.com/"
 COGNITO_TARGET = "AWSCognitoIdentityProviderService.InitiateAuth"
 LIVE_ROOT = "wss://a2d3ggob45.execute-api.us-east-2.amazonaws.com/production"
-USER_AGENT = "Vantage/1.44.143 (vantagecompanion@gmail.com)"
+USER_AGENT = "Vantage/1.44.144 (vantagecompanion@gmail.com)"
 
 _GUILD_SLUG = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
@@ -263,6 +263,7 @@ class OpenDkpClient(QObject):
         if slug == self.slug:
             return slug
         self._cancel_guild_loot()
+        self._cancel_public_requests()
         self.stop_live()
         self._session_retry_timer.stop()
         self.slug = slug
@@ -286,7 +287,9 @@ class OpenDkpClient(QObject):
         self._request("dkp", "GET", root + "/dkp")
         self._request("characters", "GET", root + "/characters")
         self._request("raids", "GET", root + "/raids?page=1&ItemsPerPage=250")
-        self.fetch_all_guild_loot()
+        # A repeated refresh must not discard pages already downloaded.
+        if self._loot_state is None:
+            self.fetch_all_guild_loot()
         self._request("auctions", "GET", root + "/auctions?page=1&ItemsPerPage=500")
         return True
 
@@ -443,6 +446,18 @@ class OpenDkpClient(QObject):
                 "adjustments", "GET",
                 f"/clients/{quote(self.slug)}/adjustments?page=1")
 
+    def character_history_pending(self, character_id, request_token):
+        """Whether this character generation still owns a public read."""
+        token = str(request_token or "")[:64]
+        if not self.slug or not character_id or not token:
+            return False
+        suffix = f"|{token}|{character_id}"
+        return any(
+            context.get("public_slug") == self.slug and
+            context.get("operation", "").startswith("character_") and
+            context["operation"].endswith(suffix)
+            for context in self._replies.values())
+
     def fetch_character_details(self, character_id, lookback=90, request_token=""):
         if not self.slug or not character_id:
             return
@@ -450,6 +465,12 @@ class OpenDkpClient(QObject):
                 f"{quote(str(character_id))}")
         token = str(request_token or "")[:64]
         suffix = f"|{token}|{character_id}" if token else f":{character_id}"
+        # Old selections are already ignored by the view, but must also stop
+        # occupying the network queue ahead of the newly selected character.
+        self._cancel_public_requests(lambda operation: (
+            operation.startswith("character_") and not operation.endswith(suffix)
+            or operation.startswith("history_detail|") and
+            not operation.startswith(f"history_detail|{token}|")))
         days = max(1, min(3650, int(lookback)))
         self._request(f"character_dkp{suffix}", "GET", root + "/dkp")
         self._request(f"character_items{suffix}", "GET", root + "/items")
@@ -616,6 +637,7 @@ class OpenDkpClient(QObject):
 
     def close(self):
         self._cancel_guild_loot()
+        self._cancel_public_requests()
         self.stop_live()
         self._session_retry_timer.stop()
         for reply in tuple(self._replies):
@@ -626,8 +648,31 @@ class OpenDkpClient(QObject):
                 pass
         self._replies.clear()
 
+    def _cancel_public_requests(self, matches=lambda _operation: True):
+        for reply, context in tuple(self._replies.items()):
+            if (context.get("kind") != "api" or context.get("auth") or
+                    context.get("method") != "GET" or
+                    not matches(context["operation"])):
+                continue
+            # Detach before abort(), which may synchronously emit finished.
+            self._replies.pop(reply, None)
+            self._end_busy(context["operation"])
+            try:
+                reply.abort()
+                reply.deleteLater()
+            except RuntimeError:
+                pass
+
     def _request(self, operation, method, path, body=None,
                  headers=None, retry_auth=False):
+        method = str(method).upper()
+        public = method == "GET" and not headers
+        if public:
+            for reply, context in self._replies.items():
+                if (context.get("public_slug") == self.slug and
+                        context.get("operation") == operation and
+                        context.get("path") == path):
+                    return reply
         request = QNetworkRequest(QUrl(API_ROOT + path))
         request.setTransferTimeout(30000)
         request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, USER_AGENT)
@@ -641,7 +686,6 @@ class OpenDkpClient(QObject):
             payload = json.dumps(body, separators=(",", ":")).encode("utf-8")
             request.setHeader(QNetworkRequest.KnownHeaders.ContentTypeHeader,
                               "application/json")
-        method = str(method).upper()
         if method == "GET":
             reply = self.network.get(request)
         elif method == "POST":
@@ -657,6 +701,8 @@ class OpenDkpClient(QObject):
             "path": path, "body": body, "auth": "Authorization" in merged_headers,
             "retry_auth": bool(retry_auth),
         }
+        if public:
+            self._replies[reply]["public_slug"] = self.slug
         self._begin_busy(operation)
         reply.finished.connect(lambda current=reply: self._reply_finished(current))
         return reply
@@ -711,6 +757,10 @@ class OpenDkpClient(QObject):
             reply.deleteLater()
             return
         operation = context["operation"]
+        if "public_slug" in context and context["public_slug"] != self.slug:
+            self._end_busy(operation)
+            reply.deleteLater()
+            return
         status = int(reply.attribute(
             QNetworkRequest.Attribute.HttpStatusCodeAttribute) or 0)
         raw = bytes(reply.readAll())

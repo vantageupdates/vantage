@@ -271,9 +271,96 @@ def test_map_uses_direct_pointer_drag_and_explains_controls():
     config.data.setdefault("maps", {})["scale"] = 0.07
     canvas = MapCanvas()
 
-    assert canvas.dragMode() == QGraphicsView.DragMode.ScrollHandDrag
-    assert "Drag" in canvas.toolTip()
-    assert "wheel" in canvas.toolTip()
+    assert canvas.dragMode() == QGraphicsView.DragMode.NoDrag
+    assert canvas.cursor().shape() == Qt.CursorShape.ArrowCursor
+    assert "Drag" in canvas.accessibleDescription()
+    assert "wheel" in canvas.accessibleDescription()
+
+
+def test_arrow_cursor_drag_pans_through_proxy_without_moving_player(tmp_path):
+    script = r'''
+from datetime import datetime
+from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, Qt, Signal
+from PySide6.QtGui import QMouseEvent
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QGraphicsItem, QGraphicsRectItem, QGraphicsView
+from vantage.helpers import config
+from vantage.parsers.maps import window as module
+from vantage.parsers.maps.mapclasses import MapPoint
+
+app = QApplication([])
+class Settings(QObject):
+    config_updated = Signal()
+app._signals = {'settings': Settings(), 'maps': module.MapsSignals()}
+config.verify_settings()
+config.save = lambda: None
+config.data['maps'].update(auto_hide_menu=False, clickthrough=False)
+window = module.Maps()
+window.resize(640, 440)
+window.show()
+QTest.qWait(80)
+view = window._map
+view.add_player('__you__', datetime.now(), MapPoint(x=12, y=34, z=0))
+view.update_(1)
+view.setSceneRect(-20000, -20000, 40000, 40000)
+view.centerOn(5000, 5000)  # Empty space, away from clickable POIs.
+app.processEvents()
+player = view._data.players['__you__']
+player_location = (player.location.x, player.location.y, player.location.z)
+player_position = QPointF(player.pos())
+pans = []
+view.manual_pan.connect(lambda: pans.append(True))
+outer = window._scale_view.viewport()
+local_start = view.viewport().rect().center()
+start = window._canvas_to_panel(view, local_start)
+finish = start + QPoint(60, 35)
+before = view.mapToScene(local_start)
+
+def send(kind, position, button, buttons):
+    event = QMouseEvent(kind, QPointF(position), QPointF(outer.mapToGlobal(position)),
+                        button, buttons, Qt.KeyboardModifier.NoModifier)
+    QApplication.sendEvent(outer, event)
+    app.processEvents()
+    assert view.cursor().shape() == Qt.CursorShape.ArrowCursor
+
+assert view.dragMode() == QGraphicsView.DragMode.NoDrag
+send(QEvent.Type.MouseButtonPress, start, Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton)
+send(QEvent.Type.MouseMove, finish, Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton)
+after = view.mapToScene(local_start)
+assert abs(after.x() - before.x()) > 30 and abs(after.y() - before.y()) > 15, (before, after)
+send(QEvent.Type.MouseButtonRelease, finish, Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton)
+send(QEvent.Type.MouseMove, finish + QPoint(20, 20), Qt.MouseButton.NoButton, Qt.MouseButton.NoButton)
+assert view.mapToScene(local_start) == after
+assert pans == [True] and view._pan_last_pos is None
+assert list(view._data.players) == ['__you__']
+assert (player.location.x, player.location.y, player.location.z) == player_location
+assert player.pos() == player_position
+# A draggable scene item must retain its own grab instead of panning the map.
+timer = QGraphicsRectItem(-12, -12, 24, 24)
+timer.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+timer.setPos(after)
+view.scene().addItem(timer)
+timer_start = window._canvas_to_panel(view, view.mapFromScene(timer.sceneBoundingRect().center()))
+timer_finish = timer_start + QPoint(35, 25)
+old_timer_position = QPointF(timer.pos())
+send(QEvent.Type.MouseButtonPress, timer_start, Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton)
+assert view.scene().mouseGrabberItem() is timer
+send(QEvent.Type.MouseMove, timer_finish, Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton)
+send(QEvent.Type.MouseButtonRelease, timer_finish, Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton)
+assert timer.pos() != old_timer_position
+assert view.mapToScene(local_start) == after
+assert player.pos() == player_position
+window.close()
+app.quit()
+print('ARROW PAN PASSED')
+'''
+    env = dict(os.environ, VANTAGE_DATA_DIR=str(tmp_path / 'profile'),
+               QT_QPA_PLATFORM='offscreen', PYTHONDONTWRITEBYTECODE='1',
+               PYTHONPATH=str(ROOT / 'src'))
+    result = subprocess.run([sys.executable, '-B', '-c', script], cwd=ROOT,
+                            env=env, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert 'ARROW PAN PASSED' in result.stdout
 
 
 def test_poi_labels_remain_readable_in_overview_and_respect_toggle():

@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
 from itertools import permutations
 from types import SimpleNamespace
+import threading
+import time
 
 import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, Qt
@@ -10,6 +12,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 from vantage.helpers.dkp_history_view import DkpHistoryView, finite_total
 from vantage.helpers.opendkp import OpenDkpClient
 from vantage.parsers.opendkp import OpenDKP
+from vantage.parsers import opendkp as parser_module
 
 
 @pytest.fixture
@@ -116,7 +119,8 @@ def test_period_changes_reload_with_correlated_bounded_request(panel):
     panel.history_view.period.setCurrentIndex(2)
     assert panel.requests[-1][1] == 365
     calls = []
-    client = SimpleNamespace(slug="guild", _request=lambda *args: calls.append(args))
+    client = SimpleNamespace(slug="guild", _request=lambda *args: calls.append(args),
+                             _cancel_public_requests=lambda _matches: None)
     OpenDkpClient.fetch_character_details(client, 1, 99999, "token")
     assert calls[-1] == ("character_raids|token|1", "GET",
                           "/clients/guild/characters/1/raids?lookback=3650")
@@ -329,6 +333,86 @@ def test_async_enrichment_retains_keyboard_focus_and_item_action(panel):
 
 def test_summary_overflow_is_unknown_not_infinite():
     assert finite_total([1e308, 1e308]) is None
+
+
+def test_unchanged_history_is_not_rebuilt_for_other_overview_updates(panel, monkeypatch):
+    builds = []
+    original = parser_module.build_dkp_history
+
+    def build(*args, **kwargs):
+        builds.append(args)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(parser_module, "build_dkp_history", build)
+    token = select_character(panel)
+    initial = len(builds)
+    resets = []
+    panel.history_view.model.modelReset.connect(lambda: resets.append(True))
+    for _ in range(4):
+        panel._update_overview()
+    assert len(builds) == initial and not resets
+    panel._failed(f"character_items|{token}|1", "Timeout", 0)
+    assert len(builds) == initial
+    assert "unavailable" in panel.history_view.status.text()
+    panel._response(f"character_items|{token}|1", [{"ItemName": "Helm", "DkpValue": 7}])
+    assert len(builds) == initial + 1
+    assert panel.history_view.model.rowCount() == 1
+
+
+@pytest.mark.parametrize("replacement", ["newer", "character", "guild"])
+def test_large_history_yields_to_ui_and_discards_obsolete_preparation(panel, monkeypatch, replacement):
+    token = select_character(panel)
+    original = parser_module.build_dkp_history
+    entered, release = threading.Event(), threading.Event()
+    builds = []
+    gui_thread = threading.get_ident()
+
+    def build(raids, adjustments, items, **kwargs):
+        builds.append((len(items), threading.get_ident()))
+        if len(items) == 1001:
+            entered.set()
+            assert release.wait(3)
+        return original(raids, adjustments, items, **kwargs)
+
+    monkeypatch.setattr(parser_module, "build_dkp_history", build)
+    now = datetime.now(timezone.utc).isoformat()
+    rows = [{"PurchaseId": index + 1, "ItemName": f"Item {index}",
+             "Date": now, "DkpValue": 1} for index in range(1001)]
+    try:
+        panel._response(f"character_items|{token}|1", rows)
+        assert entered.wait(1)
+        assert "Preparing personal history" in panel.history_view.status.text()
+        # A timer can run while reconciliation is deliberately held open.
+        from PySide6.QtCore import QTimer
+        pulse = []
+        QTimer.singleShot(0, lambda: pulse.append(True))
+        QApplication.processEvents()
+        assert pulse == [True]
+        if replacement == "newer":
+            panel._response(f"character_items|{token}|1", [*rows, dict(rows[0], PurchaseId=1002)])
+            panel._update_overview()
+            assert len(builds) == 1
+        else:
+            if replacement == "character":
+                panel.character_selector.setCurrentIndex(0)
+            else:
+                panel.client.slug = "other"
+                panel._load_character_history(force=True)
+            assert panel.history_view.model.rowCount() == 0
+    finally:
+        release.set()
+    deadline = time.monotonic() + 5
+    while getattr(panel, "_history_worker_context", None) is not None and time.monotonic() < deadline:
+        QTest.qWait(10)
+    assert panel._history_worker_context is None
+    assert builds[0][1] != gui_thread
+    if replacement == "newer":
+        assert [size for size, _thread in builds] == [1001, 1002]
+        assert all(thread != gui_thread for _size, thread in builds)
+        assert panel.history_view.model.rowCount() == 1002
+        assert "Preparing personal history" not in panel.history_view.status.text()
+    else:
+        assert panel.history_view.model.rowCount() == 0
 
 
 def test_guild_clear_does_not_erase_saved_character(panel):

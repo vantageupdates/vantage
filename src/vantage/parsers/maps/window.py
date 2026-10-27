@@ -282,8 +282,10 @@ class Maps(ParserWindow):
         self._map.pointer_loc_visibility_requested.connect(self._toggle_show_mouse_location)
         self._map.pointer_loc_keyboard_requested.connect(self._show_keyboard_pointer_loc)
         self._map.pointer_loc_menu_state_changed.connect(self._pointer_loc_menu_changed)
+        self._map.pointer_loc_moved.connect(self._canvas_pointer_moved)
         self._panel_pointer_position = None
         self._keyboard_pointer_loc = None
+        self._canvas_pointer_event = None
         self._pointer_loc_overlay = QLabel(self._scale_view.viewport())
         self._pointer_loc_overlay.setObjectName('MapPointerLocation')
         self._pointer_loc_overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -396,6 +398,22 @@ class Maps(ParserWindow):
         else:
             self._load_zone('west freeport')
         self._sync_cursor_loc_state()
+        log_signals = getattr(QApplication.instance(), '_signals', {}).get('logreader')
+        if log_signals is not None and hasattr(log_signals, 'zone_context'):
+            log_signals.zone_context.connect(self._recover_log_zone)
+
+    def _recover_log_zone(self, context):
+        """Seed a log's last known zone without replaying casts or old /locs."""
+        text, character, server = context
+        identity = (str(character).strip().casefold(), str(server).strip().casefold())
+        zone, _source = detect_log_zone(text)
+        if not zone:
+            return
+        self._map_source_zones[identity] = zone
+        if self._map_source_identity is None:
+            self._adopt_map_source(identity)
+            self._load_zone(zone)
+            self._map.update_location_hud_zone(string.capwords(zone), 'last log entry')
 
     def parse(self, timestamp, text):
         identity = self._location_source_identity()
@@ -553,6 +571,7 @@ class Maps(ParserWindow):
         preview.pointer_loc_visibility_requested.connect(self._toggle_show_mouse_location)
         preview.pointer_loc_keyboard_requested.connect(self._show_keyboard_pointer_loc)
         preview.pointer_loc_menu_state_changed.connect(self._pointer_loc_menu_changed)
+        preview.pointer_loc_moved.connect(self._canvas_pointer_moved)
         if self._loot_dialog is not None:
             self._loot_dialog.close()
         if self._preview_map is not None:
@@ -861,6 +880,7 @@ class Maps(ParserWindow):
             elif event.type() in (QEvent.Type.Leave, QEvent.Type.Hide):
                 self._panel_pointer_position = None
                 self._keyboard_pointer_loc = None
+                self._canvas_pointer_event = None
                 self._pointer_loc_overlay.hide()
         return result
 
@@ -885,6 +905,7 @@ class Maps(ParserWindow):
         else:
             self._cursor_loc_timer.stop()
             self._keyboard_pointer_loc = None
+            self._canvas_pointer_event = None
             self._pointer_loc_overlay.hide()
 
     def _sample_pointer_loc(self):
@@ -896,6 +917,14 @@ class Maps(ParserWindow):
             self._pointer_loc_overlay.hide()
             return
         global_position = QCursor.pos()
+        canvas_event = self._canvas_pointer_event
+        if canvas_event is not None:
+            view, local, cursor_at_event, mapping_at_event = canvas_event
+            if (view is self._display_map() and global_position == cursor_at_event and
+                    self._pointer_mapping_key(view) == mapping_at_event):
+                self._draw_pointer_loc(view, local, self._canvas_to_panel(view, local))
+                return
+            self._canvas_pointer_event = None
         keyboard = self._keyboard_pointer_loc
         if keyboard is not None:
             view, local, cursor_at_keypress = keyboard
@@ -907,6 +936,23 @@ class Maps(ParserWindow):
         position = self._scale_view.viewport().mapFromGlobal(global_position)
         self._panel_pointer_position = position
         self._show_pointer_loc_at(position)
+
+    def _canvas_pointer_moved(self, local):
+        view = self.sender()
+        if view is not self._display_map():
+            return
+        if local is None:
+            self._canvas_pointer_event = None
+            self._pointer_loc_overlay.hide()
+            return
+        if not config.data['maps'].get('show_mouse_location', True):
+            return
+        self._keyboard_pointer_loc = None
+        self._canvas_pointer_event = (
+            view, QPoint(local), QCursor.pos(), self._pointer_mapping_key(view))
+        self._draw_pointer_loc(view, local, self._canvas_to_panel(view, local))
+        if self._pointer_loc_available() and not self._cursor_loc_timer.isActive():
+            self._cursor_loc_timer.start()
 
     def _show_pointer_loc_at(self, position):
         view = self._preview_map or self._map
@@ -924,6 +970,17 @@ class Maps(ParserWindow):
     def _canvas_to_panel(self, view, position):
         logical = view.viewport().mapTo(self._surface, position)
         return self._scale_view.mapFromScene(self._scale_proxy.mapToScene(logical))
+
+    def _pointer_mapping_key(self, view):
+        # A stationary desktop cursor moves relative to the map when the
+        # panel moves, resizes, or scales its proxy. The inner map transform
+        # is deliberately excluded: zoom/pan must recompute LOC at the same
+        # viewport pixel, including when global mouse reporting is stale.
+        outer = self._scale_view.viewport()
+        viewport = view.viewport()
+        return (outer.mapToGlobal(QPoint()), outer.size(),
+                viewport.mapTo(self._surface, QPoint()), viewport.size(),
+                self._scale_proxy.sceneTransform(), self._scale_view.viewportTransform())
 
     def _draw_pointer_loc(self, view, local, position):
         overlay = self._pointer_loc_overlay
@@ -989,6 +1046,7 @@ class Maps(ParserWindow):
         view = self.sender()
         if view is not (self._preview_map or self._map):
             return
+        self._canvas_pointer_event = None
         self._keyboard_pointer_loc = (view, QPoint(local), QCursor.pos())
         self._draw_pointer_loc(view, local, self._canvas_to_panel(view, local))
 

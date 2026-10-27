@@ -182,3 +182,43 @@ def test_character_zone_and_camp_are_isolated_and_toggle_updates_both_maps(tmp_p
     assert result.returncode == 0, result.stdout + result.stderr
     assert json.loads(next(line for line in result.stdout.splitlines()
                            if line.startswith('{')))['passed']
+
+
+RECOVERY_SCRIPT = r'''
+from datetime import datetime
+import os
+from pathlib import Path
+from vantage.helpers.application import VantageApp
+from vantage.helpers.logreader import LogReader
+app = VantageApp([])
+maps = app._parsers_dict['maps']
+root = Path(os.environ['VANTAGE_DATA_DIR']) / 'Logs'
+root.mkdir(parents=True, exist_ok=True)
+path = root / 'eqlog_Example_P1999Green.txt'
+def entry(text):
+    return ('[' + datetime.now().strftime('%a %b %d %H:%M:%S %Y') + '] ' + text + '\r\n').encode()
+path.write_bytes(entry('You have entered The Estate of Unrest.'))
+reader = LogReader(str(root))
+reader._bootstrap_context()
+assert maps._map._data.zone == 'estate of unrest'
+assert '__you__' not in maps._map._data.players
+reader._watcher.removePath(str(path))
+with path.open('ab') as stream:
+    stream.write(entry('LOADING, PLEASE WAIT...'))
+    stream.write(entry('You have entered East Commonlands.'))
+    stream.write(entry('Your Location is 10, 20, 3'))
+reader._poll()
+assert maps._map._data.zone == 'east commonlands'
+player = maps._map._data.players['__you__']
+assert (player.location.x, player.location.y) == (-20, -10)
+reader.stop()
+maps.close()
+app.quit()
+'''
+
+
+def test_recovered_log_and_live_zone_events_reach_map_without_native_watch(tmp_path):
+    env = dict(os.environ, VANTAGE_DATA_DIR=str(tmp_path), QT_QPA_PLATFORM='offscreen')
+    result = subprocess.run([sys.executable, '-B', '-c', RECOVERY_SCRIPT],
+                            cwd=ROOT, env=env, capture_output=True, text=True, timeout=45)
+    assert result.returncode == 0, result.stdout + result.stderr

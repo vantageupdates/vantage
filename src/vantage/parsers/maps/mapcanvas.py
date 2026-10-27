@@ -110,6 +110,7 @@ class MapCanvas(QGraphicsView):
     pointer_loc_visibility_requested = Signal(bool)
     pointer_loc_keyboard_requested = Signal(object)
     pointer_loc_menu_state_changed = Signal(bool)
+    pointer_loc_moved = Signal(object)
 
     def __init__(self):
 
@@ -125,15 +126,16 @@ class MapCanvas(QGraphicsView):
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
         self.setMouseTracking(True)
         self.viewport().setMouseTracking(True)
-        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.setCursor(Qt.CursorShape.ArrowCursor)
         self.setAccessibleName('EverQuest map')
         self._poi_accessible_description = ''
-        self.setToolTip(
+        self._map_help = (
             'Drag with the left button to pan · wheel to zoom · '
             'Ctrl+wheel to change the Z layer · L to show center /loc')
+        self.setAccessibleDescription(self._map_help)
         self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
         self._scale = config.data['maps']['scale']
@@ -149,6 +151,7 @@ class MapCanvas(QGraphicsView):
         self._path_last_loc = None
         self._pan_press_pos = QPoint()
         self._pan_announced = False
+        self._pan_last_pos = None
         self._manual_view = False
         self._focused_poi = None
         self._remember_view = True
@@ -408,7 +411,7 @@ class MapCanvas(QGraphicsView):
                     f'{", ".join(all_points) or "none listed"}.')
         if description != self._poi_accessible_description:
             self._poi_accessible_description = description
-            self.setAccessibleDescription(description)
+            self.setAccessibleDescription(self._map_help + '\n' + description)
 
     def _layout_poi_labels(self, current_z_level, labels_visible):
         """Show only POI labels that fit cleanly in the current viewport.
@@ -682,6 +685,7 @@ class MapCanvas(QGraphicsView):
     def leaveEvent(self, event):
         self._mouse_location.setVisible(False)
         self._last_pointer_position = None
+        self.pointer_loc_moved.emit(None)
         QGraphicsView.leaveEvent(self, event)
 
     def refresh_mouse_location(self, position=None, *, keyboard=False):
@@ -719,20 +723,36 @@ class MapCanvas(QGraphicsView):
             self._pan_announced = True
             self._manual_view = True
             self.manual_pan.emit()
+        if (event.buttons() & Qt.MouseButton.LeftButton and
+                self._pan_last_pos is not None and
+                self.scene().mouseGrabberItem() is None):
+            delta = event.position().toPoint() - self._pan_last_pos
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
+            self._pan_last_pos = event.position().toPoint()
         QGraphicsView.mouseMoveEvent(self, event)
         self.refresh_mouse_location(event.position().toPoint())
+        # Forward actual local events even when the enclosing proxy loses its
+        # own MouseMove. Do not replace these with inferred desktop positions.
+        if self._native_pointer_loc:
+            self.pointer_loc_moved.emit(event.position().toPoint())
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self._pan_press_pos = event.pos()
             self._pan_announced = False
-            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            self._pan_last_pos = event.position().toPoint()
         QGraphicsView.mousePressEvent(self, event)
+        if (event.button() == Qt.MouseButton.LeftButton and
+                self.scene().mouseGrabberItem() is None):
+            # NoDrag does not accept empty-space presses. Our custom pan
+            # must keep the enclosing proxy's grab to receive drag/release.
+            event.accept()
 
     def mouseReleaseEvent(self, event):
         QGraphicsView.mouseReleaseEvent(self, event)
         if event.button() == Qt.MouseButton.LeftButton:
-            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            self._pan_last_pos = None
 
     def wheelEvent(self, event):
         # Scale based on scroll wheel direction

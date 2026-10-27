@@ -23,6 +23,8 @@ from vantage.helpers.icons import game_icon
 from vantage.helpers.parser import ParserWindow
 from vantage.helpers.portable import data_dir
 from vantage.helpers.responsive import ensure_tab_tooltips, scrollable
+from vantage.helpers.wiki_access import (
+    cached_reference_status, read_wiki_reply, wiki_access, write_wiki_cache)
 from vantage.parsers.market import _announce_accessible
 
 
@@ -892,8 +894,10 @@ class Quests(ParserWindow):
             pass
         try:
             payload = json.loads(self._catalog_cache_path.read_text("utf-8"))
-            if payload.get("version") == QUEST_CATALOG_CACHE_VERSION:
-                self._set_catalog(payload.get("titles", []), "cached")
+            if (isinstance(payload, dict) and
+                    payload.get("version") == QUEST_CATALOG_CACHE_VERSION and
+                    payload.get("titles")):
+                self._set_catalog(payload["titles"], cached_reference_status(payload))
         except (OSError, ValueError, TypeError):
             pass
 
@@ -945,7 +949,7 @@ class Quests(ParserWindow):
         request = QNetworkRequest(url)
         request.setTransferTimeout(NETWORK_TIMEOUT_MS)
         request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader,
-                          "Vantage/1.44.143 (vantagecompanion@gmail.com)")
+                          "Vantage/1.44.144 (vantagecompanion@gmail.com)")
         return self._network.get(request)
 
     @staticmethod
@@ -981,6 +985,11 @@ class Quests(ParserWindow):
         self._dispose_reply(reply)
 
     def _fetch_catalog(self, force=False):
+        if wiki_access.status():
+            self.catalog_status.setText(
+                wiki_access.status() + " · using the offline quest catalog")
+            _announce_accessible(self.catalog_status, self.catalog_status.text())
+            return
         if self._catalog_loading and not force:
             return
         if self._catalog and not force:
@@ -998,6 +1007,9 @@ class Quests(ParserWindow):
     def _fetch_catalog_page(self, continuation, attempt=0, generation=None):
         generation = self._catalog_generation if generation is None else generation
         if generation != self._catalog_generation:
+            return
+        if wiki_access.status():
+            self._catalog_request_failed(wiki_access.status(), generation)
             return
         if attempt == 0:
             self._catalog_pages += 1
@@ -1026,7 +1038,7 @@ class Quests(ParserWindow):
     def _catalog_request_failed(self, reason, generation):
         if generation != self._catalog_generation:
             return
-        if self._catalog_attempt < NETWORK_RETRY_LIMIT:
+        if self._catalog_attempt < NETWORK_RETRY_LIMIT and not wiki_access.status():
             self._catalog_attempt += 1
             self.catalog_status.setText(
                 f"{reason} · retrying catalog ({self._catalog_attempt + 1} of {NETWORK_RETRY_LIMIT + 1})…")
@@ -1035,7 +1047,8 @@ class Quests(ParserWindow):
             return
         self._catalog_loading = False
         self.catalog_status.setText(
-            ("Wiki unavailable · using the offline quest catalog · Refresh catalog to retry"
+            ((wiki_access.status() + " · " if wiki_access.status() else "") +
+             "Wiki unavailable · using the offline quest catalog · Refresh catalog to retry"
              if self._catalog else
              "Wiki unavailable · no offline quest catalog yet · Refresh catalog to retry"))
         _announce_accessible(
@@ -1049,17 +1062,13 @@ class Quests(ParserWindow):
             return
         self._catalog_watchdog.stop()
         self._catalog_reply = None
-        if reply.error() != QNetworkReply.NetworkError.NoError:
-            reason = str(reply.errorString() or "Wiki unavailable") \
-                if hasattr(reply, "errorString") else "Wiki unavailable"
-            self._dispose_reply(reply)
-            self._catalog_request_failed(reason, generation)
-            return
         try:
-            payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
+            payload = read_wiki_reply(reply)
+            if not isinstance(payload.get("query", {}).get("categorymembers"), list):
+                raise ValueError("Missing quest catalog")
             titles, continuation = parse_quest_catalog_payload(payload)
             self._catalog_seen.update(titles)
-        except (UnicodeDecodeError, ValueError, TypeError):
+        except (UnicodeDecodeError, ValueError, TypeError, AttributeError):
             self._dispose_reply(reply)
             self._catalog_request_failed(
                 "The Wiki returned unreadable catalog data", generation)
@@ -1071,19 +1080,15 @@ class Quests(ParserWindow):
             self._fetch_catalog_page(continuation, 0, generation)
             return
         self._catalog_loading = False
+        if continuation:
+            self.catalog_status.setText(
+                "Wiki catalog refresh incomplete · using the offline catalog")
+            _announce_accessible(self.catalog_status, self.catalog_status.text())
+            return
         if self._catalog_seen:
             self._set_catalog(self._catalog_seen, "updated now", announce=True)
-            cache = self._catalog_cache_path
-            try:
-                cache.parent.mkdir(parents=True, exist_ok=True)
-                cache.write_text(json.dumps({
-                    "version": QUEST_CATALOG_CACHE_VERSION,
-                    "titles": self._catalog,
-                }, ensure_ascii=False, indent=2), "utf-8")
-            except OSError:
-                # The in-memory catalog remains fully usable if a locked-down
-                # profile prevents offline caching.
-                pass
+            write_wiki_cache(self._catalog_cache_path, {
+                "version": QUEST_CATALOG_CACHE_VERSION, "titles": self._catalog})
         else:
             self.catalog_status.setText(
                 "Wiki returned no quest titles · using the offline catalog"
@@ -1098,12 +1103,18 @@ class Quests(ParserWindow):
         self._load_quest(current.text())
 
     def _load_quest(self, title):
+        # Selection invalidates even an in-flight request for an uncached quest.
+        self._quest_generation += 1
+        self._cancel_quest_request()
         cache = self._quest_cache_path(title)
         try:
             cached = json.loads(cache.read_text("utf-8"))
-            if cached.get("wikitext"):
+            if (isinstance(cached, dict) and
+                    isinstance(cached.get("wikitext"), str) and
+                    cached["wikitext"].strip()):
                 self._show_quest(parse_quest_wikitext(
                     cached["wikitext"], cached.get("title", title)))
+                self.summary.append("\n" + cached_reference_status(cached))
                 return
         except (OSError, ValueError, TypeError):
             pass
@@ -1126,14 +1137,15 @@ class Quests(ParserWindow):
         self.checklist_button.setEnabled(False)
         self.retry_quest_button.hide()
         self._pending_quest_title = title
-        self._quest_generation += 1
-        self._cancel_quest_request()
         self._start_quest_request(title, 0, self._quest_generation)
 
     def _start_quest_request(self, title, attempt, generation):
         if generation != self._quest_generation:
             return
         self._quest_attempt = attempt
+        if wiki_access.status():
+            self._quest_request_failed(title, wiki_access.status(), generation)
+            return
         reply = self._request(self._api_url({
             "action": "parse", "page": title, "prop": "wikitext",
             "format": "json",
@@ -1158,7 +1170,7 @@ class Quests(ParserWindow):
     def _quest_request_failed(self, title, reason, generation):
         if generation != self._quest_generation:
             return
-        if self._quest_attempt < NETWORK_RETRY_LIMIT:
+        if self._quest_attempt < NETWORK_RETRY_LIMIT and not wiki_access.status():
             self._quest_attempt += 1
             self.summary.setText(
                 f"{reason}. Retrying {title} ({self._quest_attempt + 1} of {NETWORK_RETRY_LIMIT + 1})…")
@@ -1166,7 +1178,8 @@ class Quests(ParserWindow):
             return
         self.summary.setText(
             f"{title} is available from the offline catalog. Detailed Wiki "
-            "steps are temporarily unavailable; choose Retry quest to try again.")
+            "steps are temporarily unavailable; choose Retry quest to try again." +
+            ("\n" + wiki_access.status() if wiki_access.status() else ""))
         if self._current_quest and self._current_quest.get("title") == title:
             self._current_quest["summary"] = self.summary.toPlainText()
         self.retry_quest_button.show()
@@ -1189,28 +1202,16 @@ class Quests(ParserWindow):
         self._quest_watchdog.stop()
         self._quest_reply = None
         title = str(reply.property("quest_title") or "Quest")
-        if reply.error() != QNetworkReply.NetworkError.NoError:
-            reason = str(reply.errorString() or "Wiki unavailable") \
-                if hasattr(reply, "errorString") else "Wiki unavailable"
-            self._dispose_reply(reply)
-            self._quest_request_failed(title, reason, generation)
-            return
         try:
-            payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
+            payload = read_wiki_reply(reply, page=True)
             parsed = payload.get("parse", {})
             wikitext = parsed.get("wikitext", {}).get("*", "")
             if not isinstance(wikitext, str) or not wikitext.strip():
                 raise ValueError("missing quest wikitext")
             resolved_title = parsed.get("title", title)
             quest = parse_quest_wikitext(wikitext, resolved_title)
-            cache = self._quest_cache_path(title)
-            try:
-                cache.parent.mkdir(parents=True, exist_ok=True)
-                cache.write_text(json.dumps({
-                    "title": resolved_title, "wikitext": wikitext,
-                }, ensure_ascii=False), "utf-8")
-            except OSError:
-                pass
+            write_wiki_cache(self._quest_cache_path(title), {
+                "title": resolved_title, "wikitext": wikitext})
             self._show_quest(quest)
         except (UnicodeDecodeError, ValueError, TypeError, AttributeError):
             self._dispose_reply(reply)

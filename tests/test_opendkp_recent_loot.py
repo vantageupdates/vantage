@@ -80,6 +80,26 @@ def receive_personal(panel, items, token=None):
     panel._response(f"character_items|{token or panel._history_token}|163372", items)
 
 
+def test_unrelated_overview_updates_reuse_personal_loot_and_keep_selection(panel, monkeypatch):
+    renders = []
+    original = panel._set_personal_loot
+
+    def render(*args):
+        renders.append(args)
+        original(*args)
+
+    monkeypatch.setattr(panel, "_set_personal_loot", render)
+    receive_personal(panel, [personal_item()])
+    panel.character_loot.setCurrentCell(0, 1)
+    for _ in range(3):
+        panel._update_overview()
+    assert len(renders) == 1
+    assert panel.character_loot.currentItem().text() == "Head of the Serpent"
+    receive_personal(panel, [personal_item(DkpValue=5)])
+    assert len(renders) == 2
+    assert panel.character_loot.item(0, 2).text() == "5.0"
+
+
 def settle_model(panel):
     deadline = perf_counter() + 10
     longest = 0

@@ -44,6 +44,7 @@ def test_logreader_keeps_an_independent_cursor_and_profile_for_each_log(tmp_path
         assert [event[1] for event in events] == [
             "Alice casts a spell.", "Bob hits a bat.", "Alice hits a rat."]
     finally:
+        reader.stop()
         reader.deleteLater()
         if previous is not None:
             app._signals = previous
@@ -75,6 +76,7 @@ def test_logreader_waits_for_complete_line_instead_of_splitting_combat_event(
             "You slash a goblin for 12 points of damage."]
         assert reader._stats[str(path)]["last_read"] == path.stat().st_size
     finally:
+        reader.stop()
         reader.deleteLater()
         if previous is not None:
             app._signals = previous
@@ -106,4 +108,5 @@ def test_profile_monitor_distinguishes_active_quiet_and_stale_logs(tmp_path):
         assert dialog.table.item(0, 0).toolTip()
         dialog.close()
     finally:
+        reader.stop()
         reader.deleteLater()
