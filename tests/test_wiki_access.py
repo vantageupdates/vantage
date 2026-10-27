@@ -3,7 +3,9 @@
 import json
 from types import SimpleNamespace
 
-from PySide6.QtNetwork import QNetworkReply
+from PySide6.QtCore import QIODevice
+from PySide6.QtNetwork import QNetworkReply, QNetworkRequest
+from PySide6.QtWidgets import QApplication
 import pytest
 
 import vantage.helpers.wiki_access as access
@@ -40,6 +42,44 @@ class Reply:
 
     def deleteLater(self):
         self.deleted = True
+
+
+class NativeReply(QNetworkReply):
+    """In-memory body with real Qt header methods; never opens a connection."""
+    def __init__(self, payload, status=200, headers=None):
+        super().__init__()
+        self.payload = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
+        self.deleted = False
+        self.setAttribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute, status)
+        for name, value in (headers or {}).items():
+            self.setRawHeader(name, value)
+        self.open(QIODevice.OpenModeFlag.ReadOnly)
+
+    def readData(self, size):
+        chunk, self.payload = self.payload[:size], self.payload[size:]
+        return chunk
+
+    def bytesAvailable(self):
+        return len(self.payload) + super().bytesAvailable()
+
+    def deleteLater(self):
+        self.deleted = True
+        super().deleteLater()
+
+
+@pytest.fixture
+def native_reply():
+    app = QApplication.instance() or QApplication([])
+    replies = []
+    def make(*args, **kwargs):
+        reply = NativeReply(*args, **kwargs)
+        replies.append(reply)
+        return reply
+    yield make
+    for reply in replies:
+        if not reply.deleted:
+            reply.deleteLater()
+    app.processEvents()
 
 
 class Control:
@@ -96,6 +136,36 @@ def test_retry_after_is_respected_and_repeated_failures_back_off(gate):
     with pytest.raises(ValueError):
         access.read_wiki_reply(Reply({"error": {"code": "maxlag"}}))
     assert "2 min" in gate.status()
+
+
+def test_native_qt_success_without_raw_headers_is_accepted(gate, native_reply):
+    payload = {"parse": {"wikitext": {"*": "== Quest ==\n* Obtain an item."}}}
+    assert access.read_wiki_reply(native_reply(payload), page=True) == payload
+    assert not gate.status()
+
+
+@pytest.mark.parametrize('payload,status,headers,reason', [
+    (b'opaque challenge body', 200,
+     {b'cf-mitigated': b'challenge', b'retry-after': b'900'}, 'browser verification'),
+    ({}, 429, {b'retry-after': b'900'}, 'limiting'),
+    ({'error': {'code': 'maxlag'}}, 200, {b'retry-after': b'900'}, 'limiting'),
+])
+def test_native_qt_headers_preserve_challenge_and_retry_after(
+        gate, native_reply, payload, status, headers, reason):
+    with pytest.raises(ValueError, match=reason):
+        access.read_wiki_reply(native_reply(payload, status, headers))
+    assert '15 min' in gate.status()
+
+
+@pytest.mark.parametrize('key_type', [bytes, str])
+def test_header_compatibility_with_strict_bytes_or_text_adapters(key_type):
+    class Adapter:
+        def rawHeader(self, name):
+            if not isinstance(name, key_type):
+                raise TypeError('unsupported header-name type')
+            return b'900'
+    assert access._header(Adapter(), b'retry-after') == '900'
+    assert access._header(Adapter(), 'retry-after') == '900'
 
 
 def test_success_does_not_clear_active_pause_but_resets_recovered_backoff(gate):
@@ -161,6 +231,29 @@ def test_zone_empty_success_does_not_replace_saved_mobs(tmp_path, gate, monkeypa
     assert host._zone_data == previous
     assert "temporarily unavailable" in host.zone_summary.text()
     assert host.zone_load_button.enabled and reply.deleted
+
+
+def test_zone_native_challenge_preserves_cache_and_releases_loading_state(
+        tmp_path, gate, monkeypatch, native_reply):
+    target = tmp_path / "zone.json"
+    previous = {"name": "Najena", "mobs": [{"name": "Drelzna"}]}
+    target.write_text(json.dumps(previous), encoding="utf-8")
+    monkeypatch.setattr(zones, "_wiki_zone_cache_path", lambda _name: target)
+    reply = native_reply(b'challenge body', 403, {b'cf-mitigated': b'challenge'})
+    for key, value in {
+        'zoneRequested': 'Najena', 'zoneRequestId': 1,
+        'zoneAttempt': zones.ZONE_NETWORK_RETRIES,
+    }.items():
+        reply.setProperty(key, value)
+    host = SimpleNamespace(
+        sender=lambda: reply, _zone_reply=reply, _zone_request_id=1,
+        _zone_data=previous, zone_summary=Control(), zone_load_button=Control())
+    zones.Zones._zone_finished(host)
+    assert json.loads(target.read_text('utf-8')) == previous
+    assert host._zone_data == previous
+    assert 'temporarily unavailable' in host.zone_summary.text()
+    assert host.zone_load_button.enabled and reply.deleted
+    assert 'browser verification' in gate.status()
 
 
 def test_item_challenge_keeps_cache_and_does_not_retry(tmp_path, gate):

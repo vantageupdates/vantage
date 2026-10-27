@@ -1,9 +1,11 @@
 """Compact per-character EverQuest log activity monitor."""
 
-from PySide6.QtCore import QSize, QTimer
+import time
+
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtWidgets import (
-    QComboBox, QHeaderView, QLabel, QPushButton, QSpinBox, QTableWidget,
+    QApplication, QComboBox, QHeaderView, QLabel, QPushButton, QSpinBox, QTableWidget,
     QTableWidgetItem, QVBoxLayout)
 from vantage.helpers import config
 from vantage.helpers.audio import (
@@ -15,12 +17,23 @@ from vantage.helpers.scaled_dialog import UniformScaleDialog
 class LogMonitorDialog(UniformScaleDialog):
     def __init__(self, app, parent=None):
         super().__init__(
-            QSize(920, 260), parent, minimum_size=QSize(276, 78),
-            initial_size=QSize(736, 208))
+            QSize(920, 360), parent, minimum_size=QSize(276, 108),
+            initial_size=QSize(736, 288))
         self._app = app
         self._voices = speech_voice_names()
         self.setWindowTitle('Vantage · Log Profiles')
         layout = QVBoxLayout(self.scaled_surface)
+        self.health_status = QLabel()
+        self.health_status.setObjectName('SettingsSectionTitle')
+        self.health_status.setTextFormat(Qt.TextFormat.PlainText)
+        self.health_status.setWordWrap(True)
+        self.health_status.setAccessibleName('Log monitoring health')
+        layout.addWidget(self.health_status)
+        self.health_detail = QLabel()
+        self.health_detail.setTextFormat(Qt.TextFormat.PlainText)
+        self.health_detail.setWordWrap(True)
+        self.health_detail.setAccessibleName('Log delivery and processing status')
+        layout.addWidget(self.health_detail)
         note = QLabel(
             'ACTIVE means this log changed within 90 seconds · QUIET and STALE '
             'do not prove the game is closed.')
@@ -75,18 +88,26 @@ class LogMonitorDialog(UniformScaleDialog):
         self.test_status.setWordWrap(True)
         self.test_status.hide()
         layout.addWidget(self.test_status)
+        self.copy_diagnostics = QPushButton('Copy diagnostics')
+        self.copy_diagnostics.setToolTip(
+            'Copy log monitoring, delivery and feature error details. '
+            'Conversation text and credentials are not included.')
+        self.copy_diagnostics.clicked.connect(self._copy_diagnostics)
+        layout.addWidget(self.copy_diagnostics)
         close = QPushButton('Close')
         close.setToolTip('Close this monitor; log parsing continues in the tray')
         close.clicked.connect(self.accept)
         layout.addWidget(close)
         self._refresh_timer = QTimer(self)
-        self._refresh_timer.setInterval(5000)
-        self._refresh_timer.timeout.connect(self.refresh)
+        self._refresh_timer.setInterval(1000)
+        self._refresh_timer.timeout.connect(
+            lambda: self.refresh() if self.isVisible() else None)
         self._refresh_timer.start()
         self.refresh()
 
     def refresh(self):
         reader = getattr(self._app, '_log_reader', None)
+        self._refresh_health(reader)
         profiles = reader.profiles() if reader else []
         profile_ids = tuple(
             (profile['character'].casefold(), profile['server'].casefold())
@@ -183,6 +204,67 @@ class LogMonitorDialog(UniformScaleDialog):
                 lambda _checked=False, save=save,
                 character=profile['character'], server=profile['server']:
                 (save(), self._test_profile(character, server)))
+
+    def _refresh_health(self, reader):
+        read_health = getattr(reader, 'health_snapshot', None)
+        read_dispatch = getattr(self._app, 'log_dispatch_health', None)
+        reader_state = read_health() if callable(read_health) else {}
+        dispatch = read_dispatch() if callable(read_dispatch) else {}
+        reader_errors = reader_state.get('active_errors') or []
+        feature_errors = dispatch.get('active_errors') or []
+        stopped = reader is None or reader_state.get('stopped', False)
+        pending = int(reader_state.get('pending_bytes') or 0)
+        last_event = float(reader_state.get('last_delivered_at') or 0)
+        age = max(0, int(time.time() - last_event)) if last_event else None
+        if stopped:
+            status = 'Monitoring stopped · Connect Logs to resume'
+        elif reader_errors:
+            status = 'Log file unavailable · Vantage is retrying automatically'
+        elif feature_errors:
+            status = 'A feature reported an error · other features keep receiving logs'
+        elif pending:
+            status = 'Reading pending log events'
+        elif age is None:
+            status = 'Monitoring · waiting for the next EverQuest event'
+        elif age > 90:
+            status = 'Monitoring · EverQuest has not written a new event recently'
+        else:
+            status = 'Monitoring · log events are reaching Vantage'
+        delivered = int(reader_state.get('events_delivered') or 0)
+        completed = int(dispatch.get('events_completed') or 0)
+        last_text = f'{age}s ago' if age is not None else 'none this session'
+        detail = (
+            f'Lines read: {delivered:,} · Events processed: {completed:,} · '
+            f'Last line: {last_text}')
+        if pending:
+            detail += f' · Waiting: {pending:,} bytes'
+        if feature_errors:
+            names = ', '.join(str(item.get('component') or 'Unknown')
+                              for item in feature_errors[:4])
+            detail += f'\nNeeds attention: {names}'
+        self.health_status.setText(status)
+        self.health_status.setAccessibleDescription(status)
+        self.health_detail.setText(detail)
+        self.health_detail.setAccessibleDescription(detail)
+        self.health_detail.setToolTip(detail)
+        self._diagnostic_text = '\n'.join((
+            'Vantage log monitoring', status, detail,
+            f"Linked folder: {reader_state.get('folder') or 'Unavailable'}",
+            f"Watched files: {reader_state.get('watched_files', 0)} / "
+            f"{reader_state.get('known_files', 0)}",
+            f"Automatic repairs: {reader_state.get('repair_count', 0)}",
+            f"Events with errors: {dispatch.get('events_with_errors', 0)}",
+            *[f"Feature: {item.get('component', 'Unknown')} · "
+              f"{item.get('error_type', 'Error')} · "
+              f"count {item.get('count', 0)}" for item in feature_errors],
+            *[f"Log file: {item.get('file', '')} · "
+              f"{item.get('error', 'Unavailable')}" for item in reader_errors],
+        ))
+
+    def _copy_diagnostics(self):
+        self._refresh_health(getattr(self._app, '_log_reader', None))
+        QApplication.clipboard().setText(self._diagnostic_text)
+        self.copy_diagnostics.setText('Diagnostics copied')
 
     def _test_profile(self, character, server):
         """Explicit previews bypass hidden-window gating, not mute or volume."""

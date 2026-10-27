@@ -59,8 +59,22 @@ wiki_access = WikiAccess()
 
 
 def _header(reply, name):
-    return bytes(reply.rawHeader(name)).decode("ascii", errors="replace") \
-        if hasattr(reply, "rawHeader") else ""
+    lookup = getattr(reply, "rawHeader", None)
+    if not callable(lookup):
+        return ""
+    name = name.decode("ascii") if isinstance(name, bytes) else str(name)
+    # Current PySide accepts str (QAnyStringView); older bindings and some
+    # reply adapters use bytes. Prefer the native signature but preserve both
+    # adapters, including mappings that return empty for the other key type.
+    for key in (name, name.encode("ascii")):
+        try:
+            value = lookup(key)
+        except TypeError:
+            continue
+        if value:
+            return value if isinstance(value, str) else bytes(value).decode(
+                "ascii", errors="replace")
+    return ""
 
 
 def read_wiki_bytes(reply):

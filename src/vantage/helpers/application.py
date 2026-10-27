@@ -19,10 +19,11 @@ from vantage.helpers.audio import (
     prewarm_speech_engine, set_audio_muted, set_master_volume,
     sound_display_name, speak_text)
 from vantage.helpers.camp_session import CampSessionController
-from vantage.helpers.character_context import CharacterContextTracker
+from vantage.helpers.character_context import CharacterContext, CharacterContextTracker
 from vantage.helpers.icons import WINDOW_ICONS, game_icon
 from vantage.helpers.interaction import ButtonPolishFilter
 from vantage.helpers.log_archive import LogArchiveService
+from vantage.helpers.log_dispatch import LogDispatchHealth
 from vantage.helpers.logreader import LogReaderSignals
 from vantage.helpers.notification_overlay import NotificationOverlayManager
 from vantage.helpers.notification_routes import (
@@ -64,7 +65,7 @@ config.verify_settings()
 CURRENT_VERSION = semver.VersionInfo(
     major=1,
     minor=44,
-    patch=145,
+    patch=146,
     build=""
 )
 
@@ -123,6 +124,10 @@ class VantageApp(QApplication):
         self._log_status = "NO LOGS"
         self._last_log_activity = None
         self._latest_log_activity = None
+        self._log_dispatch = LogDispatchHealth(data_dir(
+            'log-dispatch-health.json', create=False))
+        self._log_dispatch_notice_at = float('-inf')
+        self._log_dispatch_had_errors = False
         self._last_audio = "None yet"
         self._last_audio_event = None
         self._last_audio_replay = None
@@ -282,7 +287,6 @@ class VantageApp(QApplication):
         self._log_archive_service = LogArchiveService(self)
         self._log_archive_service.completed.connect(
             self._log_archive_completed)
-        self._signals["logreader"].new_line.connect(self._log_activity)
         self._signals["logreader"].new_line.connect(self._parse)
         self._log_health_timer = QTimer(self)
         self._log_health_timer.setInterval(15000)
@@ -1141,9 +1145,48 @@ class VantageApp(QApplication):
             "server": server,
             "authority_at": time.time(),
         }
-        if self._toggled and self._log_status != "ONLINE":
-            self._set_log_status(
-                "ONLINE", "Log activity detected.", notify=True)
+
+    def log_dispatch_health(self):
+        """Return safe session evidence for Log Profiles and diagnostics."""
+        return self._log_dispatch.snapshot()
+
+    def _report_log_dispatch_health(self):
+        has_errors = self._log_dispatch.has_errors
+        status = 'DEGRADED' if has_errors else 'ONLINE'
+        if self._toggled and (
+                self._log_status != status or
+                self._log_dispatch.has_error('Log status')):
+            self._log_dispatch.run(
+                'Log status', self._set_log_status, status,
+                'Log events are being processed.' if not has_errors else
+                'A feature needs attention. Other features are still reading logs.')
+        # A successful status refresh can itself recover the only outstanding
+        # error. Re-read after that callback rather than indexing a stale error
+        # selection or keeping the monitor degraded until another log line.
+        if (self._toggled and not self._log_dispatch.has_errors and
+                self._log_status != 'ONLINE'):
+            self._log_dispatch.run(
+                'Log status', self._set_log_status, 'ONLINE',
+                'Log events are being processed.')
+        first = self._log_dispatch.first_error()
+        has_errors = first is not None
+        now = time.monotonic()
+        if has_errors and now - self._log_dispatch_notice_at >= 60:
+            self._log_dispatch_notice_at = now
+            self._log_dispatch.run(
+                'Log notice', self._queue_quickbar_notice,
+                'Log processing needs attention',
+                f"{first['component']} · {first['error_type']}. "
+                'Other features continue. Open Log Profiles for details.',
+                channel='system')
+        elif (not has_errors and self._log_dispatch_had_errors and
+              now - self._log_dispatch_notice_at >= 60):
+            self._log_dispatch_notice_at = now
+            self._log_dispatch.run(
+                'Log notice', self._queue_quickbar_notice,
+                'Log processing recovered',
+                'All features are receiving log events again.', channel='system')
+        self._log_dispatch_had_errors = has_errors
 
     def device_sync_log_activity(self):
         """Return this session's latest real EQ log activity, if any."""
@@ -1152,11 +1195,22 @@ class VantageApp(QApplication):
         return dict(self._latest_log_activity)
 
     def _log_health_check(self):
-        if not self._toggled or self._log_status != 'ONLINE':
+        if not self._toggled:
+            return
+        reader = self._log_reader
+        if reader is not None:
+            # Repair missing watches/timers without replacing the reader or
+            # discarding its per-file cursors. A quiet EQ session is not an
+            # instruction to restart or replay historical log lines.
+            self._log_dispatch.run('Log watcher', lambda: reader.repair())
+        self._log_dispatch.flush()
+        if self._log_dispatch.has_errors:
+            self._log_dispatch.run(
+                'Log health reporting', self._report_log_dispatch_health)
             return
         if (self._last_log_activity is not None and
                 time.monotonic() - self._last_log_activity > 90):
-            self._set_log_status(
+            self._log_dispatch.run('Log status', self._set_log_status,
                 'QUIET',
                 'No new log events for 90 seconds. EverQuest may simply be idle; '
                 'Vantage is still watching every linked log.',
@@ -1411,43 +1465,92 @@ class VantageApp(QApplication):
             delivery_override=delivery_override)
 
     def _parse(self, new_line):
-        if new_line:
-            timestamp, text = new_line[:2]
-            character = new_line[2] if len(new_line) > 2 else ""
-            server = new_line[3] if len(new_line) > 3 else ""
-            character_context, context_changed = \
-                self._character_context.ingest(character, server, text)
-            chat_notice = classify_chat_notification(
+        if not new_line:
+            return
+        marker = self._log_dispatch.begin_event()
+        try:
+            valid, values = self._log_dispatch.run(
+                'Log record', self._unpack_log_record, new_line)
+            if not valid:
+                return
+            timestamp, text, character, server = values
+            self._log_dispatch.run('Log activity', self._log_activity, new_line)
+            ok, context_result = self._log_dispatch.run(
+                'Character context', self._ingest_log_character_context,
+                character, server, text)
+            if ok:
+                character_context, context_changed = context_result
+            else:
+                # Never substitute the last character's context after a
+                # failure: a fresh identity keeps self buffs correctly scoped.
+                character_context = CharacterContext(
+                    character=character, server=server)
+                context_changed = False
+            ok, chat_notice = self._log_dispatch.run(
+                'Chat classification', classify_chat_notification,
                 text, active_character=character,
                 pet_names=(getattr(character_context, 'pet_name', ''),))
-            if chat_notice is not None:
-                self._deliver_chat_notification(
+            if ok and chat_notice is not None:
+                self._log_dispatch.run(
+                    'Chat notification', self._deliver_chat_notification,
                     chat_notice, character, server)
-            self._camp_sessions.ingest(
+            self._log_dispatch.run('Camp tracking', self._camp_sessions.ingest,
                 text, timestamp, character, server)
             # Visibility and parsing are independent. Every parser is
             # event-driven and must keep receiving the log while its window is
             # hidden, just like a dedicated combat/trigger parser.
             for parser in self._parsers:
-                parser._active_character = character
-                parser._active_server = server
-                parser._character_context = character_context
-                if text.startswith('toggle_clickthrough_%s' % parser.name):
-                    parser._clickthrough = bool(
-                        parser._allow_clickthrough and
-                        not parser._clickthrough)
-                    config.data[parser.name]['clickthrough'] = \
-                        parser._clickthrough
-                    config.save()
-                    parser._set_flags()
-                elif text.startswith('toggle_%s' % parser.name):
-                    parser.toggle()
-                else:
-                    parser.parse(timestamp, text)
+                self._log_dispatch.run(
+                    f'Feature: {parser.name}', self._dispatch_log_parser,
+                    parser, timestamp, text, character, server, character_context)
             if context_changed:
-                config.data['general']['character_profiles'] = \
-                    self._character_context.snapshot()
-                config.save()
+                self._log_dispatch.run(
+                    'Character profile save', self._save_log_character_profiles)
+        finally:
+            # Receiving a line is not proof that consumers accepted it. Only
+            # report ONLINE after every independent consumer had its turn.
+            try:
+                self._log_dispatch.run(
+                    'Log health reporting', self._report_log_dispatch_health)
+            finally:
+                self._log_dispatch.complete_event(marker)
+
+    def _ingest_log_character_context(self, character, server, text):
+        context, changed = self._character_context.ingest(character, server, text)
+        return context, changed
+
+    @staticmethod
+    def _unpack_log_record(line):
+        if not isinstance(line, (list, tuple)) or len(line) < 2:
+            raise ValueError('Invalid log record shape')
+        timestamp, text = line[:2]
+        if not isinstance(text, str):
+            raise ValueError('Invalid log record text type')
+        character = str(line[2] or '') if len(line) > 2 else ''
+        server = str(line[3] or '') if len(line) > 3 else ''
+        return timestamp, text, character, server
+
+    @staticmethod
+    def _dispatch_log_parser(
+            parser, timestamp, text, character, server, character_context):
+        parser._active_character = character
+        parser._active_server = server
+        parser._character_context = character_context
+        if text.startswith('toggle_clickthrough_%s' % parser.name):
+            parser._clickthrough = bool(
+                parser._allow_clickthrough and not parser._clickthrough)
+            config.data[parser.name]['clickthrough'] = parser._clickthrough
+            config.save()
+            parser._set_flags()
+        elif text.startswith('toggle_%s' % parser.name):
+            parser.toggle()
+        else:
+            parser.parse(timestamp, text)
+
+    def _save_log_character_profiles(self):
+        config.data['general']['character_profiles'] = \
+            self._character_context.snapshot()
+        config.save()
 
     def update_character_level(self, character, server, level):
         """Persist an explicit level edit for the active log profile."""

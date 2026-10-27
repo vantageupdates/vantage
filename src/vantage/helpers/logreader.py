@@ -2,6 +2,7 @@ from datetime import datetime
 from glob import glob
 import os
 import re
+import time
 
 from PySide6.QtCore import QFileSystemWatcher, Signal, QObject, QTimer
 from PySide6.QtWidgets import QApplication
@@ -25,6 +26,12 @@ class LogReader(QFileSystemWatcher):
 
         self._eq_directory = eq_directory
         self._stopped = False
+        self._reading = False
+        self._read_errors = {}
+        self._events_delivered = 0
+        self._last_checked_at = 0
+        self._last_delivered_at = 0
+        self._repair_count = 0
         self._files = glob(os.path.join(eq_directory, 'eqlog_*_*.txt'))
         self._watcher = QFileSystemWatcher(self._files, self)
         self._watcher.fileChanged.connect(self._file_changed_safe_wrap)
@@ -121,6 +128,8 @@ class LogReader(QFileSystemWatcher):
         if self._stopped:
             return
         discovered = self._dir_changed(self._eq_directory)
+        if self._stopped:
+            return
         if (os.path.isdir(self._eq_directory) and
                 self._eq_directory not in self._dir_watcher.directories()):
             self._dir_watcher.addPath(self._eq_directory)
@@ -133,11 +142,72 @@ class LogReader(QFileSystemWatcher):
             if path in skip:
                 continue
             self._file_changed_safe_wrap(path)
+            if self._stopped:
+                return
         missing_watches = set(self._files) - set(self._watcher.files())
         if missing_watches:
             existing = [path for path in missing_watches if os.path.isfile(path)]
             if existing:
                 self._watcher.addPaths(existing)
+
+    def health_snapshot(self):
+        """Read-only diagnostics; waiting for EQ writes is not a disconnect."""
+        pending_bytes = 0
+        for path in self._files:
+            try:
+                pending_bytes += max(
+                    0, os.path.getsize(path) -
+                    self._stats.get(path, {}).get('last_read', 0))
+            except OSError:
+                pass
+        return {
+            'folder': self._eq_directory,
+            'stopped': self._stopped,
+            'reading': self._reading,
+            'known_files': len(self._files),
+            'watched_files': len(self._watcher.files()),
+            'directory_watched': self._eq_directory in self._dir_watcher.directories(),
+            'pending_files': len(self._drain_paths),
+            'pending_bytes': pending_bytes,
+            'events_delivered': self._events_delivered,
+            'last_checked_at': self._last_checked_at,
+            'last_delivered_at': self._last_delivered_at,
+            'repair_count': self._repair_count,
+            'timers': {
+                'poll': self._poll_timer.isActive(),
+                'recovery': self._recovery_timer.isActive(),
+                'drain': self._drain_timer.isActive(),
+            },
+            'active_errors': [dict(value) for path, value in self._read_errors.items()
+                              if path in self._files],
+        }
+
+    def repair(self):
+        """Repair existing watches/timers without restarting or moving cursors."""
+        if not self._stopped:
+            needs_repair = (
+                not self._poll_timer.isActive() or
+                not self._recovery_timer.isActive() or
+                bool(set(self._files) - set(self._watcher.files())) or
+                self._eq_directory not in self._dir_watcher.directories() or
+                (bool(self._drain_paths) and not self._drain_timer.isActive()))
+            if not self._poll_timer.isActive():
+                self._poll_timer.start()
+            if not self._recovery_timer.isActive():
+                self._recovery_timer.start()
+            self._poll()
+            if self._drain_paths and not self._drain_timer.isActive():
+                self._drain_timer.start()
+            if needs_repair:
+                self._repair_count += 1
+        return self.health_snapshot()
+
+    def _queue_drain(self, path):
+        if self._stopped:
+            return
+        self._drain_paths.add(path)
+        if not self._drain_timer.isActive():
+            self._drain_timer.start()
 
     def _drain_backlog(self):
         pending = tuple(self._drain_paths)
@@ -217,12 +287,27 @@ class LogReader(QFileSystemWatcher):
     def _file_changed_safe_wrap(self, changed_file):
         if self._stopped:
             return
+        if self._reading:
+            # Direct Qt signals can open a nested event loop. Reading another
+            # batch from that loop used to overtake the current batch or move
+            # its byte cursor twice, losing cast/landing messages permanently.
+            self._queue_drain(changed_file)
+            return
+        self._reading = True
+        self._last_checked_at = time.time()
         try:
             self._file_changed(changed_file)
-        except OSError:
+            self._read_errors.pop(changed_file, None)
+        except OSError as error:
             # Sharing violations during an EQ write/rotation are temporary;
             # retain the cursor and retry on the next poll.
-            return
+            self._read_errors[changed_file] = {
+                'file': os.path.basename(changed_file),
+                'error': str(error),
+                'checked_at': self._last_checked_at,
+            }
+        finally:
+            self._reading = False
 
     def _file_changed(self, changed_file):
         char_name, server_name = self._identity(changed_file)
@@ -277,14 +362,22 @@ class LogReader(QFileSystemWatcher):
             lines = completed.splitlines()
         if lines:
             self._recover_context(changed_file)
+            if self._stopped:
+                return
             if server_name != self.server_name:
                 self.server_name = server_name
                 app._signals['logreader'].server_updated.emit(server_name)
+                if self._stopped:
+                    return
             if char_name != self.character_name:
                 self.character_name = char_name
                 app._signals['logreader'].character_updated.emit(char_name)
+                if self._stopped:
+                    return
             state['last_read'] += len(completed)
         for raw_line in lines:
+            if self._stopped:
+                return
             line = raw_line.decode('utf-8', errors='replace').rstrip('\r\n')
             try:
                 timestamp, text = parse_line(line)
@@ -292,10 +385,12 @@ class LogReader(QFileSystemWatcher):
                 timestamp, text = datetime.now(), strip_timestamp(line)
             app._signals["logreader"].new_line.emit((
                 timestamp, text, char_name, server_name))
+            self._events_delivered += 1
+            self._last_delivered_at = time.time()
+        if self._stopped:
+            return
         if (lines or consumed) and state['last_read'] < end:
-            self._drain_paths.add(changed_file)
-            if not self._drain_timer.isActive():
-                self._drain_timer.start()
+            self._queue_drain(changed_file)
 
         # QFileSystemWatcher can drop a path when an application replaces the
         # file.  Re-add only this exact known log path if necessary.
