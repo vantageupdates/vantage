@@ -9,6 +9,34 @@ from PySide6.QtWidgets import QApplication
 
 from vantage.helpers import parse_line, strip_timestamp
 
+ZONE_CONTEXT_INTERVAL_MS = 2000
+ZONE_CONTEXT_SCAN_BYTES = 256 * 1024
+ZONE_CONTEXT_PATTERN = re.compile(
+    r'^(?:LOADING, PLEASE WAIT|You\s+have\s+(?:entered\s+|zoned\s+(?:into\s+|to\s+)?))',
+    re.I)
+ZONE_LOOKUP_PATTERN = re.compile(
+    r'^(?:There\s+(?:is|are)\s+(?:no|\d+)\s+players?\s+in\s+|'
+    r'(?:Players|Characters)\s+(?:in|on)\s+|'
+    r'(?:You\s+are\s+(?:currently\s+)?in|Current\s+(?:zone|region)(?:\s+is)?|Zone)\s*[:\-])',
+    re.I)
+
+
+def _zone_context_record(raw, offset, path, identity):
+    """Recognize context only; never turn a historical line into activity."""
+    line = raw.decode('utf-8', errors='replace').rstrip('\r\n')
+    text = strip_timestamp(line)
+    if not (ZONE_CONTEXT_PATTERN.match(text) or ZONE_LOOKUP_PATTERN.match(text)):
+        return None
+    try:
+        timestamp, _text = parse_line(line)
+    except (ValueError, IndexError):
+        timestamp = None
+    character, server = LogReader._identity(path)
+    return dict(text=text, character=character, server=server, path=path,
+                identity=identity, offset=offset, timestamp=timestamp,
+                captured_at=time.monotonic(), periodic=True)
+
+
 class LogReaderSignals(QObject):
     new_line = Signal(object)
     character_updated = Signal(str)
@@ -42,15 +70,28 @@ class LogReader(QFileSystemWatcher):
         # global cursor silently drops lines when two EQ clients write at the
         # same time.
         self._stats = {}
+        self._zone_file_state = {}
         for path in self._files:
             try:
                 stat = os.stat(path)
                 self._stats[path] = {
                     'last_read': stat.st_size,
                     'identity': (stat.st_dev, stat.st_ino)}
+                self._zone_file_state[path] = (
+                    (stat.st_dev, stat.st_ino), stat.st_size, stat.st_mtime_ns)
             except OSError:
                 self._stats[path] = {'last_read': 0, 'identity': None}
         self._context_seen = set()
+        self._zone_contexts = {}
+        self._zone_backscans = {}
+        self._zone_verified = {}
+        self._zone_active_path = None
+        self._checking_zone_context = False
+        self._zone_context_checks = 0
+        self._zone_context_timer = QTimer(self)
+        self._zone_context_timer.setInterval(ZONE_CONTEXT_INTERVAL_MS)
+        self._zone_context_timer.timeout.connect(self._check_zone_context)
+        self._zone_context_timer.start()
         self._drain_paths = set()
         self._drain_timer = QTimer(self)
         self._drain_timer.setInterval(25)
@@ -77,6 +118,7 @@ class LogReader(QFileSystemWatcher):
         self._poll_timer.stop()
         self._recovery_timer.stop()
         self._bootstrap_timer.stop()
+        self._zone_context_timer.stop()
         self._drain_timer.stop()
         self._drain_paths.clear()
         if self._watcher.files():
@@ -94,7 +136,8 @@ class LogReader(QFileSystemWatcher):
             except OSError:
                 continue
         if candidates:
-            self._recover_context(max(candidates)[1])
+            self._zone_active_path = max(candidates)[1]
+            self._recover_context(self._zone_active_path)
 
     def _recover_context(self, path):
         """Read bounded historical zone context, never replay historical events."""
@@ -109,18 +152,134 @@ class LogReader(QFileSystemWatcher):
         except OSError:
             return
         self._context_seen.add(path)
-        lines = payload.splitlines()
+        lines = payload.splitlines(keepends=True)
         if start:
             lines = lines[1:]
+        position = offset
         for raw in reversed(lines):
+            line_end = position
+            position -= len(raw)
+            if not raw.endswith(b'\n'):
+                continue
             text = strip_timestamp(raw.decode('utf-8', errors='replace'))
-            if text.startswith('LOADING, PLEASE WAIT'):
+            record = _zone_context_record(
+                raw, line_end, path, self._stats.get(path, {}).get('identity'))
+            if record is not None:
+                self._remember_zone_context(path, record)
+                if not text.upper().startswith('LOADING, PLEASE WAIT'):
+                    character, server = self._identity(path)
+                    QApplication.instance()._signals['logreader'].zone_context.emit(
+                        (text, character, server))
                 break
-            if re.match(r'^(You have entered |There (?:is|are) (?:no|\d+) players? in )', text, re.I):
-                character, server = self._identity(path)
+
+    def _remember_zone_context(self, path, record):
+        previous = self._zone_contexts.get(path)
+        if (previous and previous['identity'] == record['identity'] and
+                previous['offset'] == record['offset'] and
+                previous['text'] == record['text']):
+            return previous
+        self._zone_contexts[path] = record
+        self._zone_backscans.pop(path, None)
+        return record
+
+    def _observe_zone_file(self, path, stat):
+        signature = ((stat.st_dev, stat.st_ino), stat.st_size, stat.st_mtime_ns)
+        previous = self._zone_file_state.get(path)
+        if previous and (signature[0] != previous[0] or
+                         signature[1] < previous[1] or
+                         (signature[1] == previous[1] and signature[2] != previous[2])):
+            # A same-size rewrite must not keep certifying the old zone. Do
+            # not rewind the live cursor: touching a log must not replay casts.
+            self._zone_contexts.pop(path, None)
+            self._zone_backscans.pop(path, None)
+            self._zone_verified.pop(path, None)
+        self._zone_file_state[path] = signature
+
+    def _scan_zone_context(self, path, end, identity, *, historical=False):
+        """Read one bounded page; carry split lines when looking farther back."""
+        scan = self._zone_backscans.get(path) if historical else None
+        if scan and (scan['identity'] != identity or end < scan['boundary']):
+            scan = None
+        boundary = scan['position'] if scan else end
+        if historical and scan and boundary == 0:
+            return
+        start = max(0, boundary - ZONE_CONTEXT_SCAN_BYTES)
+        with open(path, 'rb') as stream:
+            stream.seek(start)
+            payload = stream.read(boundary - start)
+        if scan:
+            payload += scan['fragment']
+        lines = payload.splitlines(keepends=True)
+        fragment = b''
+        if start and lines:
+            fragment = lines.pop(0)
+        position = start + len(payload)
+        for raw in reversed(lines):
+            line_end = position
+            position -= len(raw)
+            if raw.endswith(b'\n'):
+                record = _zone_context_record(raw, line_end, path, identity)
+                if record is not None:
+                    self._remember_zone_context(path, record)
+                    return
+        if historical or (path not in self._zone_contexts and
+                          path not in self._zone_backscans):
+            # Corrupt, oversized records must not grow memory every heartbeat.
+            self._zone_backscans[path] = dict(
+                identity=identity, boundary=scan['boundary'] if scan else end,
+                position=start, fragment=fragment[:64 * 1024])
+
+    def _check_zone_context(self):
+        """Reconcile the active map every two seconds, independently of dispatch."""
+        if self._stopped or self._reading or self._checking_zone_context:
+            return
+        self._checking_zone_context = True
+        try:
+            path = self._zone_active_path
+            if path not in self._files:
+                self._bootstrap_context()
+                path = self._zone_active_path
+            if path not in self._files or self._stopped:
+                return
+            self._zone_context_checks += 1
+            stat = os.stat(path)
+            self._observe_zone_file(path, stat)
+            identity = (stat.st_dev, stat.st_ino)
+            state = self._stats.get(path, {})
+            if state.get('identity') != identity or stat.st_size != state.get('last_read', 0):
+                if state.get('identity') != identity or stat.st_size < state.get('last_read', 0):
+                    self._zone_contexts.pop(path, None)
+                    self._zone_backscans.pop(path, None)
+                # Independently drain new bytes even if native notifications
+                # and the short recovery poll have both stopped arriving.
+                self._file_changed_safe_wrap(path)
+                state = self._stats.get(path, {})
+                if not self._stopped:
+                    # EQ can append again between the initial stat and drain.
+                    # Never verify an older boundary over the freshly read zone.
+                    stat = os.stat(path)
+                    self._observe_zone_file(path, stat)
+                    identity = (stat.st_dev, stat.st_ino)
+            if self._stopped:
+                return
+            end = min(stat.st_size, state.get('last_read', 0))
+            # Do not jump ahead of unread events or consume a partial EQ write.
+            fingerprint = (identity, stat.st_size, stat.st_mtime_ns, end)
+            if (self._zone_verified.get(path) != fingerprint or
+                    (path not in self._zone_contexts and path not in self._zone_backscans)):
+                self._scan_zone_context(path, end, identity)
+                self._zone_verified[path] = fingerprint
+            if path not in self._zone_contexts and path in self._zone_backscans:
+                self._scan_zone_context(path, end, identity, historical=True)
+            record = self._zone_contexts.get(path)
+            if record and not self._stopped:
                 QApplication.instance()._signals['logreader'].zone_context.emit(
-                    (text, character, server))
-                break
+                    dict(record, active=True, observed_mtime_ns=stat.st_mtime_ns))
+        except OSError:
+            # Temporary sharing violations are retried without moving live cursors.
+            pass
+        finally:
+            self._checking_zone_context = False
 
     def _poll(self):
         # Filesystem notifications are hints, not the only source of truth.
@@ -173,10 +332,12 @@ class LogReader(QFileSystemWatcher):
             'last_checked_at': self._last_checked_at,
             'last_delivered_at': self._last_delivered_at,
             'repair_count': self._repair_count,
+            'zone_context_checks': self._zone_context_checks,
             'timers': {
                 'poll': self._poll_timer.isActive(),
                 'recovery': self._recovery_timer.isActive(),
                 'drain': self._drain_timer.isActive(),
+                'zone_context': self._zone_context_timer.isActive(),
             },
             'active_errors': [dict(value) for path, value in self._read_errors.items()
                               if path in self._files],
@@ -188,6 +349,7 @@ class LogReader(QFileSystemWatcher):
             needs_repair = (
                 not self._poll_timer.isActive() or
                 not self._recovery_timer.isActive() or
+                not self._zone_context_timer.isActive() or
                 bool(set(self._files) - set(self._watcher.files())) or
                 self._eq_directory not in self._dir_watcher.directories() or
                 (bool(self._drain_paths) and not self._drain_timer.isActive()))
@@ -195,6 +357,8 @@ class LogReader(QFileSystemWatcher):
                 self._poll_timer.start()
             if not self._recovery_timer.isActive():
                 self._recovery_timer.start()
+            if not self._zone_context_timer.isActive():
+                self._zone_context_timer.start()
             self._poll()
             if self._drain_paths and not self._drain_timer.isActive():
                 self._drain_timer.start()
@@ -274,6 +438,8 @@ class LogReader(QFileSystemWatcher):
                 # Preserve its cursor across a transient disappearance. The
                 # inode/size check distinguishes a returned file from rotation.
                 self._context_seen.discard(path)
+                self._zone_contexts.pop(path, None)
+                self._zone_backscans.pop(path, None)
             self._files = new_files
         missing_watches = set(new_files) - set(self._watcher.files())
         if missing_watches:
@@ -315,6 +481,7 @@ class LogReader(QFileSystemWatcher):
         state = self._stats.setdefault(
             changed_file, {'last_read': 0, 'identity': None})
         stat = os.stat(changed_file)
+        self._observe_zone_file(changed_file, stat)
         identity = (stat.st_dev, stat.st_ino)
         if (stat.st_size == state['last_read'] and
                 state.get('identity') == identity):
@@ -326,6 +493,8 @@ class LogReader(QFileSystemWatcher):
             state['last_read'] = 0
             state.pop('discard_long_line', None)
             self._context_seen.discard(changed_file)
+            self._zone_contexts.pop(changed_file, None)
+            self._zone_backscans.pop(changed_file, None)
         state['identity'] = identity
         with open(changed_file, 'rb') as log:
             log.seek(0, os.SEEK_END)
@@ -334,6 +503,8 @@ class LogReader(QFileSystemWatcher):
                 state['last_read'] = 0
                 state.pop('discard_long_line', None)
                 self._context_seen.discard(changed_file)
+                self._zone_contexts.pop(changed_file, None)
+                self._zone_backscans.pop(changed_file, None)
             log.seek(state['last_read'], os.SEEK_SET)
             payload = log.read(64 * 1024)
         consumed = 0
@@ -359,7 +530,7 @@ class LogReader(QFileSystemWatcher):
         else:
             # Bound the work per callback so a burst cannot monopolize Qt.
             completed = b''.join(payload[:completed_at + 1].splitlines(keepends=True)[:128])
-            lines = completed.splitlines()
+            lines = completed.splitlines(keepends=True)
         if lines:
             self._recover_context(changed_file)
             if self._stopped:
@@ -375,6 +546,7 @@ class LogReader(QFileSystemWatcher):
                 if self._stopped:
                     return
             state['last_read'] += len(completed)
+        line_offset = state['last_read'] - len(completed) if lines else state['last_read']
         for raw_line in lines:
             if self._stopped:
                 return
@@ -383,6 +555,12 @@ class LogReader(QFileSystemWatcher):
                 timestamp, text = parse_line(line)
             except (ValueError, IndexError):
                 timestamp, text = datetime.now(), strip_timestamp(line)
+            line_offset += len(raw_line)
+            record = _zone_context_record(raw_line, line_offset, changed_file, identity)
+            if record is not None:
+                self._remember_zone_context(changed_file, record)
+            if record is not None or re.match(r'^Your\s+Location\s+is\s+', text, re.I):
+                self._zone_active_path = changed_file
             app._signals["logreader"].new_line.emit((
                 timestamp, text, char_name, server_name))
             self._events_delivered += 1

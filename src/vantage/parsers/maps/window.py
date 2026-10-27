@@ -2,6 +2,7 @@
 import json
 import re
 import string
+import time
 
 from PySide6.QtCore import Signal, QObject, Qt, QTimer, QSignalBlocker, QEvent, QPoint
 from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent, QCursor
@@ -20,7 +21,8 @@ from vantage.parsers.maps.mapdata import MapData
 
 ZONE_PATTERNS = (
     ("zoning", re.compile(
-        r"^You\s+have\s+entered\s+(?P<zone>.+?)[.!]?\s*$",
+        r"^You\s+have\s+(?:entered\s+|zoned\s+(?:into|to)\s+)"
+        r"(?P<zone>.+?)[.!]?\s*$",
         re.IGNORECASE)),
     ("who", re.compile(
         r"^There\s+(?:is|are)\s+(?:no|\d+)\s+players?\s+in\s+"
@@ -274,6 +276,8 @@ class Maps(ParserWindow):
         self._configure_pointer_scene(self._map)
         self._map_source_identity = None
         self._map_source_zones = {}
+        self._map_live_zone_events = {}
+        self._map_recovered_zone_events = {}
         self._preview_map = None
         self._browse_dialog = None
         self._map.manual_pan.connect(self._manual_pan_started)
@@ -391,24 +395,124 @@ class Maps(ParserWindow):
             log_signals.zone_context.connect(self._recover_log_zone)
 
     def _recover_log_zone(self, context):
-        """Seed a log's last known zone without replaying casts or old /locs."""
-        text, character, server = context
+        """Reconcile the active log without replaying historical game events."""
+        snapshot = context if isinstance(context, dict) else None
+        if snapshot is None:
+            # Older readers only send startup context, with no ordering data.
+            if not isinstance(context, (tuple, list)) or len(context) != 3:
+                return
+            text, character, server = context
+        else:
+            text = str(snapshot.get('text') or '')
+            character = snapshot.get('character') or ''
+            server = snapshot.get('server') or ''
         identity = (str(character).strip().casefold(), str(server).strip().casefold())
-        zone, _source = detect_log_zone(text)
+        if not identity[0]:
+            return
+        zone, source = detect_log_zone(text)
+        loading = text.startswith('LOADING, PLEASE WAIT')
+        unsupported = bool(ZONE_PATTERNS[0][1].match(text)) and not zone
+        if not zone and not loading and not unsupported:
+            return
+        zone = zone or ''
+        if snapshot is None:
+            # A timestamp-free old bootstrap must never rewind live context.
+            if identity in self._map_live_zone_events or identity in self._map_source_zones:
+                return
+            self._remember_map_zone(identity, zone)
+            if self._map_source_identity is not None:
+                return
+            active, fresh_event = True, True
+        else:
+            try:
+                revision = (str(snapshot.get('path') or '').casefold(),
+                            tuple(snapshot.get('identity') or ()),
+                            int(snapshot.get('offset', 0)))
+                captured_at = float(snapshot.get('captured_at', 0))
+            except (TypeError, ValueError):
+                return
+            stamp = self._zone_event_time(snapshot.get('timestamp'))
+            previous = self._map_recovered_zone_events.get(identity)
+            if previous is not None:
+                prior_revision, prior_capture, prior_stamp = previous
+                if captured_at < prior_capture:
+                    return
+                if (stamp is not None and prior_stamp is not None and
+                        stamp < prior_stamp):
+                    return
+                if (revision[:2] == prior_revision[:2] and
+                        revision[2] < prior_revision[2] and
+                        captured_at <= prior_capture):
+                    return
+            fresh_event = previous is None or revision != previous[0]
+            live = self._map_live_zone_events.get(identity)
+            if live is not None:
+                newer_than_live = bool(
+                    captured_at > live[1] and
+                    (stamp is None or live[0] is None or stamp >= live[0]))
+                if not newer_than_live:
+                    # Whole-second EQ timestamps can match two different
+                    # transitions. Observation time orders those events;
+                    # an older snapshot can only confirm the current zone.
+                    if zone != self._map_source_zones.get(identity, ''):
+                        return
+                    fresh_event = False
+                elif (stamp is not None and stamp == live[0] and
+                      zone == self._map_source_zones.get(identity, '')):
+                    # A reader reconnect may rediscover the very event that
+                    # live parsing already handled. It is not another zoning.
+                    fresh_event = False
+            self._map_recovered_zone_events[identity] = (revision, captured_at, stamp)
+            self._remember_map_zone(identity, zone)
+            active = bool(snapshot.get('active', False))
+        if not active:
+            return
+        source_changed = identity != self._map_source_identity
+        current = self._map._data.zone if self._map._data else ''
+        transition = bool(fresh_event and (source == 'zoning' or loading or unsupported))
+        if not source_changed and current == zone and not transition:
+            return
+        if source_changed:
+            self._adopt_map_source(identity)
+        self.clear_player_location()
         if not zone:
             return
-        self._map_source_zones[identity] = zone
-        if self._map_source_identity is None:
-            self._adopt_map_source(identity)
+        self._return_to_live_map()
+        if current != zone:
             self._load_zone(zone)
-            self._map.update_location_hud_zone(string.capwords(zone), 'last log entry')
+        elif transition:
+            QApplication.instance()._signals['maps'].new_zone.emit(zone)
+        self._map.update_location_hud_zone(
+            string.capwords(zone), 'last log entry', detect_who_player_count(text))
+
+    @staticmethod
+    def _zone_event_time(timestamp):
+        try:
+            return float(timestamp.timestamp())
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            return None
+
+    def _remember_map_zone(self, identity, zone):
+        self._map_source_zones.pop(identity, None)
+        self._map_source_zones[identity] = zone
+        while len(self._map_source_zones) > 32:
+            expired = next(key for key in self._map_source_zones
+                           if key != self._map_source_identity)
+            self._map_source_zones.pop(expired, None)
+            self._map_live_zone_events.pop(expired, None)
+            self._map_recovered_zone_events.pop(expired, None)
+
+    def _remember_live_zone(self, identity, zone, timestamp):
+        if identity:
+            self._remember_map_zone(identity, zone)
+            self._map_live_zone_events[identity] = (
+                self._zone_event_time(timestamp), time.monotonic())
 
     def parse(self, timestamp, text):
         identity = self._location_source_identity()
         if text[:23] == 'LOADING, PLEASE WAIT...':
             self._adopt_map_source(identity)
-            if identity:
-                self._map_source_zones[identity] = ''
+            self._remember_live_zone(identity, '', timestamp)
             self.clear_player_location()
             QApplication.instance()._signals["maps"].zoning.emit()
             return
@@ -416,10 +520,7 @@ class Maps(ParserWindow):
         detected_zone, source = detect_log_zone(text)
         if detected_zone:
             self._adopt_map_source(identity)
-            if identity:
-                self._map_source_zones[identity] = detected_zone
-                if len(self._map_source_zones) > 32:
-                    self._map_source_zones.pop(next(iter(self._map_source_zones)))
+            self._remember_live_zone(identity, detected_zone, timestamp)
             current = self._map._data.zone.lower() if self._map._data else ""
             if source == 'zoning' or detected_zone != current:
                 self._return_to_live_map()
@@ -438,8 +539,7 @@ class Maps(ParserWindow):
         if ZONE_PATTERNS[0][1].match(text):
             # Unsupported zones must not reuse the previous zone's coordinates.
             self._adopt_map_source(identity)
-            if identity:
-                self._map_source_zones[identity] = ''
+            self._remember_live_zone(identity, '', timestamp)
             self.clear_player_location()
             return
 
