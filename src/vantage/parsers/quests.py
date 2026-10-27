@@ -8,9 +8,9 @@ import json
 from pathlib import Path
 import re
 import webbrowser
-from urllib.parse import quote
+from urllib.parse import quote, urljoin, urlsplit
 
-from PySide6.QtCore import Qt, QTimer, QUrl, QUrlQuery
+from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtNetwork import (
     QNetworkAccessManager, QNetworkReply, QNetworkRequest)
 from PySide6.QtWidgets import (
@@ -25,11 +25,13 @@ from vantage.helpers.portable import data_dir
 from vantage.helpers.responsive import ensure_tab_tooltips, scrollable
 from vantage.helpers.wiki_access import (
     cached_reference_status, read_wiki_reply, wiki_access, write_wiki_cache)
+from vantage.helpers.wiki_source import page_url, section_html
+from vantage.helpers.wiki_mirror_details import (
+    clean_tree, walk, visible_text, page_links, table_fields, field_text)
 from vantage.parsers.market import _announce_accessible
 
 
-P99_WIKI_API_ROOT = "https://wiki.project1999.com/api.php"
-P99_WIKI_PAGE_ROOT = "https://wiki.project1999.com/"
+P99_WIKI_PAGE_ROOT = "https://p99.funcamp.net/"
 QUEST_CATEGORY = "Category:Quests"
 QUEST_CATALOG_CACHE_VERSION = 1
 NETWORK_TIMEOUT_MS = 15000
@@ -285,6 +287,11 @@ def _quest_steps(source):
                 "heading": current_heading})
     flush_pending()
 
+    return _quest_token_records(tokens)
+
+
+def _quest_token_records(tokens):
+    """Share checklist interpretation between cached markup and rendered pages."""
     list_tokens = [token for token in tokens if token["type"] == "list"]
     records = []
     seen = set()
@@ -407,10 +414,84 @@ def parse_quest_wikitext(source, fallback_title=""):
     }
 
 
+def parse_quest_html(rendered_html, fallback_title=""):
+    """Read a mirror checklist with list hierarchy and complete action text."""
+    root = clean_tree(rendered_html)
+    fields = table_fields(root)
+    metadata = {label: field_text(fields, label) for label in (
+        "Start Zone", "Quest Giver", "Minimum Level", "Recommended Level", "Classes")
+                if field_text(fields, label)}
+    rewards = [entry["name"] for entry in page_links(clean_tree(
+        section_html(root.html(), ("Reward", "Rewards"))))][:12]
+    body = ""
+    for heading in ("Checklist", "TLDR; Walkthrough", "TLDR Walkthrough",
+                    "Short Walkthrough", "Walkthrough", "Quest Walkthrough"):
+        body = section_html(root.html(), (heading,))
+        if body:
+            break
+    body_root = clean_tree(body) if body else root
+    tokens = []
+    current_heading = ""
+
+    def visit(node, lists=0, indent=0, in_item=False):
+        nonlocal current_heading
+        if node.tag in {"table", "blockquote"}:
+            return
+        if node.tag in {"h2", "h3", "h4", "h5", "h6"}:
+            current_heading = visible_text(node)
+            return
+        lists += int(node.tag in {"ul", "ol"})
+        indent += int(node.tag == "dd")
+        if node.tag == "li":
+            text = visible_text(node, skip_lists=True)
+            if text:
+                tokens.append({"type": "list", "marker": "*" * (max(0, lists - 1) + indent + 1),
+                               "text": text, "heading": current_heading})
+        elif node.tag == "p" and not in_item:
+            text = visible_text(node)
+            if text:
+                tokens.append({"type": "plain", "text": text, "heading": current_heading})
+            return
+        for child in node.children:
+            if not isinstance(child, str):
+                visit(child, lists, indent, in_item or node.tag == "li")
+
+    visit(body_root)
+    steps = _quest_token_records(tokens)
+    summary = [f"{label}: {value}" for label, value in metadata.items()]
+    if rewards:
+        summary.append("Rewards: " + ", ".join(rewards))
+    if not summary and steps:
+        summary.append("First steps: " + "; ".join(
+            step["text"] for step in steps if step["kind"] == "action")[:560])
+    title = str(fallback_title or "Quest").replace("_", " ").strip()
+    return {"title": title, "metadata": metadata, "rewards": rewards,
+            "summary": "\n\n".join(summary) or "The mirror page has no concise quest summary.",
+            "steps": steps, "wiki_url": page_url(title), "source": "P99 Wiki mirror"}
+
+
 def parse_quest_catalog_payload(payload):
     """Extract quest titles and continuation from a MediaWiki API response."""
     if not isinstance(payload, dict):
         return [], ""
+    if payload.get("_mirror"):
+        root = clean_tree(payload.get("parse", {}).get("text", {}).get("*", ""))
+        members = next((node for node in walk(root) if node.attrs.get("id") == "mw-pages"), None)
+        if members is None:
+            raise ValueError("The mirror category does not list quest pages")
+        titles = [entry["target"] for entry in page_links(members)]
+        continuation = ""
+        for node in walk(members):
+            if node.tag != "a" or not re.fullmatch(r"next\s+\d+", visible_text(node), re.I):
+                continue
+            url = urljoin(P99_WIKI_PAGE_ROOT, node.attrs.get("href", ""))
+            parsed = urlsplit(url)
+            if (parsed.scheme == "https" and parsed.hostname == "p99.funcamp.net" and
+                    parsed.path.startswith("/index.php_title=Category:Quests") and
+                    "pagefrom=" in url):
+                continuation = url.split("#", 1)[0]
+                break
+        return titles, continuation
     members = payload.get("query", {}).get("categorymembers", [])
     titles = [str(member.get("title", "")).strip() for member in members
               if isinstance(member, dict) and str(member.get("title", "")).strip()]
@@ -936,20 +1017,11 @@ class Quests(ParserWindow):
     def _announce_filter_count(self):
         _announce_accessible(self.match_count, self.match_count.text())
 
-    def _api_url(self, parameters):
-        url = QUrl(P99_WIKI_API_ROOT)
-        query = QUrlQuery()
-        for key, value in parameters.items():
-            if value:
-                query.addQueryItem(key, str(value))
-        url.setQuery(query)
-        return url
-
     def _request(self, url):
         request = QNetworkRequest(url)
         request.setTransferTimeout(NETWORK_TIMEOUT_MS)
         request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader,
-                          "Vantage/1.44.146 (vantagecompanion@gmail.com)")
+                          "Vantage/1.44.147 (vantagecompanion@gmail.com)")
         return self._network.get(request)
 
     @staticmethod
@@ -1015,11 +1087,7 @@ class Quests(ParserWindow):
             self._catalog_pages += 1
         self._catalog_continuation = continuation
         self._catalog_attempt = attempt
-        reply = self._request(self._api_url({
-            "action": "query", "list": "categorymembers",
-            "cmtitle": QUEST_CATEGORY, "cmnamespace": "0", "cmlimit": "max",
-            "cmcontinue": continuation, "format": "json",
-        }))
+        reply = self._request(QUrl(continuation or page_url(QUEST_CATEGORY)))
         self._catalog_reply = reply
         reply.finished.connect(
             lambda r=reply, g=generation: self._catalog_page_finished(r, g))
@@ -1064,7 +1132,7 @@ class Quests(ParserWindow):
         self._catalog_reply = None
         try:
             payload = read_wiki_reply(reply)
-            if not isinstance(payload.get("query", {}).get("categorymembers"), list):
+            if not payload.get("_mirror") and not isinstance(payload.get("query", {}).get("categorymembers"), list):
                 raise ValueError("Missing quest catalog")
             titles, continuation = parse_quest_catalog_payload(payload)
             self._catalog_seen.update(titles)
@@ -1086,7 +1154,9 @@ class Quests(ParserWindow):
             _announce_accessible(self.catalog_status, self.catalog_status.text())
             return
         if self._catalog_seen:
-            self._set_catalog(self._catalog_seen, "updated now", announce=True)
+            titles = (set(self._catalog) | self._catalog_seen
+                      if payload.get("_mirror") else self._catalog_seen)
+            self._set_catalog(titles, "mirror updated now" if payload.get("_mirror") else "updated now", announce=True)
             write_wiki_cache(self._catalog_cache_path, {
                 "version": QUEST_CATALOG_CACHE_VERSION, "titles": self._catalog})
         else:
@@ -1109,13 +1179,17 @@ class Quests(ParserWindow):
         cache = self._quest_cache_path(title)
         try:
             cached = json.loads(cache.read_text("utf-8"))
-            if (isinstance(cached, dict) and
-                    isinstance(cached.get("wikitext"), str) and
-                    cached["wikitext"].strip()):
-                self._show_quest(parse_quest_wikitext(
-                    cached["wikitext"], cached.get("title", title)))
-                self.summary.append("\n" + cached_reference_status(cached))
-                return
+            if isinstance(cached, dict):
+                if str(cached.get("rendered_html") or "").strip():
+                    quest = parse_quest_html(cached["rendered_html"], cached.get("title", title))
+                elif str(cached.get("wikitext") or "").strip():
+                    quest = parse_quest_wikitext(cached["wikitext"], cached.get("title", title))
+                else:
+                    quest = None
+                if quest:
+                    self._show_quest(quest)
+                    self.summary.append("\n" + cached_reference_status(cached))
+                    return
         except (OSError, ValueError, TypeError):
             pass
         self._show_quest({
@@ -1146,10 +1220,7 @@ class Quests(ParserWindow):
         if wiki_access.status():
             self._quest_request_failed(title, wiki_access.status(), generation)
             return
-        reply = self._request(self._api_url({
-            "action": "parse", "page": title, "prop": "wikitext",
-            "format": "json",
-        }))
+        reply = self._request(QUrl(page_url(title)))
         self._quest_reply = reply
         reply.setProperty("quest_title", title)
         reply.finished.connect(
@@ -1206,12 +1277,17 @@ class Quests(ParserWindow):
             payload = read_wiki_reply(reply, page=True)
             parsed = payload.get("parse", {})
             wikitext = parsed.get("wikitext", {}).get("*", "")
-            if not isinstance(wikitext, str) or not wikitext.strip():
-                raise ValueError("missing quest wikitext")
+            rendered = parsed.get("text", {}).get("*", "")
             resolved_title = parsed.get("title", title)
-            quest = parse_quest_wikitext(wikitext, resolved_title)
-            write_wiki_cache(self._quest_cache_path(title), {
-                "title": resolved_title, "wikitext": wikitext})
+            if payload.get("_mirror") and rendered:
+                quest = parse_quest_html(rendered, resolved_title)
+                cache_data = {"title": resolved_title, "rendered_html": rendered}
+            elif isinstance(wikitext, str) and wikitext.strip():
+                quest = parse_quest_wikitext(wikitext, resolved_title)
+                cache_data = {"title": resolved_title, "wikitext": wikitext}
+            else:
+                raise ValueError("missing quest content")
+            write_wiki_cache(self._quest_cache_path(title), cache_data)
             self._show_quest(quest)
         except (UnicodeDecodeError, ValueError, TypeError, AttributeError):
             self._dispose_reply(reply)

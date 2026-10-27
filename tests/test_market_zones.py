@@ -207,9 +207,9 @@ def test_native_npc_parser_includes_every_related_quest():
 
     assert entity["related_quests"] == [
         {"name": "Froglok Slave Quest", "target": "Froglok Slave Quest",
-         "url": "https://wiki.project1999.com/Froglok_Slave_Quest"},
+         "url": "https://p99.funcamp.net/Froglok_Slave_Quest"},
         {"name": "The Missing Piece", "target": "The Missing Piece",
-         "url": "https://wiki.project1999.com/The_Missing_Piece"},
+         "url": "https://p99.funcamp.net/The_Missing_Piece"},
     ]
 
 
@@ -372,8 +372,8 @@ def test_independent_zone_window_filters_tabs_and_exposes_selected_drop(tmp_path
             "Enter at least two characters. Results are not limited by the "
             "zone selected above"),
         "all_mob_visible_help": (
-            "Enter at least two characters. Search is independent of the "
-            "selected zone."),
+            "Known NPC catalog and loaded zones, plus exact-name mirror lookup. "
+            "This is a limited search, independent of the selected zone."),
         "relation_html": (
             "<b>Crystal Eyes</b><br><b>Drops:</b> "
             "<a href=\"vantage://item/Crystal%20Spider%20Eyes\">"
@@ -447,37 +447,21 @@ app.processEvents()
 zones.all_mob_search.setText('Crystal Eyes')
 QTest.keyClick(zones.all_mob_search, Qt.Key.Key_Return)
 search_reply = network.replies[0]
-search_reply.payload = json.dumps({'query': {'search': [
-    {'title': 'Crystal Eyes'}, {'title': 'Crystal Spider Eyes'}
-]}}).encode()
+search_reply.payload = b'''<h1 id="firstHeading">Crystal Eyes</h1>
+<div id="mw-content-text"><table class="mobStatsBox"><tr><th>Crystal Eyes</th></tr>
+<tr><td><b>Race:</b> Giant Spider</td></tr><tr><td><b>Class:</b> Rogue</td></tr>
+<tr><td><b>Level:</b> 47</td></tr><tr><td><b>Zone:</b> Velketor's Labyrinth</td></tr>
+<tr><td><b>Location:</b> (479, 2)</td></tr></table><h3>Known Loot</h3>
+<ul><li><a href="/Crystal_Spider_Eyes">Crystal Spider Eyes</a></li>
+<li><a href="/Velium_Crystal_Staff">Velium Crystal Staff</a></li></ul>
+<h3>Related Quests</h3><a href="/The_Lost_Map">The Lost Map</a></div>'''
 search_reply.finished.emit()
-
-npc = '''{{Namedmobpage
-| name = Crystal Eyes
-| race = Giant Spider
-| class = Rogue
-| level = 47
-| zone = [[Velketor's Labyrinth]]
-| location = (479, 2)
-| known_loot = {{:Crystal Spider Eyes}}, [[Velium Crystal Staff]]
-| relatedquests = [[The Lost Map]]
-}}'''
-item = '''{{Itembox
-| itemname = Crystal Spider Eyes
-| statsblock = AC 8
-}}'''
-pages_reply = network.replies[1]
-pages_reply.payload = json.dumps({'query': {'pages': {
-    '1': {'title': 'Crystal Eyes', 'revisions': [{'*': npc}]},
-    '2': {'title': 'Crystal Spider Eyes', 'revisions': [{'*': item}]},
-}}}).encode()
-pages_reply.finished.emit()
 app.processEvents()
 
 print(json.dumps({
     'requests': len(network.urls),
-    'search_endpoint': 'list=search' in network.urls[0],
-    'batch_endpoint': 'prop=revisions' in network.urls[1],
+    'mirror_endpoint': network.urls[0] == 'https://p99.funcamp.net/Crystal_Eyes',
+    'no_api': all('api.php' not in url for url in network.urls),
     'rows': zones.all_mob_table.rowCount(),
     'selected': zones._selected_value()['name'],
     'focused': zones.all_mob_table.hasFocus(),
@@ -492,7 +476,7 @@ app.quit()
 """
 
 
-def test_any_mob_search_uses_enter_batches_pages_and_focuses_results(tmp_path):
+def test_any_mob_search_uses_known_catalog_exact_mirror_page_and_focuses_results(tmp_path):
     env = os.environ.copy()
     env["QT_QPA_PLATFORM"] = "offscreen"
     env["PYTHONPATH"] = str(ROOT / "src")
@@ -502,16 +486,16 @@ def test_any_mob_search_uses_enter_batches_pages_and_focuses_results(tmp_path):
         check=True, capture_output=True, text=True, timeout=35)
     result = json.loads(completed.stdout.strip().splitlines()[-1])
     assert result == {
-        "requests": 2,
-        "search_endpoint": True,
-        "batch_endpoint": True,
+        "requests": 1,
+        "mirror_endpoint": True,
+        "no_api": True,
         "rows": 1,
         "selected": "Crystal Eyes",
         "focused": True,
         "button_enabled": True,
         "status": (
-            "1 mob found across all zones · select a row for every linked "
-            "drop and quest"),
+            "1 known NPC match · exact mirror page loaded · limited to the "
+            "bundled catalog and loaded zones; not a complete Wiki search"),
         "item_link": True,
         "quest_link": True,
     }
@@ -663,7 +647,8 @@ def test_keyboard_search_button_keeps_retry_focus_when_results_are_empty(
         "focused_after_empty": True,
         "button_enabled": True,
         "status": (
-            "No P99 NPC pages matched No Such Mob. Try a shorter mob name."),
+            "0 known NPC matches · no exact NPC page available · limited to the "
+            "bundled catalog and loaded zones; not a complete Wiki search"),
     }
 
 

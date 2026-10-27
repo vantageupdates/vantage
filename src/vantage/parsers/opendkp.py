@@ -385,7 +385,7 @@ class LootTableModel(QAbstractTableModel):
             self.snapshot = [{
                 "date": record[0][0], "item": record[0][1], "character": record[0][2],
                 "dkp": record[0][3], "raid": record[0][4],
-                "wiki_url": "https://wiki.project1999.com/" + quote(record[0][1].replace(" ", "_"), safe=""),
+                "wiki_url": "https://p99.funcamp.net/" + quote(record[0][1].replace(" ", "_"), safe=""),
             } for record in sorted(records, key=lambda record: record[1][0], reverse=True)]
             self._rebuild()
             self.preparing = False
@@ -3023,7 +3023,7 @@ class OpenDKP(ParserWindow):
             return False
         request = QNetworkRequest(QUrl(csv_url))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.146")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.147")
         request.setAttribute(
             QNetworkRequest.Attribute.RedirectPolicyAttribute,
             QNetworkRequest.RedirectPolicy.NoLessSafeRedirectPolicy)
@@ -4015,7 +4015,7 @@ class OpenDKP(ParserWindow):
                 "date": _date_text(_loot_stamp(row)), "item": _clean(row.get("ItemName")),
                 "character": _clean(row.get("CharacterName")), "dkp": _number(_loot_cost(row), 1),
                 "raid": _clean(_loot_field(row, "Raid", "RaidName")),
-                "wiki_url": "https://wiki.project1999.com/" + quote(
+                "wiki_url": "https://p99.funcamp.net/" + quote(
                     _clean(row.get("ItemName"), "").replace(" ", "_"), safe=""),
             } for row in loot]
             self._loot_snapshot_dataset = loot_dataset

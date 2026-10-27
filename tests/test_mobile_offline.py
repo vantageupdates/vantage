@@ -49,7 +49,7 @@ def test_projection_removes_secrets_recursively_and_preserves_full_guild_roster(
     assert len(output["guild"]["standings"]) == 625
     assert output["guild"]["standings"][-1]["name"] == "Character 0624"
     assert output["guild"]["standings_total"] == 625
-    assert output["guild"]["loot"][0]["wiki_url"] == "https://wiki.project1999.com/Jade_Mace"
+    assert output["guild"]["loot"][0]["wiki_url"] == "https://p99.funcamp.net/Jade_Mace"
     assert output["guild"]["sheets"][0]["url"] == (
         "https://docs.google.com/spreadsheets/d/abc1234567890/edit")
     assert output["zone"]["unique_items"] == ["Dragoon Dirk"]
@@ -257,11 +257,11 @@ def test_public_reference_builder_only_exports_bundled_names_and_wiki_links(tmp_
         rows = builder.load_reference_index(root / "data/reference" / filename, kind)
         assert len(rows) > minimum
         assert all(set(row) == {"name", "wiki"} for row in rows)
-        assert all(row["wiki"].startswith("https://wiki.project1999.com/") for row in rows)
+        assert all(row["wiki"].startswith("https://p99.funcamp.net/") for row in rows)
     malicious = tmp_path / "zones.json"
     malicious.write_text(json.dumps({"zones": [{"name": "The Zone", "map": "private-path", "wiki": "javascript:bad"}]}))
     assert builder.load_reference_index(malicious, "zones") == [
-        {"name": "The Zone", "wiki": "https://wiki.project1999.com/The_Zone"}]
+        {"name": "The Zone", "wiki": "https://p99.funcamp.net/The_Zone"}]
 
 
 def test_catalog_builder_explicitly_closes_sqlite_before_temporary_cleanup(monkeypatch, tmp_path):

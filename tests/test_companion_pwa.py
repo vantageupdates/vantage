@@ -90,7 +90,7 @@ def test_static_item_builder_preserves_price_stats_and_correct_binding(tmp_path)
         "nodrop": False, "era": "classic", "id": 770, "peqId": 14701,
         "stats": {"ac": 2, "hp": 35, "mana": 25},
         "effects": [{"type": "Click", "name": "Test Effect"}],
-        "wiki": "https://wiki.project1999.com/Black_Sapphire_Electrum_Earring",
+        "wiki": "https://p99.funcamp.net/Black_Sapphire_Electrum_Earring",
     }]
 
 
@@ -120,6 +120,13 @@ assert.equal(cleaned.guild.standings[1].dkp,'-');assert.equal(cleaned.zone.wiki_
 assert.equal(cleaned.guild.sheets[0].url,'https://docs.google.com/spreadsheets/d/synthetic-fixture/edit');
 assert.equal(api.safeURL('https://docs.google.com/spreadsheets/d/e/published/pubhtml','sheet'),'');
 assert.equal(api.safeURL('https://user:pass@wiki.project1999.com/Clarity'),'');
+assert.equal(api.safeURL('https://wiki.project1999.com/Clarity'), 'https://p99.funcamp.net/Clarity');
+assert.equal(api.safeURL('https://p99.funcamp.net/Clarity'), 'https://p99.funcamp.net/Clarity');
+assert.equal(api.safeURL('https://p99.funcamp.net.evil.test/Clarity'), '');
+assert.equal(api.safeURL('https://wiki.project1999.com/index.php?title=Bravery'), 'https://p99.funcamp.net/Bravery');
+assert.equal(api.safeURL('https://p99.funcamp.net/index.php_title=Bravery'), 'https://p99.funcamp.net/Bravery');
+assert.equal(api.safeURL('https://p99.funcamp.net/index.php'), '');
+assert.equal(api.safeURL('https://p99.funcamp.net/api.php?action=parse'), '');
 assert.throws(()=>api.snapshot({...fixture,schema:2}));
 assert.throws(()=>api.snapshot({...fixture,exported_at:'yesterday'}));
 assert.throws(()=>api.snapshot({...fixture,guild:{...fixture.guild,standings:{}}}));

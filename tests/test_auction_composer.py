@@ -90,12 +90,12 @@ def test_discord_wts_and_wtb_are_vertical_linked_markdown():
 
     assert wts == [
         "WTS\n"
-        "[Tolan's Darkwood Breastplate](https://wiki.project1999.com/"
+        "[Tolan's Darkwood Breastplate](https://p99.funcamp.net/"
         "Tolan%27s_Darkwood_Breastplate) — 25k\n"
-        "[Robe of the Grove](https://wiki.project1999.com/Robe_of_the_Grove)"
+        "[Robe of the Grove](https://p99.funcamp.net/Robe_of_the_Grove)"
         " — 2x · 10000p"]
     assert wtb[0].startswith("WTB\n")
-    assert "https://wiki.project1999.com/" in wtb[0]
+    assert "https://p99.funcamp.net/" in wtb[0]
 
 
 def test_discord_messages_pack_into_numbered_copy_sized_blocks():
@@ -130,7 +130,7 @@ def test_composer_copies_plain_wts_and_builds_linked_hotbutton_without_inventory
 
     assert composer.copy_discord_next()
     assert app.clipboard().text().startswith(
-        "WTS\n[Manastone](https://wiki.project1999.com/Manastone)")
+        "WTS\n[Manastone](https://p99.funcamp.net/Manastone)")
 
     composer.trade_type.setCurrentIndex(1)
     assert composer.copy_next()

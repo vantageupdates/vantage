@@ -162,8 +162,8 @@ def test_valid_response_saves_atomic_cache_metadata(panel):
     dialog._network.requests[-1][1].complete({'parse': {
         'text': {'*': '<p>A spell description.</p>'},
         'wikitext': {'*': 'A spell description.'}}})
-    record = json.loads(cache('Burst of Flame').read_text())
-    assert record['_wiki_cache']['source'] == 'Project 1999 Wiki'
+    record = json.loads(cache('Burst of Flame').read_text(encoding='utf-8'))
+    assert record['_wiki_cache']['source'] == 'Project 1999 Wiki \u00b7 public mirror'
     assert 'A spell description.' in dialog.body.toPlainText()
     assert 'UPDATED NOW' in dialog.source.text()
 

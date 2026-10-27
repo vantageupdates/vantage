@@ -23,7 +23,7 @@ def test_item_recharge_guide_opens_only_the_exact_p99_help_url(monkeypatch):
     assert GreenMarket._open_recharge_guide() is False
     assert opened == [P99_RECHARGE_GUIDE_URL]
     assert P99_RECHARGE_GUIDE_URL == (
-        "https://wiki.project1999.com/Guide_to_Recharging_Items")
+        "https://p99.funcamp.net/Guide_to_Recharging_Items")
 
     monkeypatch.setattr(
         market, "_wiki_target_url", lambda _title: "https://evil.example/help")
@@ -109,7 +109,7 @@ def test_p99_item_parser_keeps_related_quests_and_notes():
     assert data["related_quests"][0]["target"] == (
         "Journeyman's Boots Quest")
     assert data["related_quests"][0]["url"].startswith(
-        "https://wiki.project1999.com/")
+        "https://p99.funcamp.net/")
     assert "classic quest" in data["notes"]
 
 

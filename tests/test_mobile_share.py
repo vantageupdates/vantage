@@ -1191,10 +1191,10 @@ def test_mobile_item_detail_endpoint_is_authenticated_allowlisted_and_falls_back
 
 def test_mobile_item_detail_ui_uses_safe_links_live_status_and_offline_fallback():
     assert "/api/item-detail?name=" in _MOBILE_PAGE
-    assert "Loading complete Project 1999 Wiki item details" in _MOBILE_PAGE
+    assert "Loading complete P99 Wiki mirror item details" in _MOBILE_PAGE
     assert "Saved item data and the Wiki link remain available" in _MOBILE_PAGE
     assert "function safeWikiUrl" in _MOBILE_PAGE
-    assert "url.hostname.toLowerCase()==='wiki.project1999.com'" in _MOBILE_PAGE
+    assert "['wiki.project1999.com','p99.funcamp.net'].includes(url.hostname.toLowerCase())" in _MOBILE_PAGE
     assert "effect.url,effect.name" in _MOBILE_PAGE
     assert "drop.npc_url,drop.npc" in _MOBILE_PAGE
     assert "quest.url,quest.name" in _MOBILE_PAGE
@@ -1216,15 +1216,15 @@ def test_mobile_item_detail_ui_uses_safe_links_live_status_and_offline_fallback(
     assert "This private LAN page needs the PC when reopened." in _MOBILE_PAGE
     assert _safe_p99_url(
         "javascript:alert(1)", fallback_name="Jade Mace") == (
-            "https://wiki.project1999.com/Jade_Mace")
+            "https://p99.funcamp.net/Jade_Mace")
     assert _safe_p99_url(
         "https://evil.example/?next=https://wiki.project1999.com/Jade_Mace",
         fallback_name="Jade Mace") == (
-            "https://wiki.project1999.com/Jade_Mace")
+            "https://p99.funcamp.net/Jade_Mace")
     assert _safe_p99_url(
         "https://wiki.project1999.com:8443/Jade_Mace",
         fallback_name="Jade Mace") == (
-            "https://wiki.project1999.com/Jade_Mace")
+            "https://p99.funcamp.net/Jade_Mace")
 
 
 def test_mobile_timer_controls_require_wifi_key_and_queue_action():

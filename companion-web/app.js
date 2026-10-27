@@ -112,7 +112,7 @@ function openItem(item){
   identity.forEach(([label,value])=>{body.append(node('h3','',label),node('p','summary',value))});
   const entries=Object.entries(item.stats||{});if(entries.length){body.append(node('h3','','Stats'));const grid=node('div','detail-grid');entries.forEach(([key,value])=>{const cell=node('div','detail-stat');cell.append(node('b','',STAT_LABELS[key]||key.toUpperCase()),node('span','',`${value>0?'+':''}${value}`));grid.append(cell)});body.append(grid)}
   if(item.effects?.length){body.append(node('h3','','Click / Proc / Worn effects'));item.effects.forEach(effect=>body.append(node('div','effect',`${effect.type} · ${effect.name}`)))}
-  appendLink(body,'Open Project 1999 Wiki source (new tab)',item.wiki);showDialog('detail')
+  appendLink(body,'Open P99 Wiki mirror source (new tab)',item.wiki);showDialog('detail')
 }
 
 function updateSpellLevels(){const wanted=$('spell-class').value;const levels=[...new Set(state.spells.flatMap(spell=>(spell.levels||[]).filter(row=>!wanted||row[0]===wanted).map(row=>row[1])))].sort((a,b)=>a-b);const current=$('spell-level').value;fillSelect($('spell-level'),[['Any available level',''],...levels.map(level=>[`Level ${level}`,level])]);if(levels.includes(Number(current)))$('spell-level').value=current}
@@ -124,7 +124,7 @@ function renderSpells(){
   const cards=rows.slice(0,180).map(spell=>{const card=node('button','result-card');card.type='button';card.setAttribute('aria-label',`Open spell details for ${spell.name}`);const top=node('span','card-top');top.append(node('span','card-name',spell.name),node('span','price',`ID ${spell.id}`));const chips=node('span','chips');(spell.levels||[]).slice(0,4).forEach(row=>chips.append(node('span','chip',`${row[0]} ${row[1]}`)));card.append(top,chips,node('span','statline',spell.summary||'Bundled P99 spell data'));card.addEventListener('click',()=>openSpell(spell));return card});
   $('spell-results').replaceChildren(...(cards.length?cards:[node('p','empty',state.spells.length?'No spells match this class, level, and search.':'No spell catalog saved yet. Connect and choose Refresh Spells.')]))
 }
-function openSpell(spell){const body=$('detail-body'),title=node('h2','detail-title',spell.name);title.id='detail-title';body.replaceChildren();body.append(node('p','eyebrow','P99 CLASSIC SPELL'),title,node('p','summary',spell.summary||'Bundled P99 spell data'),node('h3','','Classes and available levels'));(spell.levels||[]).forEach(row=>body.append(node('div','effect',`${row[0]} · Level ${row[1]}`)));appendLink(body,'Open Project 1999 Wiki spell page (new tab)',spell.wiki);showDialog('detail')}
+function openSpell(spell){const body=$('detail-body'),title=node('h2','detail-title',spell.name);title.id='detail-title';body.replaceChildren();body.append(node('p','eyebrow','P99 CLASSIC SPELL'),title,node('p','summary',spell.summary||'Bundled P99 spell data'),node('h3','','Classes and available levels'));(spell.levels||[]).forEach(row=>body.append(node('div','effect',`${row[0]} · Level ${row[1]}`)));appendLink(body,'Open P99 Wiki mirror spell page (new tab)',spell.wiki);showDialog('detail')}
 
 function appendLink(parent,label,value,kind='wiki'){
   const href=VantageOffline.safeURL(value,kind);if(!href)return;

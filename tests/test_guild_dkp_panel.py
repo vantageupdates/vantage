@@ -335,7 +335,7 @@ def test_loot_disclosure_and_link_focus_survive_identity_aliases_and_enrichment(
  assert.equal(doc.activeElement,row('purchase:second').querySelector('a'));
  assert.equal(row('purchase:second').querySelector('span').textContent,'Helm');
  assert.match(row('purchase:second').textContent,/officer note/);
- assert.equal(doc.activeElement.href,'https://wiki.project1999.com/Helm');
+ assert.equal(doc.activeElement.href,'https://p99.funcamp.net/Helm');
  entries=entries.slice(0,1);await mounted.session.loadRaid('7');
  assert(row('purchase:second').open,'Removing a same-name cost sibling keeps the selected purchase');
  assert.equal(doc.activeElement,row('purchase:second').querySelector('a'));

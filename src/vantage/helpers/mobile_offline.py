@@ -14,7 +14,7 @@ OFFLINE_FORMAT = "vantage-offline"
 OFFLINE_SCHEMA = 1
 MAX_EXPORT_BYTES = 8 * 1024 * 1024
 MAX_STANDINGS = 10_000
-WIKI_ROOT = "https://wiki.project1999.com/"
+WIKI_ROOT = "https://p99.funcamp.net/"
 
 
 def _mapping(value):

@@ -17,7 +17,7 @@ from urllib.request import Request, urlopen
 
 PIGPARSE_URL = "https://pigparse.azurewebsites.net/api/item/getall/Green"
 P99_DB_URL = "https://p99planner.com/data/p99.sqlite.gz"
-USER_AGENT = "Vantage-Companion-Data/1.44.146"
+USER_AGENT = "Vantage-Companion-Data/1.44.147"
 ROOT = Path(__file__).resolve().parents[1]
 STAT_FIELDS = (
     "ac", "hp", "mana", "astr", "asta", "adex", "aagi", "aint",
@@ -131,7 +131,7 @@ def load_items(database_path, price_rows, era_path):
             "peqId": int(values.get("peqId") or 0),
             "stats": stats,
             "effects": effects,
-            "wiki": "https://wiki.project1999.com/" + quote(
+            "wiki": "https://p99.funcamp.net/" + quote(
                 name.replace(" ", "_"), safe="_()'-"),
         })
     return items
@@ -201,7 +201,7 @@ def load_spells(path):
                 "icon": current["icon"] if current and current["icon"] else icon_id,
                 "summary": " ".join(messages) or (
                     current["summary"] if current else "Bundled P99 spell data"),
-                "wiki": "https://wiki.project1999.com/" + quote(
+                "wiki": "https://p99.funcamp.net/" + quote(
                     name.replace(" ", "_"), safe="_()'-"),
             }
     return sorted(by_name.values(), key=lambda row: row["name"].casefold())
@@ -226,7 +226,7 @@ def load_reference_index(path, kind):
         name = " ".join(name.split())[:160]
         if name:
             names.add(name)
-    return [{"name": name, "wiki": "https://wiki.project1999.com/" + quote(
+    return [{"name": name, "wiki": "https://p99.funcamp.net/" + quote(
         name.replace(" ", "_"), safe="")} for name in sorted(names, key=str.casefold)]
 
 

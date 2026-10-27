@@ -8,7 +8,7 @@ import hashlib
 import html
 import json
 import re
-from urllib.parse import parse_qs, quote, unquote, urlparse
+from urllib.parse import quote
 
 from PySide6.QtCore import (
     QAbstractTableModel, QModelIndex, QSize, QSortFilterProxyModel,
@@ -32,16 +32,16 @@ from vantage.helpers.responsive import (
     ensure_tab_tooltips, ensure_table_header_tooltips)
 from vantage.helpers.wiki_access import (
     cached_reference_status, read_wiki_reply, wiki_access, write_wiki_cache)
+from vantage.helpers.wiki_source import (
+    PAGE_TEMPLATE, page_url, parse_html, section_html, sanitize_html, title_from_url)
 from vantage.parsers.market import (
     combined_market_price, normalize_market_server,
     parse_wiki_auction_html)
 
 
-P99_WIKI_API = (
-    "https://wiki.project1999.com/api.php?action=parse&page={slug}"
-    "&prop=text%7Cwikitext&format=json")
-P99_WIKI_URL = "https://wiki.project1999.com/{slug}"
-USER_AGENT = "Vantage/1.44.146"
+P99_WIKI_API = PAGE_TEMPLATE
+P99_WIKI_URL = PAGE_TEMPLATE
+USER_AGENT = "Vantage/1.44.147"
 ACQUISITION_WORDS = (
     "merchant", "sold by", "where to obtain", "where to find", "drop",
     "research", "recipe", "created by", "quest", "reward", "turn in",
@@ -73,8 +73,7 @@ def _skill_detail_cache_path(target):
 
 
 def _wiki_url(name):
-    return P99_WIKI_URL.format(
-        slug=quote(str(name).strip().replace(" ", "_"), safe=""))
+    return page_url(name)
 
 
 def _read_wiki_page(reply):
@@ -92,15 +91,7 @@ def _wiki_unavailable_message():
 
 
 def _wiki_title_from_url(url):
-    parsed = urlparse(str(url or ""))
-    if parsed.hostname and parsed.hostname.casefold() != "wiki.project1999.com":
-        return ""
-    if parsed.path.casefold().endswith("/index.php"):
-        title = (parse_qs(parsed.query).get("title") or [""])[0]
-    else:
-        title = unquote(parsed.path.strip("/"))
-    title = title.replace("_", " ")
-    return " ".join(title.split())
+    return title_from_url(url)
 
 
 def _plain_wiki_text(value):
@@ -127,8 +118,10 @@ def _plain_wiki_text(value):
     return "\n".join(clean)
 
 
-def extract_acquisition_text(wikitext):
+def extract_acquisition_text(wikitext, rendered_html=""):
     """Extract purchase, drop, quest, and research sections from Wiki markup."""
+    if not str(wikitext or "").strip() and rendered_html:
+        return extract_acquisition_html(rendered_html)
     source = str(wikitext or "")
     field_matches = list(re.finditer(
         r"(?m)^\|\s*(?P<field>[A-Za-z_][\w ]*)\s*=\s*", source))
@@ -171,30 +164,36 @@ def extract_acquisition_text(wikitext):
     return "\n".join(dict.fromkeys(lines))[:8000]
 
 
+def extract_acquisition_html(rendered_html):
+    """Read acquisition sections from the public mirror's rendered article."""
+    root = parse_html(rendered_html)
+    headings = [node for node in root.find_all()
+                if node.tag in {"h1", "h2", "h3", "h4", "h5", "h6"}]
+    sections = []
+    for heading in headings:
+        title = heading.text()
+        if not any(word in title.casefold() for word in ACQUISITION_WORDS):
+            continue
+        block = parse_html(section_html(rendered_html, [title]))
+        lines = []
+        for node in block.find_all():
+            if node.tag == "tr":
+                cells = [child.text() for child in node.children
+                         if getattr(child, "tag", "") in {"td", "th"}]
+                if cells:
+                    lines.append(" · ".join(cells))
+            elif node.tag in {"p", "li"} and node.find("table") is None:
+                value = node.text()
+                if value:
+                    lines.append(value)
+        if lines:
+            sections.append(title.upper() + "\n" + "\n".join(dict.fromkeys(lines)))
+    return "\n\n".join(dict.fromkeys(sections))[:16000]
+
+
 def sanitize_wiki_html(rendered_html):
-    """Keep readable Wiki content while preventing active or remote embeds."""
-    source = str(rendered_html or "")[:1_200_000]
-    source = re.sub(r"<!--.*?-->", "", source, flags=re.DOTALL)
-    source = re.sub(
-        r"<(script|style|iframe|object|embed|form)\b.*?</\1\s*>",
-        "", source, flags=re.IGNORECASE | re.DOTALL)
-    source = re.sub(r"<img\b[^>]*>", "", source, flags=re.IGNORECASE)
-    source = re.sub(
-        r"\s(?:style|class|id|srcset|src|bgcolor|background|color|border|"
-        r"cellpadding|cellspacing|on\w+)\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s>]+)",
-        "", source, flags=re.IGNORECASE)
-    source = re.sub(
-        r'href=["\'](?:javascript|data):[^"\']*["\']',
-        'href="#"', source, flags=re.IGNORECASE)
-    source = re.sub(
-        r'href=(["\'])/(?!/)(.*?)\1',
-        r'href=\1https://wiki.project1999.com/\2\1', source,
-        flags=re.IGNORECASE)
-    source = re.sub(
-        r'href=(["\'])\./(.*?)\1',
-        r'href=\1https://wiki.project1999.com/\2\1', source,
-        flags=re.IGNORECASE)
-    return source
+    """Keep readable reference text without active content or remote embeds."""
+    return sanitize_html(rendered_html)
 
 
 def _rendered_text(value):
@@ -748,7 +747,7 @@ class SpellLibraryDialog(UniformScaleDialog):
         self.skill_body.setHtml(
             "<h2>P99 Class Skills</h2><p>Loading the selected class…</p>")
         detail_layout.addWidget(self.skill_body, 1)
-        self.skill_source = QLabel("PROJECT 1999 WIKI · CLASS SKILLS")
+        self.skill_source = QLabel("P99 WIKI MIRROR · CLASS SKILLS")
         self.skill_source.setObjectName("SpellLibrarySource")
         self.skill_source.setWordWrap(True)
         self.skill_source.setToolTip(
@@ -797,7 +796,7 @@ class SpellLibraryDialog(UniformScaleDialog):
             self._visible_skills = []
             self.skill_table.setRowCount(0)
             self.skill_summary.setText(
-                f"Loading {class_name} skills from Project 1999 Wiki…")
+                f"Loading {class_name} skills from P99 Wiki mirror…")
             self.skill_summary.setAccessibleName(self.skill_summary.text())
         if wiki_access.status():
             self.skill_summary.setText(
@@ -871,7 +870,7 @@ class SpellLibraryDialog(UniformScaleDialog):
                 f"<h2>{html.escape(class_name)} skills</h2>"
                 "<p>Select any skill for its unlock level, caps, and Wiki guide.</p>")
         self.skill_source.setText(
-            f"PROJECT 1999 WIKI · {class_name.upper()} CLASS TABLE · {suffix.upper()}")
+            f"P99 WIKI MIRROR · {class_name.upper()} CLASS TABLE · {suffix.upper()}")
 
     def _refresh_skill_rows(self, *_args):
         query = self.skill_search.text().strip().casefold()
@@ -1011,10 +1010,10 @@ class SpellLibraryDialog(UniformScaleDialog):
             f"{html.escape(str(skill.get('cap_60') or ''))}</p>")
         self.skill_body.setHtml(
             f"<h1>{html.escape(name)}</h1>" + facts +
-            str(record.get("wiki_html") or "") +
-            "<p>Source: Project 1999 Wiki.</p>")
+            sanitize_wiki_html(record.get("wiki_html") or "") +
+            "<p>Source: P99 Wiki mirror (reference snapshot).</p>")
         self.skill_source.setText(
-            "PROJECT 1999 WIKI · SKILL GUIDE · " +
+            "P99 WIKI MIRROR · SKILL GUIDE · " +
             ("LOCAL CACHE" if cached else "UPDATED NOW"))
 
     def _open_selected_skill(self):
@@ -1159,15 +1158,7 @@ class SpellLibraryDialog(UniformScaleDialog):
                 f"PigParse {server} {html.escape(combined.get('pig_period') or '')}: "
                 f"<b>{pig:,} pp</b>")
         if wiki:
-            parts.append(f"P99 Wiki {server}: <b>{wiki:,} pp</b>")
-        if combined.get("close"):
-            parts.append(
-                f"Sources agree · cautious average: "
-                f"<b>{int(combined['combined']):,} pp</b>")
-        elif pig and wiki:
-            parts.append(
-                f"Sources differ by {combined.get('difference_percent', 0):.0f}% · "
-                "kept separate")
+            parts.append(f"P99 Wiki {server} mirror snapshot: <b>{wiki:,} pp</b>")
         if not parts:
             parts.append(
                 f"No current {server} auction price found for this spell scroll")
@@ -1209,19 +1200,19 @@ class SpellLibraryDialog(UniformScaleDialog):
         elif not record.get("wiki_html"):
             acquisition_html = (
                 "<p>No merchant, drop, quest, or research section was found.</p>")
-        page = str(record.get("wiki_html") or "")
+        page = sanitize_wiki_html(record.get("wiki_html") or "")
         self.body.setHtml(
             f"<h1>{html.escape(entry.name)}</h1>"
             f"<p><b>Classes:</b> {html.escape(entry.levels_text)}</p>" +
             acquisition_html + page +
-            "<p class='source'>Source: Project 1999 Wiki. "
+            "<p class='source'>Source: P99 Wiki mirror (reference snapshot). "
             "Class/level source: bundled classic spells_us.txt.</p>")
         self.source.setText(
-            "PROJECT 1999 WIKI · " +
+            "P99 WIKI MIRROR · " +
             ("LOCAL CACHE" if cached else "UPDATED NOW") +
             f" · PIGPARSE {self._market_server().upper()} PRICES SHOWN SEPARATELY")
         self.source.setToolTip(cached_reference_status(record) if cached else
-                               "Updated from Project 1999 Wiki")
+                               "Updated from P99 Wiki mirror (reference snapshot)")
 
     def _show_spell_unavailable(self, entry):
         if (self._current is None or self._current.name != entry.name or
@@ -1243,7 +1234,6 @@ class SpellLibraryDialog(UniformScaleDialog):
         target = QUrl(url)
         title = _wiki_title_from_url(target.toString())
         if not title:
-            QDesktopServices.openUrl(target)
             return
         spell = self._entries_by_name.get(title.casefold())
         if spell is not None:
@@ -1279,7 +1269,7 @@ class SpellLibraryDialog(UniformScaleDialog):
         if self._reply is not None and self._reply.isRunning():
             self._reply.abort()
         self._linked_title = str(title)
-        self._linked_url = QUrl(source_url or _wiki_url(title))
+        self._linked_url = QUrl(_wiki_url(title))
         self.back_button.setEnabled(self._current is not None)
         self.name_label.setText(self._linked_title)
         self.class_label.setText(
@@ -1292,7 +1282,7 @@ class SpellLibraryDialog(UniformScaleDialog):
         self.body.setHtml(
             f"<h2>{html.escape(self._linked_title)}</h2>"
             "<p>Loading linked Wiki information inside Vantage…</p>")
-        self.source.setText("PROJECT 1999 WIKI · LINKED REFERENCE · LOADING")
+        self.source.setText("P99 WIKI MIRROR · LINKED REFERENCE · LOADING")
         if wiki_access.status():
             self.body.setHtml(
                 f"<h2>{html.escape(self._linked_title)}</h2>"
@@ -1327,7 +1317,7 @@ class SpellLibraryDialog(UniformScaleDialog):
             wikitext = parsed.get("wikitext", {})
             if isinstance(wikitext, dict):
                 wikitext = wikitext.get("*", "")
-            acquisition = extract_acquisition_text(wikitext)
+            acquisition = extract_acquisition_text(wikitext, rendered)
             acquisition_html = (
                 "<div class='acquisition'><h3>Where to obtain</h3><pre>" +
                 html.escape(acquisition) + "</pre></div>"
@@ -1335,15 +1325,15 @@ class SpellLibraryDialog(UniformScaleDialog):
             self.body.setHtml(
                 f"<h1>{html.escape(title)}</h1>" + acquisition_html +
                 sanitize_wiki_html(rendered) +
-                "<p class='source'>Source: Project 1999 Wiki.</p>")
+                "<p class='source'>Source: P99 Wiki mirror (reference snapshot).</p>")
             self.source.setText(
-                "PROJECT 1999 WIKI · LINKED REFERENCE · INTERNAL VIEW")
+                "P99 WIKI MIRROR · LINKED REFERENCE · INTERNAL VIEW")
         except (UnicodeError, ValueError, json.JSONDecodeError):
             self.body.setHtml(
                 f"<h2>{html.escape(title)}</h2>"
                 f"<p>{html.escape(_wiki_unavailable_message())}</p>"
                 "<p>Use Back to spell for saved spell information.</p>")
-            self.source.setText("PROJECT 1999 WIKI · LINKED REFERENCE · OFFLINE")
+            self.source.setText("P99 WIKI MIRROR · LINKED REFERENCE · OFFLINE")
         finally:
             if self._reply is reply:
                 self._reply = None
@@ -1396,10 +1386,12 @@ class SpellLibraryDialog(UniformScaleDialog):
                 "url": _wiki_url(entry.name),
                 "fetched_at": datetime.datetime.now(
                     datetime.timezone.utc).isoformat(),
-                "acquisition": extract_acquisition_text(wikitext),
+                "acquisition": extract_acquisition_text(wikitext, rendered),
                 "wiki_html": sanitize_wiki_html(rendered),
                 "auction": parse_wiki_auction_html(rendered, server),
             }
+            if payload.get("_mirror") and record["auction"]:
+                record["auction"]["archived"] = True
             write_wiki_cache(_cache_path(entry.name, server), record)
             if server == self._market_server():
                 self._render_record(entry, record)

@@ -60,10 +60,10 @@ def test_wiki_itembox_is_converted_to_native_card_data():
     assert "<br>" not in item["stats"]
     assert item["drops"] == [{
         "npc": "Myconid Spore King",
-        "npc_url": "https://wiki.project1999.com/Myconid_Spore_King",
+        "npc_url": "https://p99.funcamp.net/Myconid_Spore_King",
         "npc_target": "Myconid Spore King",
         "zone": "Old Sebilis",
-        "zone_url": "https://wiki.project1999.com/Old_Sebilis",
+        "zone_url": "https://p99.funcamp.net/Old_Sebilis",
         "zone_target": "Old Sebilis",
     }]
     assert item["effects"] == [{

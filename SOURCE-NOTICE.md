@@ -13,6 +13,8 @@ EverQuest and Project 1999 community. We gratefully acknowledge:
 - the [Project 1999 Wiki](https://wiki.project1999.com/) and
   [P99 Planner](https://p99planner.com/) communities for factual game
   references and community-maintained metadata;
+- the [public P99 Wiki mirror](https://p99.funcamp.net/Main_Page), which
+  hosts the community reference pages used for on-demand article reads;
 - the [Brewall mapping community](https://github.com/RedGuides/brewall-maps)
   for classic community map resources; and
 - the [respawntimer community data](https://github.com/perotan/respawntimer),
@@ -39,6 +41,12 @@ in this notice. Vantage modifications made in 2026 are distributed under the
 same GNU GPL version 3 license.
 
 Market values are attributed in-app to PigParse Green. Project 1999 Wiki is a separately labeled secondary reference for item icons, statistics, drop NPCs, zones, and the shipped item-to-click-effect index. Robust estimates are local calculations and never alter upstream records.
+
+On-demand Wiki article reads use the public HTML copy at p99.funcamp.net.
+The original community remains the content source. Mirror coverage and
+freshness are not guaranteed; mirrored auction values are historical
+references and are never averaged with current PigParse prices. Vantage
+does not bypass browser challenges or operate a new Wiki database service.
 
 Class, race and equipment-slot metadata is loaded from the P99 Planner community snapshot of Project 1999 Wiki data. It is not used as a price source. Optional mobile Internet sharing uses Cloudflare Quick Tunnels and downloads the official signed `cloudflared` Windows binary only with the user's approval.
 

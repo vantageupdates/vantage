@@ -38,16 +38,15 @@ from vantage.helpers.portable import data_dir
 from vantage.helpers.responsive import ResponsiveActionBar, scrollable
 from vantage.helpers.scaled_dialog import UniformScaleDialog
 from vantage.helpers.spell_catalog import p99_spell_entries
+from vantage.helpers.wiki_source import (
+    PAGE_TEMPLATE, page_url, parse_page, parse_html, sanitize_html,
+    section_html, title_from_url)
 
 
 COMPANION_URL = "https://vantageupdates.github.io/vantage/companion/"
-P99_SPELL_DETAIL_API = (
-    "https://wiki.project1999.com/api.php?action=parse&page={slug}"
-    "&prop=wikitext&format=json")
-P99_ITEM_DETAIL_API = (
-    "https://wiki.project1999.com/api.php?action=parse&page={slug}"
-    "&prop=wikitext&format=json")
-P99_WIKI_ORIGIN = "https://wiki.project1999.com"
+P99_SPELL_DETAIL_API = PAGE_TEMPLATE
+P99_ITEM_DETAIL_API = PAGE_TEMPLATE
+P99_WIKI_ORIGIN = "https://p99.funcamp.net"
 MAX_ITEM_NAME = 160
 MAX_WIKI_RESPONSE = 2_000_000
 MAX_ITEM_CACHE_BYTES = 256_000
@@ -105,6 +104,54 @@ def parse_mobile_spell_detail(wikitext):
     }
 
 
+def parse_mobile_spell_html(rendered_html):
+    """Read the mirror's lead description and numbered spell effect rows."""
+    source = sanitize_html(rendered_html)
+    lead = re.split(r"<h[1-6]\b", source, maxsplit=1, flags=re.IGNORECASE)[0]
+    paragraphs = [node.text() for node in parse_html(lead).find_all("p")]
+    description = " ".join(value for value in paragraphs if value).strip()
+    effects = []
+    details = section_html(source, ["Details"])
+    for row in parse_html(details).find_all("tr"):
+        cells = [child for child in row.children
+                 if getattr(child, "tag", "") in {"td", "th"}]
+        if len(cells) < 2 or not re.fullmatch(r"\d+\s*:", cells[0].text()):
+            continue
+        effect = " ".join(cell.text() for cell in cells[1:]).strip()
+        if effect and effect not in effects:
+            effects.append(effect[:1000])
+    return {
+        "description": description[:1800],
+        "effects": effects[:12],
+        "source": "P99 Wiki mirror (reference snapshot)",
+    }
+
+
+def _read_mobile_wiki_page(name):
+    """Fetch one article with bounded reads and shared source validation."""
+    request = Request(page_url(name), headers={"User-Agent": "Vantage/1.44.147"})
+    with urlopen(request, timeout=8) as response:
+        final_url = response.geturl() if hasattr(response, "geturl") else request.full_url
+        final = urlsplit(final_url)
+        if (final.scheme != "https" or final.hostname != "p99.funcamp.net" or
+                final.port not in (None, 443) or final.username or final.password):
+            raise ValueError("Wiki response came from an unexpected source")
+        payload_bytes = response.read(MAX_WIKI_RESPONSE + 1)
+    if len(payload_bytes) > MAX_WIKI_RESPONSE:
+        raise ValueError("Wiki response is larger than the safe limit")
+    # Preserve older adapters returning MediaWiki JSON; new requests always
+    # address an article on the public mirror, never its unavailable API.
+    if payload_bytes.lstrip().startswith(b"{"):
+        payload = json.loads(payload_bytes.decode("utf-8"))
+        parsed = payload.get("parse") if isinstance(payload, dict) else None
+        source = parsed.get("wikitext") if isinstance(parsed, dict) else None
+        source = source.get("*") if isinstance(source, dict) else source
+        if payload.get("error") or not isinstance(source, str) or not source.strip():
+            raise ValueError("Wiki returned no usable article")
+        return payload
+    return parse_page(payload_bytes, title_hint=name)
+
+
 def _mobile_spell_detail_path(name):
     digest = hashlib.sha256(
         str(name).strip().casefold().encode("utf-8")).hexdigest()[:20]
@@ -113,34 +160,38 @@ def _mobile_spell_detail_path(name):
 
 def load_mobile_spell_detail(name):
     """Load one cached Wiki description, fetching only on an explicit tap."""
+    if len(str(name or "")) > MAX_ITEM_NAME:
+        raise ValueError("Invalid spell name")
+    name = _bounded_text(name, MAX_ITEM_NAME)
+    if not name:
+        raise ValueError("Invalid spell name")
     cache_path = _mobile_spell_detail_path(name)
     try:
-        cached = json.loads(cache_path.read_text(encoding="utf-8"))
-        if cached.get("description") or cached.get("effects"):
-            return cached
+        if cache_path.stat().st_size <= MAX_ITEM_CACHE_BYTES:
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            if isinstance(cached, dict) and (cached.get("description") or cached.get("effects")):
+                return cached
     except (OSError, ValueError, json.JSONDecodeError):
         pass
-    request = Request(
-        P99_SPELL_DETAIL_API.format(
-            slug=quote(str(name).strip().replace(" ", "_"), safe="")),
-        headers={"User-Agent": "Vantage/1.44.146"})
-    with urlopen(request, timeout=8) as response:
-        payload_bytes = response.read(2_000_001)
-    if len(payload_bytes) > 2_000_000:
-        raise ValueError("Wiki response is larger than the safe limit")
-    payload = json.loads(payload_bytes.decode("utf-8"))
+    payload = _read_mobile_wiki_page(name)
     parsed = payload.get("parse")
     if not isinstance(parsed, dict):
         raise ValueError("Project 1999 Wiki does not have this spell page")
     wikitext = parsed.get("wikitext", {})
     if isinstance(wikitext, dict):
         wikitext = wikitext.get("*", "")
-    detail = parse_mobile_spell_detail(wikitext)
+    rendered = parsed.get("text", {})
+    if isinstance(rendered, dict):
+        rendered = rendered.get("*", "")
+    detail = (parse_mobile_spell_detail(wikitext) if wikitext else
+              parse_mobile_spell_html(rendered))
     if not detail["description"] and not detail["effects"]:
         raise ValueError("No spell description was found")
     try:
-        cache_path.write_text(
-            json.dumps(detail, ensure_ascii=False), encoding="utf-8")
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        pending = cache_path.with_suffix(cache_path.suffix + ".part")
+        pending.write_text(json.dumps(detail, ensure_ascii=False), encoding="utf-8")
+        os.replace(pending, cache_path)
     except OSError:
         pass
     return detail
@@ -157,25 +208,9 @@ def _bounded_text(value, limit=2000):
 
 
 def _safe_p99_url(value="", *, fallback_name=""):
-    """Return only a canonical Project 1999 Wiki HTTPS URL."""
-    candidate = str(value or "").strip()
-    if candidate:
-        try:
-            parsed = urlsplit(candidate)
-            allowed_port = parsed.port in (None, 443)
-        except ValueError:
-            parsed = None
-            allowed_port = False
-        if (parsed is not None and parsed.scheme.casefold() == "https" and
-                parsed.hostname and parsed.hostname.casefold() ==
-                "wiki.project1999.com" and allowed_port and
-                not parsed.username and not parsed.password):
-            return candidate
-    name = _bounded_text(fallback_name, MAX_ITEM_NAME)
-    if not name:
-        return ""
-    return P99_WIKI_ORIGIN + "/" + quote(
-        name.replace(" ", "_"), safe="")
+    """Route saved canonical and mirror article links through the mirror."""
+    name = title_from_url(value) or _bounded_text(fallback_name, MAX_ITEM_NAME)
+    return page_url(name) if name else ""
 
 
 def _basic_mobile_item_detail(item, message=""):
@@ -391,7 +426,8 @@ def _merge_mobile_item_detail(item, wiki_detail):
         "drops": drops,
         "related_quests": quests,
         "notes": _bounded_text(wiki_detail.get("notes"), 2000),
-        "source": "Project 1999 Wiki · saved P99 item index",
+        "source": str(wiki_detail.get("source") or "Project 1999 Wiki") +
+                  " · saved P99 item index",
     })
     return detail
 
@@ -410,25 +446,24 @@ def load_mobile_item_detail(item):
                 return _merge_mobile_item_detail(item, cached)
     except (OSError, ValueError, json.JSONDecodeError):
         pass
-    request = Request(
-        P99_ITEM_DETAIL_API.format(
-            slug=quote(name.replace(" ", "_"), safe="")),
-        headers={"User-Agent": "Vantage/1.44.146"})
-    with urlopen(request, timeout=8) as response:
-        payload_bytes = response.read(MAX_WIKI_RESPONSE + 1)
-    if len(payload_bytes) > MAX_WIKI_RESPONSE:
-        raise ValueError("Wiki response is larger than the safe limit")
-    payload = json.loads(payload_bytes.decode("utf-8"))
+    payload = _read_mobile_wiki_page(name)
     parsed = payload.get("parse")
     if not isinstance(parsed, dict):
         raise ValueError("Project 1999 Wiki does not have this item page")
     wikitext = parsed.get("wikitext", {})
     if isinstance(wikitext, dict):
         wikitext = wikitext.get("*", "")
-    from vantage.parsers.market import parse_wiki_item_wikitext
-    wiki_detail = parse_wiki_item_wikitext(wikitext, name)
-    if not isinstance(wiki_detail, dict) or not wiki_detail.get("name"):
+    rendered = parsed.get("text", {})
+    if isinstance(rendered, dict):
+        rendered = rendered.get("*", "")
+    from vantage.parsers.market import parse_wiki_item_wikitext, parse_wiki_item_html
+    wiki_detail = (parse_wiki_item_wikitext(wikitext, name) if wikitext else
+                   parse_wiki_item_html(rendered, name))
+    if (not isinstance(wiki_detail, dict) or not wiki_detail.get("name") or
+            not any(wiki_detail.get(key) for key in ("stats", "effects", "drops", "notes"))):
         raise ValueError("No item detail was found")
+    if payload.get("_mirror"):
+        wiki_detail["source"] = "P99 Wiki mirror (reference snapshot)"
     try:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         pending = cache_path.with_suffix(cache_path.suffix + ".part")
@@ -560,7 +595,7 @@ function timerPhaseText(t,pn){const mode=timerMode(t),complete=mode!=='spawn'&&p
 function timerToggleText(t,pn){if(t.running)return'Pause';if(timerMode(t)!=='spawn'&&pn==='available')return'Start again';return pn==='idle'?'Start':'Resume'}
 let timerUid=0,lastConnection='',lastPoliteConnection='',pendingPoliteConnection='',lastPoliteConnectionAt=0,connectionAnnouncementDelay,polling=false,marketDelay,marketRequest=0,spellDelay,spellRequest=0,gameLoading=false,gameObjectUrl='',gameDelay,timerListWasEmpty=null,buffRoster=null,buffRosterSignature='',syncingZone=false,syncingGuild=false,pendingZone='',pendingGuild='',zoneRefreshDelay,guildRefreshDelay,guildAnnounceDelay,guildData={},zoneData={},questDelay,deferredInstallPrompt=null,detailReturnFocus=null,detailRequest=0;let timerStates=new Map();
 function node(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n}function announce(root,text){if(root.textContent!==text)root.textContent=text}
-function safeWikiUrl(value,name=''){const candidate=String(value||'').trim();if(candidate){try{const url=new URL(candidate,'https://wiki.project1999.com/');if(url.protocol==='https:'&&url.hostname.toLowerCase()==='wiki.project1999.com'&&(!url.port||url.port==='443')&&!url.username&&!url.password)return url.href}catch(_){}}return name?'https://wiki.project1999.com/'+encodeURIComponent(String(name).trim().replaceAll(' ','_')):''}
+function safeWikiUrl(value,name=''){const origin='https://p99.funcamp.net/',candidate=String(value||'').trim();if(candidate){try{const url=new URL(candidate,origin);if(url.protocol==='https:'&&['wiki.project1999.com','p99.funcamp.net'].includes(url.hostname.toLowerCase())&&(!url.port||url.port==='443')&&!url.username&&!url.password){let title=url.pathname==='/index.php'?url.searchParams.get('title'):decodeURIComponent(url.pathname.slice(1));if(title&&title.startsWith('index.php_title='))title=title.slice(16).split('&')[0];if(title&&!['api.php','index.php'].includes(title))return origin+encodeURIComponent(title.replaceAll(' ','_'))}}catch(_){}}return name?origin+encodeURIComponent(String(name).trim().replaceAll(' ','_')):''}
 function wikiLink(label,value,name){const url=safeWikiUrl(value,name);if(!url)return node('span','',label);const link=node('a','item-link',label);link.href=url;link.target='_blank';link.rel='noopener noreferrer';link.setAttribute('aria-label',label+'; opens in a new tab');return link}
 function showDetailDialog(){detailReturnFocus=document.activeElement;if(!detailDialog.open)detailDialog.showModal();requestAnimationFrame(()=>byId('detailClose').focus({preventScroll:true}))}
 function cacheKey(path){return dataCachePrefix+path}function readCached(path){try{const saved=JSON.parse(localStorage.getItem(cacheKey(path))||'null');return saved&&saved.data!==undefined?saved:null}catch(_){return null}}function writeCached(path,data){try{const key=cacheKey(path);let index=JSON.parse(localStorage.getItem(dataCacheIndexKey)||'[]');if(!Array.isArray(index))index=[];index=index.filter(item=>item!==key);while(index.length>=24)localStorage.removeItem(index.shift());localStorage.setItem(key,JSON.stringify({savedAt:Date.now(),data}));index.push(key);localStorage.setItem(dataCacheIndexKey,JSON.stringify(index))}catch(_){}}
@@ -647,8 +682,8 @@ timerZone.addEventListener('change',async()=>{if(syncingZone)return;timerZone.di
 function statValue(key,value){return ['dmg','dly'].includes(key)?String(value):(Number(value)>0?'+':'')+String(value)}function statSummary(item){const stats=item.stats||{},values=Object.entries(stats).slice(0,7).map(([key,value])=>(statLabels[key]||key.toUpperCase())+' '+statValue(key,value));return values.join(' · ')}
 function appendProperties(parent,rows){const list=node('dl','item-properties');for(const [label,value,wide] of rows){if(value===undefined||value===null||String(value).trim()==='')continue;const pair=node('div','item-property'+(wide?' wide':''));pair.append(node('dt','',label),node('dd','',String(value)));list.append(pair)}if(list.children.length)parent.append(list)}
 function appendMarketReference(item,statusNode){const market=node('section','market-reference');market.setAttribute('aria-label','Market reference');market.append(node('h3','','PIGPARSE MARKET REFERENCE'),node('span','price',item.price?Number(item.price).toLocaleString()+' pp':'No current price'),node('p','meta',String(Number(item.posts)||0)+' price observations in 30 days'));if(item.source)market.append(node('p','meta','Source · '+String(item.source)));statusNode.classList.add('market-status');market.append(statusNode);detailBody.append(market)}
-function appendItemDetail(item,statusNode){const sheet=node('section','item-sheet'),stats=item.stats&&typeof item.stats==='object'?item.stats:{},restrictions=item.restrictions||{},properties=item.properties||{},flags=Array.isArray(item.flags)?item.flags.filter(Boolean):[];sheet.setAttribute('aria-label',String(item.name||'Item')+' item properties');if(flags.length){const flagRow=node('div','item-flags');for(const flag of [...new Set(flags.map(String))])flagRow.append(node('span','chip',flag));sheet.append(flagRow)}const groups=[['WEAPON / DEFENSE',['dmg','dly','ac','attack','haste']],['HEALTH / MANA',['hp','mana','regen','manaregen']],['ATTRIBUTES',['astr','asta','adex','aagi','aint','awis','acha']],['RESISTS',['mr','fr','cr','dr','pr']]],used=new Set();for(const [title,keys] of groups){const rows=[];for(const key of keys){if(!(key in stats)||stats[key]===null||stats[key]==='')continue;used.add(key);rows.push([statLabels[key]||key.toUpperCase(),statValue(key,stats[key]),false])}if(rows.length){sheet.append(node('h3','item-section-title',title));appendProperties(sheet,rows)}}const other=Object.keys(stats).filter(key=>!used.has(key)&&stats[key]!==null&&stats[key]!=='').map(key=>[statLabels[key]||String(key).toUpperCase(),statValue(key,stats[key]),false]);if(other.length){sheet.append(node('h3','item-section-title','OTHER STATS'));appendProperties(sheet,other)}const useRows=[['Slots',Array.isArray(restrictions.slots)?restrictions.slots.join(', '):'',true],['Classes',Array.isArray(restrictions.classes)?restrictions.classes.join(', '):'',true],['Races',Array.isArray(restrictions.races)?restrictions.races.join(', '):'',true],['Skill',properties.skill,true],['Weight',properties.weight,false],['Size',properties.size,false],['Binding',restrictions.binding,true],['Era',restrictions.era,true]];if(useRows.some(row=>row[1])){sheet.append(node('h3','item-section-title','USE AND RESTRICTIONS'));appendProperties(sheet,useRows)}const effects=Array.isArray(item.effects)?item.effects:[];if(effects.length){sheet.append(node('h3','item-section-title','CLICK / PROC / WORN EFFECTS'));for(const effect of effects){const row=node('div','effect');row.append(node('span','',String(effect.type||'Effect')+' · '),wikiLink(String(effect.name||'Effect'),effect.url,effect.name));sheet.append(row)}}const drops=Array.isArray(item.drops)?item.drops:[];if(drops.length){sheet.append(node('h3','item-section-title','DROPS FROM'));for(const drop of drops){const row=node('div','effect');row.append(wikiLink(String(drop.npc||'NPC'),drop.npc_url,drop.npc),node('span','',' · '),wikiLink(String(drop.zone||'Zone'),drop.zone_url,drop.zone));sheet.append(row)}}const quests=Array.isArray(item.related_quests)?item.related_quests:[];if(quests.length){sheet.append(node('h3','item-section-title','RELATED QUESTS'));for(const quest of quests){const row=node('div','effect');row.append(wikiLink(String(quest.name||'Quest'),quest.url,quest.name));sheet.append(row)}}if(item.notes)sheet.append(node('h3','item-section-title','NOTES'),node('p','summary',String(item.notes)));if(item.stats_text){const original=node('details','item-original');original.append(node('summary','','Original item text'),node('p','summary',String(item.stats_text)));sheet.append(original)}const ids=item.ids||{},idText=Object.entries(ids).filter(([,value])=>value!==null&&value!==undefined&&String(value)!=='0'&&String(value)!=='').map(([key,value])=>key.toUpperCase()+' '+String(value)).join(' · ');if(idText)sheet.append(node('p','meta item-identifiers','IDs · '+idText));const link=wikiLink('Open complete Project 1999 Wiki item page',item.wiki_url,item.name);link.classList.add('source-link');link.setAttribute('aria-label','Open complete Project 1999 Wiki item page in a new tab');sheet.append(link);detailBody.append(sheet);appendMarketReference(item,statusNode);statusNode.textContent=item.status==='complete'?'Complete Project 1999 Wiki item details loaded.':String(item.message||'Showing saved item details.')}
-async function openMarketDetail(item){const request=++detailRequest,name=String(item.name||'Item');detailDialog.setAttribute('aria-busy','true');detailStatus.textContent='';detailTitle.textContent=name;detailBody.replaceChildren();const loadingStatus=node('p','meta','Loading complete Project 1999 Wiki item details…'),loadingItem=Object.assign({},item,{message:'Loading complete Project 1999 Wiki item details…'});appendItemDetail(loadingItem,loadingStatus);showDetailDialog();requestAnimationFrame(()=>{if(request===detailRequest&&detailDialog.open)announce(detailStatus,'Loading complete Project 1999 Wiki item details.')});try{const detail=await get('/api/item-detail?name='+encodeURIComponent(name));if(request!==detailRequest||!detailDialog.open)return;detailTitle.textContent=String(detail.name||name);detailBody.replaceChildren();const loadedStatus=node('p','meta','');appendItemDetail(detail,loadedStatus);detailDialog.setAttribute('aria-busy','false');requestAnimationFrame(()=>{if(request===detailRequest&&detailDialog.open)announce(detailStatus,loadedStatus.textContent)})}catch(_){if(request!==detailRequest||!detailDialog.open)return;detailBody.replaceChildren();const fallbackStatus=node('p','meta',''),fallback=Object.assign({},item,{wiki_url:safeWikiUrl(item.wiki_url,name),message:'Complete Wiki details are unavailable. Saved item data and the Wiki link remain available.'});appendItemDetail(fallback,fallbackStatus);detailDialog.setAttribute('aria-busy','false');requestAnimationFrame(()=>{if(request===detailRequest&&detailDialog.open)announce(detailStatus,fallbackStatus.textContent)})}}
+function appendItemDetail(item,statusNode){const sheet=node('section','item-sheet'),stats=item.stats&&typeof item.stats==='object'?item.stats:{},restrictions=item.restrictions||{},properties=item.properties||{},flags=Array.isArray(item.flags)?item.flags.filter(Boolean):[];sheet.setAttribute('aria-label',String(item.name||'Item')+' item properties');if(flags.length){const flagRow=node('div','item-flags');for(const flag of [...new Set(flags.map(String))])flagRow.append(node('span','chip',flag));sheet.append(flagRow)}const groups=[['WEAPON / DEFENSE',['dmg','dly','ac','attack','haste']],['HEALTH / MANA',['hp','mana','regen','manaregen']],['ATTRIBUTES',['astr','asta','adex','aagi','aint','awis','acha']],['RESISTS',['mr','fr','cr','dr','pr']]],used=new Set();for(const [title,keys] of groups){const rows=[];for(const key of keys){if(!(key in stats)||stats[key]===null||stats[key]==='')continue;used.add(key);rows.push([statLabels[key]||key.toUpperCase(),statValue(key,stats[key]),false])}if(rows.length){sheet.append(node('h3','item-section-title',title));appendProperties(sheet,rows)}}const other=Object.keys(stats).filter(key=>!used.has(key)&&stats[key]!==null&&stats[key]!=='').map(key=>[statLabels[key]||String(key).toUpperCase(),statValue(key,stats[key]),false]);if(other.length){sheet.append(node('h3','item-section-title','OTHER STATS'));appendProperties(sheet,other)}const useRows=[['Slots',Array.isArray(restrictions.slots)?restrictions.slots.join(', '):'',true],['Classes',Array.isArray(restrictions.classes)?restrictions.classes.join(', '):'',true],['Races',Array.isArray(restrictions.races)?restrictions.races.join(', '):'',true],['Skill',properties.skill,true],['Weight',properties.weight,false],['Size',properties.size,false],['Binding',restrictions.binding,true],['Era',restrictions.era,true]];if(useRows.some(row=>row[1])){sheet.append(node('h3','item-section-title','USE AND RESTRICTIONS'));appendProperties(sheet,useRows)}const effects=Array.isArray(item.effects)?item.effects:[];if(effects.length){sheet.append(node('h3','item-section-title','CLICK / PROC / WORN EFFECTS'));for(const effect of effects){const row=node('div','effect');row.append(node('span','',String(effect.type||'Effect')+' · '),wikiLink(String(effect.name||'Effect'),effect.url,effect.name));sheet.append(row)}}const drops=Array.isArray(item.drops)?item.drops:[];if(drops.length){sheet.append(node('h3','item-section-title','DROPS FROM'));for(const drop of drops){const row=node('div','effect');row.append(wikiLink(String(drop.npc||'NPC'),drop.npc_url,drop.npc),node('span','',' · '),wikiLink(String(drop.zone||'Zone'),drop.zone_url,drop.zone));sheet.append(row)}}const quests=Array.isArray(item.related_quests)?item.related_quests:[];if(quests.length){sheet.append(node('h3','item-section-title','RELATED QUESTS'));for(const quest of quests){const row=node('div','effect');row.append(wikiLink(String(quest.name||'Quest'),quest.url,quest.name));sheet.append(row)}}if(item.notes)sheet.append(node('h3','item-section-title','NOTES'),node('p','summary',String(item.notes)));if(item.stats_text){const original=node('details','item-original');original.append(node('summary','','Original item text'),node('p','summary',String(item.stats_text)));sheet.append(original)}const ids=item.ids||{},idText=Object.entries(ids).filter(([,value])=>value!==null&&value!==undefined&&String(value)!=='0'&&String(value)!=='').map(([key,value])=>key.toUpperCase()+' '+String(value)).join(' · ');if(idText)sheet.append(node('p','meta item-identifiers','IDs · '+idText));const link=wikiLink('Open complete P99 Wiki mirror item page for '+String(item.name||'Item'),item.wiki_url,item.name);link.classList.add('source-link');sheet.append(link);detailBody.append(sheet);appendMarketReference(item,statusNode);statusNode.textContent=item.status==='complete'?'P99 Wiki mirror item details loaded (reference snapshot).':String(item.message||'Showing saved item details.')}
+async function openMarketDetail(item){const request=++detailRequest,name=String(item.name||'Item');detailDialog.setAttribute('aria-busy','true');detailStatus.textContent='';detailTitle.textContent=name;detailBody.replaceChildren();const loadingStatus=node('p','meta','Loading complete P99 Wiki mirror item details…'),loadingItem=Object.assign({},item,{message:'Loading complete P99 Wiki mirror item details…'});appendItemDetail(loadingItem,loadingStatus);showDetailDialog();requestAnimationFrame(()=>{if(request===detailRequest&&detailDialog.open)announce(detailStatus,'Loading complete P99 Wiki mirror item details.')});try{const detail=await get('/api/item-detail?name='+encodeURIComponent(name));if(request!==detailRequest||!detailDialog.open)return;detailTitle.textContent=String(detail.name||name);detailBody.replaceChildren();const loadedStatus=node('p','meta','');appendItemDetail(detail,loadedStatus);detailDialog.setAttribute('aria-busy','false');requestAnimationFrame(()=>{if(request===detailRequest&&detailDialog.open)announce(detailStatus,loadedStatus.textContent)})}catch(_){if(request!==detailRequest||!detailDialog.open)return;detailBody.replaceChildren();const fallbackStatus=node('p','meta',''),fallback=Object.assign({},item,{wiki_url:safeWikiUrl(item.wiki_url,name),message:'Complete Wiki details are unavailable. Saved item data and the Wiki link remain available.'});appendItemDetail(fallback,fallbackStatus);detailDialog.setAttribute('aria-busy','false');requestAnimationFrame(()=>{if(request===detailRequest&&detailDialog.open)announce(detailStatus,fallbackStatus.textContent)})}}
 function createMarketRow(key){const row=node('li','card');row.dataset.key=key;const button=node('button','card-button');button.type='button';const top=node('div','top'),name=node('h3','name'),source=node('span','source','PIGPARSE');top.append(name,source);const priceLine=node('div','top'),price=node('span','price'),quality=node('span','quality');priceLine.append(price,quality);const meta=node('p','meta'),summary=node('p','stat-line');button.append(top,priceLine,meta,summary);button.addEventListener('click',()=>openMarketDetail(button._item));row.append(button);row._parts={button,name,price,quality,meta,summary};return row}
 function updateMarketRow(row,item){const p=row._parts,quality=String(item.quality||'Low'),summary=statSummary(item);p.button._item=item;p.name.textContent=String(item.name||'Item');p.price.textContent=item.price?Number(item.price).toLocaleString()+' pp':'—';p.quality.className='quality '+quality;p.quality.textContent=quality;p.meta.textContent=String(Number(item.posts)||0)+' price observations · '+(item.nodrop?'NO DROP':'Droppable')+(item.era?' · '+String(item.era).toUpperCase():'');p.summary.textContent=summary;p.summary.hidden=!summary}
 function stableReplace(root,signature,...children){signature=String(signature);if(root.dataset.renderSignature===signature)return false;const active=root.contains(document.activeElement)?document.activeElement:null,focusText=active?active.textContent:'';root.replaceChildren(...children);root.dataset.renderSignature=signature;if(focusText){const next=Array.from(root.querySelectorAll('button,a,input,select')).find(control=>control.textContent===focusText);if(next)next.focus({preventScroll:true})}return true}
@@ -663,18 +698,18 @@ async function loadGuild(){const path='/api/guild',cached=readCached(path);if(ca
 async function settleGuild(target,attempt=0){await loadGuild();if(String(guildData.slug||'')===target&&!guildData.loading){pendingGuild='';renderGuild();announce(guildStatus,String(guildData.guild||target)+' selected');return}if(attempt<28)guildRefreshDelay=setTimeout(()=>settleGuild(target,attempt+1),350);else{pendingGuild='';renderGuild();announce(guildStatus,'Guild did not finish loading. Choose it again to retry.')}}
 async function chooseGuild(target){if(!target||syncingGuild||pendingGuild)return;clearTimeout(guildRefreshDelay);pendingGuild=target;guildNote.textContent='Switching guild…';showListMessage(guildRoot,'Loading DKP and guild records…');announceGuild('Loading DKP and guild records…');try{await post('/api/browser/action',{action:'guild',target});settleGuild(target)}catch(_){pendingGuild='';renderGuild();announceGuild('Guild could not be selected.')}}
 function syncZoneOptions(data){const zones=Array.isArray(data.zones)?data.zones:[],wanted=String(pendingZone||data.selected||''),next=zones.map(zone=>String(zone.value||'')),current=Array.from(zoneSelect.options).slice(1).map(option=>option.value);syncingZone=true;if(JSON.stringify(current)!==JSON.stringify(next)){const placeholder=node('option','','Choose a zone…');placeholder.value='';zoneSelect.replaceChildren(placeholder,...zones.map(zone=>{const option=node('option','',String(zone.name||zone.value));option.value=String(zone.value||'');return option}))}zoneSelect.value=Array.from(zoneSelect.options).some(option=>option.value===wanted)?wanted:'';zoneSelect.disabled=!zones.length;zoneReload.disabled=!wanted;syncingZone=false}
-function renderZones(){syncZoneOptions(zoneData);const data=zoneData.data||{},view=byId('zoneView').value,query=byId('zoneSearch').value.trim().toLowerCase();let rows=[];if(view==='items')rows=(data.unique_items||[]).map(name=>({name,source:data.name||''}));else rows=(data.mobs||[]).filter(mob=>view!=='nameds'||mob.named);rows=rows.filter(row=>JSON.stringify(row).toLowerCase().includes(query));const status=String(zoneData.status||'Choose a zone to load its P99 Wiki information.');zoneNote.textContent=status;if(!rows.length){const failed=Boolean(zoneData.selected&&!zoneData.loading&&!data.name);if(data.name&&!query&&!zoneData.loading){const card=node('li','card data-card'),title=node('h3','',String(data.name)),summary=node('p','summary',String(data.summary||'Local Vantage zone reference is ready.')),availability=data.local_reference?'Local map and zone link are available; live Wiki mobs, drops, and nameds are temporarily unavailable.':'No '+view+' are listed in the current cached copy.';const link=node('a','source-link','Open full P99 Wiki zone');link.href='https://wiki.project1999.com/'+encodeURIComponent(String(data.name).replaceAll(' ','_'));link.target='_blank';link.rel='noopener noreferrer';card.append(title,summary,node('p','meta',availability),link);stableReplace(zoneRoot,'zone-reference:'+JSON.stringify([data.name,data.summary,availability]),card);announce(zoneStatus,'Local reference for '+String(data.name)+' shown');return}showListMessage(zoneRoot,zoneData.loading?'Loading zone information…':failed?status:'No matching '+view+' in this zone.');return}stableReplace(zoneRoot,'zone:'+JSON.stringify([view,rows]),...rows.slice(0,300).map(item=>{const row=node('li','card data-card'),title=node('h3','',String(item.name||item));row.append(title);if(view==='items'){const link=node('button','card-button item-link','Open item details');link.type='button';link.addEventListener('click',()=>openLinkedItem(item.name,'https://wiki.project1999.com/'+encodeURIComponent(String(item.name).replaceAll(' ','_'))));row.append(link)}else{const bits=[item.level&&('LEVEL '+item.level),item.class,item.race,item.location].filter(Boolean);row.append(node('p','meta',bits.join(' · ')));if(item.loot)row.append(node('p','summary','DROPS · '+String(item.loot)))}return row}));announce(zoneStatus,rows.length+' '+view+' shown')}
+function renderZones(){syncZoneOptions(zoneData);const data=zoneData.data||{},view=byId('zoneView').value,query=byId('zoneSearch').value.trim().toLowerCase();let rows=[];if(view==='items')rows=(data.unique_items||[]).map(name=>({name,source:data.name||''}));else rows=(data.mobs||[]).filter(mob=>view!=='nameds'||mob.named);rows=rows.filter(row=>JSON.stringify(row).toLowerCase().includes(query));const status=String(zoneData.status||'Choose a zone to load its P99 Wiki information.');zoneNote.textContent=status;if(!rows.length){const failed=Boolean(zoneData.selected&&!zoneData.loading&&!data.name);if(data.name&&!query&&!zoneData.loading){const card=node('li','card data-card'),title=node('h3','',String(data.name)),summary=node('p','summary',String(data.summary||'Local Vantage zone reference is ready.')),availability=data.local_reference?'Local map and zone link are available; live Wiki mobs, drops, and nameds are temporarily unavailable.':'No '+view+' are listed in the current cached copy.';const link=wikiLink('Open '+String(data.name)+' on P99 Wiki mirror','',data.name);link.classList.add('source-link');card.append(title,summary,node('p','meta',availability),link);stableReplace(zoneRoot,'zone-reference:'+JSON.stringify([data.name,data.summary,availability]),card);announce(zoneStatus,'Local reference for '+String(data.name)+' shown');return}showListMessage(zoneRoot,zoneData.loading?'Loading zone information…':failed?status:'No matching '+view+' in this zone.');return}stableReplace(zoneRoot,'zone:'+JSON.stringify([view,rows]),...rows.slice(0,300).map(item=>{const row=node('li','card data-card'),title=node('h3','',String(item.name||item));row.append(title);if(view==='items'){const link=node('button','card-button item-link','Open item details');link.type='button';link.addEventListener('click',()=>openLinkedItem(item.name,'https://p99.funcamp.net/'+encodeURIComponent(String(item.name).replaceAll(' ','_'))));row.append(link)}else{const bits=[item.level&&('LEVEL '+item.level),item.class,item.race,item.location].filter(Boolean);row.append(node('p','meta',bits.join(' · ')));if(item.loot)row.append(node('p','summary','DROPS · '+String(item.loot)))}return row}));announce(zoneStatus,rows.length+' '+view+' shown')}
 async function loadZones(){const path='/api/zones',cached=readCached(path);if(cached&&!zoneRoot.children.length){zoneData=cached.data;renderZones()}zoneRoot.setAttribute('aria-busy','true');try{zoneData=await get(path);renderZones();return true}catch(_){retainOrExplain(zoneRoot,zoneStatus,'Zone information could not be refreshed.');return false}finally{zoneRoot.setAttribute('aria-busy','false')}}
 async function settleZone(target,attempt=0){await loadZones();if(String(zoneData.selected||'')===target&&!zoneData.loading){pendingZone='';renderZones();announce(zoneStatus,String(zoneData.status||'Zone loaded'));return}if(attempt<28)zoneRefreshDelay=setTimeout(()=>settleZone(target,attempt+1),350);else{pendingZone='';renderZones();announce(zoneStatus,'Zone did not finish loading. Use Reload selected zone to retry.')}}
 async function chooseZone(target){if(!target||syncingZone||pendingZone)return;clearTimeout(zoneRefreshDelay);pendingZone=target;zoneData={...zoneData,selected:target,loading:true,status:'Loading selected zone…',data:{}};renderZones();try{await post('/api/browser/action',{action:'zone',target});settleZone(target)}catch(_){pendingZone='';renderZones();announce(zoneStatus,'Zone could not be opened. Use Reload selected zone to retry.')}}
-function showQuestDetail(quest){if(!quest||!quest.title){questDetail.hidden=true;questDetail.replaceChildren();return}questDetail.hidden=false;questDetail.replaceChildren(node('h3','',String(quest.title)),node('p','summary',String(quest.summary||'No summary available.')));const steps=Array.isArray(quest.steps)?quest.steps:[];if(steps.length){const list=node('ol','quest-steps');for(const step of steps){const text=typeof step==='string'?step:String(step.text||'');if(text)list.append(node('li','',text))}questDetail.append(list)}if(quest.wiki_url){const link=node('a','source-link','Open full P99 Wiki quest');link.href=quest.wiki_url;link.target='_blank';link.rel='noopener noreferrer';questDetail.append(link)}}
+function showQuestDetail(quest){if(!quest||!quest.title){questDetail.hidden=true;questDetail.replaceChildren();return}questDetail.hidden=false;questDetail.replaceChildren(node('h3','',String(quest.title)),node('p','summary',String(quest.summary||'No summary available.')));const steps=Array.isArray(quest.steps)?quest.steps:[];if(steps.length){const list=node('ol','quest-steps');for(const step of steps){const text=typeof step==='string'?step:String(step.text||'');if(text)list.append(node('li','',text))}questDetail.append(list)}if(quest.wiki_url){const link=wikiLink('Open '+String(quest.title)+' on P99 Wiki mirror',quest.wiki_url,quest.title);link.classList.add('source-link');questDetail.append(link)}}
 function drawQuests(data){questNote.textContent=String(data.status||'Quest catalog')+' · '+String(data.total||0)+' matches';showQuestDetail(data.current);const titles=Array.isArray(data.titles)?data.titles:[];if(!titles.length){showListMessage(questRoot,data.loading?'Loading the quest catalog…':'No quests match this search.')}else stableReplace(questRoot,'quests:'+JSON.stringify(titles),...titles.map(title=>{const row=node('li','card'),button=node('button','card-button',title);button.type='button';button.addEventListener('click',async()=>{try{await post('/api/browser/action',{action:'quest',target:title});setTimeout(loadQuests,220);setTimeout(loadQuests,900)}catch(_){announce(questStatus,'Quest could not be opened.')}});row.append(button);return row}));announce(questStatus,String(data.total||0)+' matching quests')}
 async function loadQuests(){const path='/api/quests?q='+encodeURIComponent(byId('questSearch').value);restoreCached(path,questRoot,drawQuests);questRoot.setAttribute('aria-busy','true');try{drawQuests(await get(path))}catch(_){retainOrExplain(questRoot,questStatus,'Quest catalog could not be refreshed.')}finally{questRoot.setAttribute('aria-busy','false')}}
 async function poll(){if(polling)return;if(!token){setConnection('PAIRING NEEDED',true,'No saved Vantage link exists on this device. Scan the Mobile Host QR once.',true);return}polling=true;timersRoot.setAttribute('aria-busy','true');try{drawTimers(await get('/api/state'));rememberPairing(token);setConnection('LIVE',false,'Vantage is connected and data is current.')}catch(error){if(error&&[401,403].includes(Number(error.status))){forgetPairing();token='';setConnection('LINK REVOKED',true,'This saved Vantage link no longer exists. Scan the Mobile Host QR once to pair again.',true)}else setConnection('RECONNECTING · SAVED',true,'Vantage is closed or unreachable. Showing saved data and retrying the last paired address automatically.')}finally{timersRoot.setAttribute('aria-busy','false');polling=false}}
 function params(ids){const p=new URLSearchParams();for(const [key,id] of Object.entries(ids))p.set(key,byId(id).value);return p}
 async function loadMarket(announceLoading=true){const request=++marketRequest,p=params({q:'mq',class:'mc',race:'mr',slot:'ms',effect:'me',drop:'md',era:'mera',sort:'mso'}),path='/api/market?'+p;restoreCached(path,marketRoot,drawMarket);marketRoot.setAttribute('aria-busy','true');if(announceLoading)announce(marketStatus,'Loading market and item stats.');try{const data=await get(path);if(request!==marketRequest)return;drawMarket(data);announce(marketStatus,(Number(data.total)||0)+' matches')}catch(_){if(request!==marketRequest)return;retainOrExplain(marketRoot,marketStatus,'Market data could not be refreshed.')}finally{if(request===marketRequest)marketRoot.setAttribute('aria-busy','false')}}
 function marketChanged(){clearTimeout(marketDelay);marketDelay=setTimeout(()=>loadMarket(true),220)}for(const id of ['mq','mc','mr','ms','me','md','mera','mso'])byId(id).addEventListener(id==='mq'?'input':'change',marketChanged);byId('marketFilters').addEventListener('submit',event=>{event.preventDefault();clearTimeout(marketDelay);loadMarket(true)});
-async function openSpellDetail(spell){const request=++detailRequest;detailTitle.textContent=String(spell.name||'Spell');detailBody.replaceChildren();const top=node('div','top');top.append(node('span','source','P99 CLASSIC DATA'),node('span','chip','SPELL ID '+String(spell.spell_id||'—')));const effectBox=node('div','');effectBox.append(node('h3','detail-section','WHAT IT DOES'),node('p','summary',String(spell.effect_hint||'Loading the exact Project 1999 Wiki description…')));detailBody.append(top,effectBox,node('h3','detail-section','CLASSES AND LEVELS'));for(const profile of spell.class_levels||[])detailBody.append(node('div','effect',String(profile[0])+' · Level '+String(profile[1])));if(spell.price)detailBody.append(node('h3','detail-section','PIGPARSE GREEN PRICE'),node('p','price',Number(spell.price).toLocaleString()+' pp'),node('p','meta',String(Number(spell.posts)||0)+' price observations in 30 days · '+String(spell.quality||'Low')+' confidence'));const link=wikiLink('Open complete Project 1999 Wiki spell page',spell.wiki_url,spell.name);link.classList.add('source-link');link.setAttribute('aria-label','Open complete Project 1999 Wiki spell page in a new tab');detailBody.append(link);showDetailDialog();try{const detail=await get('/api/spell-detail?name='+encodeURIComponent(String(spell.name||'')));if(request!==detailRequest||!detailDialog.open)return;effectBox.replaceChildren(node('h3','detail-section','WHAT IT DOES'));effectBox.append(node('p','summary',String(detail.description||spell.effect_hint||'No description available.')));for(const effect of detail.effects||[])effectBox.append(node('div','effect',String(effect)));effectBox.append(node('p','meta','Source · '+String(detail.source||'Project 1999 Wiki')))}catch(_){if(request!==detailRequest||!detailDialog.open)return;effectBox.append(node('p','meta','Exact Wiki description is unavailable; showing bundled spell text.'))}}
+async function openSpellDetail(spell){const request=++detailRequest;detailTitle.textContent=String(spell.name||'Spell');detailBody.replaceChildren();const top=node('div','top');top.append(node('span','source','P99 CLASSIC DATA'),node('span','chip','SPELL ID '+String(spell.spell_id||'—')));const effectBox=node('div','');effectBox.append(node('h3','detail-section','WHAT IT DOES'),node('p','summary',String(spell.effect_hint||'Loading the exact Project 1999 Wiki description…')));detailBody.append(top,effectBox,node('h3','detail-section','CLASSES AND LEVELS'));for(const profile of spell.class_levels||[])detailBody.append(node('div','effect',String(profile[0])+' · Level '+String(profile[1])));if(spell.price)detailBody.append(node('h3','detail-section','PIGPARSE GREEN PRICE'),node('p','price',Number(spell.price).toLocaleString()+' pp'),node('p','meta',String(Number(spell.posts)||0)+' price observations in 30 days · '+String(spell.quality||'Low')+' confidence'));const link=wikiLink('Open complete P99 Wiki mirror spell page for '+String(spell.name||'Spell'),spell.wiki_url,spell.name);link.classList.add('source-link');detailBody.append(link);showDetailDialog();try{const detail=await get('/api/spell-detail?name='+encodeURIComponent(String(spell.name||'')));if(request!==detailRequest||!detailDialog.open)return;effectBox.replaceChildren(node('h3','detail-section','WHAT IT DOES'));effectBox.append(node('p','summary',String(detail.description||spell.effect_hint||'No description available.')));for(const effect of detail.effects||[])effectBox.append(node('div','effect',String(effect)));effectBox.append(node('p','meta','Source · '+String(detail.source||'P99 Wiki mirror')))}catch(_){if(request!==detailRequest||!detailDialog.open)return;effectBox.append(node('p','meta','Exact Wiki description is unavailable; showing bundled spell text.'))}}
 function drawSpells(data){const items=Array.isArray(data.items)?data.items:[];spellNote.textContent=String(Number(data.total)||0)+' matches · local class/level index · tap for exact effects';if(!items.length){showListMessage(spellRoot,'No spells match these filters.');return}spellRoot.replaceChildren(...items.map(spell=>{const row=node('li','card'),button=node('button','card-button');button.type='button';const top=node('div','top'),name=node('h3','name',String(spell.name)),level=node('span','chip',String(spell.selected_class||'ALL')+' '+String(spell.selected_level||''));top.append(name,level);button.append(top,node('p','summary',String(spell.effect_hint||(spell.class_levels||[]).map(profile=>profile[0]+' '+profile[1]).join(' · '))));if(spell.price)button.append(node('p','stat-line','PigParse · '+Number(spell.price).toLocaleString()+' pp'));button.addEventListener('click',()=>openSpellDetail(spell));row.append(button);return row}))}
 function syncSpellLevels(levels){const select=byId('sl'),current=select.value,available=(Array.isArray(levels)?levels:[]).map(Number).filter(level=>level>=1&&level<=60);select.replaceChildren();const any=node('option','','Any level');any.value='0';select.append(any,...available.map(level=>{const option=node('option','',`Level ${level}`);option.value=String(level);return option}));select.value=available.includes(Number(current))?current:'0'}
 async function loadSpells(announceLoading=true){const request=++spellRequest,p=params({q:'sq',class:'sc',level:'sl'}),path='/api/spells?'+p,cached=readCached(path);if(cached&&!spellRoot.children.length){syncSpellLevels(cached.data.available_levels);drawSpells(cached.data)}spellRoot.setAttribute('aria-busy','true');if(announceLoading)announce(spellStatus,'Loading spells.');try{const data=await get(path);if(request!==spellRequest)return;syncSpellLevels(data.available_levels);drawSpells(data);announce(spellStatus,(Number(data.total)||0)+' spell matches')}catch(_){if(request!==spellRequest)return;retainOrExplain(spellRoot,spellStatus,'Spell library could not be refreshed.')}finally{if(request===spellRequest)spellRoot.setAttribute('aria-busy','false')}}
@@ -708,7 +743,7 @@ class _ShareHTTPServer(ThreadingHTTPServer):
 
 
 class _ShareHandler(BaseHTTPRequestHandler):
-    server_version = "VantageMobile/1.44.146"
+    server_version = "VantageMobile/1.44.147"
 
     def log_message(self, *_):
         # Do not write access paths or the user's network details to disk.
@@ -1315,8 +1350,7 @@ class MobileShareController(QObject):
             "class_levels": entry.class_levels,
             "icon_id": entry.icon_id,
             "effect_hint": entry.effect_hint,
-            "wiki_url": "https://wiki.project1999.com/" + quote(
-                entry.name.replace(" ", "_"), safe=""),
+            "wiki_url": page_url(entry.name),
         } for entry in p99_spell_entries())
         self.timer_action_requested.connect(self._dispatch_timer_action)
         self.browse_action_requested.connect(self._dispatch_browse_action)

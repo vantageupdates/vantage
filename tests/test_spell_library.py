@@ -90,7 +90,7 @@ Combine [[Rune A]] and [[Rune B]].
     assert "background:white" not in sanitized.casefold()
     assert "color=black" not in sanitized.casefold()
     assert "border=" not in sanitized.casefold()
-    assert 'href="https://wiki.project1999.com/Torpor"' in sanitized
+    assert 'href="https://p99.funcamp.net/Torpor"' in sanitized
     assert _wiki_title_from_url(
         "https://wiki.project1999.com/Emperor_Chottal") == "Emperor Chottal"
     assert _wiki_title_from_url(

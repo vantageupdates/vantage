@@ -32,7 +32,15 @@
         const match=/^\/spreadsheets\/d\/([A-Za-z0-9_-]{10,180})(?:\/(?:edit|view|preview|htmlview))?\/?$/.exec(url.pathname);
         return url.hostname === 'docs.google.com' && match ? 'https://docs.google.com/spreadsheets/d/'+match[1]+'/edit' : '';
       }
-      return url.hostname === 'wiki.project1999.com' ? 'https://wiki.project1999.com'+url.pathname : '';
+      if (!['wiki.project1999.com', 'p99.funcamp.net'].includes(url.hostname)) return '';
+      let path = url.pathname;
+      if (path === '/api.php') return '';
+      if (path === '/index.php' || path.startsWith('/index.php_title=')) {
+        const title = path === '/index.php' ? url.searchParams.get('title') : decodeURIComponent(path.slice(17).split('&')[0]);
+        if (!title || title.length > 300 || /[\u0000-\u001F]/.test(title)) return '';
+        path = '/' + encodeURIComponent(title.replace(/ /g, '_'));
+      }
+      return 'https://p99.funcamp.net' + path + url.hash;
     } catch (_) { return ''; }
   }
   function snapshot(input) {

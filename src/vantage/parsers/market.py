@@ -51,6 +51,11 @@ from vantage.helpers.scaled_dialog import UniformScaleDialog
 from vantage.helpers.wiki_access import (
     cached_reference_status, read_wiki_bytes, read_wiki_reply, wiki_access,
     write_wiki_cache, write_wiki_cache_bytes)
+from vantage.helpers.wiki_source import PAGE_TEMPLATE
+from vantage.helpers.wiki_mirror_details import (
+    parse_item_html as parse_wiki_item_html,
+    parse_entity_html as parse_wiki_entity_html,
+    parse_zone_html as parse_wiki_zone_html)
 from vantage.parsers.maps.mapdata import MapData
 
 
@@ -59,13 +64,11 @@ MARKET_ALERT_VOLUME = 72
 MARKET_ENDPOINT = "https://pigparse.azurewebsites.net/api/item/getall/Green"
 DETAIL_API = "https://pigparse.azurewebsites.net/api/item/getdetails/Green/{item_name}"
 DETAIL_URL = "https://pigparse.azurewebsites.net/ItemDetails/{item_id}"
-P99_WIKI_URL = "https://wiki.project1999.com/{slug}"
-P99_WIKI_API = (
-    "https://wiki.project1999.com/api.php?action=parse&page={slug}"
-    "&prop=text%7Cwikitext%7Cimages&format=json")
-P99_WIKI_IMAGE_URL = "https://wiki.project1999.com/images/{filename}"
-P99_RECHARGE_GUIDE_URL = (
-    "https://wiki.project1999.com/Guide_to_Recharging_Items")
+P99_WIKI_URL = PAGE_TEMPLATE
+# Preserve the public constant for existing callers; requests now read HTML.
+P99_WIKI_API = PAGE_TEMPLATE
+P99_WIKI_IMAGE_URL = "https://p99.funcamp.net/images/{filename}"
+P99_RECHARGE_GUIDE_URL = "https://p99.funcamp.net/Guide_to_Recharging_Items"
 ZAM_SEARCH_URL = "https://everquest.allakhazam.com/search.html?q={query}"
 ZAM_ORIGIN_HOST = "everquest.allakhazam.com"
 ZAM_TIMEOUT_MS = 6500
@@ -860,6 +863,8 @@ def _wiki_link_labels(value):
 
 def parse_wiki_zone_payload(wikitext, rendered_html, fallback_name=""):
     """Return a searchable zone and NPC catalog from one P99 Wiki page."""
+    if not str(wikitext or "").strip() and rendered_html:
+        return parse_wiki_zone_html(rendered_html, fallback_name)
     source = str(wikitext or "")
     zone_name = str(fallback_name or "").replace("_", " ").strip()
     level_range = _plain_wiki_text(
@@ -1043,8 +1048,10 @@ def _parse_wiki_related_quests(source):
     return quests
 
 
-def parse_wiki_item_wikitext(wikitext, fallback_name=""):
-    """Extract the classic P99 Wiki itembox without rendering a web page."""
+def parse_wiki_item_wikitext(wikitext, fallback_name="", rendered_html=""):
+    """Read cached Wiki markup or the public mirror's rendered item block."""
+    if not str(wikitext or "").strip() and rendered_html:
+        return parse_wiki_item_html(rendered_html, fallback_name)
     source = str(wikitext or "")
     box = re.search(
         r"\{\{Itembox\b(?P<body>.*?)(?:\n\}\}|\}\})",
@@ -1263,7 +1270,7 @@ def combined_market_price(item, wiki_auction, closeness=1.30):
             pig_price, pig_period = candidate, period
             break
     wiki_price = int((wiki_auction or {}).get("reference") or 0)
-    if not pig_price or not wiki_price:
+    if not pig_price or not wiki_price or (wiki_auction or {}).get("archived"):
         return {
             "pig": pig_price, "pig_period": pig_period,
             "wiki": wiki_price, "combined": 0, "close": False,
@@ -1283,8 +1290,10 @@ def combined_market_price(item, wiki_auction, closeness=1.30):
     }
 
 
-def parse_wiki_entity_wikitext(wikitext, fallback_name="", kind="npc"):
-    """Extract a short native NPC or zone summary from P99 Wiki markup."""
+def parse_wiki_entity_wikitext(wikitext, fallback_name="", kind="npc", rendered_html=""):
+    """Read cached Wiki markup or public mirror entity details."""
+    if not str(wikitext or "").strip() and rendered_html:
+        return parse_wiki_entity_html(rendered_html, fallback_name, kind)
     source = str(wikitext or "")
     if kind == "effect":
         name = (
@@ -2527,9 +2536,10 @@ class WikiItemCard(UniformScaleDialog):
         }
         self._render_obtaining()
         self.source.setText(
-            "PROJECT 1999 WIKI · " + ("LOCAL CACHE" if cached else "UPDATED"))
+            "PROJECT 1999 WIKI · " + ("LOCAL CACHE" if cached else
+            "PUBLIC MIRROR" if data.get("source") else "UPDATED"))
         self.source.setToolTip(cached_reference_status(data) if cached else
-                               "Updated from Project 1999 Wiki")
+                               str(data.get("source") or "Updated from Project 1999 Wiki"))
         self._set_auction_price(data.get("auction") or {})
         if token is not None:
             self._finish_source_part("p99", "updated", token)
@@ -2761,7 +2771,9 @@ class WikiItemCard(UniformScaleDialog):
             f"P99 Wiki {self.server} · {wiki_price:,} pp ({wiki_period}"
             + (f" · {seen} listings" if seen else "")
             + (f" · {last_date}" if last_date else "") + ")")
-        if comparison["close"]:
+        if auction.get("archived"):
+            headline = "ARCHIVED WIKI REFERENCE · mirror snapshot; not a current quote"
+        elif comparison["close"]:
             headline = (
                 f"COMBINED ESTIMATE · {comparison['combined']:,} pp\n"
                 f"Sources agree · {comparison['difference_percent']:.1f}% difference")
@@ -4632,7 +4644,7 @@ class GreenMarket(ParserWindow):
             slug=quote(requested.replace(" ", "_"), safe=""))))
         request.setTransferTimeout(P99_ENTITY_TIMEOUT_MS)
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.146")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.147")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_finished(
             reply, requested, cached_path))
@@ -4773,7 +4785,7 @@ class GreenMarket(ParserWindow):
             slug=quote(target.replace(" ", "_"), safe=""))))
         request.setTransferTimeout(P99_ENTITY_TIMEOUT_MS)
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.146")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.147")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._zone_npc_drops_finished(
             reply, mob, target, key, cache_path))
@@ -4789,7 +4801,8 @@ class GreenMarket(ParserWindow):
             if isinstance(wikitext, dict):
                 wikitext = wikitext.get("*", "")
             entity = parse_wiki_entity_wikitext(
-                wikitext, fallback_name=target, kind="npc")
+                wikitext, fallback_name=target, kind="npc",
+                rendered_html=parsed.get("text", {}).get("*", ""))
             write_wiki_cache(cache_path, entity)
             self._apply_zone_npc_drops(mob, entity.get("drops") or [])
         except (OSError, RuntimeError, UnicodeError, ValueError,
@@ -5135,7 +5148,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(wiki_name.replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.146")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.147")
         reply = self._network.get(request)
         timer = QTimer(self)
         timer.setSingleShot(True)
@@ -5226,7 +5239,7 @@ class GreenMarket(ParserWindow):
             return None
         request = QNetworkRequest(QUrl(safe_url))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.146")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.147")
         reply = self._network.get(request)
         timer = QTimer(self)
         timer.setSingleShot(True)
@@ -5364,7 +5377,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(str(target).replace(" ", "_"), safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.146")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.147")
         request.setTransferTimeout(P99_ENTITY_TIMEOUT_MS)
         reply = self._network.get(request)
         context = {
@@ -5418,7 +5431,8 @@ class GreenMarket(ParserWindow):
                 wikitext = wikitext.get("*", "")
             data = parse_wiki_entity_wikitext(
                 wikitext, fallback_name=context["target"],
-                kind=context["kind"])
+                kind=context["kind"],
+                rendered_html=parse.get("text", {}).get("*", ""))
             card.set_entity_data(data)
             write_wiki_cache(context["cache_path"], data)
         except (OSError, RuntimeError, UnicodeError, ValueError,
@@ -5458,12 +5472,14 @@ class GreenMarket(ParserWindow):
             wikitext = parse.get("wikitext", {})
             if isinstance(wikitext, dict):
                 wikitext = wikitext.get("*", "")
-            data = parse_wiki_item_wikitext(wikitext, card.item_name)
             rendered = parse.get("text", {})
             if isinstance(rendered, dict):
                 rendered = rendered.get("*", "")
+            data = parse_wiki_item_wikitext(wikitext, card.item_name, rendered)
             data["auction"] = parse_wiki_auction_html(
                 rendered, card.server)
+            if payload.get("_mirror"):
+                data["auction"]["archived"] = True
             card.set_item_data(data, token=token)
             write_wiki_cache(json_path, data)
 
@@ -5471,11 +5487,13 @@ class GreenMarket(ParserWindow):
                 (name for name in parse.get("images", [])
                  if str(name).casefold().startswith("item_")), "")
             if image_name:
-                image_request = QNetworkRequest(QUrl(P99_WIKI_IMAGE_URL.format(
-                    filename=quote(str(image_name), safe="._-"))))
+                image_request = QNetworkRequest(QUrl(
+                    str(image_name) if str(image_name).startswith("https://p99.funcamp.net/images/")
+                    else P99_WIKI_IMAGE_URL.format(
+                        filename=quote(str(image_name), safe="._-"))))
                 image_request.setHeader(
                     QNetworkRequest.KnownHeaders.UserAgentHeader,
-                    "Vantage/1.44.146")
+                    "Vantage/1.44.147")
                 image_request.setTransferTimeout(P99_ITEM_TIMEOUT_MS)
                 image_reply = self._network.get(image_request)
                 image_reply.finished.connect(
@@ -5709,7 +5727,7 @@ class GreenMarket(ParserWindow):
     def _refresh_gear_index(self):
         request = QNetworkRequest(QUrl(GEAR_META_URL))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.146")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.147")
         reply = self._network.get(request)
         reply.finished.connect(lambda: self._gear_meta_finished(reply))
 
@@ -5736,7 +5754,7 @@ class GreenMarket(ParserWindow):
             request = QNetworkRequest(QUrl(GEAR_DB_URL))
             request.setHeader(
                 QNetworkRequest.KnownHeaders.UserAgentHeader,
-                "Vantage/1.44.146")
+                "Vantage/1.44.147")
             db_reply = self._network.get(request)
             db_reply.setProperty("expected_sha256", expected)
             db_reply.finished.connect(lambda: self._gear_db_finished(db_reply))
@@ -6118,7 +6136,7 @@ class GreenMarket(ParserWindow):
         self.status.setText(f"Refreshing PigParse {server}…")
         request = QNetworkRequest(QUrl(market_endpoint(server)))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.146")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.147")
         reply = self._network.get(request)
         reply.setProperty("market_server", server)
         reply.finished.connect(lambda: self._finished(reply))
@@ -6246,7 +6264,7 @@ class GreenMarket(ParserWindow):
         request = QNetworkRequest(QUrl(market_detail_api(server).format(
             item_name=quote(name, safe=""))))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.146")
+            QNetworkRequest.KnownHeaders.UserAgentHeader, "Vantage/1.44.147")
         reply = self._network.get(request)
         reply.setProperty("market_item_name", name)
         reply.setProperty("market_server", server)
@@ -6345,10 +6363,10 @@ class GreenMarket(ParserWindow):
             f"<a href='{pigparse_server_url(server)}'>PigParse · {server}</a> — catalog, averages, and history. "
             "The API reports a 10-minute rebuild cycle.<br><br>"
             "<b>Secondary reference:</b><br>"
-            "<a href='https://wiki.project1999.com/Special:AuctionTracker'>"
-            f"Project 1999 Wiki Auction Tracker</a> — secondary {server} price. "
-            "Vantage creates a 50/50 average only when both recent references "
-            "differ by 30% or less; otherwise it preserves and displays each value separately.<br><br>"
+            "<a href='https://p99.funcamp.net/Main_Page'>"
+            f"Project 1999 Wiki public mirror</a> — archived {server} auction reference. "
+            "The mirror is a snapshot; its auction values are shown separately "
+            "and are never combined with current PigParse prices.<br><br>"
             "<b>Equipment stats, effects, and filters:</b><br>"
             f"<a href='{P99_PLANNER_URL}'>P99 Planner item index</a> — "
             f"{self._gear_source}. Supplies class, race, slot, AC, attributes, "

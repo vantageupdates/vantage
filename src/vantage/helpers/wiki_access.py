@@ -16,6 +16,8 @@ import tempfile
 import time
 
 from PySide6.QtNetwork import QNetworkReply, QNetworkRequest
+from vantage.helpers.wiki_source import MAX_PAGE_BYTES, SOURCE_NAME, parse_page, title_from_url
+from urllib.parse import urlsplit
 
 
 class WikiAccess:
@@ -77,7 +79,7 @@ def _header(reply, name):
     return ""
 
 
-def read_wiki_bytes(reply):
+def read_wiki_bytes(reply, *, allow_html=False):
     """Reject challenges and HTTP failures before accepting JSON or an image."""
     raw = bytes(reply.readAll()) if hasattr(reply, "readAll") else b""
     status = reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute) \
@@ -100,14 +102,33 @@ def read_wiki_bytes(reply):
     if reply.error() != QNetworkReply.NetworkError.NoError:
         raise ValueError(reply.errorString() if hasattr(reply, "errorString")
                          else "Wiki unavailable")
-    if status >= 400 or html:
+    if status >= 400 or html and not allow_html:
         raise ValueError("Wiki returned an error page; saved references retained")
+    url = reply.url().toString() if callable(getattr(reply, 'url', None)) else ''
+    if url:
+        try:
+            parsed_url = urlsplit(url)
+            trusted = (parsed_url.scheme == 'https' and parsed_url.hostname in
+                       {'wiki.project1999.com', 'p99.funcamp.net'} and
+                       not parsed_url.username and not parsed_url.password and
+                       parsed_url.port in (None, 443))
+        except ValueError:
+            trusted = False
+        if not trusted:
+            raise ValueError('Wiki redirected outside the reference source')
     return raw
 
 
 def read_wiki_reply(reply, *, page=False, rendered=False):
-    """Accept API data only; detect access challenges even on HTTP errors."""
-    raw = read_wiki_bytes(reply)
+    """Read mirror pages while retaining existing validated API/cache support."""
+    raw = read_wiki_bytes(reply, allow_html=True)
+    if len(raw) > MAX_PAGE_BYTES:
+        raise ValueError('Wiki response is larger than the safe limit')
+    if raw.lstrip().startswith(b'<'):
+        url = reply.url().toString() if callable(getattr(reply, 'url', None)) else ''
+        payload = parse_page(raw, title_from_url(url))
+        wiki_access.succeeded()
+        return payload
     payload = json.loads(raw.decode("utf-8"))
     if not isinstance(payload, dict) or not payload:
         raise ValueError("Wiki returned no usable data")
@@ -143,7 +164,8 @@ def write_wiki_cache(path, payload):
     saved = dict(payload)
     saved["_wiki_cache"] = {
         "saved_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "source": "Project 1999 Wiki", "coverage": "on-demand reference",
+        "source": payload.get('_source') or SOURCE_NAME,
+        "coverage": "on-demand reference",
     }
     try:
         encoded = json.dumps(saved, ensure_ascii=False).encode("utf-8")

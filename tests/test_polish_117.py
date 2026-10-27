@@ -535,7 +535,7 @@ def test_mobile_item_sheet_semantics_responsive_links_and_keyboard(tmp_path):
     assert result["escape"]["active"] == "fixtureOpener"
     assert result["escape"]["bodyOverflow"] != "hidden"
     assert result["escape"]["htmlOverflow"] != "hidden"
-    fallback = "https://wiki.project1999.com/Light_Strike"
+    fallback = "https://p99.funcamp.net/Light_Strike"
     for key in ("empty", "whitespace", "nullValue", "evil", "userinfo",
                 "http", "javascript"):
         assert result["urls"][key] == fallback
