@@ -13,9 +13,11 @@ import sys
 from pathlib import Path
 from PySide6.QtCore import QObject, Signal, QPoint, QPointF, Qt
 from PySide6.QtGui import QFont, QFontDatabase
-from PySide6.QtWidgets import QApplication, QMenu, QWidget
+from PySide6.QtWidgets import QApplication, QMenu, QWidget, QGraphicsItem
 from PySide6.QtTest import QTest
 from vantage.helpers import config, to_eq_xy
+sys.path.insert(0, str(Path('tests').resolve()))
+from map_pointer_assertions import pointer_panel_rect, assert_pointer_pixels
 from vantage.parsers.maps import window as module
 
 app = QApplication([])
@@ -60,15 +62,15 @@ def expect(position):
     local = view().viewport().mapFrom(window._surface, logical)
     assert view().viewport().rect().contains(local)
     x, y = to_eq_xy(*view().mapToScene(local).toTuple())
-    overlay = window._pointer_loc_overlay
-    assert overlay.isVisible(), (position, Cursor.pos(), overlay.text())
-    assert overlay.text() == f'LOC · {int(x)}, {int(y)}'
-    assert outer.viewport().rect().contains(overlay.geometry())
-    assert overlay.height() >= overlay.heightForWidth(overlay.width()), 'Full coordinates must fit without clipping'
+    overlay = view()._mouse_location
+    assert overlay.isVisible(), (position, Cursor.pos(), overlay.toPlainText())
+    assert overlay.toPlainText() == f'LOC · {int(x)}, {int(y)}'
+    bounds = assert_pointer_pixels(window, view())
+    assert outer.viewport().rect().contains(bounds), (outer.viewport().rect(), bounds)
     if outer.viewport().width() >= 200:
-        assert overlay.height() < 40, 'Normal windows should use a compact single-line readout'
-    assert not view()._mouse_location.isVisible(), 'No duplicate scene readout'
-    return overlay.text(), QPoint(overlay.pos())
+        assert bounds.height() < 40, 'Normal windows should use a compact single-line readout'
+    assert not hasattr(window, '_pointer_loc_overlay'), 'Exactly one scene readout'
+    return overlay.toPlainText(), pointer_panel_rect(window, view()).topLeft()
 
 mode = sys.argv[1]
 if mode in ('inner_move', 'inner_resize', 'inner_scale'):
@@ -128,12 +130,12 @@ elif mode == 'mouse_only':
     text2, pos2 = expect(second)
     assert text1 != text2 and pos1 != pos2
     assert not view()._data.players, 'Hover must not create/move a player'
-    assert window._pointer_loc_overlay.parent() is window._scale_view.viewport()
-    assert window._pointer_loc_overlay.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-    assert window._pointer_loc_overlay.focusPolicy() == Qt.FocusPolicy.NoFocus
+    assert view()._mouse_location.scene() is view().scene()
+    assert view()._mouse_location.acceptedMouseButtons() == Qt.MouseButton.NoButton
+    assert not view()._mouse_location.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
     assert 33 <= window._cursor_loc_timer.interval() <= 50
 elif mode in ('preview_scale', 'high_dpi'):
-    overlay = window._pointer_loc_overlay
+    overlay = view()._mouse_location
     timer = window._cursor_loc_timer
     for width in (100, 200, 400, 900, 300):
         window.resize(width, 440)
@@ -146,7 +148,7 @@ elif mode in ('preview_scale', 'high_dpi'):
     position = point_at(.4, .6)
     move_cursor(position)
     expect(position)
-    assert window._pointer_loc_overlay is overlay and window._cursor_loc_timer is timer
+    assert view()._mouse_location is not overlay and window._cursor_loc_timer is timer
     assert window._return_to_live_map()
     QTest.qWait(100)
     expect(position)
@@ -180,14 +182,14 @@ elif mode == 'lifecycle':
     window._toggle_show_mouse_location(False)
     QTest.qWait(80)
     assert not window._cursor_loc_timer.isActive()
-    assert not window._pointer_loc_overlay.isVisible()
+    assert not view()._mouse_location.isVisible()
     window._toggle_show_mouse_location(True)
     QTest.qWait(100)
     expect(position)
     window._set_collapsed(True)
     QTest.qWait(80)
     assert not window._cursor_loc_timer.isActive()
-    assert not window._pointer_loc_overlay.isVisible()
+    assert not view()._mouse_location.isVisible()
     window._set_collapsed(False)
     QTest.qWait(100)
     move_cursor(point_at())
@@ -201,26 +203,26 @@ elif mode == 'lifecycle':
     window.showMinimized()
     QTest.qWait(80)
     assert not window._cursor_loc_timer.isActive()
-    assert not window._pointer_loc_overlay.isVisible()
+    assert not view()._mouse_location.isVisible()
     window.showNormal()
     QTest.qWait(100)
     move_cursor(point_at())
     expect(point_at())
     window._clickthrough = True
     window._sample_pointer_loc()
-    assert not window._pointer_loc_overlay.isVisible()
+    assert not view()._mouse_location.isVisible()
 elif mode == 'edges_and_idle':
     for fraction in ((.02, .12), (.98, .12), (.02, .98), (.98, .98)):
         position = point_at(*fraction)
         move_cursor(position)
         expect(position)
     calls = []
-    overlay = window._pointer_loc_overlay
-    original = overlay.setText
+    overlay = view()._mouse_location
+    original = overlay.setPlainText
     def record(text):
         calls.append(text)
         original(text)
-    overlay.setText = record
+    overlay.setPlainText = record
     QTest.qWait(250)
     assert not calls, 'Unchanged cursor must not relayout the readout every tick'
     move_cursor(QPoint(10, 5))
@@ -233,14 +235,14 @@ elif mode == 'keyboard':
     QTest.qWait(80)
     QTest.keyClick(view(), Qt.Key.Key_L)
     QTest.qWait(120)
-    assert window._pointer_loc_overlay.isVisible()
-    assert window._pointer_loc_overlay.text() in view().accessibleDescription()
+    assert view()._mouse_location.isVisible()
+    assert view()._mouse_location.toPlainText() in view().accessibleDescription()
     move_cursor(point_at())
     expect(point_at())
     window._toggle_show_mouse_location(False)
     QTest.keyClick(view(), Qt.Key.Key_L)
     QTest.qWait(100)
-    assert window._pointer_loc_overlay.isVisible()
+    assert view()._mouse_location.isVisible()
     assert not window._cursor_loc_timer.isActive()
     assert config.data['maps']['show_mouse_location'] is False
 elif mode in ('popup', 'proxied_popup'):
@@ -251,7 +253,7 @@ elif mode in ('popup', 'proxied_popup'):
     menu.addAction('Test map menu')
     menu.popup(Cursor.pos())
     QTest.qWait(100)
-    assert not window._pointer_loc_overlay.isVisible()
+    assert not view()._mouse_location.isVisible()
     menu.close()
     QTest.qWait(100)
     expect(position)

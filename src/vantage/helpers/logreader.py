@@ -52,6 +52,13 @@ class LogReader(QFileSystemWatcher):
         self._poll_timer.setInterval(1000)
         self._poll_timer.timeout.connect(self._poll)
         self._poll_timer.start()
+        # Native changes normally arrive immediately. Keep short casts live
+        # when Windows loses a file notification, without rescanning the
+        # entire directory four times a second.
+        self._recovery_timer = QTimer(self)
+        self._recovery_timer.setInterval(250)
+        self._recovery_timer.timeout.connect(self._poll_known_files)
+        self._recovery_timer.start()
         self._bootstrap_timer = QTimer(self)
         self._bootstrap_timer.setSingleShot(True)
         self._bootstrap_timer.timeout.connect(self._bootstrap_context)
@@ -61,6 +68,7 @@ class LogReader(QFileSystemWatcher):
         """Disconnect both native watches and the recovery poll immediately."""
         self._stopped = True
         self._poll_timer.stop()
+        self._recovery_timer.stop()
         self._bootstrap_timer.stop()
         self._drain_timer.stop()
         self._drain_paths.clear()
@@ -112,12 +120,24 @@ class LogReader(QFileSystemWatcher):
         # This also repairs dropped watches after rotation or a missing folder.
         if self._stopped:
             return
-        self._dir_changed(self._eq_directory)
+        discovered = self._dir_changed(self._eq_directory)
         if (os.path.isdir(self._eq_directory) and
                 self._eq_directory not in self._dir_watcher.directories()):
             self._dir_watcher.addPath(self._eq_directory)
+        self._poll_known_files(skip=discovered)
+
+    def _poll_known_files(self, skip=()):
+        if self._stopped:
+            return
         for path in tuple(self._files):
+            if path in skip:
+                continue
             self._file_changed_safe_wrap(path)
+        missing_watches = set(self._files) - set(self._watcher.files())
+        if missing_watches:
+            existing = [path for path in missing_watches if os.path.isfile(path)]
+            if existing:
+                self._watcher.addPaths(existing)
 
     def _drain_backlog(self):
         pending = tuple(self._drain_paths)
@@ -163,7 +183,8 @@ class LogReader(QFileSystemWatcher):
 
     def _dir_changed(self, changed_dir):
         if self._stopped:
-            return
+            return ()
+        updated_files = set()
         new_files = glob(os.path.join(self._eq_directory, 'eqlog_*_*.txt'))
         if new_files != self._files:
             files_to_remove = set(self._files) - set(new_files)
@@ -187,6 +208,11 @@ class LogReader(QFileSystemWatcher):
         missing_watches = set(new_files) - set(self._watcher.files())
         if missing_watches:
             self._watcher.addPaths(list(missing_watches))
+        # A new EQ log can already contain a complete cast when the directory
+        # notification arrives. Watching it does not replay that write.
+        for path in updated_files:
+            self._file_changed_safe_wrap(path)
+        return updated_files
 
     def _file_changed_safe_wrap(self, changed_file):
         if self._stopped:

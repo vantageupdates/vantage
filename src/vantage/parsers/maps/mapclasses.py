@@ -27,23 +27,40 @@ class MouseLocation(QGraphicsTextItem):
         self.setFont(font)
         self.hide()
 
-    def set_value(self, pos, scale, view):
+    def set_value(self, pos, scale, view, *, panel_scale=1.0):
         # pos = QGraphicsView.mapToScale return of mouse event pos()
         # view = QGraphicsView of the scene view
         x, y = to_eq_xy(pos.x(), pos.y())
 
-        self.setPlainText(f'LOC · {int(x)}, {int(y)}')
+        text = f'LOC · {int(x)}, {int(y)}'
+        text_changed = self.toPlainText() != text
+        if text_changed:
+            self.setPlainText(text)
+        # ItemIgnoresTransformations handles map zoom. Compensate only the
+        # enclosing panel's proxy scale so Mini still has readable text.
+        panel_scale = max(.01, float(panel_scale))
+        item_scale = 1.0 / panel_scale
+        if self.scale() != item_scale:
+            self.setScale(item_scale)
+        available = max(1., view.viewport().width() * panel_scale - 10.)
+        if text_changed or getattr(self, '_available_width', None) != available:
+            self._available_width = available
+            self.setTextWidth(-1)
+            if self.boundingRect().width() > available:
+                self.setTextWidth(available)
         # Work in viewport pixels: the label must fit on every edge and must
         # not inherit the previous zoom while calculating its new position.
         cursor = view.mapFromScene(pos)
         bounds = self.boundingRect()
+        width, height = bounds.width() * item_scale, bounds.height() * item_scale
         viewport = view.viewport().rect()
-        left = cursor.x() + 14
-        if left + bounds.width() > viewport.right() - 5:
-            left = cursor.x() - 14 - bounds.width()
-        left = max(5, min(left, viewport.width() - bounds.width() - 5))
-        top = max(5, min(cursor.y() + 6,
-                         viewport.height() - bounds.height() - 5))
+        margin = 5 * item_scale
+        left = cursor.x() + 14 * item_scale
+        if left + width > viewport.right() - margin:
+            left = cursor.x() - 14 * item_scale - width
+        left = max(margin, min(left, viewport.width() - width - margin))
+        top = max(margin, min(cursor.y() + 6 * item_scale,
+                             viewport.height() - height - margin))
         self.setPos(view.mapToScene(int(left), int(top)))
 
     def paint(self, painter, option, widget=None):

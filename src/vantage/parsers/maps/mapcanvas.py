@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QApplication, QGraphicsScene, QGraphicsView,
                              QInputDialog, QMenu, QLineEdit, QFrame, QLabel,
                              QVBoxLayout, QGraphicsPathItem)
 
-from vantage.helpers import config, resource_path, to_range, text_time_to_seconds, to_eq_xy
+from vantage.helpers import config, resource_path, to_range, text_time_to_seconds
 from vantage.parsers.maps.mapclasses import (MapPoint, WayPoint, Player, SpawnPoint, MouseLocation,
                          PointOfInterest, UserWaypoint)
 from vantage.parsers.maps.mapdata import MapData, MAP_RECORDINGS_PATHLIB, ICON_MAP
@@ -140,9 +140,10 @@ class MapCanvas(QGraphicsView):
         self.setScene(self._scene)
         self._scale = config.data['maps']['scale']
         self._mouse_location = MouseLocation()
-        # Maps provides a native, unscaled readout outside both graphics
-        # scenes. Standalone canvases retain their scene-based label.
-        self._native_pointer_loc = False
+        # Keep pointer text in the map scene, as in nParse. The containing
+        # panel may supply its scale and visibility, but never another label.
+        self._pointer_scale_provider = lambda: 1.0
+        self._pointer_visibility_provider = lambda: True
         self._pointer_loc_menu_open = False
         self._last_pointer_position = None
         self._path_recording = False
@@ -680,7 +681,10 @@ class MapCanvas(QGraphicsView):
 
     def enterEvent(self, event):
         QGraphicsView.enterEvent(self, event)
-        self.refresh_mouse_location()
+        # The outer viewport can already have supplied this exact position.
+        # Do not erase it with a stale desktop cursor before the inner move
+        # arrives (or when the proxy drops that move entirely).
+        self.refresh_mouse_location(self._last_pointer_position)
 
     def leaveEvent(self, event):
         self._mouse_location.setVisible(False)
@@ -688,32 +692,28 @@ class MapCanvas(QGraphicsView):
         self.pointer_loc_moved.emit(None)
         QGraphicsView.leaveEvent(self, event)
 
-    def refresh_mouse_location(self, position=None, *, keyboard=False):
+    def refresh_mouse_location(self, position=None, *, keyboard=False,
+                               notify_keyboard=True):
         """Refresh immediately, including after toggles and scene replacement."""
         if position is None:
             position = self.viewport().mapFromGlobal(QCursor.pos())
         inside = self.viewport().rect().contains(position)
         enabled = config.data['maps'].get('show_mouse_location', True)
-        visible = bool(self._data and inside and (enabled or keyboard))
-        if self._native_pointer_loc:
-            self._mouse_location.hide()
-            if visible and keyboard:
-                point = self.mapToScene(position)
-                x, y = to_eq_xy(point.x(), point.y())
-                self.setAccessibleDescription(
-                    self._poi_accessible_description + '\n' +
-                    f'LOC · {int(x)}, {int(y)}')
-                self.pointer_loc_keyboard_requested.emit(QPoint(position))
-            return
+        visible = bool(self._data and inside and (enabled or keyboard) and
+                       not self._pointer_loc_menu_open and
+                       self._pointer_visibility_provider())
         self._mouse_location.setVisible(visible)
         if visible:
             self._last_pointer_position = QPoint(position)
             self._mouse_location.set_value(
-                self.mapToScene(position), self._scale, self)
+                self.mapToScene(position), self._scale, self,
+                panel_scale=self._pointer_scale_provider())
             if keyboard:
                 self.setAccessibleDescription(
                     self._poi_accessible_description + '\n' +
                     self._mouse_location.toPlainText())
+                if notify_keyboard:
+                    self.pointer_loc_keyboard_requested.emit(QPoint(position))
 
     def mouseMoveEvent(self, event):
         if (event.buttons() & Qt.MouseButton.LeftButton
@@ -734,8 +734,7 @@ class MapCanvas(QGraphicsView):
         self.refresh_mouse_location(event.position().toPoint())
         # Forward actual local events even when the enclosing proxy loses its
         # own MouseMove. Do not replace these with inferred desktop positions.
-        if self._native_pointer_loc:
-            self.pointer_loc_moved.emit(event.position().toPoint())
+        self.pointer_loc_moved.emit(event.position().toPoint())
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:

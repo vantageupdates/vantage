@@ -1,6 +1,8 @@
 import os
 
 import pytest
+from PySide6.QtCore import QElapsedTimer
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from vantage.helpers.logreader import LogReader, LogReaderSignals
 
@@ -110,6 +112,79 @@ def test_new_log_found_even_without_directory_event(linked):
     assert not reader._watcher.files()
 
 
+def test_directory_event_delivers_first_new_character_cast_immediately(linked):
+    reader, path, events, _contexts, _chars = linked
+    new = path.parent / 'eqlog_Alt_P1999Blue.txt'
+    # EQ can create and finish its first write before Windows delivers the
+    # directory event. Installing a file watch alone misses that first write.
+    new.write_bytes(entry('You begin casting Yaulp II.') +
+                    entry('You feel an aura of divine strength.'))
+    reader._dir_changed(str(path.parent))
+    assert [event[1] for event in events] == [
+        'You begin casting Yaulp II.', 'You feel an aura of divine strength.']
+    assert all(event[2:] == ('Alt', 'P1999Blue') for event in events)
+    reader._poll()
+    assert len(events) == 2
+
+
+def test_automatic_recovery_delivers_cast_within_half_second(linked):
+    reader, path, events, _contexts, _chars = linked
+    # Exercise the real event loop, without explicitly invoking _poll: a
+    # dropped native watch must still deliver a short cast before its landing.
+    reader._watcher.removePath(str(path))
+    elapsed = QElapsedTimer()
+    elapsed.start()
+    with path.open('ab') as stream:
+        stream.write(entry('You begin casting Yaulp II.'))
+    while not events and elapsed.elapsed() < 650:
+        QTest.qWait(10)
+    assert [event[1] for event in events] == ['You begin casting Yaulp II.']
+    assert elapsed.elapsed() < 650
+
+
+def test_native_append_and_queued_burst_deliver_all_cast_lines(linked):
+    reader, path, events, _contexts, _chars = linked
+    reader._poll_timer.stop()
+    reader._recovery_timer.stop()
+    expected = ['You begin casting Bravery.'] + [
+        f'A rat hits a guard for {index} points of damage.'
+        for index in range(300)] + ['You feel brave.']
+    with path.open('ab') as stream:
+        stream.write(b''.join(entry(text) for text in expected))
+    # Only the native file event and queued backlog drain can satisfy this.
+    elapsed = QElapsedTimer()
+    elapsed.start()
+    while len(events) < len(expected) and elapsed.elapsed() < 650:
+        QTest.qWait(10)
+    assert [event[1] for event in events] == expected
+    assert all(event[0].strftime('%H:%M:%S') == '03:04:02' for event in events)
+
+
+def test_automatic_recovery_retries_a_brief_windows_sharing_violation(
+        linked, monkeypatch):
+    import builtins
+    reader, path, events, _contexts, _chars = linked
+    reader._watcher.removePath(str(path))
+    reader._poll_timer.stop()
+    with path.open('ab') as stream:
+        stream.write(entry('You begin casting Bravery.'))
+    original = builtins.open
+    def locked(*args, **kwargs):
+        if str(args[0]) == str(path):
+            raise PermissionError('temporary sharing violation')
+        return original(*args, **kwargs)
+    with monkeypatch.context() as patch:
+        patch.setattr(builtins, 'open', locked)
+        QTest.qWait(300)
+        assert not events
+    elapsed = QElapsedTimer()
+    elapsed.start()
+    while not events and elapsed.elapsed() < 650:
+        QTest.qWait(10)
+    assert [event[1] for event in events] == ['You begin casting Bravery.']
+    assert str(path) in reader._watcher.files()
+
+
 def test_corrupt_oversized_record_does_not_block_later_zone(linked):
     reader, path, events, _contexts, _chars = linked
     with path.open('ab') as stream:
@@ -127,5 +202,7 @@ def test_stopped_reader_ignores_queued_watch_callbacks(linked):
         stream.write(entry('You have entered Skyshrine.'))
     reader._file_changed_safe_wrap(str(path))
     reader._poll()
+    reader._poll_known_files()
     reader._bootstrap_context()
     assert not events and not contexts
+    assert not reader._recovery_timer.isActive()

@@ -15,7 +15,7 @@ from PySide6.QtCore import (
     Qt, QTimer, QUrl)
 from PySide6.QtGui import QColor, QDesktopServices, QFont
 from PySide6.QtNetwork import (
-    QNetworkAccessManager, QNetworkReply, QNetworkRequest)
+    QNetworkAccessManager, QNetworkRequest)
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QPushButton, QSplitter, QTableView, QTableWidget,
@@ -30,6 +30,8 @@ from vantage.helpers.scaled_dialog import UniformScaleDialog
 from vantage.helpers.spell_catalog import P99_SPELL_CLASSES, p99_spell_entries
 from vantage.helpers.responsive import (
     ensure_tab_tooltips, ensure_table_header_tooltips)
+from vantage.helpers.wiki_access import (
+    cached_reference_status, read_wiki_reply, wiki_access, write_wiki_cache)
 from vantage.parsers.market import (
     combined_market_price, normalize_market_server,
     parse_wiki_auction_html)
@@ -39,7 +41,7 @@ P99_WIKI_API = (
     "https://wiki.project1999.com/api.php?action=parse&page={slug}"
     "&prop=text%7Cwikitext&format=json")
 P99_WIKI_URL = "https://wiki.project1999.com/{slug}"
-USER_AGENT = "Vantage/1.44.144"
+USER_AGENT = "Vantage/1.44.145"
 ACQUISITION_WORDS = (
     "merchant", "sold by", "where to obtain", "where to find", "drop",
     "research", "recipe", "created by", "quest", "reward", "turn in",
@@ -73,6 +75,20 @@ def _skill_detail_cache_path(target):
 def _wiki_url(name):
     return P99_WIKI_URL.format(
         slug=quote(str(name).strip().replace(" ", "_"), safe=""))
+
+
+def _read_wiki_page(reply):
+    # Retain this dialog's existing response-size boundary while sharing the
+    # same challenge detection and retry pause as the other reference views.
+    if hasattr(reply, "bytesAvailable") and reply.bytesAvailable() > 2_000_000:
+        raise ValueError("Wiki response is larger than the safe limit")
+    return read_wiki_reply(reply, page=True, rendered=True)
+
+
+def _wiki_unavailable_message():
+    return wiki_access.status() or (
+        "Wiki details are temporarily unavailable. Open Wiki in your browser "
+        "or try Refresh later.")
 
 
 def _wiki_title_from_url(url):
@@ -404,6 +420,7 @@ class SpellLibraryDialog(UniformScaleDialog):
         self._entries_by_name = {
             entry.name.casefold(): entry for entry in self._entries}
         self._current = None
+        self._displayed_spell_record = None
         self._pending = None
         self._reply = None
         self._skills_reply = None
@@ -766,13 +783,14 @@ class SpellLibraryDialog(UniformScaleDialog):
             self._skills_reply.abort()
         cache_path = _skills_cache_path(class_name)
         cached = None
-        if not force:
-            try:
-                cached = json.loads(cache_path.read_text(encoding="utf-8"))
-                if cached.get("skills"):
-                    self._set_skills_data(cached, cached=True)
-            except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+        try:
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            if isinstance(cached, dict) and cached.get("skills"):
+                self._set_skills_data(cached, cached=True)
+            else:
                 cached = None
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+            cached = None
         self.skill_refresh_button.setEnabled(False)
         if not cached:
             self._skills_data = {}
@@ -781,6 +799,14 @@ class SpellLibraryDialog(UniformScaleDialog):
             self.skill_summary.setText(
                 f"Loading {class_name} skills from Project 1999 Wiki…")
             self.skill_summary.setAccessibleName(self.skill_summary.text())
+        if wiki_access.status():
+            self.skill_summary.setText(
+                f"{class_name} · Wiki refresh paused · " +
+                ("saved skills available" if cached else "no saved skill table"))
+            self.skill_summary.setAccessibleName(self.skill_summary.text())
+            self.skill_summary.setToolTip(_wiki_unavailable_message())
+            self.skill_refresh_button.setEnabled(True)
+            return bool(cached)
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(class_name.replace(" ", "_"), safe=""))))
         request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, USER_AGENT)
@@ -795,12 +821,7 @@ class SpellLibraryDialog(UniformScaleDialog):
         try:
             if generation != self._skills_generation:
                 return
-            if reply.error() != QNetworkReply.NetworkError.NoError:
-                raise ValueError(reply.errorString())
-            payload_bytes = bytes(reply.readAll())
-            if len(payload_bytes) > 2_000_000:
-                raise ValueError("Wiki response is larger than the safe limit")
-            payload = json.loads(payload_bytes.decode("utf-8"))
+            payload = _read_wiki_page(reply)
             parsed = payload.get("parse")
             if not isinstance(parsed, dict):
                 raise ValueError("class page not found on P99 Wiki")
@@ -812,14 +833,15 @@ class SpellLibraryDialog(UniformScaleDialog):
                 raise ValueError("no recognized skill tables on this class page")
             data["fetched_at"] = datetime.datetime.now(
                 datetime.timezone.utc).isoformat()
-            cache_path.write_text(
-                json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            write_wiki_cache(cache_path, data)
             self._set_skills_data(data)
-        except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
-            if not self._skills_data.get("skills"):
-                self.skill_summary.setText(
-                    f"Could not load {class_name} skills · {error}")
-                self.skill_summary.setAccessibleName(self.skill_summary.text())
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+            self.skill_summary.setText(
+                f"{class_name} · Wiki unavailable · " +
+                ("saved skills available" if self._skills_data.get("skills") else
+                 "no saved skill table"))
+            self.skill_summary.setAccessibleName(self.skill_summary.text())
+            self.skill_summary.setToolTip(_wiki_unavailable_message())
         finally:
             if self._skills_reply is reply:
                 self._skills_reply = None
@@ -896,6 +918,11 @@ class SpellLibraryDialog(UniformScaleDialog):
         skill = self._current_skill
         if not skill:
             return False
+        self._skill_detail_generation += 1
+        generation = self._skill_detail_generation
+        if (self._skill_detail_reply is not None and
+                self._skill_detail_reply.isRunning()):
+            self._skill_detail_reply.abort()
         class_name = str(self._skills_data.get("class") or "Class")
         name = str(skill.get("name") or "Skill")
         self.skill_name_label.setText(name)
@@ -911,12 +938,12 @@ class SpellLibraryDialog(UniformScaleDialog):
             f"Trainer: {html.escape(str(skill.get('trained') or ''))}<br>"
             f"Cap through 50: {html.escape(str(skill.get('cap_50') or ''))}<br>"
             f"Cap above 50: {html.escape(str(skill.get('cap_60') or ''))}</p>"
-            "<p>Loading the detailed P99 Wiki guide…</p>")
+            "<p>The Wiki guide supplements these saved class facts.</p>")
         target = str(skill.get("target") or f"Skill {name}")
         cache_path = _skill_detail_cache_path(target)
         try:
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
-            if cached.get("wiki_html"):
+            if isinstance(cached, dict) and cached.get("wiki_html"):
                 self._render_skill_detail(skill, cached, cached=True)
         except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
             pass
@@ -925,11 +952,10 @@ class SpellLibraryDialog(UniformScaleDialog):
         # fresh network request for a surface that is no longer visible.
         if not self.isVisible():
             return True
-        self._skill_detail_generation += 1
-        generation = self._skill_detail_generation
-        if (self._skill_detail_reply is not None and
-                self._skill_detail_reply.isRunning()):
-            self._skill_detail_reply.abort()
+        if wiki_access.status():
+            self.skill_source.setText("WIKI REFRESH PAUSED · CLASS FACTS AVAILABLE")
+            self.skill_source.setToolTip(_wiki_unavailable_message())
+            return True
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(target.replace(" ", "_"), safe=""))))
         request.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, USER_AGENT)
@@ -945,9 +971,7 @@ class SpellLibraryDialog(UniformScaleDialog):
         try:
             if generation != self._skill_detail_generation:
                 return
-            if reply.error() != QNetworkReply.NetworkError.NoError:
-                raise ValueError(reply.errorString())
-            payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
+            payload = _read_wiki_page(reply)
             parsed = payload.get("parse")
             if not isinstance(parsed, dict):
                 raise ValueError("skill guide not found")
@@ -960,13 +984,13 @@ class SpellLibraryDialog(UniformScaleDialog):
                 "fetched_at": datetime.datetime.now(
                     datetime.timezone.utc).isoformat(),
             }
-            cache_path.write_text(
-                json.dumps(record, ensure_ascii=False), encoding="utf-8")
+            write_wiki_cache(cache_path, record)
             self._render_skill_detail(skill, record)
-        except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
             if self._current_skill is skill:
                 self.skill_source.setText(
-                    f"PROJECT 1999 WIKI · CLASS FACTS AVAILABLE · GUIDE OFFLINE · {error}")
+                    "WIKI TEMPORARILY UNAVAILABLE · CLASS FACTS AVAILABLE")
+                self.skill_source.setToolTip(_wiki_unavailable_message())
         finally:
             if self._skill_detail_reply is reply:
                 self._skill_detail_reply = None
@@ -1077,6 +1101,10 @@ class SpellLibraryDialog(UniformScaleDialog):
         entry = self._pending
         if entry is None:
             return
+        self._request_generation += 1
+        if self._reply is not None and self._reply.isRunning():
+            self._reply.abort()
+        self.refresh_button.setEnabled(True)
         self._current = entry
         self._linked_title = ""
         self._linked_url = QUrl()
@@ -1089,6 +1117,8 @@ class SpellLibraryDialog(UniformScaleDialog):
         cached = None
         try:
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            if not isinstance(cached, dict) or not cached.get("wiki_html"):
+                raise ValueError("No saved spell details")
             self._render_record(entry, cached, cached=True)
         except (OSError, ValueError, json.JSONDecodeError):
             cached = None
@@ -1143,21 +1173,30 @@ class SpellLibraryDialog(UniformScaleDialog):
                 f"No current {server} auction price found for this spell scroll")
         return " · ".join(parts)
 
-    def _render_local(self, entry):
+    def _render_local(self, entry, *, pending=True):
+        self._displayed_spell_record = None
         prices = self._price_html(entry)
+        messages = " ".join(value.strip() for value in (
+            entry.cast_message, entry.fade_message) if value.strip())
         self.price_label.setTextFormat(Qt.TextFormat.RichText)
         self.price_label.setText(prices)
         self.body.setHtml(
             f"<h2>{html.escape(entry.name)}</h2>"
             f"<p><b>Classes:</b> {html.escape(entry.levels_text)}</p>"
-            "<p>Loading description, spell details, merchants, drops, quests, "
-            "research recipes, and Wiki price history…</p>")
+            f"<p><b>Mana:</b> {entry.mana} · "
+            f"<b>Cast time:</b> {entry.cast_time_ms / 1000:g}s</p>"
+            f"<p>{html.escape(messages)}</p>" +
+            ("<p>Loading Wiki description, merchants, drops, quests, "
+             "research recipes, and price history…</p>" if pending else
+             "<p>Showing bundled spell information. Wiki descriptions and "
+             "acquisition details are unavailable until access returns.</p>"))
         self.source.setText(
             "CLASS + LEVEL · BUNDLED CLASSIC SPELL DATA · WIKI REQUEST PENDING")
 
     def _render_record(self, entry, record, cached=False):
         if self._current is None or self._current.name != entry.name:
             return
+        self._displayed_spell_record = record
         auction = record.get("auction") or {}
         self.price_label.setTextFormat(Qt.TextFormat.RichText)
         self.price_label.setText(self._price_html(entry, auction))
@@ -1181,6 +1220,23 @@ class SpellLibraryDialog(UniformScaleDialog):
             "PROJECT 1999 WIKI · " +
             ("LOCAL CACHE" if cached else "UPDATED NOW") +
             f" · PIGPARSE {self._market_server().upper()} PRICES SHOWN SEPARATELY")
+        self.source.setToolTip(cached_reference_status(record) if cached else
+                               "Updated from Project 1999 Wiki")
+
+    def _show_spell_unavailable(self, entry):
+        if (self._current is None or self._current.name != entry.name or
+                self._linked_title):
+            return
+        saved = self._displayed_spell_record is not None
+        if not saved:
+            self._render_local(entry, pending=False)
+        self.source.setText(
+            ("WIKI REFRESH PAUSED · " if wiki_access.status() else
+             "WIKI TEMPORARILY UNAVAILABLE · ") +
+            ("SAVED SPELL DETAILS AVAILABLE" if saved else
+             "LOCAL SPELL DATA AVAILABLE"))
+        self.source.setToolTip(_wiki_unavailable_message())
+        self.source.setAccessibleDescription(_wiki_unavailable_message())
 
     def _open_detail_link(self, url):
         """Keep P99 Wiki navigation inside Vantage whenever possible."""
@@ -1218,10 +1274,10 @@ class SpellLibraryDialog(UniformScaleDialog):
                 return
 
     def _fetch_linked_page(self, title, source_url=None):
-        if self._reply is not None and self._reply.isRunning():
-            self._reply.abort()
         self._request_generation += 1
         generation = self._request_generation
+        if self._reply is not None and self._reply.isRunning():
+            self._reply.abort()
         self._linked_title = str(title)
         self._linked_url = QUrl(source_url or _wiki_url(title))
         self.back_button.setEnabled(self._current is not None)
@@ -1237,6 +1293,14 @@ class SpellLibraryDialog(UniformScaleDialog):
             f"<h2>{html.escape(self._linked_title)}</h2>"
             "<p>Loading linked Wiki information inside Vantage…</p>")
         self.source.setText("PROJECT 1999 WIKI · LINKED REFERENCE · LOADING")
+        if wiki_access.status():
+            self.body.setHtml(
+                f"<h2>{html.escape(self._linked_title)}</h2>"
+                f"<p>{html.escape(_wiki_unavailable_message())}</p>"
+                "<p>Use Back to spell for saved spell information.</p>")
+            self.source.setText("WIKI REFRESH PAUSED · LINKED REFERENCE UNAVAILABLE")
+            self.refresh_button.setEnabled(True)
+            return
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(self._linked_title.replace(" ", "_"), safe=""))))
         request.setHeader(
@@ -1253,12 +1317,7 @@ class SpellLibraryDialog(UniformScaleDialog):
         try:
             if generation != self._request_generation:
                 return
-            if reply.error() != QNetworkReply.NetworkError.NoError:
-                raise ValueError(reply.errorString())
-            payload_bytes = bytes(reply.readAll())
-            if len(payload_bytes) > 2_000_000:
-                raise ValueError("Wiki response is larger than the safe limit")
-            payload = json.loads(payload_bytes.decode("utf-8"))
+            payload = _read_wiki_page(reply)
             parsed = payload.get("parse")
             if not isinstance(parsed, dict):
                 raise ValueError("Project 1999 Wiki does not have this page")
@@ -1279,16 +1338,17 @@ class SpellLibraryDialog(UniformScaleDialog):
                 "<p class='source'>Source: Project 1999 Wiki.</p>")
             self.source.setText(
                 "PROJECT 1999 WIKI · LINKED REFERENCE · INTERNAL VIEW")
-        except (UnicodeError, ValueError, json.JSONDecodeError) as error:
+        except (UnicodeError, ValueError, json.JSONDecodeError):
             self.body.setHtml(
                 f"<h2>{html.escape(title)}</h2>"
-                f"<p>Unable to load this linked Wiki page: "
-                f"{html.escape(str(error))}</p>")
+                f"<p>{html.escape(_wiki_unavailable_message())}</p>"
+                "<p>Use Back to spell for saved spell information.</p>")
             self.source.setText("PROJECT 1999 WIKI · LINKED REFERENCE · OFFLINE")
         finally:
             if self._reply is reply:
                 self._reply = None
-            self.refresh_button.setEnabled(True)
+            if generation == self._request_generation:
+                self.refresh_button.setEnabled(True)
             reply.deleteLater()
 
     def _return_to_spell(self):
@@ -1297,10 +1357,14 @@ class SpellLibraryDialog(UniformScaleDialog):
             self._load_pending()
 
     def _fetch(self, entry):
-        if self._reply is not None and self._reply.isRunning():
-            self._reply.abort()
         self._request_generation += 1
         generation = self._request_generation
+        if self._reply is not None and self._reply.isRunning():
+            self._reply.abort()
+        if wiki_access.status():
+            self._show_spell_unavailable(entry)
+            self.refresh_button.setEnabled(True)
+            return
         request = QNetworkRequest(QUrl(P99_WIKI_API.format(
             slug=quote(entry.name.replace(" ", "_"), safe=""))))
         request.setHeader(
@@ -1317,12 +1381,7 @@ class SpellLibraryDialog(UniformScaleDialog):
         try:
             if generation != self._request_generation:
                 return
-            if reply.error() != QNetworkReply.NetworkError.NoError:
-                raise ValueError(reply.errorString())
-            payload_bytes = bytes(reply.readAll())
-            if len(payload_bytes) > 2_000_000:
-                raise ValueError("Wiki response is larger than the safe limit")
-            payload = json.loads(payload_bytes.decode("utf-8"))
+            payload = _read_wiki_page(reply)
             parsed = payload.get("parse")
             if not isinstance(parsed, dict):
                 raise ValueError("Project 1999 Wiki does not have this spell page")
@@ -1341,18 +1400,16 @@ class SpellLibraryDialog(UniformScaleDialog):
                 "wiki_html": sanitize_wiki_html(rendered),
                 "auction": parse_wiki_auction_html(rendered, server),
             }
-            _cache_path(entry.name, server).write_text(
-                json.dumps(record, ensure_ascii=False), encoding="utf-8")
+            write_wiki_cache(_cache_path(entry.name, server), record)
             if server == self._market_server():
                 self._render_record(entry, record)
-        except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
-            if self._current is not None and self._current.name == entry.name:
-                self.source.setText(
-                    f"PROJECT 1999 WIKI · OFFLINE · {error} · LOCAL CLASS INDEX ACTIVE")
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+            self._show_spell_unavailable(entry)
         finally:
             if self._reply is reply:
                 self._reply = None
-            self.refresh_button.setEnabled(True)
+            if generation == self._request_generation:
+                self.refresh_button.setEnabled(True)
             reply.deleteLater()
 
     def _refresh_current(self):

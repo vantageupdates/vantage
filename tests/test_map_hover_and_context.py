@@ -152,8 +152,8 @@ for view in (maps._map, maps._preview_map):
 maps._toggle_show_mouse_location(True)
 for view in (maps._map, maps._preview_map):
     view.refresh_mouse_location(QPoint(100, 100))
-    assert view._native_pointer_loc
-    assert not view._mouse_location.isVisible(), 'Attached maps use one native pointer readout'
+    assert view._mouse_location.isVisible() is view.isVisibleTo(maps._surface)
+    assert view._mouse_location.scene() is view.scene()
 assert maps._pointer_loc_button.isChecked()
 assert maps._cursor_loc_timer.isActive()
 line('First', 'The Nektulos Forest', 'Your Location is 60, 70, 4')

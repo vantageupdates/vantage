@@ -16,6 +16,8 @@ from PySide6.QtGui import QMouseEvent, QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication
 from PySide6.QtTest import QTest
 from vantage.helpers import config, to_eq_xy
+sys.path.insert(0, str(Path('tests').resolve()))
+from map_pointer_assertions import pointer_panel_rect, assert_pointer_pixels
 from vantage.parsers.maps.window import Maps, MapsSignals
 from vantage.parsers.maps import window as maps_module
 
@@ -67,14 +69,15 @@ def check_hover(fraction=.8):
     local = view.viewport().mapFrom(window._surface, logical.toPoint())
     assert view.viewport().rect().contains(local), (
         window.size(), view.viewport().size(), local)
-    window._pointer_loc_overlay.hide()
+    canvas()._mouse_location.hide()
     move(position)
-    label = window._pointer_loc_overlay
-    assert label.isVisible(), (window.size(), local, label.text())
+    label = canvas()._mouse_location
+    assert label.isVisible(), (window.size(), local, label.toPlainText())
     x, y = to_eq_xy(*view.mapToScene(local).toTuple())
-    assert label.text() == f'LOC · {int(x)}, {int(y)}'
-    assert outer.viewport().rect().contains(label.geometry())
-    assert not view._mouse_location.isVisible()
+    assert label.toPlainText() == f'LOC · {int(x)}, {int(y)}'
+    bounds = assert_pointer_pixels(window, view)
+    assert outer.viewport().rect().contains(bounds), bounds
+    assert label.scene() is view.scene()
 
 settle()
 mode = sys.argv[1]
@@ -109,7 +112,7 @@ elif mode == 'toggle':
     point = window._scale_view.mapFromScene(window._scale_proxy.mapToScene(QPointF(point)))
     QTest.mouseClick(window._scale_view.viewport(), Qt.MouseButton.LeftButton, pos=point)
     move(QPoint(250, 250))
-    assert not window._pointer_loc_overlay.isVisible()
+    assert not canvas()._mouse_location.isVisible()
     assert config.data['maps']['show_mouse_location'] is False
     QTest.mouseClick(window._scale_view.viewport(), Qt.MouseButton.LeftButton, pos=point)
     check_hover()
@@ -128,12 +131,12 @@ elif mode == 'delivery':
     check_hover(.7)
     assert window._cursor_loc_timer.isActive()
     move(QPoint(20, 10))
-    assert not window._pointer_loc_overlay.isVisible()
+    assert not canvas()._mouse_location.isVisible()
     check_hover()
     Cursor.point = QPoint(-10000, -10000)
     QApplication.sendEvent(window._scale_view.viewport(), QEvent(QEvent.Type.Leave))
     settle()
-    assert not window._pointer_loc_overlay.isVisible()
+    assert not canvas()._mouse_location.isVisible()
 elif mode == 'menu':
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QMenu
@@ -153,7 +156,7 @@ elif mode == 'menu':
                       if a.text() == 'Show pointer coordinates (/loc)')
         assert action.isCheckable()
         QTest.qWait(100)
-        assert not window._pointer_loc_overlay.isVisible(), 'Native LOC must not cover the proxied map menu'
+        assert not canvas()._mouse_location.isVisible(), 'Native LOC must not cover the proxied map menu'
         chosen.append(action.isChecked())
         menu.setActiveAction(action)
         QTest.keyClick(menu, Qt.Key.Key_Return)
@@ -172,7 +175,7 @@ elif mode == 'menu':
                 preview, enabled, config.data['maps']['show_mouse_location'], chosen)
             assert window._pointer_loc_button.isChecked() is enabled, ('button', preview, enabled)
             move(QPoint(250, 250))
-            assert window._pointer_loc_overlay.isVisible() is enabled, ('visible', preview, enabled)
+            assert canvas()._mouse_location.isVisible() is enabled, ('visible', preview, enabled)
     assert chosen == [True, False, True, False]
 window.close()
 app.quit()

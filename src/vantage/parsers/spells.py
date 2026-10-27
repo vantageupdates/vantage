@@ -2906,7 +2906,7 @@ class Spells(ParserWindow):
             'https://pigparse.azurewebsites.net/api/boat/'
             f'serverActivity/{server}'))
         request.setHeader(
-            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.144')
+            QNetworkRequest.KnownHeaders.UserAgentHeader, 'Vantage/1.44.145')
         request.setTransferTimeout(10_000)
         reply = self._boat_network.get(request)
         reply.downloadProgress.connect(
@@ -5165,8 +5165,15 @@ class SpellTrigger(QObject):
                     timestamp - self.timestamp).total_seconds() * 1000
             except (AttributeError, TypeError):
                 return False
+            # EQ log timestamps have only whole-second precision. A 500 ms
+            # Yaulp can begin and land in the same stamped second, and a
+            # 2750 ms Bravery can span just two stamped seconds. Preserve a
+            # one-second early allowance even with a tighter user buffer;
+            # otherwise genuine owned casts on other targets are discarded.
+            # The existing late grace already covers rounding at the other
+            # boundary and must stay aligned with the cleanup timer above.
             buffer_ms = config.data['spells']['casting_window_buffer']
-            earliest = max(0, int(self.spell.cast_time) - buffer_ms)
+            earliest = max(0, int(self.spell.cast_time) - max(1000, buffer_ms))
             latest = (
                 int(self.spell.cast_time) + buffer_ms +
                 SPELL_LANDING_GRACE_MS)
