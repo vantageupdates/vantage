@@ -60,7 +60,7 @@ def test_basic_failure_v4_migration_preserves_customized_same_name(
             row for row in rows
             if row[0].casefold() == "target out of range"]
         assert matches == [customized]
-        assert config.data["spells"]["basic_alerts_version"] == 5
+        assert config.data["spells"]["basic_alerts_version"] == config.BASIC_ALERTS_VERSION
         assert all(
             sum(row[0].casefold() == name.casefold() for row in rows) == 1
             for name in FAILURE_LINES)

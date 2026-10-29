@@ -300,7 +300,7 @@ def _normalize_quest_checklist_steps(value):
         total_bytes += size
     return normalized
 
-BASIC_ALERTS_VERSION = 5
+BASIC_ALERTS_VERSION = 6
 BASIC_ALERTS = (
     ["Invisibility Fading", "You feel yourself starting to appear*", "00:00:00", "",
      "builtin:danger-double", "INVISIBILITY FADING", True, False, "Vantage · Basics"],
@@ -327,6 +327,24 @@ BASIC_ALERTS = (
      "builtin:danger-double", "MOB ENRAGED", True, False, "Vantage · Basics"],
     ["Critical hit", "{c} scores a critical hit!", "00:00:00", "",
      "builtin:warden-bell", "CRITICAL HIT", False, False, "Vantage · Basics"],
+    ["Group invitation received",
+     r"^(?P<player>[A-Za-z][A-Za-z`'-]*) invites you to join a group\.$",
+     "00:00:00", "", "builtin:warden-bell", "{player} invited you to a group",
+     True, True, "Vantage · Basics", "Vantage · Basics", "alerts", "restart",
+     "", "", "EverQuest group invitation received; client string 12280.",
+     "none", 0, 0, "", "", "", "", 0, "", [],
+     "{player} invited you to a group", False, "", False, "", False, "", "", False,
+     "sound", "", 85, 0, "off", "", 100, 0, "off", "", 100, 0,
+     "", 1.0, False, "full"],
+    ["Group invitation sent",
+     r"^You invite (?P<player>[A-Za-z][A-Za-z`'-]*) to join your group\.$",
+     "00:00:00", "", "builtin:warden-bell", "Group invitation sent to {player}",
+     True, True, "Vantage · Basics", "Vantage · Basics", "alerts", "restart",
+     "", "", "EverQuest group invitation sent; client string 12273.",
+     "none", 0, 0, "", "", "", "", 0, "", [],
+     "Group invitation sent to {player}", False, "", False, "", False, "", "", False,
+     "sound", "", 85, 0, "off", "", 100, 0, "off", "", 100, 0,
+     "", 1.0, False, "full"],
     # Positional fields after source mirror CustomTrigger.to_list(). Keeping
     # them at the tail preserves old trigger rows while giving this predefined
     # P99 alert the common Sound/WAV, TTS, Off, voice, volume, pitch, and Test UI.

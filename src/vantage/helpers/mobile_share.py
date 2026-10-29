@@ -129,7 +129,7 @@ def parse_mobile_spell_html(rendered_html):
 
 def _read_mobile_wiki_page(name):
     """Fetch one article with bounded reads and shared source validation."""
-    request = Request(page_url(name), headers={"User-Agent": "Vantage/1.44.150"})
+    request = Request(page_url(name), headers={"User-Agent": "Vantage/1.44.151"})
     with urlopen(request, timeout=8) as response:
         final_url = response.geturl() if hasattr(response, "geturl") else request.full_url
         final = urlsplit(final_url)
@@ -743,7 +743,7 @@ class _ShareHTTPServer(ThreadingHTTPServer):
 
 
 class _ShareHandler(BaseHTTPRequestHandler):
-    server_version = "VantageMobile/1.44.150"
+    server_version = "VantageMobile/1.44.151"
 
     def log_message(self, *_):
         # Do not write access paths or the user's network details to disk.
